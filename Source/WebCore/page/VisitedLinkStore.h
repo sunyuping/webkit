@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef VisitedLinkStore_h
-#define VisitedLinkStore_h
+#pragma once
 
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
@@ -32,9 +31,8 @@
 
 namespace WebCore {
 
-typedef uint64_t LinkHash;
+typedef uint64_t SharedStringHash;
 class Page;
-class URL;
 
 class VisitedLinkStore : public RefCounted<VisitedLinkStore> {
 public:
@@ -42,19 +40,17 @@ public:
     WEBCORE_EXPORT virtual ~VisitedLinkStore();
 
     // FIXME: These two members should only take the link hash.
-    virtual bool isLinkVisited(Page&, LinkHash, const URL& baseURL, const AtomicString& attributeURL) = 0;
-    virtual void addVisitedLink(Page&, LinkHash) = 0;
+    virtual bool isLinkVisited(Page&, SharedStringHash, const URL& baseURL, const AtomicString& attributeURL) = 0;
+    virtual void addVisitedLink(Page&, SharedStringHash) = 0;
 
     void addPage(Page&);
     void removePage(Page&);
 
     WEBCORE_EXPORT void invalidateStylesForAllLinks();
-    WEBCORE_EXPORT void invalidateStylesForLink(LinkHash);
+    WEBCORE_EXPORT void invalidateStylesForLink(SharedStringHash);
 
 private:
     HashSet<Page*> m_pages;
 };
 
 } // namespace WebCore
-
-#endif // VisitedLinkStore_h

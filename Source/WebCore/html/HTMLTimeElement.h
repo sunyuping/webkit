@@ -23,14 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLTimeElement_h
-#define HTMLTimeElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLTimeElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLTimeElement);
 public:
     static Ref<HTMLTimeElement> create(const QualifiedName&, Document&);
 
@@ -39,5 +39,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // HTMLTimeElement_h

@@ -23,18 +23,17 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ClassChangeInvalidation_h
-#define ClassChangeInvalidation_h
+#pragma once
 
-#include "Document.h"
 #include "Element.h"
-#include "StyleResolver.h"
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 class DocumentRuleSets;
+class RuleSet;
 class SpaceSplitString;
+struct InvalidationRuleSet;
 
 namespace Style {
 
@@ -44,52 +43,32 @@ public:
     ~ClassChangeInvalidation();
 
 private:
-    using ClassChangeVector = Vector<AtomicStringImpl*, 4>;
-
-    static bool needsInvalidation(const Element&);
-    void computeClassChange(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses);
-    void invalidateStyle(const ClassChangeVector&);
-
-    static ClassChangeVector collectClasses(const SpaceSplitString&);
+    void computeInvalidation(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses);
+    void invalidateStyleWithRuleSets();
 
     const bool m_isEnabled;
     Element& m_element;
 
-    ClassChangeVector m_addedClasses;
-    ClassChangeVector m_removedClasses;
+    Vector<const InvalidationRuleSet*, 4> m_invalidationRuleSets;
 };
 
-inline bool ClassChangeInvalidation::needsInvalidation(const Element& element)
-{
-    if (!element.inRenderedDocument())
-        return false;
-    if (element.styleChangeType() >= FullStyleChange)
-        return false;
-    if (!element.document().styleResolverIfExists())
-        return false;
-    return true;
-}
-
 inline ClassChangeInvalidation::ClassChangeInvalidation(Element& element, const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
-    : m_isEnabled(needsInvalidation(element))
+    : m_isEnabled(element.needsStyleInvalidation())
     , m_element(element)
 
 {
     if (!m_isEnabled)
         return;
-    computeClassChange(oldClasses, newClasses);
-    invalidateStyle(m_removedClasses);
+    computeInvalidation(oldClasses, newClasses);
+    invalidateStyleWithRuleSets();
 }
 
 inline ClassChangeInvalidation::~ClassChangeInvalidation()
 {
     if (!m_isEnabled)
         return;
-    invalidateStyle(m_addedClasses);
-}
-    
-}
+    invalidateStyleWithRuleSets();
 }
 
-#endif
-
+}
+}

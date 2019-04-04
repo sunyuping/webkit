@@ -35,7 +35,7 @@
 #include "AudioBus.h"
 #include <wtf/MathExtras.h>
 
-#ifdef __SSE2__
+#if CPU(X86_SSE2)
 #include <emmintrin.h>
 #endif
 
@@ -132,7 +132,7 @@ void SincResampler::consumeSource(float* buffer, unsigned numberOfSourceFrames)
         return;
     
     // Wrap the provided buffer by an AudioBus for use by the source provider.
-    RefPtr<AudioBus> bus = AudioBus::create(1, numberOfSourceFrames, false);
+    auto bus = AudioBus::create(1, numberOfSourceFrames, false);
 
     // FIXME: Find a way to make the following const-correct:
     bus->setChannelMemory(0, buffer, numberOfSourceFrames);
@@ -153,7 +153,7 @@ public:
     }
     
     // Consumes samples from the in-memory buffer.
-    virtual void provideInput(AudioBus* bus, size_t framesToProcess)
+    void provideInput(AudioBus* bus, size_t framesToProcess) override
     {
         ASSERT(m_source && bus);
         if (!m_source || !bus)
@@ -260,7 +260,7 @@ void SincResampler::process(AudioSourceProvider* sourceProvider, float* destinat
             {
                 float input;
 
-#ifdef __SSE2__
+#if CPU(X86_SSE2)
                 // If the sourceP address is not 16-byte aligned, the first several frames (at most three) should be processed seperately.
                 while ((reinterpret_cast<uintptr_t>(inputP) & 0x0F) && n) {
                     CONVOLVE_ONE_SAMPLE

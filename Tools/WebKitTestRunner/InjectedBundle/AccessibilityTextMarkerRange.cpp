@@ -29,18 +29,16 @@
 #include "AccessibilityUIElement.h"
 #include "JSAccessibilityTextMarkerRange.h"
 
-#include <JavaScriptCore/JSRetainPtr.h>
-
 namespace WTR {
     
-PassRefPtr<AccessibilityTextMarkerRange> AccessibilityTextMarkerRange::create(PlatformTextMarkerRange markerRange)
+Ref<AccessibilityTextMarkerRange> AccessibilityTextMarkerRange::create(PlatformTextMarkerRange markerRange)
 {
-    return adoptRef(new AccessibilityTextMarkerRange(markerRange));
+    return adoptRef(*new AccessibilityTextMarkerRange(markerRange));
 }
 
-PassRefPtr<AccessibilityTextMarkerRange> AccessibilityTextMarkerRange::create(const AccessibilityTextMarkerRange& markerRange)
+Ref<AccessibilityTextMarkerRange> AccessibilityTextMarkerRange::create(const AccessibilityTextMarkerRange& markerRange)
 {
-    return adoptRef(new AccessibilityTextMarkerRange(markerRange));
+    return adoptRef(*new AccessibilityTextMarkerRange(markerRange));
 }
 
 AccessibilityTextMarkerRange::AccessibilityTextMarkerRange(PlatformTextMarkerRange markerRange)

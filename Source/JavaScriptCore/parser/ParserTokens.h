@@ -23,10 +23,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ParserTokens_h
-#define ParserTokens_h
+#pragma once
 
-#include "ParserModes.h"
 #include <limits.h>
 #include <stdint.h>
 
@@ -35,13 +33,24 @@ namespace JSC {
 class Identifier;
 
 enum {
-    UnaryOpTokenFlag = 64,
-    KeywordTokenFlag = 128,
-    BinaryOpTokenPrecedenceShift = 8,
+    // Token Bitfield: 0b000000000RTE000IIIIPPPPKUXXXXXXX
+    // R = right-associative bit
+    // T = unterminated error flag
+    // E = error flag
+    // I = binary operator allows 'in'
+    // P = binary operator precedence
+    // K = keyword flag
+    // U = unary operator flag
+    //
+    // We must keep the upper 8bit (1byte) region empty. JSTokenType must be 24bits.
+    UnaryOpTokenFlag = 128,
+    KeywordTokenFlag = 256,
+    BinaryOpTokenPrecedenceShift = 9,
     BinaryOpTokenAllowsInPrecedenceAdditionalShift = 4,
     BinaryOpTokenPrecedenceMask = 15 << BinaryOpTokenPrecedenceShift,
     ErrorTokenFlag = 1 << (BinaryOpTokenAllowsInPrecedenceAdditionalShift + BinaryOpTokenPrecedenceShift + 7),
-    UnterminatedErrorTokenFlag = ErrorTokenFlag << 1
+    UnterminatedErrorTokenFlag = ErrorTokenFlag << 1,
+    RightAssociativeBinaryOpTokenFlag = UnterminatedErrorTokenFlag << 1
 };
 
 #define BINARY_OP_PRECEDENCE(prec) (((prec) << BinaryOpTokenPrecedenceShift) | ((prec) << (BinaryOpTokenPrecedenceShift + BinaryOpTokenAllowsInPrecedenceAdditionalShift)))
@@ -57,7 +66,6 @@ enum JSTokenType {
     FOR,
     NEW,
     VAR,
-    LET,
     CONSTTOKEN,
     CONTINUE,
     FUNCTION,
@@ -78,10 +86,21 @@ enum JSTokenType {
     ELSE,
     IMPORT,
     EXPORT,
-    YIELD,
     CLASSTOKEN,
     EXTENDS,
     SUPER,
+
+    // Contextual keywords
+    
+    LET,
+    YIELD,
+    AWAIT,
+
+    FirstContextualKeywordToken = LET,
+    LastContextualKeywordToken = AWAIT,
+    FirstSafeContextualKeywordToken = AWAIT,
+    LastSafeContextualKeywordToken = LastContextualKeywordToken,
+
     OPENBRACE = 0,
     CLOSEBRACE,
     OPENPAREN,
@@ -90,11 +109,14 @@ enum JSTokenType {
     CLOSEBRACKET,
     COMMA,
     QUESTION,
+    BACKQUOTE,
     INTEGER,
     DOUBLE,
+    BIGINT,
     IDENT,
     STRING,
     TEMPLATE,
+    REGEXP,
     SEMICOLON,
     COLON,
     DOT,
@@ -109,6 +131,7 @@ enum JSTokenType {
     URSHIFTEQUAL,
     ANDEQUAL,
     MODEQUAL,
+    POWEQUAL,
     XOREQUAL,
     OREQUAL,
     DOTDOTDOT,
@@ -118,10 +141,10 @@ enum JSTokenType {
     // Begin tagged tokens
     PLUSPLUS = 0 | UnaryOpTokenFlag,
     MINUSMINUS = 1 | UnaryOpTokenFlag,
-    EXCLAMATION = 2 | UnaryOpTokenFlag,
-    TILDE = 3 | UnaryOpTokenFlag,
-    AUTOPLUSPLUS = 4 | UnaryOpTokenFlag,
-    AUTOMINUSMINUS = 5 | UnaryOpTokenFlag,
+    AUTOPLUSPLUS = 2 | UnaryOpTokenFlag,
+    AUTOMINUSMINUS = 3 | UnaryOpTokenFlag,
+    EXCLAMATION = 4 | UnaryOpTokenFlag,
+    TILDE = 5 | UnaryOpTokenFlag,
     TYPEOF = 6 | UnaryOpTokenFlag | KeywordTokenFlag,
     VOIDTOKEN = 7 | UnaryOpTokenFlag | KeywordTokenFlag,
     DELETETOKEN = 8 | UnaryOpTokenFlag | KeywordTokenFlag,
@@ -148,6 +171,7 @@ enum JSTokenType {
     TIMES = 20 | BINARY_OP_PRECEDENCE(10),
     DIVIDE = 21 | BINARY_OP_PRECEDENCE(10),
     MOD = 22 | BINARY_OP_PRECEDENCE(10),
+    POW = 23 | BINARY_OP_PRECEDENCE(11) | RightAssociativeBinaryOpTokenFlag, // Make sure that POW has the highest operator precedence.
     ERRORTOK = 0 | ErrorTokenFlag,
     UNTERMINATED_IDENTIFIER_ESCAPE_ERRORTOK = 0 | ErrorTokenFlag | UnterminatedErrorTokenFlag,
     INVALID_IDENTIFIER_ESCAPE_ERRORTOK = 1 | ErrorTokenFlag,
@@ -163,13 +187,15 @@ enum JSTokenType {
     UNTERMINATED_HEX_NUMBER_ERRORTOK = 11 | ErrorTokenFlag | UnterminatedErrorTokenFlag,
     UNTERMINATED_BINARY_NUMBER_ERRORTOK = 12 | ErrorTokenFlag | UnterminatedErrorTokenFlag,
     UNTERMINATED_TEMPLATE_LITERAL_ERRORTOK = 13 | ErrorTokenFlag | UnterminatedErrorTokenFlag,
-    INVALID_TEMPLATE_LITERAL_ERRORTOK = 14 | ErrorTokenFlag,
+    UNTERMINATED_REGEXP_LITERAL_ERRORTOK = 14 | ErrorTokenFlag | UnterminatedErrorTokenFlag,
+    INVALID_TEMPLATE_LITERAL_ERRORTOK = 15 | ErrorTokenFlag,
+    UNEXPECTED_ESCAPE_ERRORTOK = 16 | ErrorTokenFlag,
 };
+static_assert(static_cast<unsigned>(POW) <= 0x00ffffffU, "JSTokenType must be 24bits.");
 
 struct JSTextPosition {
-    JSTextPosition() : line(0), offset(0), lineStartOffset(0) { }
+    JSTextPosition() = default;
     JSTextPosition(int _line, int _offset, int _lineStartOffset) : line(_line), offset(_offset), lineStartOffset(_lineStartOffset) { }
-    JSTextPosition(const JSTextPosition& other) : line(other.line), offset(other.offset), lineStartOffset(other.lineStartOffset) { }
 
     JSTextPosition operator+(int adjustment) const { return JSTextPosition(line, offset + adjustment, lineStartOffset); }
     JSTextPosition operator+(unsigned adjustment) const { return *this + static_cast<int>(adjustment); }
@@ -178,50 +204,73 @@ struct JSTextPosition {
 
     operator int() const { return offset; }
 
-    int line;
-    int offset;
-    int lineStartOffset;
+    bool operator==(const JSTextPosition& other) const
+    {
+        return line == other.line
+            && offset == other.offset
+            && lineStartOffset == other.lineStartOffset;
+    }
+    bool operator!=(const JSTextPosition& other) const
+    {
+        return !(*this == other);
+    }
+
+    int line { 0 };
+    int offset { 0 };
+    int lineStartOffset { 0 };
 };
 
 union JSTokenData {
+    struct {
+        const Identifier* cooked;
+        const Identifier* raw;
+        bool isTail;
+    };
     struct {
         uint32_t line;
         uint32_t offset;
         uint32_t lineStartOffset;
     };
     double doubleValue;
-    const Identifier* ident;
     struct {
-        const Identifier* cooked;
-        const Identifier* raw;
-        bool isTail;
+        const Identifier* ident;
+        bool escaped;
+    };
+    struct {
+        const Identifier* bigIntString;
+        uint8_t radix;
+    };
+    struct {
+        const Identifier* pattern;
+        const Identifier* flags;
     };
 };
 
 struct JSTokenLocation {
-    JSTokenLocation() : line(0), lineStartOffset(0), startOffset(0) { }
-    JSTokenLocation(const JSTokenLocation& location)
-    {
-        line = location.line;
-        lineStartOffset = location.lineStartOffset;
-        startOffset = location.startOffset;
-        endOffset = location.endOffset;
-    }
+    JSTokenLocation() = default;
 
-    int line;
-    unsigned lineStartOffset;
-    unsigned startOffset;
-    unsigned endOffset;
+    int line { 0 };
+    unsigned lineStartOffset { 0 };
+    unsigned startOffset { 0 };
+    unsigned endOffset { 0 };
 };
 
 struct JSToken {
-    JSTokenType m_type;
-    JSTokenData m_data;
+    JSTokenType m_type { ERRORTOK };
+    JSTokenData m_data { { nullptr, nullptr, false } };
     JSTokenLocation m_location;
     JSTextPosition m_startPosition;
     JSTextPosition m_endPosition;
 };
 
-} // namespace JSC
+ALWAYS_INLINE bool isUpdateOp(JSTokenType token)
+{
+    return token >= PLUSPLUS && token <= AUTOMINUSMINUS;
+}
 
-#endif // ParserTokens_h
+ALWAYS_INLINE bool isUnaryOp(JSTokenType token)
+{
+    return token & UnaryOpTokenFlag;
+}
+
+} // namespace JSC

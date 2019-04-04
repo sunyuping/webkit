@@ -27,14 +27,14 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLUnknownElement_h
-#define HTMLUnknownElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLUnknownElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLUnknownElement);
 public:
     static Ref<HTMLUnknownElement> create(const QualifiedName& tagName, Document& document)
     {
@@ -47,15 +47,7 @@ private:
     {
     }
 
-#if ENABLE(METER_ELEMENT)
-    virtual bool canHaveUserAgentShadowRoot() const override final { return false; }
-#else
-    virtual bool canHaveUserAgentShadowRoot() const override final { return localName() == "meter"; }
-#endif
-
-    virtual bool isHTMLUnknownElement() const override { return true; }
+    bool isHTMLUnknownElement() const final { return true; }
 };
 
-} // namespace
-
-#endif
+} // namespace WebCore

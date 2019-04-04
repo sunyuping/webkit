@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2019 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Kelvin W Sherlock (ksherlock@gmail.com)
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,9 +29,7 @@
 #include "JSObjectRefPrivate.h"
 
 #include "APICast.h"
-#include "ButterflyInlines.h"
-#include "CodeBlock.h"
-#include "CopiedSpaceInlines.h"
+#include "APIUtils.h"
 #include "DateConstructor.h"
 #include "ErrorConstructor.h"
 #include "Exception.h"
@@ -40,6 +38,7 @@
 #include "InitializeThreading.h"
 #include "JSAPIWrapperObject.h"
 #include "JSArray.h"
+#include "JSCInlines.h"
 #include "JSCallbackConstructor.h"
 #include "JSCallbackFunction.h"
 #include "JSCallbackObject.h"
@@ -47,13 +46,15 @@
 #include "JSFunction.h"
 #include "JSGlobalObject.h"
 #include "JSObject.h"
+#include "JSPromise.h"
+#include "JSPromiseDeferred.h"
 #include "JSRetainPtr.h"
 #include "JSString.h"
 #include "JSValueRef.h"
 #include "ObjectConstructor.h"
 #include "ObjectPrototype.h"
-#include "JSCInlines.h"
 #include "PropertyNameArray.h"
+#include "ProxyObject.h"
 #include "RegExpConstructor.h"
 
 #if ENABLE(REMOTE_INSPECTOR)
@@ -62,34 +63,14 @@
 
 using namespace JSC;
 
-enum class ExceptionStatus {
-    DidThrow,
-    DidNotThrow
-};
-
-static ExceptionStatus handleExceptionIfNeeded(ExecState* exec, JSValueRef* returnedExceptionRef)
-{
-    if (exec->hadException()) {
-        Exception* exception = exec->exception();
-        if (returnedExceptionRef)
-            *returnedExceptionRef = toRef(exec, exception->value());
-        exec->clearException();
-#if ENABLE(REMOTE_INSPECTOR)
-        exec->vmEntryGlobalObject()->inspectorController().reportAPIException(exec, exception);
-#endif
-        return ExceptionStatus::DidThrow;
-    }
-    return ExceptionStatus::DidNotThrow;
-}
-
 JSClassRef JSClassCreate(const JSClassDefinition* definition)
 {
     initializeThreading();
-    RefPtr<OpaqueJSClass> jsClass = (definition->attributes & kJSClassAttributeNoAutomaticPrototype)
+    auto jsClass = (definition->attributes & kJSClassAttributeNoAutomaticPrototype)
         ? OpaqueJSClass::createNoAutomaticPrototype(definition)
         : OpaqueJSClass::create(definition);
     
-    return jsClass.release().leakRef();
+    return &jsClass.leakRef();
 }
 
 JSClassRef JSClassRetain(JSClassRef jsClass)
@@ -110,14 +91,15 @@ JSObjectRef JSObjectMake(JSContextRef ctx, JSClassRef jsClass, void* data)
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
 
     if (!jsClass)
         return toRef(constructEmptyObject(exec));
 
     JSCallbackObject<JSDestructibleObject>* object = JSCallbackObject<JSDestructibleObject>::create(exec, exec->lexicalGlobalObject(), exec->lexicalGlobalObject()->callbackObjectStructure(), jsClass, data);
     if (JSObject* prototype = jsClass->prototype(exec))
-        object->setPrototype(exec->vm(), prototype);
+        object->setPrototypeDirect(vm, prototype);
 
     return toRef(object);
 }
@@ -129,8 +111,9 @@ JSObjectRef JSObjectMakeFunctionWithCallback(JSContextRef ctx, JSStringRef name,
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
-    return toRef(JSCallbackFunction::create(exec->vm(), exec->lexicalGlobalObject(), callAsFunction, name ? name->string() : ASCIILiteral("anonymous")));
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    return toRef(JSCallbackFunction::create(vm, exec->lexicalGlobalObject(), callAsFunction, name ? name->string() : "anonymous"_s));
 }
 
 JSObjectRef JSObjectMakeConstructor(JSContextRef ctx, JSClassRef jsClass, JSObjectCallAsConstructorCallback callAsConstructor)
@@ -140,14 +123,15 @@ JSObjectRef JSObjectMakeConstructor(JSContextRef ctx, JSClassRef jsClass, JSObje
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
 
     JSValue jsPrototype = jsClass ? jsClass->prototype(exec) : 0;
     if (!jsPrototype)
         jsPrototype = exec->lexicalGlobalObject()->objectPrototype();
 
     JSCallbackConstructor* constructor = JSCallbackConstructor::create(exec, exec->lexicalGlobalObject(), exec->lexicalGlobalObject()->callbackConstructorStructure(), jsClass, callAsConstructor);
-    constructor->putDirect(exec->vm(), exec->propertyNames().prototype, jsPrototype, DontEnum | DontDelete | ReadOnly);
+    constructor->putDirect(vm, vm.propertyNames->prototype, jsPrototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
     return toRef(constructor);
 }
 
@@ -158,18 +142,27 @@ JSObjectRef JSObjectMakeFunction(JSContextRef ctx, JSStringRef name, unsigned pa
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     startingLineNumber = std::max(1, startingLineNumber);
-    Identifier nameID = name ? name->identifier(&exec->vm()) : Identifier::fromString(exec, "anonymous");
+    Identifier nameID = name ? name->identifier(&vm) : Identifier::fromString(exec, "anonymous");
     
     MarkedArgumentBuffer args;
     for (unsigned i = 0; i < parameterCount; i++)
         args.append(jsString(exec, parameterNames[i]->string()));
     args.append(jsString(exec, body->string()));
+    if (UNLIKELY(args.hasOverflowed())) {
+        auto throwScope = DECLARE_THROW_SCOPE(vm);
+        throwOutOfMemoryError(exec, throwScope);
+        handleExceptionIfNeeded(scope, exec, exception);
+        return 0;
+    }
 
-    JSObject* result = constructFunction(exec, exec->lexicalGlobalObject(), args, nameID, sourceURL ? sourceURL->string() : String(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber::first()));
-    if (handleExceptionIfNeeded(exec, exception) == ExceptionStatus::DidThrow)
+    auto sourceURLString = sourceURL ? sourceURL->string() : String();
+    JSObject* result = constructFunction(exec, exec->lexicalGlobalObject(), args, nameID, SourceOrigin { sourceURLString }, sourceURLString, TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
         result = 0;
     return toRef(result);
 }
@@ -181,19 +174,27 @@ JSObjectRef JSObjectMakeArray(JSContextRef ctx, size_t argumentCount, const JSVa
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSObject* result;
     if (argumentCount) {
         MarkedArgumentBuffer argList;
         for (size_t i = 0; i < argumentCount; ++i)
             argList.append(toJS(exec, arguments[i]));
+        if (UNLIKELY(argList.hasOverflowed())) {
+            auto throwScope = DECLARE_THROW_SCOPE(vm);
+            throwOutOfMemoryError(exec, throwScope);
+            handleExceptionIfNeeded(scope, exec, exception);
+            return 0;
+        }
 
         result = constructArray(exec, static_cast<ArrayAllocationProfile*>(0), argList);
     } else
         result = constructEmptyArray(exec, 0);
 
-    if (handleExceptionIfNeeded(exec, exception) == ExceptionStatus::DidThrow)
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
         result = 0;
 
     return toRef(result);
@@ -206,14 +207,22 @@ JSObjectRef JSObjectMakeDate(JSContextRef ctx, size_t argumentCount, const JSVal
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     MarkedArgumentBuffer argList;
     for (size_t i = 0; i < argumentCount; ++i)
         argList.append(toJS(exec, arguments[i]));
+    if (UNLIKELY(argList.hasOverflowed())) {
+        auto throwScope = DECLARE_THROW_SCOPE(vm);
+        throwOutOfMemoryError(exec, throwScope);
+        handleExceptionIfNeeded(scope, exec, exception);
+        return 0;
+    }
 
     JSObject* result = constructDate(exec, exec->lexicalGlobalObject(), JSValue(), argList);
-    if (handleExceptionIfNeeded(exec, exception) == ExceptionStatus::DidThrow)
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
         result = 0;
 
     return toRef(result);
@@ -226,13 +235,15 @@ JSObjectRef JSObjectMakeError(JSContextRef ctx, size_t argumentCount, const JSVa
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSValue message = argumentCount ? toJS(exec, arguments[0]) : jsUndefined();
     Structure* errorStructure = exec->lexicalGlobalObject()->errorStructure();
     JSObject* result = ErrorInstance::create(exec, errorStructure, message);
 
-    if (handleExceptionIfNeeded(exec, exception) == ExceptionStatus::DidThrow)
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
         result = 0;
 
     return toRef(result);
@@ -245,17 +256,49 @@ JSObjectRef JSObjectMakeRegExp(JSContextRef ctx, size_t argumentCount, const JSV
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     MarkedArgumentBuffer argList;
     for (size_t i = 0; i < argumentCount; ++i)
         argList.append(toJS(exec, arguments[i]));
+    if (UNLIKELY(argList.hasOverflowed())) {
+        auto throwScope = DECLARE_THROW_SCOPE(vm);
+        throwOutOfMemoryError(exec, throwScope);
+        handleExceptionIfNeeded(scope, exec, exception);
+        return 0;
+    }
 
     JSObject* result = constructRegExp(exec, exec->lexicalGlobalObject(), argList);
-    if (handleExceptionIfNeeded(exec, exception) == ExceptionStatus::DidThrow)
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
         result = 0;
     
     return toRef(result);
+}
+
+JSObjectRef JSObjectMakeDeferredPromise(JSContextRef ctx, JSObjectRef* resolve, JSObjectRef* reject, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    ExecState* exec = toJS(ctx);
+    VM& vm = exec->vm();
+    JSLockHolder locker(exec);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    auto* globalObject = exec->lexicalGlobalObject();
+    JSPromiseDeferred::DeferredData data = JSPromiseDeferred::createDeferredData(exec, globalObject, globalObject->promiseConstructor());
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
+        return nullptr;
+
+    if (resolve)
+        *resolve = toRef(data.resolve);
+    if (reject)
+        *reject = toRef(data.reject);
+    return toRef(data.promise);
 }
 
 JSValueRef JSObjectGetPrototype(JSContextRef ctx, JSObjectRef object)
@@ -267,8 +310,8 @@ JSValueRef JSObjectGetPrototype(JSContextRef ctx, JSObjectRef object)
     ExecState* exec = toJS(ctx);
     JSLockHolder locker(exec);
 
-    JSObject* jsObject = toJS(object);
-    return toRef(exec, jsObject->prototype());
+    JSObject* jsObject = toJS(object); 
+    return toRef(exec, jsObject->getPrototypeDirect(exec->vm()));
 }
 
 void JSObjectSetPrototype(JSContextRef ctx, JSObjectRef object, JSValueRef value)
@@ -278,20 +321,14 @@ void JSObjectSetPrototype(JSContextRef ctx, JSObjectRef object, JSValueRef value
         return;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSObject* jsObject = toJS(object);
     JSValue jsValue = toJS(exec, value);
-
-    if (JSProxy* proxy = jsDynamicCast<JSProxy*>(jsObject)) {
-        if (JSGlobalObject* globalObject = jsDynamicCast<JSGlobalObject*>(proxy->target())) {
-            globalObject->resetPrototype(exec->vm(), jsValue.isObject() ? jsValue : jsNull());
-            return;
-        }
-        // Someday we might use proxies for something other than JSGlobalObjects, but today is not that day.
-        RELEASE_ASSERT_NOT_REACHED();
-    }
-    jsObject->setPrototypeWithCycleCheck(exec, jsValue.isObject() ? jsValue : jsNull());
+    jsObject->setPrototype(vm, exec, jsValue.isObject() ? jsValue : jsNull());
+    handleExceptionIfNeeded(scope, exec, nullptr);
 }
 
 bool JSObjectHasProperty(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName)
@@ -301,11 +338,12 @@ bool JSObjectHasProperty(JSContextRef ctx, JSObjectRef object, JSStringRef prope
         return false;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
 
     JSObject* jsObject = toJS(object);
     
-    return jsObject->hasProperty(exec, propertyName->identifier(&exec->vm()));
+    return jsObject->hasProperty(exec, propertyName->identifier(&vm));
 }
 
 JSValueRef JSObjectGetProperty(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception)
@@ -315,12 +353,14 @@ JSValueRef JSObjectGetProperty(JSContextRef ctx, JSObjectRef object, JSStringRef
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSObject* jsObject = toJS(object);
 
-    JSValue jsValue = jsObject->get(exec, propertyName->identifier(&exec->vm()));
-    handleExceptionIfNeeded(exec, exception);
+    JSValue jsValue = jsObject->get(exec, propertyName->identifier(&vm));
+    handleExceptionIfNeeded(scope, exec, exception);
     return toRef(exec, jsValue);
 }
 
@@ -331,21 +371,119 @@ void JSObjectSetProperty(JSContextRef ctx, JSObjectRef object, JSStringRef prope
         return;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSObject* jsObject = toJS(object);
-    Identifier name(propertyName->identifier(&exec->vm()));
+    Identifier name(propertyName->identifier(&vm));
     JSValue jsValue = toJS(exec, value);
 
-    if (attributes && !jsObject->hasProperty(exec, name)) {
-        PropertyDescriptor desc(jsValue, attributes);
-        jsObject->methodTable()->defineOwnProperty(jsObject, exec, name, desc, false);
-    } else {
-        PutPropertySlot slot(jsObject);
-        jsObject->methodTable()->put(jsObject, exec, name, jsValue, slot);
+    bool doesNotHaveProperty = attributes && !jsObject->hasProperty(exec, name);
+    if (LIKELY(!scope.exception())) {
+        if (doesNotHaveProperty) {
+            PropertyDescriptor desc(jsValue, attributes);
+            jsObject->methodTable(vm)->defineOwnProperty(jsObject, exec, name, desc, false);
+        } else {
+            PutPropertySlot slot(jsObject);
+            jsObject->methodTable(vm)->put(jsObject, exec, name, jsValue, slot);
+        }
     }
+    handleExceptionIfNeeded(scope, exec, exception);
+}
 
-    handleExceptionIfNeeded(exec, exception);
+bool JSObjectHasPropertyForKey(JSContextRef ctx, JSObjectRef object, JSValueRef key, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+    ExecState* exec = toJS(ctx);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSObject* jsObject = toJS(object);
+    Identifier ident = toJS(exec, key).toPropertyKey(exec);
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
+        return false;
+
+    bool result = jsObject->hasProperty(exec, ident);
+    handleExceptionIfNeeded(scope, exec, exception);
+    return result;
+}
+
+JSValueRef JSObjectGetPropertyForKey(JSContextRef ctx, JSObjectRef object, JSValueRef key, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+    ExecState* exec = toJS(ctx);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSObject* jsObject = toJS(object);
+    Identifier ident = toJS(exec, key).toPropertyKey(exec);
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
+        return nullptr;
+
+    JSValue jsValue = jsObject->get(exec, ident);
+    handleExceptionIfNeeded(scope, exec, exception);
+    return toRef(exec, jsValue);
+}
+
+void JSObjectSetPropertyForKey(JSContextRef ctx, JSObjectRef object, JSValueRef key, JSValueRef value, JSPropertyAttributes attributes, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    ExecState* exec = toJS(ctx);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSObject* jsObject = toJS(object);
+    JSValue jsValue = toJS(exec, value);
+
+    Identifier ident = toJS(exec, key).toPropertyKey(exec);
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
+        return;
+
+    bool doesNotHaveProperty = attributes && !jsObject->hasProperty(exec, ident);
+    if (LIKELY(!scope.exception())) {
+        if (doesNotHaveProperty) {
+            PropertyDescriptor desc(jsValue, attributes);
+            jsObject->methodTable(vm)->defineOwnProperty(jsObject, exec, ident, desc, false);
+        } else {
+            PutPropertySlot slot(jsObject);
+            jsObject->methodTable(vm)->put(jsObject, exec, ident, jsValue, slot);
+        }
+    }
+    handleExceptionIfNeeded(scope, exec, exception);
+}
+
+bool JSObjectDeletePropertyForKey(JSContextRef ctx, JSObjectRef object, JSValueRef key, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+    ExecState* exec = toJS(ctx);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSObject* jsObject = toJS(object);
+    Identifier ident = toJS(exec, key).toPropertyKey(exec);
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
+        return false;
+
+    bool result = jsObject->methodTable(vm)->deleteProperty(jsObject, exec, ident);
+    handleExceptionIfNeeded(scope, exec, exception);
+    return result;
 }
 
 JSValueRef JSObjectGetPropertyAtIndex(JSContextRef ctx, JSObjectRef object, unsigned propertyIndex, JSValueRef* exception)
@@ -355,12 +493,14 @@ JSValueRef JSObjectGetPropertyAtIndex(JSContextRef ctx, JSObjectRef object, unsi
         return 0;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSObject* jsObject = toJS(object);
 
     JSValue jsValue = jsObject->get(exec, propertyIndex);
-    handleExceptionIfNeeded(exec, exception);
+    handleExceptionIfNeeded(scope, exec, exception);
     return toRef(exec, jsValue);
 }
 
@@ -372,13 +512,15 @@ void JSObjectSetPropertyAtIndex(JSContextRef ctx, JSObjectRef object, unsigned p
         return;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSObject* jsObject = toJS(object);
     JSValue jsValue = toJS(exec, value);
     
-    jsObject->methodTable()->putByIndex(jsObject, exec, propertyIndex, jsValue, false);
-    handleExceptionIfNeeded(exec, exception);
+    jsObject->methodTable(vm)->putByIndex(jsObject, exec, propertyIndex, jsValue, false);
+    handleExceptionIfNeeded(scope, exec, exception);
 }
 
 bool JSObjectDeleteProperty(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception)
@@ -388,30 +530,50 @@ bool JSObjectDeleteProperty(JSContextRef ctx, JSObjectRef object, JSStringRef pr
         return false;
     }
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     JSObject* jsObject = toJS(object);
 
-    bool result = jsObject->methodTable()->deleteProperty(jsObject, exec, propertyName->identifier(&exec->vm()));
-    handleExceptionIfNeeded(exec, exception);
+    bool result = jsObject->methodTable(vm)->deleteProperty(jsObject, exec, propertyName->identifier(&vm));
+    handleExceptionIfNeeded(scope, exec, exception);
     return result;
+}
+
+// API objects have private properties, which may get accessed during destruction. This
+// helper lets us get the ClassInfo of an API object from a function that may get called
+// during destruction.
+static const ClassInfo* classInfoPrivate(JSObject* jsObject)
+{
+    VM& vm = *jsObject->vm();
+    
+    if (vm.currentlyDestructingCallbackObject != jsObject)
+        return jsObject->classInfo(vm);
+
+    return vm.currentlyDestructingCallbackObjectClassInfo;
 }
 
 void* JSObjectGetPrivate(JSObjectRef object)
 {
     JSObject* jsObject = uncheckedToJS(object);
+    VM& vm = *jsObject->vm();
 
+    const ClassInfo* classInfo = classInfoPrivate(jsObject);
+    
     // Get wrapped object if proxied
-    if (jsObject->inherits(JSProxy::info()))
-        jsObject = jsCast<JSProxy*>(jsObject)->target();
+    if (classInfo->isSubClassOf(JSProxy::info())) {
+        jsObject = static_cast<JSProxy*>(jsObject)->target();
+        classInfo = jsObject->classInfo(vm);
+    }
 
-    if (jsObject->inherits(JSCallbackObject<JSGlobalObject>::info()))
-        return jsCast<JSCallbackObject<JSGlobalObject>*>(jsObject)->getPrivate();
-    if (jsObject->inherits(JSCallbackObject<JSDestructibleObject>::info()))
-        return jsCast<JSCallbackObject<JSDestructibleObject>*>(jsObject)->getPrivate();
+    if (classInfo->isSubClassOf(JSCallbackObject<JSGlobalObject>::info()))
+        return static_cast<JSCallbackObject<JSGlobalObject>*>(jsObject)->getPrivate();
+    if (classInfo->isSubClassOf(JSCallbackObject<JSDestructibleObject>::info()))
+        return static_cast<JSCallbackObject<JSDestructibleObject>*>(jsObject)->getPrivate();
 #if JSC_OBJC_API_ENABLED
-    if (jsObject->inherits(JSCallbackObject<JSAPIWrapperObject>::info()))
-        return jsCast<JSCallbackObject<JSAPIWrapperObject>*>(jsObject)->getPrivate();
+    if (classInfo->isSubClassOf(JSCallbackObject<JSAPIWrapperObject>::info()))
+        return static_cast<JSCallbackObject<JSAPIWrapperObject>*>(jsObject)->getPrivate();
 #endif
     
     return 0;
@@ -420,22 +582,27 @@ void* JSObjectGetPrivate(JSObjectRef object)
 bool JSObjectSetPrivate(JSObjectRef object, void* data)
 {
     JSObject* jsObject = uncheckedToJS(object);
+    VM& vm = *jsObject->vm();
 
+    const ClassInfo* classInfo = classInfoPrivate(jsObject);
+    
     // Get wrapped object if proxied
-    if (jsObject->inherits(JSProxy::info()))
-        jsObject = jsCast<JSProxy*>(jsObject)->target();
+    if (classInfo->isSubClassOf(JSProxy::info())) {
+        jsObject = static_cast<JSProxy*>(jsObject)->target();
+        classInfo = jsObject->classInfo(vm);
+    }
 
-    if (jsObject->inherits(JSCallbackObject<JSGlobalObject>::info())) {
-        jsCast<JSCallbackObject<JSGlobalObject>*>(jsObject)->setPrivate(data);
+    if (classInfo->isSubClassOf(JSCallbackObject<JSGlobalObject>::info())) {
+        static_cast<JSCallbackObject<JSGlobalObject>*>(jsObject)->setPrivate(data);
         return true;
     }
-    if (jsObject->inherits(JSCallbackObject<JSDestructibleObject>::info())) {
-        jsCast<JSCallbackObject<JSDestructibleObject>*>(jsObject)->setPrivate(data);
+    if (classInfo->isSubClassOf(JSCallbackObject<JSDestructibleObject>::info())) {
+        static_cast<JSCallbackObject<JSDestructibleObject>*>(jsObject)->setPrivate(data);
         return true;
     }
 #if JSC_OBJC_API_ENABLED
-    if (jsObject->inherits(JSCallbackObject<JSAPIWrapperObject>::info())) {
-        jsCast<JSCallbackObject<JSAPIWrapperObject>*>(jsObject)->setPrivate(data);
+    if (classInfo->isSubClassOf(JSCallbackObject<JSAPIWrapperObject>::info())) {
+        static_cast<JSCallbackObject<JSAPIWrapperObject>*>(jsObject)->setPrivate(data);
         return true;
     }
 #endif
@@ -446,21 +613,23 @@ bool JSObjectSetPrivate(JSObjectRef object, void* data)
 JSValueRef JSObjectGetPrivateProperty(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName)
 {
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
     JSObject* jsObject = toJS(object);
     JSValue result;
-    Identifier name(propertyName->identifier(&exec->vm()));
+    Identifier name(propertyName->identifier(&vm));
+
 
     // Get wrapped object if proxied
-    if (jsObject->inherits(JSProxy::info()))
+    if (jsObject->inherits<JSProxy>(vm))
         jsObject = jsCast<JSProxy*>(jsObject)->target();
 
-    if (jsObject->inherits(JSCallbackObject<JSGlobalObject>::info()))
+    if (jsObject->inherits<JSCallbackObject<JSGlobalObject>>(vm))
         result = jsCast<JSCallbackObject<JSGlobalObject>*>(jsObject)->getPrivateProperty(name);
-    else if (jsObject->inherits(JSCallbackObject<JSDestructibleObject>::info()))
+    else if (jsObject->inherits<JSCallbackObject<JSDestructibleObject>>(vm))
         result = jsCast<JSCallbackObject<JSDestructibleObject>*>(jsObject)->getPrivateProperty(name);
 #if JSC_OBJC_API_ENABLED
-    else if (jsObject->inherits(JSCallbackObject<JSAPIWrapperObject>::info()))
+    else if (jsObject->inherits<JSCallbackObject<JSAPIWrapperObject>>(vm))
         result = jsCast<JSCallbackObject<JSAPIWrapperObject>*>(jsObject)->getPrivateProperty(name);
 #endif
     return toRef(exec, result);
@@ -469,26 +638,27 @@ JSValueRef JSObjectGetPrivateProperty(JSContextRef ctx, JSObjectRef object, JSSt
 bool JSObjectSetPrivateProperty(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef value)
 {
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
     JSObject* jsObject = toJS(object);
     JSValue jsValue = value ? toJS(exec, value) : JSValue();
-    Identifier name(propertyName->identifier(&exec->vm()));
+    Identifier name(propertyName->identifier(&vm));
 
     // Get wrapped object if proxied
-    if (jsObject->inherits(JSProxy::info()))
+    if (jsObject->inherits<JSProxy>(vm))
         jsObject = jsCast<JSProxy*>(jsObject)->target();
 
-    if (jsObject->inherits(JSCallbackObject<JSGlobalObject>::info())) {
-        jsCast<JSCallbackObject<JSGlobalObject>*>(jsObject)->setPrivateProperty(exec->vm(), name, jsValue);
+    if (jsObject->inherits<JSCallbackObject<JSGlobalObject>>(vm)) {
+        jsCast<JSCallbackObject<JSGlobalObject>*>(jsObject)->setPrivateProperty(vm, name, jsValue);
         return true;
     }
-    if (jsObject->inherits(JSCallbackObject<JSDestructibleObject>::info())) {
-        jsCast<JSCallbackObject<JSDestructibleObject>*>(jsObject)->setPrivateProperty(exec->vm(), name, jsValue);
+    if (jsObject->inherits<JSCallbackObject<JSDestructibleObject>>(vm)) {
+        jsCast<JSCallbackObject<JSDestructibleObject>*>(jsObject)->setPrivateProperty(vm, name, jsValue);
         return true;
     }
 #if JSC_OBJC_API_ENABLED
-    if (jsObject->inherits(JSCallbackObject<JSAPIWrapperObject>::info())) {
-        jsCast<JSCallbackObject<JSAPIWrapperObject>*>(jsObject)->setPrivateProperty(exec->vm(), name, jsValue);
+    if (jsObject->inherits<JSCallbackObject<JSAPIWrapperObject>>(vm)) {
+        jsCast<JSCallbackObject<JSAPIWrapperObject>*>(jsObject)->setPrivateProperty(vm, name, jsValue);
         return true;
     }
 #endif
@@ -498,24 +668,25 @@ bool JSObjectSetPrivateProperty(JSContextRef ctx, JSObjectRef object, JSStringRe
 bool JSObjectDeletePrivateProperty(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName)
 {
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
     JSObject* jsObject = toJS(object);
-    Identifier name(propertyName->identifier(&exec->vm()));
+    Identifier name(propertyName->identifier(&vm));
 
     // Get wrapped object if proxied
-    if (jsObject->inherits(JSProxy::info()))
+    if (jsObject->inherits<JSProxy>(vm))
         jsObject = jsCast<JSProxy*>(jsObject)->target();
 
-    if (jsObject->inherits(JSCallbackObject<JSGlobalObject>::info())) {
+    if (jsObject->inherits<JSCallbackObject<JSGlobalObject>>(vm)) {
         jsCast<JSCallbackObject<JSGlobalObject>*>(jsObject)->deletePrivateProperty(name);
         return true;
     }
-    if (jsObject->inherits(JSCallbackObject<JSDestructibleObject>::info())) {
+    if (jsObject->inherits<JSCallbackObject<JSDestructibleObject>>(vm)) {
         jsCast<JSCallbackObject<JSDestructibleObject>*>(jsObject)->deletePrivateProperty(name);
         return true;
     }
 #if JSC_OBJC_API_ENABLED
-    if (jsObject->inherits(JSCallbackObject<JSAPIWrapperObject>::info())) {
+    if (jsObject->inherits<JSCallbackObject<JSAPIWrapperObject>>(vm)) {
         jsCast<JSCallbackObject<JSAPIWrapperObject>*>(jsObject)->deletePrivateProperty(name);
         return true;
     }
@@ -527,16 +698,20 @@ bool JSObjectIsFunction(JSContextRef ctx, JSObjectRef object)
 {
     if (!object)
         return false;
-    JSLockHolder locker(toJS(ctx));
+    ExecState* exec = toJS(ctx);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
     CallData callData;
     JSCell* cell = toJS(object);
-    return cell->methodTable()->getCallData(cell, callData) != CallTypeNone;
+    return cell->methodTable(vm)->getCallData(cell, callData) != CallType::None;
 }
 
 JSValueRef JSObjectCallAsFunction(JSContextRef ctx, JSObjectRef object, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     if (!object)
         return 0;
@@ -550,31 +725,40 @@ JSValueRef JSObjectCallAsFunction(JSContextRef ctx, JSObjectRef object, JSObject
     MarkedArgumentBuffer argList;
     for (size_t i = 0; i < argumentCount; i++)
         argList.append(toJS(exec, arguments[i]));
+    if (UNLIKELY(argList.hasOverflowed())) {
+        auto throwScope = DECLARE_THROW_SCOPE(vm);
+        throwOutOfMemoryError(exec, throwScope);
+        handleExceptionIfNeeded(scope, exec, exception);
+        return 0;
+    }
 
     CallData callData;
-    CallType callType = jsObject->methodTable()->getCallData(jsObject, callData);
-    if (callType == CallTypeNone)
+    CallType callType = jsObject->methodTable(vm)->getCallData(jsObject, callData);
+    if (callType == CallType::None)
         return 0;
 
     JSValueRef result = toRef(exec, profiledCall(exec, ProfilingReason::API, jsObject, callType, callData, jsThisObject, argList));
-    if (handleExceptionIfNeeded(exec, exception) == ExceptionStatus::DidThrow)
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
         result = 0;
     return result;
 }
 
-bool JSObjectIsConstructor(JSContextRef, JSObjectRef object)
+bool JSObjectIsConstructor(JSContextRef ctx, JSObjectRef object)
 {
+    ExecState* exec = toJS(ctx);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
     if (!object)
         return false;
-    JSObject* jsObject = toJS(object);
-    ConstructData constructData;
-    return jsObject->methodTable()->getConstructData(jsObject, constructData) != ConstructTypeNone;
+    return toJS(object)->isConstructor(vm);
 }
 
 JSObjectRef JSObjectCallAsConstructor(JSContextRef ctx, JSObjectRef object, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
     ExecState* exec = toJS(ctx);
-    JSLockHolder locker(exec);
+    VM& vm = exec->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     if (!object)
         return 0;
@@ -582,16 +766,22 @@ JSObjectRef JSObjectCallAsConstructor(JSContextRef ctx, JSObjectRef object, size
     JSObject* jsObject = toJS(object);
 
     ConstructData constructData;
-    ConstructType constructType = jsObject->methodTable()->getConstructData(jsObject, constructData);
-    if (constructType == ConstructTypeNone)
+    ConstructType constructType = jsObject->methodTable(vm)->getConstructData(jsObject, constructData);
+    if (constructType == ConstructType::None)
         return 0;
 
     MarkedArgumentBuffer argList;
     for (size_t i = 0; i < argumentCount; i++)
         argList.append(toJS(exec, arguments[i]));
+    if (UNLIKELY(argList.hasOverflowed())) {
+        auto throwScope = DECLARE_THROW_SCOPE(vm);
+        throwOutOfMemoryError(exec, throwScope);
+        handleExceptionIfNeeded(scope, exec, exception);
+        return 0;
+    }
 
     JSObjectRef result = toRef(profiledConstruct(exec, ProfilingReason::API, jsObject, constructType, constructData, argList));
-    if (handleExceptionIfNeeded(exec, exception) == ExceptionStatus::DidThrow)
+    if (handleExceptionIfNeeded(scope, exec, exception) == ExceptionStatus::DidThrow)
         result = 0;
     return result;
 }
@@ -599,6 +789,7 @@ JSObjectRef JSObjectCallAsConstructor(JSContextRef ctx, JSObjectRef object, size
 struct OpaqueJSPropertyNameArray {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+    // FIXME: Why not inherit from RefCounted?
     OpaqueJSPropertyNameArray(VM* vm)
         : refCount(0)
         , vm(vm)
@@ -607,7 +798,7 @@ public:
     
     unsigned refCount;
     VM* vm;
-    Vector<JSRetainPtr<JSStringRef>> array;
+    Vector<Ref<OpaqueJSString>> array;
 };
 
 JSPropertyNameArrayRef JSObjectCopyPropertyNames(JSContextRef ctx, JSObjectRef object)
@@ -623,14 +814,14 @@ JSPropertyNameArrayRef JSObjectCopyPropertyNames(JSContextRef ctx, JSObjectRef o
 
     JSObject* jsObject = toJS(object);
     JSPropertyNameArrayRef propertyNames = new OpaqueJSPropertyNameArray(vm);
-    PropertyNameArray array(vm, PropertyNameMode::Strings);
-    jsObject->methodTable()->getPropertyNames(jsObject, exec, array, EnumerationMode());
+    PropertyNameArray array(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
+    jsObject->methodTable(*vm)->getPropertyNames(jsObject, exec, array, EnumerationMode());
 
     size_t size = array.size();
     propertyNames->array.reserveInitialCapacity(size);
     for (size_t i = 0; i < size; ++i)
-        propertyNames->array.uncheckedAppend(JSRetainPtr<JSStringRef>(Adopt, OpaqueJSString::create(array[i].string()).leakRef()));
-    
+        propertyNames->array.uncheckedAppend(OpaqueJSString::tryCreate(array[i].string()).releaseNonNull());
+
     return JSPropertyNameArrayRetain(propertyNames);
 }
 
@@ -655,12 +846,37 @@ size_t JSPropertyNameArrayGetCount(JSPropertyNameArrayRef array)
 
 JSStringRef JSPropertyNameArrayGetNameAtIndex(JSPropertyNameArrayRef array, size_t index)
 {
-    return array->array[static_cast<unsigned>(index)].get();
+    return array->array[static_cast<unsigned>(index)].ptr();
 }
 
 void JSPropertyNameAccumulatorAddName(JSPropertyNameAccumulatorRef array, JSStringRef propertyName)
 {
     PropertyNameArray* propertyNames = toJS(array);
-    JSLockHolder locker(propertyNames->vm());
-    propertyNames->add(propertyName->identifier(propertyNames->vm()));
+    VM* vm = propertyNames->vm();
+    JSLockHolder locker(vm);
+    propertyNames->add(propertyName->identifier(vm));
 }
+
+JSObjectRef JSObjectGetProxyTarget(JSObjectRef objectRef)
+{
+    JSObject* object = toJS(objectRef);
+    if (!object)
+        return nullptr;
+    VM& vm = *object->vm();
+    JSLockHolder locker(vm);
+    JSObject* result = nullptr;
+    if (JSProxy* proxy = jsDynamicCast<JSProxy*>(vm, object))
+        result = proxy->target();
+    else if (ProxyObject* proxy = jsDynamicCast<ProxyObject*>(vm, object))
+        result = proxy->target();
+    return toRef(result);
+}
+
+JSGlobalContextRef JSObjectGetGlobalContext(JSObjectRef objectRef)
+{
+    JSObject* object = toJS(objectRef);
+    if (!object)
+        return nullptr;
+    return reinterpret_cast<JSGlobalContextRef>(object->globalObject()->globalExec());
+}
+

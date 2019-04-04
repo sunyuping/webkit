@@ -22,14 +22,11 @@
  *
  */
 
-#ifndef KeyframeList_h
-#define KeyframeList_h
+#pragma once
 
 #include "CSSPropertyNames.h"
-#include "StyleInheritedData.h"
 #include <wtf/Vector.h>
 #include <wtf/HashSet.h>
-#include <wtf/RefPtr.h>
 #include <wtf/text/AtomicString.h>
 
 namespace WebCore {
@@ -39,9 +36,9 @@ class TimingFunction;
 
 class KeyframeValue {
 public:
-    KeyframeValue(double key, PassRefPtr<RenderStyle> style)
+    KeyframeValue(double key, std::unique_ptr<RenderStyle> style)
         : m_key(key)
-        , m_style(style)
+        , m_style(WTFMove(style))
     {
     }
 
@@ -53,14 +50,16 @@ public:
     void setKey(double key) { m_key = key; }
 
     const RenderStyle* style() const { return m_style.get(); }
-    void setStyle(PassRefPtr<RenderStyle> style) { m_style = style; }
+    void setStyle(std::unique_ptr<RenderStyle> style) { m_style = WTFMove(style); }
 
-    TimingFunction* timingFunction(const AtomicString& name) const;
-
+    TimingFunction* timingFunction() const { return m_timingFunction.get(); }
+    void setTimingFunction(const RefPtr<TimingFunction>& timingFunction) { m_timingFunction = timingFunction; }
+    
 private:
     double m_key;
     HashSet<CSSPropertyID> m_properties; // The properties specified in this keyframe.
-    RefPtr<RenderStyle> m_style;
+    std::unique_ptr<RenderStyle> m_style;
+    RefPtr<TimingFunction> m_timingFunction;
 };
 
 class KeyframeList {
@@ -68,17 +67,16 @@ public:
     explicit KeyframeList(const AtomicString& animationName)
         : m_animationName(animationName)
     {
-        insert(KeyframeValue(0, 0));
-        insert(KeyframeValue(1, 0));
     }
     ~KeyframeList();
         
+    KeyframeList& operator=(KeyframeList&&) = default;
     bool operator==(const KeyframeList& o) const;
     bool operator!=(const KeyframeList& o) const { return !(*this == o); }
-    
+
     const AtomicString& animationName() const { return m_animationName; }
     
-    void insert(const KeyframeValue& keyframe);
+    void insert(KeyframeValue&&);
     
     void addProperty(CSSPropertyID prop) { m_properties.add(prop); }
     bool containsProperty(CSSPropertyID prop) const { return m_properties.contains(prop); }
@@ -97,5 +95,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // KeyframeList_h

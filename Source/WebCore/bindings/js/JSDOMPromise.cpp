@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,55 +26,74 @@
 #include "config.h"
 #include "JSDOMPromise.h"
 
-#include "ExceptionCode.h"
-#include <runtime/Exception.h>
+#include "DOMWindow.h"
+#include "JSDOMWindow.h"
+#include <JavaScriptCore/BuiltinNames.h>
+#include <JavaScriptCore/CatchScope.h>
+#include <JavaScriptCore/Exception.h>
+#include <JavaScriptCore/JSNativeStdFunction.h>
+#include <JavaScriptCore/JSPromiseConstructor.h>
 
 using namespace JSC;
 
 namespace WebCore {
 
-DeferredWrapper::DeferredWrapper(ExecState* exec, JSDOMGlobalObject* globalObject, JSPromiseDeferred* promiseDeferred)
-    : m_globalObject(exec->vm(), globalObject)
-    , m_deferred(exec->vm(), promiseDeferred)
+static inline JSC::JSValue callFunction(JSC::ExecState& state, JSC::JSValue jsFunction, JSC::JSValue thisValue, const JSC::ArgList& arguments)
 {
+    VM& vm = state.vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    JSC::CallData callData;
+    auto callType = JSC::getCallData(vm, jsFunction, callData);
+    ASSERT(callType != JSC::CallType::None);
+    auto result = call(&state, jsFunction, callType, callData, thisValue, arguments);
+
+    EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || isTerminatedExecutionException(state.vm(), scope.exception()));
+
+    return result;
 }
 
-JSDOMGlobalObject& DeferredWrapper::globalObject() const
+void DOMPromise::whenSettled(std::function<void()>&& callback)
 {
-    ASSERT(m_globalObject);
-    return *m_globalObject.get();
+    whenPromiseIsSettled(globalObject(), promise(), WTFMove(callback));
 }
 
-JSC::JSPromiseDeferred& DeferredWrapper::deferred() const
+void DOMPromise::whenPromiseIsSettled(JSDOMGlobalObject* globalObject, JSC::JSObject* promise, std::function<void()>&& callback)
 {
-    ASSERT(m_deferred);
-    return *m_deferred.get();
+    auto& state = *globalObject->globalExec();
+    auto& vm = state.vm();
+    JSLockHolder lock(vm);
+    auto* handler = JSC::JSNativeStdFunction::create(vm, globalObject, 1, String { }, [callback = WTFMove(callback)] (ExecState*) mutable {
+        callback();
+        return JSC::JSValue::encode(JSC::jsUndefined());
+    });
+
+    const JSC::Identifier& privateName = vm.propertyNames->builtinNames().thenPrivateName();
+    auto thenFunction = promise->get(&state, privateName);
+    ASSERT(thenFunction.isFunction(vm));
+
+    JSC::MarkedArgumentBuffer arguments;
+    arguments.append(handler);
+    arguments.append(handler);
+    callFunction(state, thenFunction, promise, arguments);
 }
 
-void DeferredWrapper::callFunction(ExecState& exec, JSValue function, JSValue resolution)
+JSC::JSValue DOMPromise::result() const
 {
-    CallData callData;
-    CallType callType = getCallData(function, callData);
-    ASSERT(callType != CallTypeNone);
-
-    MarkedArgumentBuffer arguments;
-    arguments.append(resolution);
-
-    call(&exec, function, callType, callData, jsUndefined(), arguments);
-
-    m_globalObject.clear();
-    m_deferred.clear();
+    return promise()->result(m_globalObject->globalExec()->vm());
 }
 
-void rejectPromiseWithExceptionIfAny(JSC::ExecState& state, JSDOMGlobalObject& globalObject, JSPromiseDeferred& promiseDeferred)
+DOMPromise::Status DOMPromise::status() const
 {
-    if (!state.hadException())
-        return;
-
-    JSValue error = state.exception()->value();
-    state.clearException();
-
-    DeferredWrapper(&state, &globalObject, &promiseDeferred).reject(error);
+    switch (promise()->status(m_globalObject->globalExec()->vm())) {
+    case JSC::JSPromise::Status::Pending:
+        return Status::Pending;
+    case JSC::JSPromise::Status::Fulfilled:
+        return Status::Fulfilled;
+    case JSC::JSPromise::Status::Rejected:
+        return Status::Rejected;
+    };
+    ASSERT_NOT_REACHED();
+    return Status::Rejected;
 }
 
 }

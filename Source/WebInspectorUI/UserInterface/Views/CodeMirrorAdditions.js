@@ -307,20 +307,6 @@
         return style && (style + " m-" + (this.alternateName || this.name));
     }
 
-    function extendedCSSRuleStartState(base)
-    {
-        // CodeMirror moves the original token function to _startState when we extended it.
-        // So call it to get the original start state that we will modify.
-        var state = this._startState(base);
-
-        // Start off the state stack like it has already parsed a rule. This causes everything
-        // after to be parsed as properties in a rule.
-        state.state = "block";
-        state.context.type = "block";
-
-        return state;
-    }
-
     function scrollCursorIntoView(codeMirror, event)
     {
         // We don't want to use the default implementation since it can cause massive jumping
@@ -350,16 +336,58 @@
     CodeMirror.extendMode("xml", {token: extendedXMLToken});
     CodeMirror.extendMode("javascript", {token: extendedToken});
 
-    CodeMirror.defineMode("css-rule", CodeMirror.modes.css);
-    CodeMirror.extendMode("css-rule", {token: extendedCSSToken, startState: extendedCSSRuleStartState, alternateName: "css"});
-
     CodeMirror.defineInitHook(function(codeMirror) {
         codeMirror.on("scrollCursorIntoView", scrollCursorIntoView);
     });
 
+    let whitespaceStyleElement = null;
+    let whitespaceCountsWithStyling = new Set;
+    CodeMirror.defineOption("showWhitespaceCharacters", false, function(cm, value, old) {
+        if (!value || (old && old !== CodeMirror.Init)) {
+            cm.removeOverlay("whitespace");
+            return;
+        }
+
+        cm.addOverlay({
+            name: "whitespace",
+            token(stream) {
+                if (stream.peek() === " ") {
+                    let count = 0;
+                    while (stream.peek() === " ") {
+                        ++count;
+                        stream.next();
+                    }
+
+                    if (!whitespaceCountsWithStyling.has(count)) {
+                        whitespaceCountsWithStyling.add(count);
+
+                        if (!whitespaceStyleElement)
+                            whitespaceStyleElement = document.head.appendChild(document.createElement("style"));
+
+                        const middleDot = "\\00B7";
+
+                        let styleText = whitespaceStyleElement.textContent;
+                        styleText += `.show-whitespace-characters .CodeMirror .cm-whitespace-${count}::before {`;
+                        styleText += `content: "${middleDot.repeat(count)}";`;
+                        styleText += `}`;
+
+                        whitespaceStyleElement.textContent = styleText;
+                    }
+
+                    return `whitespace whitespace-${count}`;
+                }
+
+                while (!stream.eol() && stream.peek() !== " ")
+                    stream.next();
+
+                return null;
+            }
+        });
+    });
+
     CodeMirror.defineExtension("hasLineClass", function(line, where, className) {
         // This matches the arguments to addLineClass and removeLineClass.
-        var classProperty = (where === "text" ? "textClass" : (where === "background" ? "bgClass" : "wrapClass"));
+        var classProperty = where === "text" ? "textClass" : (where === "background" ? "bgClass" : "wrapClass");
         var lineInfo = this.lineInfo(line);
         if (!lineInfo)
             return false;
@@ -487,7 +515,7 @@
             // selectionStart/End may the same object if there is no selection. If that is the case
             // make only one modification to prevent a double adjustment, and keep it a single object
             // to avoid CodeMirror inadvertently creating an actual selection range.
-            let diff = (newLength - previousLength);
+            let diff = newLength - previousLength;
             if (selectionStart === selectionEnd)
                 selectionStart.ch += diff;
             else {
@@ -552,7 +580,7 @@
                     if (coords.bottom > maxY) {
                         if (ch > startChar) {
                             var maxX = Math.ceil(this.cursorCoords({ch: ch - 1, line}).right);
-                            lineRects.push(new WebInspector.Rect(minX, minY, maxX - minX, maxY - minY));
+                            lineRects.push(new WI.Rect(minX, minY, maxX - minX, maxY - minY));
                         }
                         var minX = Math.floor(coords.left);
                         var minY = Math.floor(coords.top);
@@ -560,22 +588,19 @@
                     }
                 }
                 maxX = Math.ceil(coords.right);
-                lineRects.push(new WebInspector.Rect(minX, minY, maxX - minX, maxY - minY));
+                lineRects.push(new WI.Rect(minX, minY, maxX - minX, maxY - minY));
             } else {
                 var minX = Math.floor(firstCharCoords.left);
                 var minY = Math.floor(firstCharCoords.top);
                 var maxX = Math.ceil(endCharCoords.right);
                 var maxY = Math.ceil(endCharCoords.bottom);
-                lineRects.push(new WebInspector.Rect(minX, minY, maxX - minX, maxY - minY));
+                lineRects.push(new WI.Rect(minX, minY, maxX - minX, maxY - minY));
             }
         }
         return lineRects;
     });
 
-    function ignoreKey(codeMirror)
-    {
-        // Do nothing to ignore the key.
-    }
+    let mac = WI.Platform.name === "mac";
 
     CodeMirror.keyMap["default"] = {
         "Alt-Up": alterNumber.bind(null, 1),
@@ -589,8 +614,9 @@
         "Alt-PageDown": alterNumber.bind(null, -10),
         "Shift-Alt-PageDown": alterNumber.bind(null, -100),
         "Cmd-/": "toggleComment",
-        "Shift-Tab": ignoreKey,
-        fallthrough: "macDefault"
+        "Cmd-D": "selectNextOccurrence",
+        "Shift-Tab": "indentLess",
+        fallthrough: mac ? "macDefault" : "pcDefault"
     };
 
     // Register some extra MIME-types for CodeMirror. These are in addition to the
@@ -611,14 +637,13 @@
         CodeMirror.defineMIME(type, "javascript");
     });
 
-    var extraJSONTypes = ["application/x-json", "text/x-json"];
+    var extraJSONTypes = ["application/x-json", "text/x-json", "application/vnd.api+json"];
     extraJSONTypes.forEach(function(type) {
         CodeMirror.defineMIME(type, {name: "javascript", json: true});
     });
-
 })();
 
-WebInspector.compareCodeMirrorPositions = function(a, b)
+WI.compareCodeMirrorPositions = function(a, b)
 {
     var lineCompare = a.line - b.line;
     if (lineCompare !== 0)
@@ -629,7 +654,7 @@ WebInspector.compareCodeMirrorPositions = function(a, b)
     return aColumn - bColumn;
 };
 
-WebInspector.walkTokens = function(cm, mode, initialPosition, callback)
+WI.walkTokens = function(cm, mode, initialPosition, callback)
 {
     let state = CodeMirror.copyState(mode, cm.getTokenAt(initialPosition).state);
     if (state.localState)
@@ -637,14 +662,13 @@ WebInspector.walkTokens = function(cm, mode, initialPosition, callback)
 
     let lineCount = cm.lineCount();
     let abort = false;
-    for (lineNumber = initialPosition.line; !abort && lineNumber < lineCount; ++lineNumber) {
+    for (let lineNumber = initialPosition.line; !abort && lineNumber < lineCount; ++lineNumber) {
         let line = cm.getLine(lineNumber);
         let stream = new CodeMirror.StringStream(line);
         if (lineNumber === initialPosition.line)
             stream.start = stream.pos = initialPosition.ch;
 
         while (!stream.eol()) {
-            let innerMode = CodeMirror.innerMode(mode, state);
             let tokenType = mode.token(stream, state);
             if (!callback(tokenType, stream.current())) {
                 abort = true;
@@ -656,4 +680,34 @@ WebInspector.walkTokens = function(cm, mode, initialPosition, callback)
 
     if (!abort)
         callback(null);
-}
+};
+
+WI.tokenizeCSSValue = function(cssValue)
+{
+    const rulePrefix = "*{X:";
+    let cssRule = rulePrefix + cssValue + "}";
+    let tokens = [];
+
+    let mode = CodeMirror.getMode({indentUnit: 0}, "text/css");
+    let state = CodeMirror.startState(mode);
+    let stream = new CodeMirror.StringStream(cssRule);
+
+    function processToken(token, tokenType, column) {
+        if (column < rulePrefix.length)
+            return;
+
+        if (token === "}" && !tokenType)
+            return;
+
+        tokens.push({value: token, type: tokenType});
+    }
+
+    while (!stream.eol()) {
+        let style = mode.token(stream, state);
+        let value = stream.current();
+        processToken(value, style, stream.start);
+        stream.start = stream.pos;
+    }
+
+    return tokens;
+};

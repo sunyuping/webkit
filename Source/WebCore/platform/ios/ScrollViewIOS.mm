@@ -26,7 +26,8 @@
 #import "config.h"
 #import "ScrollView.h"
 
-#import "BlockExceptions.h"
+#if PLATFORM(IOS_FAMILY)
+
 #import "FloatRect.h"
 #import "IntRect.h"
 #import "Logging.h"
@@ -38,7 +39,7 @@
 #import "WAKWindow.h"
 #import "WKViewPrivate.h"
 #import "WebCoreFrameView.h"
-#import <wtf/CurrentTime.h>
+#import <wtf/BlockObjCExceptions.h>
 
 using namespace std;
 
@@ -116,7 +117,11 @@ IntRect ScrollView::unobscuredContentRect(VisibleContentRectIncludesScrollbars) 
 void ScrollView::setUnobscuredContentSize(const FloatSize& size)
 {
     ASSERT(!platformWidget());
+    if (size == m_unobscuredContentSize)
+        return;
+
     m_unobscuredContentSize = size;
+    unobscuredContentSizeChanged();
 }
 
 FloatRect ScrollView::exposedContentRect() const
@@ -222,7 +227,7 @@ void ScrollView::platformSetContentsSize()
     BEGIN_BLOCK_OBJC_EXCEPTIONS;
     int w = m_contentsSize.width();
     int h = m_contentsSize.height();
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     LOG(Frames, "%p %@ at w %d h %d\n", documentView(), [(id)[documentView() class] className], w, h);            
 #else
     LOG(Frames, "%p %@ at w %d h %d\n", documentView(), NSStringFromClass([documentView() class]), w, h);
@@ -312,3 +317,5 @@ void ScrollView::platformSetScrollOrigin(const IntPoint& origin, bool updatePosi
 }
 
 }
+
+#endif // PLATFORM(IOS_FAMILY)

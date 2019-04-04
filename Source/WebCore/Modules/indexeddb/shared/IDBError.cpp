@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,16 +28,11 @@
 
 #if ENABLE(INDEXED_DATABASE)
 
-#include <wtf/NeverDestroyed.h>
+#include "DOMException.h"
 
 namespace WebCore {
 
-IDBError::IDBError(ExceptionCode code)
-    : IDBError(code, emptyString())
-{
-}
-
-IDBError::IDBError(ExceptionCode code, const String& message)
+IDBError::IDBError(Optional<ExceptionCode> code, const String& message)
     : m_code(code)
     , m_message(message)
 {
@@ -45,24 +40,29 @@ IDBError::IDBError(ExceptionCode code, const String& message)
 
 IDBError IDBError::isolatedCopy() const
 {
-    return { m_code, m_message.isolatedCopy() };
-}
-
-IDBError& IDBError::operator=(const IDBError& other)
-{
-    m_code = other.m_code;
-    m_message = other.m_message;
-    return *this;
+    return IDBError { m_code, m_message.isolatedCopy() };
 }
 
 String IDBError::name() const
 {
-    return IDBDatabaseException::getErrorName(m_code);
+    if (!m_code)
+        return { };
+    return DOMException::name(m_code.value());
 }
 
 String IDBError::message() const
 {
-    return IDBDatabaseException::getErrorDescription(m_code);
+    if (!m_code)
+        return { };
+    return DOMException::message(m_code.value());
+}
+
+RefPtr<DOMException> IDBError::toDOMException() const
+{
+    if (!m_code)
+        return nullptr;
+
+    return DOMException::create(*m_code, m_message);
 }
 
 } // namespace WebCore

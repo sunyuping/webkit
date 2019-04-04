@@ -26,79 +26,89 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef FetchRequest_h
-#define FetchRequest_h
+#pragma once
 
-#if ENABLE(FETCH_API)
-
-#include "FetchBody.h"
-#include "FetchHeaders.h"
+#include "AbortSignal.h"
+#include "ExceptionOr.h"
+#include "FetchBodyOwner.h"
 #include "FetchOptions.h"
+#include "FetchRequestInit.h"
 #include "ResourceRequest.h"
+#include <wtf/Optional.h>
 
 namespace WebCore {
 
-class Dictionary;
+class Blob;
 class ScriptExecutionContext;
+class URLSearchParams;
 
-typedef int ExceptionCode;
-
-class FetchRequest : public RefCounted<FetchRequest> {
+class FetchRequest final : public FetchBodyOwner {
 public:
-    static RefPtr<FetchRequest> create(ScriptExecutionContext&, FetchRequest*, const Dictionary&, ExceptionCode&);
-    static RefPtr<FetchRequest> create(ScriptExecutionContext&, const String&, const Dictionary&, ExceptionCode&);
+    using Init = FetchRequestInit;
+    using Info = Variant<RefPtr<FetchRequest>, String>;
 
-    // Request API
-    const String& method() const { return m_internalRequest.request.httpMethod(); }
-    const String& url() const { return m_internalRequest.request.url().string(); }
+    using Cache = FetchOptions::Cache;
+    using Credentials = FetchOptions::Credentials;
+    using Destination = FetchOptions::Destination;
+    using Mode = FetchOptions::Mode;
+    using Redirect = FetchOptions::Redirect;
+
+    static ExceptionOr<Ref<FetchRequest>> create(ScriptExecutionContext&, Info&&, Init&&);
+    static Ref<FetchRequest> create(ScriptExecutionContext& context, Optional<FetchBody>&& body, Ref<FetchHeaders>&& headers, ResourceRequest&& request, FetchOptions&& options, String&& referrer) { return adoptRef(*new FetchRequest(context, WTFMove(body), WTFMove(headers), WTFMove(request), WTFMove(options), WTFMove(referrer))); }
+
+    const String& method() const { return m_request.httpMethod(); }
+    const String& urlString() const;
     FetchHeaders& headers() { return m_headers.get(); }
+    const FetchHeaders& headers() const { return m_headers.get(); }
 
-    String type() const;
-    String destination() const;
+    Destination destination() const { return m_options.destination; }
     String referrer() const;
-    String referrerPolicy() const;
-    String mode() const;
-    String credentials() const;
-    String cache() const;
-    String redirect() const;
-    const String& integrity() const { return m_internalRequest.integrity; }
+    ReferrerPolicy referrerPolicy() const { return m_options.referrerPolicy; }
+    Mode mode() const { return m_options.mode; }
+    Credentials credentials() const { return m_options.credentials; }
+    Cache cache() const { return m_options.cache; }
+    Redirect redirect() const { return m_options.redirect; }
+    bool keepalive() const { return m_options.keepAlive; };
+    AbortSignal& signal() { return m_signal.get(); }
 
-    RefPtr<FetchRequest> clone(ExceptionCode&);
+    const String& integrity() const { return m_options.integrity; }
 
-    // Body API
-    bool isDisturbed() const { return m_body.isDisturbed(); }
-    void arrayBuffer(FetchBody::ArrayBufferPromise&& promise) { m_body.arrayBuffer(WTFMove(promise)); }
-    void formData(FetchBody::FormDataPromise&& promise) { m_body.formData(WTFMove(promise)); }
-    void blob(FetchBody::BlobPromise&& promise) { m_body.blob(WTFMove(promise)); }
-    void json(JSC::ExecState& state, FetchBody::JSONPromise&& promise) { m_body.json(state, WTFMove(promise)); }
-    void text(FetchBody::TextPromise&& promise) { m_body.text(WTFMove(promise)); }
+    ExceptionOr<Ref<FetchRequest>> clone(ScriptExecutionContext&);
 
-    struct InternalRequest {
-        ResourceRequest request;
-        FetchOptions options;
-        String referrer;
-        String integrity;
-    };
+    const FetchOptions& fetchOptions() const { return m_options; }
+    const ResourceRequest& internalRequest() const { return m_request; }
+    const String& internalRequestReferrer() const { return m_referrer; }
+    const URL& url() const { return m_request.url(); }
 
-    FetchBody& body() { return m_body; }
+    ResourceRequest resourceRequest() const;
 
 private:
-    FetchRequest(FetchBody&&, Ref<FetchHeaders>&&, InternalRequest&&);
+    FetchRequest(ScriptExecutionContext&, Optional<FetchBody>&&, Ref<FetchHeaders>&&, ResourceRequest&&, FetchOptions&&, String&& referrer);
 
-    FetchBody m_body;
-    Ref<FetchHeaders> m_headers;
-    InternalRequest m_internalRequest;
+    ExceptionOr<void> initializeOptions(const Init&);
+    ExceptionOr<void> initializeWith(FetchRequest&, Init&&);
+    ExceptionOr<void> initializeWith(const String&, Init&&);
+    ExceptionOr<void> setBody(FetchBody::Init&&);
+    ExceptionOr<void> setBody(FetchRequest&);
+
+    const char* activeDOMObjectName() const final;
+    bool canSuspendForDocumentSuspension() const final;
+
+    ResourceRequest m_request;
+    FetchOptions m_options;
+    String m_referrer;
+    mutable String m_requestURL;
+    Ref<AbortSignal> m_signal;
 };
 
-inline FetchRequest::FetchRequest(FetchBody&& body, Ref<FetchHeaders>&& headers, InternalRequest&& internalRequest)
-    : m_body(WTFMove(body))
-    , m_headers(WTFMove(headers))
-    , m_internalRequest(WTFMove(internalRequest))
+inline FetchRequest::FetchRequest(ScriptExecutionContext& context, Optional<FetchBody>&& body, Ref<FetchHeaders>&& headers, ResourceRequest&& request, FetchOptions&& options, String&& referrer)
+    : FetchBodyOwner(context, WTFMove(body), WTFMove(headers))
+    , m_request(WTFMove(request))
+    , m_options(WTFMove(options))
+    , m_referrer(WTFMove(referrer))
+    , m_signal(AbortSignal::create(context))
 {
+    updateContentType();
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(FETCH_API)
-
-#endif // FetchRequest_h

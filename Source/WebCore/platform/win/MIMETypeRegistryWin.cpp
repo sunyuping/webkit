@@ -40,7 +40,7 @@ static String mimeTypeForExtension(const String& extension)
     DWORD contentTypeStrLen = sizeof(contentTypeStr);
     DWORD keyType;
 
-    HRESULT result = getRegistryValue(HKEY_CLASSES_ROOT, ext.charactersWithNullTermination().data(), L"Content Type", &keyType, contentTypeStr, &contentTypeStrLen);
+    HRESULT result = getRegistryValue(HKEY_CLASSES_ROOT, ext.wideCharacters().data(), L"Content Type", &keyType, contentTypeStr, &contentTypeStrLen);
 
     if (result == ERROR_SUCCESS && keyType == REG_SZ)
         return String(contentTypeStr, contentTypeStrLen / sizeof(contentTypeStr[0]) - 1);
@@ -55,7 +55,7 @@ String MIMETypeRegistry::getPreferredExtensionForMIMEType(const String& type)
     DWORD extStrLen = sizeof(extStr);
     DWORD keyType;
 
-    HRESULT result = getRegistryValue(HKEY_CLASSES_ROOT, path.charactersWithNullTermination().data(), L"Extension", &keyType, extStr, &extStrLen);
+    HRESULT result = getRegistryValue(HKEY_CLASSES_ROOT, path.wideCharacters().data(), L"Extension", &keyType, extStr, &extStrLen);
 
     if (result == ERROR_SUCCESS && keyType == REG_SZ)
         return String(extStr + 1, extStrLen / sizeof(extStr[0]) - 2);
@@ -76,11 +76,13 @@ String MIMETypeRegistry::getMIMETypeForExtension(const String &ext)
         mimetypeMap.add("txt", "text/plain");
         mimetypeMap.add("pdf", "application/pdf");
         mimetypeMap.add("ps", "application/postscript");
+        mimetypeMap.add("css", "text/css");
         mimetypeMap.add("html", "text/html");
         mimetypeMap.add("htm", "text/html");
         mimetypeMap.add("xml", "text/xml");
         mimetypeMap.add("xsl", "text/xsl");
         mimetypeMap.add("js", "application/x-javascript");
+        mimetypeMap.add("xht", "application/xhtml+xml");
         mimetypeMap.add("xhtml", "application/xhtml+xml");
         mimetypeMap.add("rss", "application/rss+xml");
         mimetypeMap.add("webarchive", "application/x-webarchive");

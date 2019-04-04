@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGJITCompiler_h
-#define DFGJITCompiler_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -35,8 +34,6 @@
 #include "DFGInlineCacheWrapper.h"
 #include "DFGJITCode.h"
 #include "DFGOSRExitCompilationInfo.h"
-#include "DFGRegisterBank.h"
-#include "FPRInfo.h"
 #include "GPRInfo.h"
 #include "HandlerInfo.h"
 #include "JITCode.h"
@@ -44,7 +41,6 @@
 #include "LinkBuffer.h"
 #include "MacroAssembler.h"
 #include "PCToCodeOriginMap.h"
-#include "TempRegisterSet.h"
 
 namespace JSC {
 
@@ -70,31 +66,14 @@ struct OSRExit;
 // Every CallLinkRecord contains a reference to the call instruction & the function
 // that it needs to be linked to.
 struct CallLinkRecord {
-    CallLinkRecord(MacroAssembler::Call call, FunctionPtr function)
+    CallLinkRecord(MacroAssembler::Call call, FunctionPtr<OperationPtrTag> function)
         : m_call(call)
         , m_function(function)
     {
     }
 
     MacroAssembler::Call m_call;
-    FunctionPtr m_function;
-};
-
-struct InRecord {
-    InRecord(
-        MacroAssembler::PatchableJump jump, MacroAssembler::Label done,
-        SlowPathGenerator* slowPathGenerator, StructureStubInfo* stubInfo)
-        : m_jump(jump)
-        , m_done(done)
-        , m_slowPathGenerator(slowPathGenerator)
-        , m_stubInfo(stubInfo)
-    {
-    }
-    
-    MacroAssembler::PatchableJump m_jump;
-    MacroAssembler::Label m_done;
-    SlowPathGenerator* m_slowPathGenerator;
-    StructureStubInfo* m_stubInfo;
+    FunctionPtr<OperationPtrTag> m_function;
 };
 
 // === JITCompiler ===
@@ -147,22 +126,23 @@ public:
         return m_jitCode->common.addCodeOrigin(codeOrigin);
     }
 
-    void emitStoreCodeOrigin(CodeOrigin codeOrigin)
+    CallSiteIndex emitStoreCodeOrigin(CodeOrigin codeOrigin)
     {
         CallSiteIndex callSite = addCallSite(codeOrigin);
         emitStoreCallSiteIndex(callSite);
+        return callSite;
     }
 
     void emitStoreCallSiteIndex(CallSiteIndex callSite)
     {
-        store32(TrustedImm32(callSite.bits()), tagFor(static_cast<VirtualRegister>(JSStack::ArgumentCount)));
+        store32(TrustedImm32(callSite.bits()), tagFor(static_cast<VirtualRegister>(CallFrameSlot::argumentCount)));
     }
 
     // Add a call out from JIT code, without an exception check.
-    Call appendCall(const FunctionPtr& function)
+    Call appendCall(const FunctionPtr<CFunctionPtrTag> function)
     {
-        Call functionCall = call();
-        m_calls.append(CallLinkRecord(functionCall, function));
+        Call functionCall = call(OperationPtrTag);
+        m_calls.append(CallLinkRecord(functionCall, function.retagged<OperationPtrTag>()));
         return functionCall;
     }
     
@@ -170,13 +150,13 @@ public:
 
     void exceptionCheckWithCallFrameRollback()
     {
-        m_exceptionChecksWithCallFrameRollback.append(emitExceptionCheck());
+        m_exceptionChecksWithCallFrameRollback.append(emitExceptionCheck(*vm()));
     }
 
     // Add a call out from JIT code, with a fast exception check that tests if the return value is zero.
     void fastExceptionCheck()
     {
-        callExceptionFuzz();
+        callExceptionFuzz(*vm());
         m_exceptionChecks.append(branchTestPtr(Zero, GPRInfo::returnValueGPR));
     }
     
@@ -197,19 +177,24 @@ public:
         m_getByIds.append(InlineCacheWrapper<JITGetByIdGenerator>(gen, slowPath));
     }
     
+    void addGetByIdWithThis(const JITGetByIdWithThisGenerator& gen, SlowPathGenerator* slowPath)
+    {
+        m_getByIdsWithThis.append(InlineCacheWrapper<JITGetByIdWithThisGenerator>(gen, slowPath));
+    }
+    
     void addPutById(const JITPutByIdGenerator& gen, SlowPathGenerator* slowPath)
     {
         m_putByIds.append(InlineCacheWrapper<JITPutByIdGenerator>(gen, slowPath));
     }
-
-    void addIn(const InRecord& record)
-    {
-        m_ins.append(record);
-    }
     
-    unsigned currentJSCallIndex() const
+    void addInstanceOf(const JITInstanceOfGenerator& gen, SlowPathGenerator* slowPath)
     {
-        return m_jsCalls.size();
+        m_instanceOfs.append(InlineCacheWrapper<JITInstanceOfGenerator>(gen, slowPath));
+    }
+
+    void addInById(const JITInByIdGenerator& gen, SlowPathGenerator* slowPath)
+    {
+        m_inByIds.append(InlineCacheWrapper<JITInByIdGenerator>(gen, slowPath));
     }
 
     void addJSCall(Call fastCall, Call slowCall, DataLabelPtr targetToCheck, CallLinkInfo* info)
@@ -217,9 +202,19 @@ public:
         m_jsCalls.append(JSCallRecord(fastCall, slowCall, targetToCheck, info));
     }
     
+    void addJSDirectCall(Call call, Label slowPath, CallLinkInfo* info)
+    {
+        m_jsDirectCalls.append(JSDirectCallRecord(call, slowPath, info));
+    }
+    
+    void addJSDirectTailCall(PatchableJump patchableJump, Call call, Label slowPath, CallLinkInfo* info)
+    {
+        m_jsDirectTailCalls.append(JSDirectTailCallRecord(patchableJump, call, slowPath, info));
+    }
+    
     void addWeakReference(JSCell* target)
     {
-        m_graph.m_plan.weakReferences.addLazily(target);
+        m_graph.m_plan.weakReferences().addLazily(target);
     }
     
     void addWeakReferences(const StructureSet& structureSet)
@@ -237,18 +232,19 @@ public:
     }
 
     template<typename T>
-    Jump branchWeakStructure(RelationalCondition cond, T left, Structure* weakStructure)
+    Jump branchWeakStructure(RelationalCondition cond, T left, RegisteredStructure weakStructure)
     {
+        Structure* structure = weakStructure.get();
 #if USE(JSVALUE64)
-        Jump result = branch32(cond, left, TrustedImm32(weakStructure->id()));
-        addWeakReference(weakStructure);
+        Jump result = branch32(cond, left, TrustedImm32(structure->id()));
         return result;
 #else
-        return branchWeakPtr(cond, left, weakStructure);
+        return branchPtr(cond, left, TrustedImmPtr(structure));
 #endif
     }
 
     void noticeOSREntry(BasicBlock&, JITCompiler::Label blockHead, LinkBuffer&);
+    void noticeCatchEntrypoint(BasicBlock&, JITCompiler::Label blockHead, LinkBuffer&, Vector<FlushFormat>&& argumentFormats);
     
     RefPtr<JITCode> jitCode() { return m_jitCode; }
     
@@ -258,12 +254,15 @@ public:
 
     PCToCodeOriginMapBuilder& pcToCodeOriginMapBuilder() { return m_pcToCodeOriginMapBuilder; }
 
+    VM* vm() { return &m_graph.m_vm; }
+
 private:
     friend class OSRExitJumpPlaceholder;
     
     // Internal implementation to compile.
     void compileEntry();
     void compileSetupRegistersForEntry();
+    void compileEntryExecutionFlag();
     void compileBody();
     void link(LinkBuffer&);
     
@@ -273,6 +272,8 @@ private:
     void disassemble(LinkBuffer&);
 
     void appendExceptionHandlingOSRExit(ExitKind, unsigned eventStreamIndex, CodeOrigin, HandlerInfo* exceptionHandler, CallSiteIndex, MacroAssembler::JumpList jumpsToFail = MacroAssembler::JumpList());
+
+    void makeCatchOSREntryBuffer();
 
     // The dataflow graph currently being generated.
     Graph& m_graph;
@@ -289,25 +290,63 @@ private:
     
     Vector<Label> m_blockHeads;
 
+
     struct JSCallRecord {
         JSCallRecord(Call fastCall, Call slowCall, DataLabelPtr targetToCheck, CallLinkInfo* info)
-            : m_fastCall(fastCall)
-            , m_slowCall(slowCall)
-            , m_targetToCheck(targetToCheck)
-            , m_info(info)
+            : fastCall(fastCall)
+            , slowCall(slowCall)
+            , targetToCheck(targetToCheck)
+            , info(info)
         {
+            ASSERT(fastCall.isFlagSet(Call::Near));
+            ASSERT(slowCall.isFlagSet(Call::Near));
         }
         
-        Call m_fastCall;
-        Call m_slowCall;
-        DataLabelPtr m_targetToCheck;
-        CallLinkInfo* m_info;
+        Call fastCall;
+        Call slowCall;
+        DataLabelPtr targetToCheck;
+        CallLinkInfo* info;
     };
     
+    struct JSDirectCallRecord {
+        JSDirectCallRecord(Call call, Label slowPath, CallLinkInfo* info)
+            : call(call)
+            , slowPath(slowPath)
+            , info(info)
+        {
+            ASSERT(call.isFlagSet(Call::Near));
+        }
+        
+        Call call;
+        Label slowPath;
+        CallLinkInfo* info;
+    };
+    
+    struct JSDirectTailCallRecord {
+        JSDirectTailCallRecord(PatchableJump patchableJump, Call call, Label slowPath, CallLinkInfo* info)
+            : patchableJump(patchableJump)
+            , call(call)
+            , slowPath(slowPath)
+            , info(info)
+        {
+            ASSERT(call.isFlagSet(Call::Near) && call.isFlagSet(Call::Tail));
+        }
+        
+        PatchableJump patchableJump;
+        Call call;
+        Label slowPath;
+        CallLinkInfo* info;
+    };
+
+    
     Vector<InlineCacheWrapper<JITGetByIdGenerator>, 4> m_getByIds;
+    Vector<InlineCacheWrapper<JITGetByIdWithThisGenerator>, 4> m_getByIdsWithThis;
     Vector<InlineCacheWrapper<JITPutByIdGenerator>, 4> m_putByIds;
-    Vector<InRecord, 4> m_ins;
+    Vector<InlineCacheWrapper<JITInByIdGenerator>, 4> m_inByIds;
+    Vector<InlineCacheWrapper<JITInstanceOfGenerator>, 4> m_instanceOfs;
     Vector<JSCallRecord, 4> m_jsCalls;
+    Vector<JSDirectCallRecord, 4> m_jsDirectCalls;
+    Vector<JSDirectTailCallRecord, 4> m_jsDirectTailCalls;
     SegmentedVector<OSRExitCompilationInfo, 4> m_exitCompilationInfo;
     Vector<Vector<Label>> m_exitSiteLabels;
     
@@ -318,8 +357,6 @@ private:
     };
     Vector<ExceptionHandlingOSRExitInfo> m_exceptionHandlerOSRExitCallSites;
     
-    Call m_callArityFixup;
-    Label m_arityCheck;
     std::unique_ptr<SpeculativeJIT> m_speculative;
     PCToCodeOriginMapBuilder m_pcToCodeOriginMapBuilder;
 };
@@ -327,5 +364,3 @@ private:
 } } // namespace JSC::DFG
 
 #endif
-#endif
-

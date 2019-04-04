@@ -29,8 +29,6 @@
 #include <wtf/ThreadingPrimitives.h>
 #include <wtf/WordLock.h>
 
-using namespace WTF;
-
 namespace TestWebKitAPI {
 
 struct LockInspector {
@@ -46,13 +44,13 @@ void runLockTest(unsigned numThreadGroups, unsigned numThreadsPerGroup, unsigned
 {
     std::unique_ptr<LockType[]> locks = std::make_unique<LockType[]>(numThreadGroups);
     std::unique_ptr<double[]> words = std::make_unique<double[]>(numThreadGroups);
-    std::unique_ptr<ThreadIdentifier[]> threads = std::make_unique<ThreadIdentifier[]>(numThreadGroups * numThreadsPerGroup);
+    std::unique_ptr<RefPtr<Thread>[]> threads = std::make_unique<RefPtr<Thread>[]>(numThreadGroups * numThreadsPerGroup);
 
     for (unsigned threadGroupIndex = numThreadGroups; threadGroupIndex--;) {
         words[threadGroupIndex] = 0;
 
         for (unsigned threadIndex = numThreadsPerGroup; threadIndex--;) {
-            threads[threadGroupIndex * numThreadsPerGroup + threadIndex] = createThread(
+            threads[threadGroupIndex * numThreadsPerGroup + threadIndex] = Thread::create(
                 "Lock test thread",
                 [threadGroupIndex, &locks, &words, numIterations, workPerCriticalSection] () {
                     for (unsigned i = numIterations; i--;) {
@@ -66,7 +64,7 @@ void runLockTest(unsigned numThreadGroups, unsigned numThreadsPerGroup, unsigned
     }
 
     for (unsigned threadIndex = numThreadGroups * numThreadsPerGroup; threadIndex--;)
-        waitForThreadCompletion(threads[threadIndex]);
+        threads[threadIndex]->waitForCompletion();
 
     double expected = 0;
     for (uint64_t i = static_cast<uint64_t>(numIterations) * workPerCriticalSection * numThreadsPerGroup; i--;)

@@ -1,4 +1,4 @@
-# Copyright (C) 2014 Apple Inc. All rights reserved.
+# Copyright (C) 2014, 2017 Apple Inc. All rights reserved.
 # Copyright (C) 2013 Google Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -35,14 +35,20 @@ all_queue_names = [
     "style-queue",
     "gtk-wk2-ews",
     "ios-ews",
+    "ios-sim-ews",
+    "bindings-ews",
+    "jsc-ews",
+    "jsc-mips-ews",
+    "jsc-armv7-ews",
     "mac-ews",
     "mac-wk2-ews",
     "mac-debug-ews",
-    "mac-32bit-ews",
+    "webkitpy-ews",
     "win-ews",
-    "efl-wk2-ews",
+    "wincairo-ews",
+    "wpe-ews",
 ]
 
 # If the patch is still active after this much time, then a bot must have frozen or rebooted,
 # and dropped the patch on the floor. We will ignore the lock in this case, and let another bot pick up.
-work_item_lock_timeout = timedelta(minutes=120)
+work_item_lock_timeout = timedelta(minutes=180)

@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef HTMLMapElement_h
-#define HTMLMapElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
@@ -31,6 +30,7 @@ class HitTestResult;
 class HTMLImageElement;
     
 class HTMLMapElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLMapElement);
 public:
     static Ref<HTMLMapElement> create(Document&);
     static Ref<HTMLMapElement> create(const QualifiedName&, Document&);
@@ -41,19 +41,17 @@ public:
     bool mapMouseEvent(LayoutPoint location, const LayoutSize&, HitTestResult&);
     
     HTMLImageElement* imageElement();
-    Ref<HTMLCollection> areas();
+    WEBCORE_EXPORT Ref<HTMLCollection> areas();
 
 private:
     HTMLMapElement(const QualifiedName&, Document&);
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    virtual void removedFrom(ContainerNode&) override;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
 
     AtomicString m_name;
 };
 
 } // namespaces
-
-#endif

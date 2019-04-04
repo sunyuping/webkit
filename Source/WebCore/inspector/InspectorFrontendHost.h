@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,8 +26,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef InspectorFrontendHost_h
-#define InspectorFrontendHost_h
+#pragma once
 
 #include "ContextMenu.h"
 #include "ContextMenuProvider.h"
@@ -37,7 +36,7 @@
 
 namespace WebCore {
 
-class ContextMenuItem;
+class DOMWrapperWorld;
 class Event;
 class FrontendMenuProvider;
 class InspectorFrontendClient;
@@ -53,14 +52,22 @@ public:
     WEBCORE_EXPORT ~InspectorFrontendHost();
     WEBCORE_EXPORT void disconnectClient();
 
+    WEBCORE_EXPORT void addSelfToGlobalObjectInWorld(DOMWrapperWorld&);
+
     void loaded();
     void requestSetDockSide(const String&);
     void closeWindow();
+    void reopen();
     void bringToFront();
     void inspectedURLChanged(const String&);
 
+    bool supportsShowCertificate() const;
+    bool showCertificate(const String& serializedCertificate);
+
     void setZoomFactor(float);
     float zoomFactor();
+
+    String userInterfaceLayoutDirection();
 
     void setAttachedWindowHeight(unsigned);
     void setAttachedWindowWidth(unsigned);
@@ -68,7 +75,9 @@ public:
     void startWindowDrag();
     void moveWindowBy(float x, float y) const;
 
+    bool isRemote() const;
     String localizedStringsURL();
+    String backendCommandsURL();
     String debuggableType();
     unsigned inspectionLevel();
 
@@ -83,17 +92,25 @@ public:
     void append(const String& url, const String& content);
     void close(const String& url);
 
-#if ENABLE(CONTEXT_MENUS)
-    // Called from [Custom] implementations.
-    void showContextMenu(Event*, const Vector<ContextMenuItem>& items);
-#endif
+    struct ContextMenuItem {
+        String type;
+        String label;
+        Optional<int> id;
+        Optional<bool> enabled;
+        Optional<bool> checked;
+        Optional<Vector<ContextMenuItem>> subItems;
+    };
+    void showContextMenu(Event&, Vector<ContextMenuItem>&&);
+
     void sendMessageToBackend(const String& message);
-    void dispatchEventAsContextMenuEvent(Event*);
+    void dispatchEventAsContextMenuEvent(Event&);
 
     bool isUnderTest();
     void unbufferedLog(const String& message);
 
     void beep();
+    void inspectInspector();
+    bool isBeingInspected();
 
 private:
 #if ENABLE(CONTEXT_MENUS)
@@ -109,5 +126,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // !defined(InspectorFrontendHost_h)

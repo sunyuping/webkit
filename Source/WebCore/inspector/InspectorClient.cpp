@@ -31,26 +31,25 @@
 #include "config.h"
 #include "InspectorClient.h"
 
-#include "MainFrame.h"
+#include "Frame.h"
+#include "InspectorController.h"
 #include "Page.h"
 #include "ScriptController.h"
 #include "ScriptSourceCode.h"
-#include <bindings/ScriptValue.h>
-
-using namespace Inspector;
+#include <JavaScriptCore/FrameTracers.h>
 
 namespace WebCore {
+using namespace JSC;
+using namespace Inspector;
 
-bool InspectorClient::doDispatchMessageOnFrontendPage(Page* frontendPage, const String& message)
+void InspectorClient::doDispatchMessageOnFrontendPage(Page* frontendPage, const String& message)
 {
     if (!frontendPage)
-        return false;
+        return;
 
-    String dispatchToFrontend = "InspectorFrontendAPI.dispatchMessageAsync(" + message + ");";
-
-    // FIXME: This should execute the script in the appropriate world.
+    SuspendExceptionScope scope(&frontendPage->inspectorController().vm());
+    String dispatchToFrontend = makeString("InspectorFrontendAPI.dispatchMessageAsync(", message, ");");
     frontendPage->mainFrame().script().evaluate(ScriptSourceCode(dispatchToFrontend));
-    return true;
 }
 
 } // namespace WebCore

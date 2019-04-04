@@ -22,14 +22,10 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DateConversion_h
-#define DateConversion_h
+#pragma once
 
+#include <wtf/Forward.h>
 #include <wtf/GregorianDateTime.h>
-
-namespace WTF {
-class String;
-} // namespace WTF
 
 namespace JSC {
 
@@ -42,5 +38,3 @@ enum DateTimeFormat {
 JS_EXPORT_PRIVATE WTF::String formatDateTime(const GregorianDateTime&, DateTimeFormat, bool asUTCVariant);
 
 } // namespace JSC
-
-#endif // DateConversion_h

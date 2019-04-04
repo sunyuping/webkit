@@ -27,12 +27,15 @@
 #include "ResourceRequestBase.h"
 
 #include "HTTPHeaderNames.h"
+#include "PublicSuffix.h"
 #include "ResourceRequest.h"
+#include "ResourceResponse.h"
+#include "SecurityPolicy.h"
 #include <wtf/PointerComparison.h>
 
 namespace WebCore {
 
-#if !USE(SOUP) && (!PLATFORM(COCOA) || USE(CFNETWORK))
+#if PLATFORM(IOS_FAMILY) || USE(CFURLCONNECTION)
 double ResourceRequestBase::s_defaultTimeoutInterval = INT_MAX;
 #else
 // Will use NSURLRequest default timeout unless set to a non-zero value with setDefaultTimeoutInterval().
@@ -40,69 +43,56 @@ double ResourceRequestBase::s_defaultTimeoutInterval = INT_MAX;
 double ResourceRequestBase::s_defaultTimeoutInterval = 0;
 #endif
 
-#if PLATFORM(IOS)
-bool ResourceRequestBase::s_defaultAllowCookies = true;
-#endif
-
 inline const ResourceRequest& ResourceRequestBase::asResourceRequest() const
 {
     return *static_cast<const ResourceRequest*>(this);
 }
 
-std::unique_ptr<ResourceRequest> ResourceRequestBase::adopt(std::unique_ptr<CrossThreadResourceRequestData> data)
+ResourceRequest ResourceRequestBase::isolatedCopy() const
 {
-    auto request = std::make_unique<ResourceRequest>();
-    request->setURL(data->url);
-    request->setCachePolicy(data->cachePolicy);
-    request->setTimeoutInterval(data->timeoutInterval);
-    request->setFirstPartyForCookies(data->firstPartyForCookies);
-    request->setHTTPMethod(data->httpMethod);
-    request->setPriority(data->priority);
-    request->setRequester(data->requester);
-
-    request->updateResourceRequest();
-    request->m_httpHeaderFields.adopt(WTFMove(data->httpHeaders));
-
-    size_t encodingCount = data->responseContentDispositionEncodingFallbackArray.size();
-    if (encodingCount > 0) {
-        String encoding1 = data->responseContentDispositionEncodingFallbackArray[0];
-        String encoding2;
-        String encoding3;
-        if (encodingCount > 1) {
-            encoding2 = data->responseContentDispositionEncodingFallbackArray[1];
-            if (encodingCount > 2)
-                encoding3 = data->responseContentDispositionEncodingFallbackArray[2];
-        }
-        ASSERT(encodingCount <= 3);
-        request->setResponseContentDispositionEncodingFallbackArray(encoding1, encoding2, encoding3);
-    }
-    request->setHTTPBody(data->httpBody.copyRef());
-    request->setAllowCookies(data->allowCookies);
-    request->doPlatformAdopt(WTFMove(data));
+    ResourceRequest request;
+    request.setAsIsolatedCopy(asResourceRequest());
     return request;
 }
 
-std::unique_ptr<CrossThreadResourceRequestData> ResourceRequestBase::copyData() const
+void ResourceRequestBase::setAsIsolatedCopy(const ResourceRequest& other)
 {
-    auto data = std::make_unique<CrossThreadResourceRequestData>();
-    data->url = url().isolatedCopy();
-    data->cachePolicy = m_cachePolicy;
-    data->timeoutInterval = timeoutInterval();
-    data->firstPartyForCookies = firstPartyForCookies().isolatedCopy();
-    data->httpMethod = httpMethod().isolatedCopy();
-    data->httpHeaders = httpHeaderFields().copyData();
-    data->priority = m_priority;
-    data->requester = m_requester;
+    setURL(other.url().isolatedCopy());
+    setCachePolicy(other.cachePolicy());
+    setTimeoutInterval(other.timeoutInterval());
+    setFirstPartyForCookies(other.firstPartyForCookies().isolatedCopy());
+    setHTTPMethod(other.httpMethod().isolatedCopy());
+    setPriority(other.priority());
+    setRequester(other.requester());
+    setInitiatorIdentifier(other.initiatorIdentifier().isolatedCopy());
+    setCachePartition(other.cachePartition().isolatedCopy());
 
-    data->responseContentDispositionEncodingFallbackArray.reserveInitialCapacity(m_responseContentDispositionEncodingFallbackArray.size());
-    size_t encodingArraySize = m_responseContentDispositionEncodingFallbackArray.size();
-    for (size_t index = 0; index < encodingArraySize; ++index) {
-        data->responseContentDispositionEncodingFallbackArray.append(m_responseContentDispositionEncodingFallbackArray[index].isolatedCopy());
+    if (auto inspectorInitiatorNodeIdentifier = other.inspectorInitiatorNodeIdentifier())
+        setInspectorInitiatorNodeIdentifier(*inspectorInitiatorNodeIdentifier);
+
+    if (!other.isSameSiteUnspecified())
+        setIsSameSite(other.isSameSite());
+    setIsTopSite(other.isTopSite());
+
+    updateResourceRequest();
+    m_httpHeaderFields = other.httpHeaderFields().isolatedCopy();
+
+    size_t encodingCount = other.m_responseContentDispositionEncodingFallbackArray.size();
+    if (encodingCount > 0) {
+        String encoding1 = other.m_responseContentDispositionEncodingFallbackArray[0].isolatedCopy();
+        String encoding2;
+        String encoding3;
+        if (encodingCount > 1) {
+            encoding2 = other.m_responseContentDispositionEncodingFallbackArray[1].isolatedCopy();
+            if (encodingCount > 2)
+                encoding3 = other.m_responseContentDispositionEncodingFallbackArray[2].isolatedCopy();
+        }
+        ASSERT(encodingCount <= 3);
+        setResponseContentDispositionEncodingFallbackArray(encoding1, encoding2, encoding3);
     }
-    if (m_httpBody)
-        data->httpBody = m_httpBody->deepCopy();
-    data->allowCookies = m_allowCookies;
-    return asResourceRequest().doPlatformCopyData(WTFMove(data));
+    if (other.m_httpBody)
+        setHTTPBody(other.m_httpBody->isolatedCopy());
+    setAllowCookies(other.m_allowCookies);
 }
 
 bool ResourceRequestBase::isEmpty() const
@@ -135,6 +125,42 @@ void ResourceRequestBase::setURL(const URL& url)
     m_platformRequestUpdated = false;
 }
 
+static bool shouldUseGet(const ResourceRequestBase& request, const ResourceResponse& redirectResponse)
+{
+    if (redirectResponse.httpStatusCode() == 301 || redirectResponse.httpStatusCode() == 302)
+        return equalLettersIgnoringASCIICase(request.httpMethod(), "post");
+    return redirectResponse.httpStatusCode() == 303;
+}
+
+ResourceRequest ResourceRequestBase::redirectedRequest(const ResourceResponse& redirectResponse, bool shouldClearReferrerOnHTTPSToHTTPRedirect) const
+{
+    ASSERT(redirectResponse.isRedirection());
+    // This method is based on https://fetch.spec.whatwg.org/#http-redirect-fetch.
+    // It also implements additional processing like done by CFNetwork layer.
+
+    auto request = asResourceRequest();
+    auto location = redirectResponse.httpHeaderField(HTTPHeaderName::Location);
+
+    request.setURL(location.isEmpty() ? URL { } : URL { redirectResponse.url(), location });
+
+    if (shouldUseGet(*this, redirectResponse)) {
+        request.setHTTPMethod("GET"_s);
+        request.setHTTPBody(nullptr);
+        request.clearHTTPContentType();
+        request.m_httpHeaderFields.remove(HTTPHeaderName::ContentLength);
+    }
+
+    if (shouldClearReferrerOnHTTPSToHTTPRedirect && !request.url().protocolIs("https") && WTF::protocolIs(request.httpReferrer(), "https"))
+        request.clearHTTPReferrer();
+
+    if (!protocolHostAndPortAreEqual(request.url(), redirectResponse.url()))
+        request.clearHTTPOrigin();
+    request.clearHTTPAuthorization();
+    request.m_httpHeaderFields.remove(HTTPHeaderName::ProxyAuthorization);
+
+    return request;
+}
+
 void ResourceRequestBase::removeCredentials()
 {
     updateResourceRequest(); 
@@ -164,8 +190,7 @@ void ResourceRequestBase::setCachePolicy(ResourceRequestCachePolicy cachePolicy)
     
     m_cachePolicy = cachePolicy;
     
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 double ResourceRequestBase::timeoutInterval() const
@@ -184,8 +209,7 @@ void ResourceRequestBase::setTimeoutInterval(double timeoutInterval)
 
     m_timeoutInterval = timeoutInterval;
     
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 const URL& ResourceRequestBase::firstPartyForCookies() const
@@ -207,6 +231,45 @@ void ResourceRequestBase::setFirstPartyForCookies(const URL& firstPartyForCookie
     m_platformRequestUpdated = false;
 }
 
+bool ResourceRequestBase::isSameSite() const
+{
+    updateResourceRequest();
+
+    return m_sameSiteDisposition == SameSiteDisposition::SameSite;
+}
+
+void ResourceRequestBase::setIsSameSite(bool isSameSite)
+{
+    updateResourceRequest();
+
+    SameSiteDisposition newDisposition = isSameSite ? SameSiteDisposition::SameSite : SameSiteDisposition::CrossSite;
+    if (m_sameSiteDisposition == newDisposition)
+        return;
+
+    m_sameSiteDisposition = newDisposition;
+
+    m_platformRequestUpdated = false;
+}
+
+bool ResourceRequestBase::isTopSite() const
+{
+    updateResourceRequest();
+
+    return m_isTopSite;
+}
+
+void ResourceRequestBase::setIsTopSite(bool isTopSite)
+{
+    updateResourceRequest();
+
+    if (m_isTopSite == isTopSite)
+        return;
+
+    m_isTopSite = isTopSite;
+
+    m_platformRequestUpdated = false;
+}
+
 const String& ResourceRequestBase::httpMethod() const
 {
     updateResourceRequest(); 
@@ -223,8 +286,7 @@ void ResourceRequestBase::setHTTPMethod(const String& httpMethod)
 
     m_httpMethod = httpMethod;
     
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 const HTTPHeaderMap& ResourceRequestBase::httpHeaderFields() const
@@ -254,8 +316,7 @@ void ResourceRequestBase::setHTTPHeaderField(const String& name, const String& v
 
     m_httpHeaderFields.set(name, value);
     
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 void ResourceRequestBase::setHTTPHeaderField(HTTPHeaderName name, const String& value)
@@ -264,8 +325,7 @@ void ResourceRequestBase::setHTTPHeaderField(HTTPHeaderName name, const String& 
 
     m_httpHeaderFields.set(name, value);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 void ResourceRequestBase::clearHTTPAuthorization()
@@ -275,8 +335,7 @@ void ResourceRequestBase::clearHTTPAuthorization()
     if (!m_httpHeaderFields.remove(HTTPHeaderName::Authorization))
         return;
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 String ResourceRequestBase::httpContentType() const
@@ -295,8 +354,7 @@ void ResourceRequestBase::clearHTTPContentType()
 
     m_httpHeaderFields.remove(HTTPHeaderName::ContentType);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 String ResourceRequestBase::httpReferrer() const
@@ -304,19 +362,31 @@ String ResourceRequestBase::httpReferrer() const
     return httpHeaderField(HTTPHeaderName::Referer);
 }
 
+bool ResourceRequestBase::hasHTTPReferrer() const
+{
+    return m_httpHeaderFields.contains(HTTPHeaderName::Referer);
+}
+
 void ResourceRequestBase::setHTTPReferrer(const String& httpReferrer)
 {
     setHTTPHeaderField(HTTPHeaderName::Referer, httpReferrer);
 }
 
+void ResourceRequestBase::setExistingHTTPReferrerToOriginString()
+{
+    if (!hasHTTPReferrer())
+        return;
+
+    setHTTPHeaderField(HTTPHeaderName::Referer, SecurityPolicy::referrerToOriginString(httpReferrer()));
+}
+    
 void ResourceRequestBase::clearHTTPReferrer()
 {
     updateResourceRequest(); 
 
     m_httpHeaderFields.remove(HTTPHeaderName::Referer);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 String ResourceRequestBase::httpOrigin() const
@@ -329,14 +399,23 @@ void ResourceRequestBase::setHTTPOrigin(const String& httpOrigin)
     setHTTPHeaderField(HTTPHeaderName::Origin, httpOrigin);
 }
 
+bool ResourceRequestBase::hasHTTPOrigin() const
+{
+    return m_httpHeaderFields.contains(HTTPHeaderName::Origin);
+}
+
 void ResourceRequestBase::clearHTTPOrigin()
 {
-    updateResourceRequest(); 
+    updateResourceRequest();
 
     m_httpHeaderFields.remove(HTTPHeaderName::Origin);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
+}
+
+bool ResourceRequestBase::hasHTTPHeader(HTTPHeaderName name) const
+{
+    return m_httpHeaderFields.contains(name);
 }
 
 String ResourceRequestBase::httpUserAgent() const
@@ -355,8 +434,7 @@ void ResourceRequestBase::clearHTTPUserAgent()
 
     m_httpHeaderFields.remove(HTTPHeaderName::UserAgent);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 String ResourceRequestBase::httpAccept() const
@@ -375,8 +453,7 @@ void ResourceRequestBase::clearHTTPAccept()
 
     m_httpHeaderFields.remove(HTTPHeaderName::Accept);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 void ResourceRequestBase::clearHTTPAcceptEncoding()
@@ -385,8 +462,7 @@ void ResourceRequestBase::clearHTTPAcceptEncoding()
 
     m_httpHeaderFields.remove(HTTPHeaderName::AcceptEncoding);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 void ResourceRequestBase::setResponseContentDispositionEncodingFallbackArray(const String& encoding1, const String& encoding2, const String& encoding3)
@@ -402,15 +478,26 @@ void ResourceRequestBase::setResponseContentDispositionEncodingFallbackArray(con
     if (!encoding3.isNull())
         m_responseContentDispositionEncodingFallbackArray.uncheckedAppend(encoding3);
     
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 FormData* ResourceRequestBase::httpBody() const
 {
-    updateResourceRequest(UpdateHTTPBody);
+    updateResourceRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody);
 
     return m_httpBody.get();
+}
+
+bool ResourceRequestBase::hasUpload() const
+{
+    if (auto* body = httpBody()) {
+        for (auto& element : body->elements()) {
+            if (WTF::holds_alternative<WebCore::FormDataElement::EncodedFileData>(element.data) || WTF::holds_alternative<WebCore::FormDataElement::EncodedBlobData>(element.data))
+                return true;
+        }
+    }
+    
+    return false;
 }
 
 void ResourceRequestBase::setHTTPBody(RefPtr<FormData>&& httpBody)
@@ -421,8 +508,7 @@ void ResourceRequestBase::setHTTPBody(RefPtr<FormData>&& httpBody)
 
     m_resourceRequestBodyUpdated = true;
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestBodyUpdated = false;
+    m_platformRequestBodyUpdated = false;
 }
 
 bool ResourceRequestBase::allowCookies() const
@@ -441,8 +527,7 @@ void ResourceRequestBase::setAllowCookies(bool allowCookies)
 
     m_allowCookies = allowCookies;
     
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
 ResourceLoadPriority ResourceRequestBase::priority() const
@@ -461,18 +546,40 @@ void ResourceRequestBase::setPriority(ResourceLoadPriority priority)
 
     m_priority = priority;
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
 
-void ResourceRequestBase::addHTTPHeaderField(const String& name, const String& value) 
+void ResourceRequestBase::addHTTPHeaderFieldIfNotPresent(HTTPHeaderName name, const String& value)
+{
+    updateResourceRequest();
+
+    if (!m_httpHeaderFields.addIfNotPresent(name, value))
+        return;
+
+    m_platformRequestUpdated = false;
+}
+
+void ResourceRequestBase::addHTTPHeaderField(HTTPHeaderName name, const String& value)
 {
     updateResourceRequest();
 
     m_httpHeaderFields.add(name, value);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
+}
+
+void ResourceRequestBase::addHTTPHeaderField(const String& name, const String& value)
+{
+    updateResourceRequest();
+
+    m_httpHeaderFields.add(name, value);
+
+    m_platformRequestUpdated = false;
+}
+
+bool ResourceRequestBase::hasHTTPHeaderField(HTTPHeaderName headerName) const
+{
+    return m_httpHeaderFields.contains(headerName);
 }
 
 void ResourceRequestBase::setHTTPHeaderFields(HTTPHeaderMap headerFields)
@@ -481,9 +588,30 @@ void ResourceRequestBase::setHTTPHeaderFields(HTTPHeaderMap headerFields)
 
     m_httpHeaderFields = WTFMove(headerFields);
 
-    if (url().protocolIsInHTTPFamily())
-        m_platformRequestUpdated = false;
+    m_platformRequestUpdated = false;
 }
+
+#if USE(SYSTEM_PREVIEW)
+bool ResourceRequestBase::isSystemPreview() const
+{
+    return m_isSystemPreview;
+}
+
+void ResourceRequestBase::setSystemPreview(bool s)
+{
+    m_isSystemPreview = s;
+}
+
+const IntRect& ResourceRequestBase::systemPreviewRect() const
+{
+    return m_systemPreviewRect;
+}
+
+void ResourceRequestBase::setSystemPreviewRect(const IntRect& rect)
+{
+    m_systemPreviewRect = rect;
+}
+#endif
 
 bool equalIgnoringHeaderFields(const ResourceRequestBase& a, const ResourceRequestBase& b)
 {
@@ -497,6 +625,12 @@ bool equalIgnoringHeaderFields(const ResourceRequestBase& a, const ResourceReque
         return false;
     
     if (a.firstPartyForCookies() != b.firstPartyForCookies())
+        return false;
+
+    if (a.isSameSite() != b.isSameSite())
+        return false;
+
+    if (a.isTopSite() != b.isTopSite())
         return false;
     
     if (a.httpMethod() != b.httpMethod())
@@ -514,7 +648,7 @@ bool equalIgnoringHeaderFields(const ResourceRequestBase& a, const ResourceReque
     return arePointingToEqualData(a.httpBody(), b.httpBody());
 }
 
-bool ResourceRequestBase::compare(const ResourceRequest& a, const ResourceRequest& b)
+bool ResourceRequestBase::equal(const ResourceRequest& a, const ResourceRequest& b)
 {
     if (!equalIgnoringHeaderFields(a, b))
         return false;
@@ -535,6 +669,8 @@ static const HTTPHeaderName conditionalHeaderNames[] = {
 
 bool ResourceRequestBase::isConditional() const
 {
+    updateResourceRequest();
+
     for (auto headerName : conditionalHeaderNames) {
         if (m_httpHeaderFields.contains(headerName))
             return true;
@@ -545,6 +681,8 @@ bool ResourceRequestBase::isConditional() const
 
 void ResourceRequestBase::makeUnconditional()
 {
+    updateResourceRequest();
+
     for (auto headerName : conditionalHeaderNames)
         m_httpHeaderFields.remove(headerName);
 }
@@ -567,7 +705,7 @@ void ResourceRequestBase::updatePlatformRequest(HTTPBodyUpdatePolicy bodyPolicy)
         m_platformRequestUpdated = true;
     }
 
-    if (!m_platformRequestBodyUpdated && bodyPolicy == UpdateHTTPBody) {
+    if (!m_platformRequestBodyUpdated && bodyPolicy == HTTPBodyUpdatePolicy::UpdateHTTPBody) {
         ASSERT(m_resourceRequestBodyUpdated);
         const_cast<ResourceRequest&>(asResourceRequest()).doUpdatePlatformHTTPBody();
         m_platformRequestBodyUpdated = true;
@@ -582,14 +720,14 @@ void ResourceRequestBase::updateResourceRequest(HTTPBodyUpdatePolicy bodyPolicy)
         m_resourceRequestUpdated = true;
     }
 
-    if (!m_resourceRequestBodyUpdated && bodyPolicy == UpdateHTTPBody) {
+    if (!m_resourceRequestBodyUpdated && bodyPolicy == HTTPBodyUpdatePolicy::UpdateHTTPBody) {
         ASSERT(m_platformRequestBodyUpdated);
         const_cast<ResourceRequest&>(asResourceRequest()).doUpdateResourceHTTPBody();
         m_resourceRequestBodyUpdated = true;
     }
 }
 
-#if !PLATFORM(COCOA) && !USE(CFNETWORK) && !USE(SOUP)
+#if !PLATFORM(COCOA) && !USE(CFURLCONNECTION) && !USE(SOUP)
 unsigned initializeMaximumHTTPConnectionCountPerHost()
 {
     // This is used by the loader to control the number of issued parallel load requests. 
@@ -598,16 +736,33 @@ unsigned initializeMaximumHTTPConnectionCountPerHost()
 }
 #endif
 
-#if PLATFORM(IOS)
-void ResourceRequestBase::setDefaultAllowCookies(bool allowCookies)
+void ResourceRequestBase::setCachePartition(const String& cachePartition)
 {
-    s_defaultAllowCookies = allowCookies;
+#if ENABLE(CACHE_PARTITIONING)
+    ASSERT(!cachePartition.isNull());
+    ASSERT(cachePartition == partitionName(cachePartition));
+    m_cachePartition = cachePartition;
+#else
+    UNUSED_PARAM(cachePartition);
+#endif
 }
 
-bool ResourceRequestBase::defaultAllowCookies()
+String ResourceRequestBase::partitionName(const String& domain)
 {
-    return s_defaultAllowCookies;
-}
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    if (domain.isNull())
+        return emptyString();
+    String highLevel = topPrivatelyControlledDomain(domain);
+    if (highLevel.isNull())
+        return emptyString();
+    return highLevel;
+#else
+    UNUSED_PARAM(domain);
+#if ENABLE(CACHE_PARTITIONING)
+#error Cache partitioning requires PUBLIC_SUFFIX_LIST
 #endif
+    return emptyString();
+#endif
+}
 
 }

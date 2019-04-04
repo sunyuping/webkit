@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,10 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef RegisterAtOffsetList_h
-#define RegisterAtOffsetList_h
+#pragma once
 
-#if ENABLE(JIT)
+#if ENABLE(ASSEMBLER)
 
 #include "RegisterAtOffset.h"
 #include "RegisterSet.h"
@@ -39,7 +38,7 @@ public:
     enum OffsetBaseType { FramePointerBased, ZeroBased };
 
     RegisterAtOffsetList();
-    RegisterAtOffsetList(RegisterSet, OffsetBaseType = FramePointerBased);
+    explicit RegisterAtOffsetList(RegisterSet, OffsetBaseType = FramePointerBased);
 
     void dump(PrintStream&) const;
 
@@ -53,22 +52,23 @@ public:
         return m_registers.size();
     }
 
+    const RegisterAtOffset& at(size_t index) const
+    {
+        return m_registers.at(index);
+    }
+
     RegisterAtOffset& at(size_t index)
     {
         return m_registers.at(index);
     }
     
-    void append(RegisterAtOffset registerAtOffset)
-    {
-        m_registers.append(registerAtOffset);
-    }
-
-    void sort();
     RegisterAtOffset* find(Reg) const;
     unsigned indexOf(Reg) const; // Returns UINT_MAX if not found.
 
     Vector<RegisterAtOffset>::const_iterator begin() const { return m_registers.begin(); }
     Vector<RegisterAtOffset>::const_iterator end() const { return m_registers.end(); }
+
+    static const RegisterAtOffsetList& llintBaselineCalleeSaveRegisters(); // Registers and Offsets saved and used by the LLInt.
 
 private:
     Vector<RegisterAtOffset> m_registers;
@@ -76,7 +76,4 @@ private:
 
 } // namespace JSC
 
-#endif // ENABLE(JIT)
-
-#endif // RegisterAtOffsetList_h
-
+#endif // ENABLE(ASSEMBLER)

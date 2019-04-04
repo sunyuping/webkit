@@ -23,11 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef TrackedReferences_h
-#define TrackedReferences_h
+#pragma once
 
 #include "JSCJSValue.h"
-#include "JSCell.h"
+#include "JSCast.h"
 #include <wtf/HashSet.h>
 #include <wtf/PrintStream.h>
 
@@ -51,6 +50,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // TrackedReferences_h
-

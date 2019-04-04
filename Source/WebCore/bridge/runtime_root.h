@@ -26,9 +26,9 @@
 #ifndef RUNTIME_ROOT_H_
 #define RUNTIME_ROOT_H_
 
-#include <heap/Strong.h>
-#include <heap/Weak.h>
-#include <heap/WeakInlines.h>
+#include <JavaScriptCore/Strong.h>
+#include <JavaScriptCore/Weak.h>
+#include <JavaScriptCore/WeakInlines.h>
 #include <wtf/Forward.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/HashSet.h>
@@ -82,7 +82,7 @@ private:
     RootObject(const void* nativeHandle, JSGlobalObject*);
 
     // WeakHandleOwner
-    virtual void finalize(JSC::Handle<JSC::Unknown>, void* context) override;
+    void finalize(JSC::Handle<JSC::Unknown>, void* context) override;
 
     bool m_isValid;
     

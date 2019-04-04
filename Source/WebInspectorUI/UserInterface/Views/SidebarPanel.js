@@ -23,25 +23,24 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.SidebarPanel = class SidebarPanel extends WebInspector.View
+WI.SidebarPanel = class SidebarPanel extends WI.View
 {
-    constructor(identifier, displayName, element, role, label)
+    constructor(identifier, displayName)
     {
-        super(element);
+        super();
 
         this._identifier = identifier;
         this._displayName = displayName;
         this._selected = false;
 
-        this._widthSetting = new WebInspector.Setting(identifier + "-sidebar-panel-width", 300);
         this._savedScrollPosition = 0;
 
         this.element.classList.add("panel", identifier);
 
-        this.element.setAttribute("role", role || "group");
-        this.element.setAttribute("aria-label", label || displayName);
+        this.element.setAttribute("role", "group");
+        this.element.setAttribute("aria-label", displayName);
 
-        this._contentView = new WebInspector.View;
+        this._contentView = new WI.View;
         this._contentView.element.classList.add("content");
         this.addSubview(this._contentView);
     }
@@ -56,6 +55,11 @@ WebInspector.SidebarPanel = class SidebarPanel extends WebInspector.View
     get contentView()
     {
         return this._contentView;
+    }
+
+    get displayName()
+    {
+        return this._displayName;
     }
 
     get visible()
@@ -88,75 +92,19 @@ WebInspector.SidebarPanel = class SidebarPanel extends WebInspector.View
         return 0;
     }
 
-    get savedWidth()
-    {
-        return this._widthSetting.value;
-    }
-
-    show()
-    {
-        if (!this.parentSidebar)
-            return;
-
-        this.parentSidebar.collapsed = false;
-        this.parentSidebar.selectedSidebarPanel = this;
-    }
-
-    hide()
-    {
-        if (!this.parentSidebar)
-            return;
-
-        this.parentSidebar.collapsed = true;
-        this.parentSidebar.selectedSidebarPanel = null;
-    }
-
-    toggle()
-    {
-        if (this.visible)
-            this.hide();
-        else
-            this.show();
-    }
-
-    added()
-    {
-        console.assert(this.parentSidebar);
-
-        // Implemented by subclasses.
-    }
-
-    removed()
-    {
-        console.assert(!this.parentSidebar);
-
-        // Implemented by subclasses.
-    }
-
-    willRemove()
-    {
-        // Implemented by subclasses.
-    }
-
     shown()
     {
-        this._contentView.element.scrollTop = this._savedScrollPosition;
+        this.scrollElement.scrollTop = this._savedScrollPosition;
+
+        // FIXME: remove once <https://webkit.org/b/150741> is fixed.
+        this.updateLayoutIfNeeded();
 
         // Implemented by subclasses.
     }
 
     hidden()
     {
-        this._savedScrollPosition = this._contentView.element.scrollTop;
-
-        // Implemented by subclasses.
-    }
-
-    widthDidChange()
-    {
-        let width = this.element.realOffsetWidth;
-        if (width && width !== this._widthSetting.value)
-            this._widthSetting.value = width;
+        this._savedScrollPosition = this.scrollElement.scrollTop;
 
         // Implemented by subclasses.
     }
@@ -164,5 +112,13 @@ WebInspector.SidebarPanel = class SidebarPanel extends WebInspector.View
     visibilityDidChange()
     {
         // Implemented by subclasses.
+    }
+
+    // Protected
+
+    get scrollElement()
+    {
+        // Overridden by sub-classes if needed.
+        return this.contentView.element;
     }
 };

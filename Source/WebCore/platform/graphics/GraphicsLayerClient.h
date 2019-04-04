@@ -23,10 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef GraphicsLayerClient_h
-#define GraphicsLayerClient_h
+#pragma once
 
-#include "IntSize.h"
 #include "TiledBacking.h"
 #include <wtf/Forward.h>
 
@@ -50,16 +48,16 @@ enum GraphicsLayerPaintingPhaseFlags {
     GraphicsLayerPaintChildClippingMask     = 1 << 6,
     GraphicsLayerPaintAllWithOverflowClip   = GraphicsLayerPaintBackground | GraphicsLayerPaintForeground
 };
-typedef unsigned GraphicsLayerPaintingPhase;
+typedef uint8_t GraphicsLayerPaintingPhase;
 
 enum AnimatedPropertyID {
     AnimatedPropertyInvalid,
     AnimatedPropertyTransform,
     AnimatedPropertyOpacity,
     AnimatedPropertyBackgroundColor,
-    AnimatedPropertyFilter
+    AnimatedPropertyFilter,
 #if ENABLE(FILTERS_LEVEL_2)
-    , AnimatedPropertyWebkitBackdropFilter
+    AnimatedPropertyWebkitBackdropFilter,
 #endif
 };
 
@@ -72,17 +70,29 @@ enum LayerTreeAsTextBehaviorFlags {
     LayerTreeAsTextIncludePaintingPhases        = 1 << 4,
     LayerTreeAsTextIncludeContentLayers         = 1 << 5,
     LayerTreeAsTextIncludePageOverlayLayers     = 1 << 6,
+    LayerTreeAsTextIncludeAcceleratesDrawing    = 1 << 7,
+    LayerTreeAsTextIncludeBackingStoreAttached  = 1 << 8,
+    LayerTreeAsTextIncludeRootLayerProperties   = 1 << 9,
+    LayerTreeAsTextIncludeEventRegion           = 1 << 10,
+    LayerTreeAsTextShowAll                      = 0xFFFF
 };
 typedef unsigned LayerTreeAsTextBehavior;
 
+enum GraphicsLayerPaintFlags {
+    GraphicsLayerPaintNormal                    = 0,
+    GraphicsLayerPaintSnapshotting              = 1 << 0,
+    GraphicsLayerPaintFirstTilePaint            = 1 << 1,
+};
+typedef unsigned GraphicsLayerPaintBehavior;
+    
 class GraphicsLayerClient {
 public:
-    virtual ~GraphicsLayerClient() {}
+    virtual ~GraphicsLayerClient() = default;
 
     virtual void tiledBackingUsageChanged(const GraphicsLayer*, bool /*usingTiledBacking*/) { }
     
     // Callback for when hardware-accelerated animation started.
-    virtual void notifyAnimationStarted(const GraphicsLayer*, const String& /*animationKey*/, double /*time*/) { }
+    virtual void notifyAnimationStarted(const GraphicsLayer*, const String& /*animationKey*/, MonotonicTime /*time*/) { }
     virtual void notifyAnimationEnded(const GraphicsLayer*, const String& /*animationKey*/) { }
 
     // Notification that a layer property changed that requires a subsequent call to flushCompositingState()
@@ -92,8 +102,8 @@ public:
     // Notification that this layer requires a flush before the next display refresh.
     virtual void notifyFlushBeforeDisplayRefresh(const GraphicsLayer*) { }
 
-    virtual void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const FloatRect& /* inClip */) { }
-    virtual void didCommitChangesForLayer(const GraphicsLayer*) const { }
+    virtual void paintContents(const GraphicsLayer*, GraphicsContext&, GraphicsLayerPaintingPhase, const FloatRect& /* inClip */, GraphicsLayerPaintBehavior) { }
+    virtual void didChangePlatformLayerForLayer(const GraphicsLayer*) { }
 
     // Provides current transform (taking transform-origin and animations into account). Input matrix has been
     // initialized to identity already. Returns false if the layer has no transform.
@@ -115,16 +125,18 @@ public:
     virtual bool isTrackingRepaints() const { return false; }
 
     virtual bool shouldSkipLayerInDump(const GraphicsLayer*, LayerTreeAsTextBehavior) const { return false; }
-    virtual bool shouldDumpPropertyForLayer(const GraphicsLayer*, const char*) const { return true; }
+    virtual bool shouldDumpPropertyForLayer(const GraphicsLayer*, const char*, LayerTreeAsTextBehavior) const { return true; }
 
     virtual bool shouldAggressivelyRetainTiles(const GraphicsLayer*) const { return false; }
     virtual bool shouldTemporarilyRetainTileCohorts(const GraphicsLayer*) const { return true; }
 
-    virtual IntSize tileSize() const { return defaultTileSize(); }
+    virtual bool useGiantTiles() const { return false; }
 
     virtual bool needsPixelAligment() const { return false; }
 
     virtual bool needsIOSDumpRenderTreeMainFrameRenderViewLayerIsAlwaysOpaqueHack(const GraphicsLayer&) const { return false; }
+
+    virtual void logFilledVisibleFreshTile(unsigned) { };
 
 #ifndef NDEBUG
     // RenderLayerBacking overrides this to verify that it is not
@@ -138,4 +150,3 @@ public:
 
 } // namespace WebCore
 
-#endif // GraphicsLayerClient_h

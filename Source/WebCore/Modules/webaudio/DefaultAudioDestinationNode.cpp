@@ -29,7 +29,7 @@
 #include "DefaultAudioDestinationNode.h"
 
 #include "AudioContext.h"
-#include "ExceptionCode.h"
+#include "AudioDestination.h"
 #include "Logging.h"
 #include "ScriptExecutionContext.h"
 #include <wtf/MainThread.h>
@@ -40,7 +40,6 @@ namespace WebCore {
     
 DefaultAudioDestinationNode::DefaultAudioDestinationNode(AudioContext& context)
     : AudioDestinationNode(context, AudioDestination::hardwareSampleRate())
-    , m_numberOfInputChannels(0)
 {
     // Node-specific default mixing rules.
     m_channelCount = 2;
@@ -58,6 +57,7 @@ void DefaultAudioDestinationNode::initialize()
     ASSERT(isMainThread()); 
     if (isInitialized())
         return;
+    ALWAYS_LOG(LOGIDENTIFIER);
 
     createDestination();
     AudioNode::initialize();
@@ -69,7 +69,9 @@ void DefaultAudioDestinationNode::uninitialize()
     if (!isInitialized())
         return;
 
+    ALWAYS_LOG(LOGIDENTIFIER);
     m_destination->stop();
+    m_destination = nullptr;
     m_numberOfInputChannels = 0;
 
     AudioNode::uninitialize();
@@ -85,6 +87,8 @@ void DefaultAudioDestinationNode::createDestination()
 
 void DefaultAudioDestinationNode::enableInput(const String& inputDeviceId)
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
+
     ASSERT(isMainThread());
     if (m_numberOfInputChannels != EnabledInputChannels) {
         m_numberOfInputChannels = EnabledInputChannels;
@@ -106,59 +110,62 @@ void DefaultAudioDestinationNode::startRendering()
         m_destination->start();
 }
 
-void DefaultAudioDestinationNode::resume(std::function<void()> function)
+void DefaultAudioDestinationNode::resume(Function<void ()>&& function)
 {
     ASSERT(isInitialized());
     if (isInitialized())
         m_destination->start();
     if (auto scriptExecutionContext = context().scriptExecutionContext())
-        scriptExecutionContext->postTask(function);
+        scriptExecutionContext->postTask(WTFMove(function));
 }
 
-void DefaultAudioDestinationNode::suspend(std::function<void()> function)
+void DefaultAudioDestinationNode::suspend(Function<void ()>&& function)
 {
     ASSERT(isInitialized());
     if (isInitialized())
         m_destination->stop();
     if (auto scriptExecutionContext = context().scriptExecutionContext())
-        scriptExecutionContext->postTask(function);
+        scriptExecutionContext->postTask(WTFMove(function));
 }
 
-void DefaultAudioDestinationNode::close(std::function<void()> function)
+void DefaultAudioDestinationNode::close(Function<void()>&& function)
 {
     ASSERT(isInitialized());
     uninitialize();
     if (auto scriptExecutionContext = context().scriptExecutionContext())
-        scriptExecutionContext->postTask(function);
+        scriptExecutionContext->postTask(WTFMove(function));
 }
 
-unsigned long DefaultAudioDestinationNode::maxChannelCount() const
+unsigned DefaultAudioDestinationNode::maxChannelCount() const
 {
     return AudioDestination::maxChannelCount();
 }
 
-void DefaultAudioDestinationNode::setChannelCount(unsigned long channelCount, ExceptionCode& ec)
+ExceptionOr<void> DefaultAudioDestinationNode::setChannelCount(unsigned channelCount)
 {
     // The channelCount for the input to this node controls the actual number of channels we
     // send to the audio hardware. It can only be set depending on the maximum number of
     // channels supported by the hardware.
 
     ASSERT(isMainThread());
+    ALWAYS_LOG(LOGIDENTIFIER, channelCount);
 
-    if (!maxChannelCount() || channelCount > maxChannelCount()) {
-        ec = INVALID_STATE_ERR;
-        return;
-    }
+    if (!maxChannelCount() || channelCount > maxChannelCount())
+        return Exception { InvalidStateError };
 
-    unsigned long oldChannelCount = this->channelCount();
-    AudioNode::setChannelCount(channelCount, ec);
+    auto oldChannelCount = this->channelCount();
+    auto result = AudioNode::setChannelCount(channelCount);
+    if (result.hasException())
+        return result;
 
-    if (!ec && this->channelCount() != oldChannelCount && isInitialized()) {
+    if (this->channelCount() != oldChannelCount && isInitialized()) {
         // Re-create destination.
         m_destination->stop();
         createDestination();
         m_destination->start();
     }
+
+    return { };
 }
 
 bool DefaultAudioDestinationNode::isPlaying()

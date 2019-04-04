@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,17 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CustomGetterSetter_h
-#define CustomGetterSetter_h
+#pragma once
 
-#include "JSCell.h"
+#include "JSCast.h"
 #include "PropertySlot.h"
 #include "PutPropertySlot.h"
 #include "Structure.h"
 
 namespace JSC {
 
-class CustomGetterSetter final : public JSCell {
+class CustomGetterSetter : public JSCell {
 public:
     typedef JSCell Base;
     static const unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
@@ -43,7 +42,7 @@ public:
 
     static CustomGetterSetter* create(VM& vm, CustomGetter customGetter, CustomSetter customSetter)
     {
-        CustomGetterSetter* customGetterSetter = new (NotNull, allocateCell<CustomGetterSetter>(vm.heap)) CustomGetterSetter(vm, customGetter, customSetter);
+        CustomGetterSetter* customGetterSetter = new (NotNull, allocateCell<CustomGetterSetter>(vm.heap)) CustomGetterSetter(vm, vm.customGetterSetterStructure.get(), customGetter, customSetter);
         customGetterSetter->finishCreation(vm);
         return customGetterSetter;
     }
@@ -58,20 +57,20 @@ public:
         
     DECLARE_EXPORT_INFO;
 
-private:
-    CustomGetterSetter(VM& vm, CustomGetter getter, CustomSetter setter)
-        : JSCell(vm, vm.customGetterSetterStructure.get())
+protected:
+    CustomGetterSetter(VM& vm, Structure* structure, CustomGetter getter, CustomSetter setter)
+        : JSCell(vm, structure)
         , m_getter(getter)
         , m_setter(setter)
     {
     }
 
+private:
     CustomGetter m_getter;
     CustomSetter m_setter;
 };
 
-JS_EXPORT_PRIVATE void callCustomSetter(ExecState*, JSValue customGetterSetter, bool isAccessor, JSObject* slotBase, JSValue thisValue, JSValue);
+JS_EXPORT_PRIVATE bool callCustomSetter(ExecState*, CustomGetterSetter::CustomSetter, bool isAccessor, JSValue thisValue, JSValue);
+JS_EXPORT_PRIVATE bool callCustomSetter(ExecState*, JSValue customGetterSetter, bool isAccessor, JSObject* slotBase, JSValue thisValue, JSValue);
 
 } // namespace JSC
-
-#endif // CustomGetterSetter_h

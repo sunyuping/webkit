@@ -28,19 +28,19 @@
 #include "config.h"
 #include "RenderSVGRect.h"
 
-#include "SVGNames.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
-RenderSVGRect::RenderSVGRect(SVGRectElement& element, Ref<RenderStyle>&& style)
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSVGRect);
+
+RenderSVGRect::RenderSVGRect(SVGRectElement& element, RenderStyle&& style)
     : RenderSVGShape(element, WTFMove(style))
     , m_usePathFallback(false)
 {
 }
 
-RenderSVGRect::~RenderSVGRect()
-{
-}
+RenderSVGRect::~RenderSVGRect() = default;
 
 SVGRectElement& RenderSVGRect::rectElement() const
 {
@@ -54,6 +54,8 @@ void RenderSVGRect::updateShapeFromElement()
     m_fillBoundingBox = FloatRect();
     m_innerStrokeRect = FloatRect();
     m_outerStrokeRect = FloatRect();
+    clearPath();
+    m_usePathFallback = false;
 
     SVGLengthContext lengthContext(&rectElement());
     FloatSize boundingBoxSize(lengthContext.valueForLength(style().width(), LengthModeWidth), lengthContext.valueForLength(style().height(), LengthModeHeight));
@@ -70,7 +72,6 @@ void RenderSVGRect::updateShapeFromElement()
             m_usePathFallback = true;
             return;
         }
-        m_usePathFallback = false;
     }
 
     m_fillBoundingBox = FloatRect(FloatPoint(lengthContext.valueForLength(style().svgStyle().x(), LengthModeWidth),
@@ -92,7 +93,7 @@ void RenderSVGRect::updateShapeFromElement()
 
 #if USE(CG)
     // CoreGraphics can inflate the stroke by 1px when drawing a rectangle with antialiasing disabled at non-integer coordinates, we need to compensate.
-    if (style().svgStyle().shapeRendering() == SR_CRISPEDGES)
+    if (style().svgStyle().shapeRendering() == ShapeRendering::CrispEdges)
         m_strokeBoundingBox.inflate(1);
 #endif
 }
@@ -122,7 +123,7 @@ void RenderSVGRect::fillShape(GraphicsContext& context) const
 
 void RenderSVGRect::strokeShape(GraphicsContext& context) const
 {
-    if (!style().svgStyle().hasVisibleStroke())
+    if (!style().hasVisibleStroke())
         return;
 
     if (m_usePathFallback) {
@@ -133,14 +134,14 @@ void RenderSVGRect::strokeShape(GraphicsContext& context) const
     context.strokeRect(m_fillBoundingBox, strokeWidth());
 }
 
-bool RenderSVGRect::shapeDependentStrokeContains(const FloatPoint& point)
+bool RenderSVGRect::shapeDependentStrokeContains(const FloatPoint& point, PointCoordinateSpace pointCoordinateSpace)
 {
     // The optimized contains code below does not support non-smooth strokes so we need
     // to fall back to RenderSVGShape::shapeDependentStrokeContains in these cases.
     if (m_usePathFallback || !hasSmoothStroke()) {
         if (!hasPath())
             RenderSVGShape::updateShapeFromElement();
-        return RenderSVGShape::shapeDependentStrokeContains(point);
+        return RenderSVGShape::shapeDependentStrokeContains(point, pointCoordinateSpace);
     }
 
     return m_outerStrokeRect.contains(point, FloatRect::InsideOrOnStroke) && !m_innerStrokeRect.contains(point, FloatRect::InsideButNotOnStroke);

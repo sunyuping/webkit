@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef RenderFileUploadControl_h
-#define RenderFileUploadControl_h
+#pragma once
 
 #include "RenderBlockFlow.h"
 
@@ -32,8 +31,9 @@ class HTMLInputElement;
 // associated with it to receive click/hover events.
 
 class RenderFileUploadControl final : public RenderBlockFlow {
+    WTF_MAKE_ISO_ALLOCATED(RenderFileUploadControl);
 public:
-    RenderFileUploadControl(HTMLInputElement&, Ref<RenderStyle>&&);
+    RenderFileUploadControl(HTMLInputElement&, RenderStyle&&);
     virtual ~RenderFileUploadControl();
 
     String buttonValue();
@@ -44,20 +44,18 @@ public:
 private:
     void element() const = delete;
 
-    virtual bool isFileUploadControl() const override { return true; }
+    bool isFileUploadControl() const override { return true; }
 
-    virtual const char* renderName() const override { return "RenderFileUploadControl"; }
+    const char* renderName() const override { return "RenderFileUploadControl"; }
 
-    virtual void updateFromElement() override;
-    virtual void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
-    virtual void computePreferredLogicalWidths() override;
-    virtual void paintObject(PaintInfo&, const LayoutPoint&) override;
-
-    virtual bool requiresForcedStyleRecalcPropagation() const override { return true; }
+    void updateFromElement() override;
+    void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
+    void computePreferredLogicalWidths() override;
+    void paintObject(PaintInfo&, const LayoutPoint&) override;
 
     int maxFilenameWidth() const;
     
-    virtual VisiblePosition positionForPoint(const LayoutPoint&, const RenderRegion*) override;
+    VisiblePosition positionForPoint(const LayoutPoint&, const RenderFragmentContainer*) override;
 
     HTMLInputElement* uploadButton() const;
 
@@ -67,5 +65,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderFileUploadControl, isFileUploadControl())
-
-#endif // RenderFileUploadControl_h

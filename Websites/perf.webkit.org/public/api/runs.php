@@ -39,9 +39,13 @@ function main($path) {
     foreach ($config_rows as $config)
         $generator->fetch_runs($config['config_type'], $config['config_id'], $config['config_runs_last_modified']);
 
-    $content = success_json($generator->results());
+    $results = set_successful($generator->results());
     if (!$test_group_id)
-        generate_data_file("$platform_id-$metric_id.json", $content);
+        $content = generate_json_data_with_elapsed_time_if_needed("$platform_id-$metric_id.json", $results,  $generator->elapsed_time);
+    else {
+        $results['elapsedTime'] = $generator->elapsed_time;
+        $content = json_encode($results);
+    }
     echo $content;
 }
 
@@ -51,13 +55,15 @@ class RunsGenerator {
         $this->results = array();
         $this->last_modified = 0;
         $this->start_time = microtime(true);
+        $this->elapsed_time = NULL;
     }
 
     function results() {
+        $this->elapsed_time = (microtime(true) - $this->start_time) * 1000;
         return array(
             'configurations' => &$this->results,
-            'lastModified' => $this->last_modified,
-            'elapsedTime' => (microtime(true) - $this->start_time) * 1000);
+            'lastModified' => $this->last_modified
+        );
     }
 
     function fetch_runs($name, $config_id, $last_modified) {
@@ -79,7 +85,8 @@ class RunsGenerator {
                     LEFT OUTER JOIN build_commits ON commit_build = build_id
                     LEFT OUTER JOIN commits ON build_commit = commit_id, test_runs
                 WHERE run_build = build_id AND run_config = $1 AND NOT EXISTS (SELECT * FROM build_requests WHERE request_build = build_id)
-                GROUP BY build_id, run_id', array($config_id));
+                GROUP BY build_id, build_builder, build_number, build_time, build_latest_revision, build_slave,
+                    run_id, run_config, run_build, run_iteration_count_cache, run_mean_cache, run_sum_cache, run_square_sum_cache, run_marked_outlier', array($config_id));
     }
 
     private static function format_run($run) {

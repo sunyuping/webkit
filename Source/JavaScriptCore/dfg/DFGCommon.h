@@ -23,25 +23,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGCommon_h
-#define DFGCommon_h
+#pragma once
 
 #include "DFGCompilationMode.h"
 
 #if ENABLE(DFG_JIT)
 
 #include "Options.h"
-#include "VirtualRegister.h"
+#include <limits.h>
+#include <wtf/text/StringImpl.h>
 
 namespace JSC { namespace DFG {
-
-// We are in the middle of a transition from LLVM to B3 as the backend for the FTL. This flag will go
-// away once that transition is finished. For now, we enable B3 only on some platforms.
-#if CPU(X86_64) && ENABLE(FTL_JIT)
-#define FTL_USES_B3 1
-#else
-#define FTL_USES_B3 0
-#endif
 
 struct Node;
 
@@ -107,8 +99,6 @@ inline bool enableInt52()
 #endif
 }
 
-enum NoResultTag { NoResult };
-
 // The prediction propagator effectively does four passes, with the last pass
 // being done by the separate FixuPhase.
 enum PredictionPass {
@@ -166,10 +156,10 @@ enum OptimizationFixpointState { BeforeFixpoint, FixpointNotConverged, FixpointC
 // Describes the form you can expect the entire graph to be in.
 enum GraphForm {
     // LoadStore form means that basic blocks may freely use GetLocal, SetLocal,
-    // GetLocalUnlinked, and Flush for accessing local variables and indicating
-    // where their live ranges ought to be. Data flow between local accesses is
-    // implicit. Liveness is only explicit at block heads (variablesAtHead).
-    // This is only used by the DFG simplifier and is only preserved by same.
+    // and Flush for accessing local variables and indicating where their live
+    // ranges ought to be. Data flow between local accesses is implicit. Liveness
+    // is only explicit at block heads (variablesAtHead). This is only used by
+    // the DFG simplifier and is only preserved by same.
     //
     // For example, LoadStore form gives no easy way to determine which SetLocal's
     // flow into a GetLocal. As well, LoadStore form implies no restrictions on
@@ -262,15 +252,6 @@ enum class PlanStage {
     Initial,
     AfterFixup
 };
-
-template<typename T, typename U>
-bool checkAndSet(T& left, U right)
-{
-    if (left == right)
-        return false;
-    left = right;
-    return true;
-}
 
 // If possible, this will acquire a lock to make sure that if multiple threads
 // start crashing at the same time, you get coherent dump output. Use this only
@@ -393,6 +374,3 @@ namespace WTF {
 void printInternal(PrintStream&, JSC::DFG::CapabilityLevel);
 
 } // namespace WTF
-
-#endif // DFGCommon_h
-

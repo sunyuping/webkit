@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,159 +32,226 @@
 #include "MockRealtimeVideoSource.h"
 
 #if ENABLE(MEDIA_STREAM)
+#include "CaptureDevice.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
 #include "IntRect.h"
 #include "Logging.h"
 #include "MediaConstraints.h"
+#include "MockRealtimeMediaSourceCenter.h"
 #include "NotImplemented.h"
 #include "PlatformLayer.h"
 #include "RealtimeMediaSourceSettings.h"
-#include "UUID.h"
 #include <math.h>
-#include <wtf/CurrentTime.h>
-#include <wtf/NeverDestroyed.h>
-#include <wtf/text/StringView.h>
+#include <wtf/UUID.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
-#if !PLATFORM(MAC) && !PLATFORM(IOS)
-RefPtr<MockRealtimeVideoSource> MockRealtimeVideoSource::create()
+#if !PLATFORM(MAC) && !PLATFORM(IOS_FAMILY) && !(USE(GSTREAMER) && USE(LIBWEBRTC))
+CaptureSourceOrError MockRealtimeVideoSource::create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints* constraints)
 {
-    return adoptRef(new MockRealtimeVideoSource());
+#ifndef NDEBUG
+    auto device = MockRealtimeMediaSourceCenter::mockDeviceWithPersistentID(deviceID);
+    ASSERT(device);
+    if (!device)
+        return { };
+#endif
+
+    auto source = adoptRef(*new MockRealtimeVideoSource(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt)));
+    if (constraints && source->applyConstraints(*constraints))
+        return { };
+
+    return CaptureSourceOrError(WTFMove(source));
 }
 #endif
 
-MockRealtimeVideoSource::MockRealtimeVideoSource()
-    : MockRealtimeMediaSource(createCanonicalUUIDString(), RealtimeMediaSource::Video, mockVideoSourceName())
-    , m_timer(RunLoop::current(), this, &MockRealtimeVideoSource::generateFrame)
+MockRealtimeVideoSource::MockRealtimeVideoSource(String&& deviceID, String&& name, String&& hashSalt)
+    : RealtimeVideoSource(WTFMove(name), WTFMove(deviceID), WTFMove(hashSalt))
+    , m_emitFrameTimer(RunLoop::current(), this, &MockRealtimeVideoSource::generateFrame)
 {
+    auto device = MockRealtimeMediaSourceCenter::mockDeviceWithPersistentID(persistentID());
+    ASSERT(device);
+    m_device = *device;
+
     m_dashWidths.reserveInitialCapacity(2);
     m_dashWidths.uncheckedAppend(6);
     m_dashWidths.uncheckedAppend(6);
+
+    if (mockDisplay()) {
+        auto& properties = WTF::get<MockDisplayProperties>(m_device.properties);
+        setIntrinsicSize(properties.defaultSize);
+        setSize(properties.defaultSize);
+        m_fillColor = properties.fillColor;
+        return;
+    }
+
+    auto& properties = WTF::get<MockCameraProperties>(m_device.properties);
+    setFrameRate(properties.defaultFrameRate);
+    setFacingMode(properties.facingMode);
+    m_fillColor = properties.fillColor;
+}
+
+bool MockRealtimeVideoSource::supportsSizeAndFrameRate(Optional<int> width, Optional<int> height, Optional<double> rate)
+{
+    // FIXME: consider splitting mock display into another class so we don't don't have to do this silly dance
+    // because of the RealtimeVideoSource inheritance.
+    if (mockCamera())
+        return RealtimeVideoSource::supportsSizeAndFrameRate(width, height, rate);
+
+    return RealtimeMediaSource::supportsSizeAndFrameRate(width, height, rate);
+}
+
+void MockRealtimeVideoSource::setSizeAndFrameRate(Optional<int> width, Optional<int> height, Optional<double> rate)
+{
+    // FIXME: consider splitting mock display into another class so we don't don't have to do this silly dance
+    // because of the RealtimeVideoSource inheritance.
+    if (mockCamera()) {
+        RealtimeVideoSource::setSizeAndFrameRate(width, height, rate);
+        return;
+    }
+
+    RealtimeMediaSource::setSizeAndFrameRate(width, height, rate);
+}
+
+void MockRealtimeVideoSource::generatePresets()
+{
+    ASSERT(mockCamera());
+    setSupportedPresets(WTFMove(WTF::get<MockCameraProperties>(m_device.properties).presets));
+}
+
+const RealtimeMediaSourceCapabilities& MockRealtimeVideoSource::capabilities()
+{
+    if (!m_capabilities) {
+        RealtimeMediaSourceCapabilities capabilities(settings().supportedConstraints());
+
+        if (mockCamera()) {
+            capabilities.addFacingMode(WTF::get<MockCameraProperties>(m_device.properties).facingMode);
+            capabilities.setDeviceId(hashedId());
+            updateCapabilities(capabilities);
+            capabilities.setDeviceId(hashedId());
+        } else {
+            capabilities.setWidth(CapabilityValueOrRange(72, 2880));
+            capabilities.setHeight(CapabilityValueOrRange(45, 1800));
+            capabilities.setFrameRate(CapabilityValueOrRange(.01, 60.0));
+        }
+
+        m_capabilities = WTFMove(capabilities);
+    }
+
+    return m_capabilities.value();
+}
+
+const RealtimeMediaSourceSettings& MockRealtimeVideoSource::settings()
+{
+    if (m_currentSettings)
+        return m_currentSettings.value();
+
+    RealtimeMediaSourceSettings settings;
+    if (mockCamera()) {
+        settings.setFacingMode(facingMode());
+        settings.setDeviceId(hashedId());
+    } else {
+        settings.setDisplaySurface(mockScreen() ? RealtimeMediaSourceSettings::DisplaySurfaceType::Monitor : RealtimeMediaSourceSettings::DisplaySurfaceType::Window);
+        settings.setLogicalSurface(false);
+    }
+    settings.setFrameRate(frameRate());
+    auto& size = this->size();
+    settings.setWidth(size.width());
+    settings.setHeight(size.height());
+    if (aspectRatio())
+        settings.setAspectRatio(aspectRatio());
+
+    RealtimeMediaSourceSupportedConstraints supportedConstraints;
+    supportedConstraints.setSupportsFrameRate(true);
+    supportedConstraints.setSupportsWidth(true);
+    supportedConstraints.setSupportsHeight(true);
+    supportedConstraints.setSupportsAspectRatio(true);
+    if (mockCamera()) {
+        supportedConstraints.setSupportsDeviceId(true);
+        supportedConstraints.setSupportsFacingMode(true);
+    } else {
+        supportedConstraints.setSupportsDisplaySurface(true);
+        supportedConstraints.setSupportsLogicalSurface(true);
+    }
+    settings.setSupportedConstraints(supportedConstraints);
+
+    m_currentSettings = WTFMove(settings);
+
+    return m_currentSettings.value();
+}
+
+void MockRealtimeVideoSource::setSizeAndFrameRateWithPreset(IntSize, double, RefPtr<VideoPreset> preset)
+{
+    m_preset = preset;
+    if (preset)
+        setIntrinsicSize(preset->size);
+}
+
+IntSize MockRealtimeVideoSource::captureSize() const
+{
+    return m_preset ? m_preset->size : this->size();
+}
+
+void MockRealtimeVideoSource::settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag> settings)
+{
+    m_currentSettings = WTF::nullopt;
+    if (settings.containsAny({ RealtimeMediaSourceSettings::Flag::Width, RealtimeMediaSourceSettings::Flag::Height })) {
+        m_baseFontSize = captureSize().height() * .08;
+        m_bipBopFontSize = m_baseFontSize * 2.5;
+        m_statsFontSize = m_baseFontSize * .5;
+        m_imageBuffer = nullptr;
+    }
+}
+
+void MockRealtimeVideoSource::startCaptureTimer()
+{
+    m_emitFrameTimer.startRepeating(1_s / frameRate());
 }
 
 void MockRealtimeVideoSource::startProducingData()
 {
-    MockRealtimeMediaSource::startProducingData();
-    if (m_size.isEmpty())
-        setSize(IntSize(640, 480));
-
-    m_startTime = monotonicallyIncreasingTime();
-    m_timer.startRepeating(std::chrono::milliseconds(lround(1000 / m_frameRate)));
+    prepareToProduceData();
+    startCaptureTimer();
+    m_startTime = MonotonicTime::now();
 }
 
 void MockRealtimeVideoSource::stopProducingData()
 {
-    MockRealtimeMediaSource::startProducingData();
-    m_timer.stop();
-    m_elapsedTime += monotonicallyIncreasingTime() - m_startTime;
-    m_startTime = NAN;
+    m_emitFrameTimer.stop();
+    m_elapsedTime += MonotonicTime::now() - m_startTime;
+    m_startTime = MonotonicTime::nan();
 }
 
-double MockRealtimeVideoSource::elapsedTime()
+Seconds MockRealtimeVideoSource::elapsedTime()
 {
     if (std::isnan(m_startTime))
         return m_elapsedTime;
 
-    return m_elapsedTime + (monotonicallyIncreasingTime() - m_startTime);
-}
-
-void MockRealtimeVideoSource::updateSettings(RealtimeMediaSourceSettings& settings)
-{
-    settings.setFacingMode(RealtimeMediaSourceSettings::User);
-    settings.setFrameRate(m_frameRate);
-    settings.setWidth(m_size.width());
-    settings.setHeight(m_size.height());
-    settings.setAspectRatio(static_cast<float>(m_size.width()) / m_size.height());
-}
-
-void MockRealtimeVideoSource::initializeCapabilities(RealtimeMediaSourceCapabilities& capabilities)
-{
-    capabilities.addFacingMode(RealtimeMediaSourceSettings::User);
-    capabilities.addFacingMode(RealtimeMediaSourceSettings::Environment);
-    capabilities.setWidth(CapabilityValueOrRange(320UL, 1920UL));
-    capabilities.setHeight(CapabilityValueOrRange(240UL, 1080UL));
-    capabilities.setFrameRate(CapabilityValueOrRange(15.0, 60.0));
-    capabilities.setAspectRatio(CapabilityValueOrRange(4 / 3.0, 16 / 9.0));
-}
-
-void MockRealtimeVideoSource::initializeSupportedConstraints(RealtimeMediaSourceSupportedConstraints& supportedConstraints)
-{
-    supportedConstraints.setSupportsWidth(true);
-    supportedConstraints.setSupportsHeight(true);
-    supportedConstraints.setSupportsAspectRatio(true);
-    supportedConstraints.setSupportsFrameRate(true);
-    supportedConstraints.setSupportsFacingMode(true);
-}
-
-void MockRealtimeVideoSource::setFrameRate(float rate)
-{
-    if (m_frameRate == rate)
-        return;
-
-    m_frameRate = rate;
-    if (m_timer.isActive())
-        m_timer.startRepeating(std::chrono::milliseconds(lround(1000 / m_frameRate)));
-
-    settingsDidChanged();
-}
-
-void MockRealtimeVideoSource::setSize(const IntSize& size)
-{
-    if (size == m_size)
-        return;
-
-    m_size = size;
-
-    m_baseFontSize = m_size.height() * .08;
-    FontCascadeDescription fontDescription;
-    fontDescription.setOneFamily("Courier");
-    fontDescription.setSpecifiedSize(m_baseFontSize);
-    fontDescription.setComputedSize(m_baseFontSize);
-    fontDescription.setWeight(FontWeight500);
-
-    m_timeFont = FontCascade(fontDescription, 0, 0);
-    m_timeFont.update(nullptr);
-
-    m_bipBopFontSize = m_baseFontSize * 2.5;
-    fontDescription.setSpecifiedSize(m_bipBopFontSize);
-    fontDescription.setComputedSize(m_bipBopFontSize);
-    m_bipBopFont = FontCascade(fontDescription, 0, 0);
-    m_bipBopFont.update(nullptr);
-
-    m_statsFontSize = m_baseFontSize * .5;
-    fontDescription.setSpecifiedSize(m_statsFontSize);
-    fontDescription.setComputedSize(m_statsFontSize);
-    m_statsFont = FontCascade(fontDescription, 0, 0);
-    m_statsFont.update(nullptr);
-
-    m_imageBuffer = nullptr;
-    updatePlatformLayer();
-
-    settingsDidChanged();
+    return m_elapsedTime + (MonotonicTime::now() - m_startTime);
 }
 
 void MockRealtimeVideoSource::drawAnimation(GraphicsContext& context)
 {
-    float radius = m_size.width() * .09;
-    FloatPoint location(m_size.width() * .8, m_size.height() * .3);
+    auto size = captureSize();
+    float radius = size.width() * .09;
+    FloatPoint location(size.width() * .8, size.height() * .3);
 
     m_path.clear();
     m_path.moveTo(location);
     m_path.addArc(location, radius, 0, 2 * piFloat, false);
     m_path.closeSubpath();
     context.setFillColor(Color::white);
-    context.setFillRule(RULE_NONZERO);
+    context.setFillRule(WindRule::NonZero);
     context.fillPath(m_path);
 
-    float endAngle = piFloat * (((fmod(m_frameNumber, m_frameRate) + 0.5) * (2.0 / m_frameRate)) + 1);
+    float endAngle = piFloat * (((fmod(m_frameNumber, frameRate()) + 0.5) * (2.0 / frameRate())) + 1);
     m_path.clear();
     m_path.moveTo(location);
     m_path.addArc(location, radius, 1.5 * piFloat, endAngle, false);
     m_path.closeSubpath();
     context.setFillColor(Color::gray);
-    context.setFillRule(RULE_NONZERO);
+    context.setFillRule(WindRule::NonZero);
     context.fillPath(m_path);
 }
 
@@ -195,12 +262,14 @@ void MockRealtimeVideoSource::drawBoxes(GraphicsContext& context)
     static const RGBA32 blue = 0xff0000ff;
     static const RGBA32 red = 0xffff0000;
     static const RGBA32 green = 0xff008000;
+    static const RGBA32 cyan = 0xFF00FFFF;
 
-    float boxSize = m_size.width() * .035;
-    float boxTop = m_size.height() * .6;
+    IntSize size = captureSize();
+    float boxSize = size.width() * .035;
+    float boxTop = size.height() * .6;
 
     m_path.clear();
-    FloatRect frameRect(2, 2, m_size.width() - 3, m_size.height() - 3);
+    FloatRect frameRect(2, 2, size.width() - 3, size.height() - 3);
     context.setStrokeColor(Color::white);
     context.setStrokeThickness(3);
     context.setLineDash(m_dashWidths, 0);
@@ -211,7 +280,7 @@ void MockRealtimeVideoSource::drawBoxes(GraphicsContext& context)
     context.setLineDash(DashArray(), 0);
     m_path.clear();
     m_path.moveTo(FloatPoint(0, boxTop + boxSize));
-    m_path.addLineTo(FloatPoint(m_size.width(), boxTop + boxSize));
+    m_path.addLineTo(FloatPoint(size.width(), boxTop + boxSize));
     m_path.closeSubpath();
     context.setStrokeColor(Color::white);
     context.setStrokeThickness(2);
@@ -243,7 +312,7 @@ void MockRealtimeVideoSource::drawBoxes(GraphicsContext& context)
 
     boxTop += boxSize + 2;
     boxLeft = boxSize;
-    Color boxColors[] = { Color::white, yellow, Color::cyan, green, magenta, red, blue };
+    Color boxColors[] = { Color::white, yellow, cyan, green, magenta, red, blue };
     for (unsigned i = 0; i < sizeof(boxColors) / sizeof(boxColors[0]); i++) {
         context.fillRect(FloatRect(boxLeft, boxTop, boxSize + 1, boxSize + 1), boxColors[i]);
         boxLeft += boxSize + 1;
@@ -253,77 +322,130 @@ void MockRealtimeVideoSource::drawBoxes(GraphicsContext& context)
 
 void MockRealtimeVideoSource::drawText(GraphicsContext& context)
 {
-    unsigned milliseconds = lround(elapsedTime() * 1000);
+    unsigned milliseconds = lround(elapsedTime().milliseconds());
     unsigned seconds = milliseconds / 1000 % 60;
     unsigned minutes = seconds / 60 % 60;
     unsigned hours = minutes / 60 % 60;
 
-    FloatPoint timeLocation(m_size.width() * .05, m_size.height() * .15);
+    FontCascadeDescription fontDescription;
+    fontDescription.setOneFamily("Courier");
+    fontDescription.setWeight(FontSelectionValue(500));
+
+    fontDescription.setSpecifiedSize(m_baseFontSize);
+    fontDescription.setComputedSize(m_baseFontSize);
+    FontCascade timeFont { FontCascadeDescription { fontDescription }, 0, 0 };
+    timeFont.update(nullptr);
+
+    fontDescription.setSpecifiedSize(m_bipBopFontSize);
+    fontDescription.setComputedSize(m_bipBopFontSize);
+    FontCascade bipBopFont { FontCascadeDescription { fontDescription }, 0, 0 };
+    bipBopFont.update(nullptr);
+
+    fontDescription.setSpecifiedSize(m_statsFontSize);
+    fontDescription.setComputedSize(m_statsFontSize);
+    FontCascade statsFont { WTFMove(fontDescription), 0, 0 };
+    statsFont.update(nullptr);
+
+    IntSize captureSize = this->captureSize();
+    FloatPoint timeLocation(captureSize.width() * .05, captureSize.height() * .15);
     context.setFillColor(Color::white);
     context.setTextDrawingMode(TextModeFill);
-    String string = String::format("%02u:%02u:%02u.%03u", hours, minutes, seconds, milliseconds % 1000);
-    context.drawText(m_timeFont, TextRun((StringView(string))), timeLocation, 0, -1);
+    String string = makeString(pad('0', 2, hours), ':', pad('0', 2, minutes), ':', pad('0', 2, seconds), '.', pad('0', 3, milliseconds % 1000));
+    context.drawText(timeFont, TextRun((StringView(string))), timeLocation);
 
-    string = String::format("%06u", m_frameNumber++);
+    string = makeString(pad('0', 6, m_frameNumber++));
     timeLocation.move(0, m_baseFontSize);
-    context.drawText(m_timeFont, TextRun((StringView(string))), timeLocation, 0, -1);
+    context.drawText(timeFont, TextRun((StringView(string))), timeLocation);
 
-    FloatPoint statsLocation(m_size.width() * .65, m_size.height() * .75);
-    string = String::format("Frame rate: %ufps", m_frameRate);
-    context.drawText(m_statsFont, TextRun((StringView(string))), statsLocation, 0, -1);
+    FloatPoint statsLocation(captureSize.width() * .45, captureSize.height() * .75);
+    string = makeString("Requested frame rate: ", FormattedNumber::fixedWidth(frameRate(), 1), " fps");
+    context.drawText(statsFont, TextRun((StringView(string))), statsLocation);
 
-    string = String::format("Size: %u x %u", m_size.width(), m_size.height());
     statsLocation.move(0, m_statsFontSize);
-    context.drawText(m_statsFont, TextRun((StringView(string))), statsLocation, 0, -1);
+    string = makeString("Observed frame rate: ", FormattedNumber::fixedWidth(observedFrameRate(), 1), " fps");
+    context.drawText(statsFont, TextRun((StringView(string))), statsLocation);
 
-    const char* camera;
-    switch (settings().facingMode()) {
-    case RealtimeMediaSourceSettings::User:
-        camera = "User facing";
-        break;
-    case RealtimeMediaSourceSettings::Environment:
-        camera = "Environment facing";
-        break;
-    case RealtimeMediaSourceSettings::Left:
-        camera = "Left facing";
-        break;
-    case RealtimeMediaSourceSettings::Right:
-        camera = "Right facing";
-        break;
-    case RealtimeMediaSourceSettings::Unknown:
-        camera = "Unknown";
-        break;
+    auto size = this->size();
+    statsLocation.move(0, m_statsFontSize);
+    string = makeString("Size: ", size.width(), " x ", size.height());
+    context.drawText(statsFont, TextRun((StringView(string))), statsLocation);
+
+    if (mockCamera()) {
+        statsLocation.move(0, m_statsFontSize);
+        string = makeString("Preset size: ", captureSize.width(), " x ", captureSize.height());
+        context.drawText(statsFont, TextRun((StringView(string))), statsLocation);
+
+        const char* camera;
+        switch (facingMode()) {
+        case RealtimeMediaSourceSettings::User:
+            camera = "User facing";
+            break;
+        case RealtimeMediaSourceSettings::Environment:
+            camera = "Environment facing";
+            break;
+        case RealtimeMediaSourceSettings::Left:
+            camera = "Left facing";
+            break;
+        case RealtimeMediaSourceSettings::Right:
+            camera = "Right facing";
+            break;
+        case RealtimeMediaSourceSettings::Unknown:
+            camera = "Unknown";
+            break;
+        }
+        string = makeString("Camera: ", camera);
+        statsLocation.move(0, m_statsFontSize);
+        context.drawText(statsFont, TextRun((StringView(string))), statsLocation);
+    } else if (!name().isNull()) {
+        statsLocation.move(0, m_statsFontSize);
+        context.drawText(statsFont, TextRun { name() }, statsLocation);
     }
-    string = String::format("Camera: %s", camera);
-    statsLocation.move(0, m_statsFontSize);
-    context.drawText(m_statsFont, TextRun((StringView(string))), statsLocation, 0, -1);
 
-    FloatPoint bipBopLocation(m_size.width() * .6, m_size.height() * .6);
+    FloatPoint bipBopLocation(captureSize.width() * .6, captureSize.height() * .6);
     unsigned frameMod = m_frameNumber % 60;
     if (frameMod <= 15) {
-        context.setFillColor(Color::gray);
-        String bip(ASCIILiteral("Bip"));
-        context.drawText(m_bipBopFont, TextRun(StringView(bip)), bipBopLocation, 0, -1);
+        context.setFillColor(Color::cyan);
+        String bip("Bip"_s);
+        context.drawText(bipBopFont, TextRun(StringView(bip)), bipBopLocation);
     } else if (frameMod > 30 && frameMod <= 45) {
-        context.setFillColor(Color::white);
-        String bop(ASCIILiteral("Bop"));
-        context.drawText(m_bipBopFont, TextRun(StringView(bop)), bipBopLocation, 0, -1);
+        context.setFillColor(Color::yellow);
+        String bop("Bop"_s);
+        context.drawText(bipBopFont, TextRun(StringView(bop)), bipBopLocation);
     }
+}
+
+void MockRealtimeVideoSource::delaySamples(Seconds delta)
+{
+    m_delayUntil = MonotonicTime::now() + delta;
 }
 
 void MockRealtimeVideoSource::generateFrame()
 {
-    GraphicsContext& context = imageBuffer()->context();
+    if (m_delayUntil) {
+        if (m_delayUntil < MonotonicTime::now())
+            return;
+        m_delayUntil = MonotonicTime();
+    }
+
+    ImageBuffer* buffer = imageBuffer();
+    if (!buffer)
+        return;
+
+    GraphicsContext& context = buffer->context();
     GraphicsContextStateSaver stateSaver(context);
 
-    FloatRect frameRect(FloatPoint(), m_size);
-    context.fillRect(FloatRect(FloatPoint(), m_size), Color::black);
+    auto size = captureSize();
+    FloatRect frameRect(FloatPoint(), size);
 
-    drawText(context);
-    drawAnimation(context);
-    drawBoxes(context);
+    context.fillRect(FloatRect(FloatPoint(), size), m_fillColor);
 
-    updatePlatformLayer();
+    if (!muted()) {
+        drawText(context);
+        drawAnimation(context);
+        drawBoxes(context);
+    }
+
+    updateSampleBuffer();
 }
 
 ImageBuffer* MockRealtimeVideoSource::imageBuffer() const
@@ -331,7 +453,7 @@ ImageBuffer* MockRealtimeVideoSource::imageBuffer() const
     if (m_imageBuffer)
         return m_imageBuffer.get();
 
-    m_imageBuffer = ImageBuffer::create(m_size, Unaccelerated);
+    m_imageBuffer = ImageBuffer::create(captureSize(), Unaccelerated);
     if (!m_imageBuffer)
         return nullptr;
 
@@ -341,26 +463,13 @@ ImageBuffer* MockRealtimeVideoSource::imageBuffer() const
     return m_imageBuffer.get();
 }
 
-void MockRealtimeVideoSource::paintCurrentFrameInContext(GraphicsContext& context, const FloatRect& rect)
+bool MockRealtimeVideoSource::mockDisplayType(CaptureDevice::DeviceType type) const
 {
-    if (context.paintingDisabled() || !imageBuffer())
-        return;
+    if (!WTF::holds_alternative<MockDisplayProperties>(m_device.properties))
+        return false;
 
-    GraphicsContextStateSaver stateSaver(context);
-    context.setImageInterpolationQuality(InterpolationLow);
-    IntRect paintRect(IntPoint(0, 0), IntSize(rect.width(), rect.height()));
-
-    context.drawImage(*m_imageBuffer->copyImage(DontCopyBackingStore), rect);
+    return WTF::get<MockDisplayProperties>(m_device.properties).type == type;
 }
-
-RefPtr<Image> MockRealtimeVideoSource::currentFrameImage()
-{
-    if (!imageBuffer())
-        return nullptr;
-
-    return m_imageBuffer->copyImage(DontCopyBackingStore);
-}
-
 
 } // namespace WebCore
 

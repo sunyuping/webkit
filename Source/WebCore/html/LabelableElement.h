@@ -28,8 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef LabelableElement_h
-#define LabelableElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
@@ -37,17 +36,18 @@ namespace WebCore {
 
 // LabelableElement represents "labelable element" defined in the HTML specification.
 class LabelableElement : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(LabelableElement);
 public:
     virtual ~LabelableElement();
 
-    PassRefPtr<NodeList> labels();
+    WEBCORE_EXPORT RefPtr<NodeList> labels();
     virtual bool supportLabels() const { return false; }
 
 protected:
     LabelableElement(const QualifiedName& tagName, Document&);
 
 private:
-    virtual bool isLabelable() const override final { return true; }
+    bool isLabelable() const final { return true; }
 };
 
 } // namespace WebCore
@@ -56,5 +56,3 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::LabelableElement)
     static bool isType(const WebCore::HTMLElement& element) { return element.isLabelable(); }
     static bool isType(const WebCore::Node& node) { return is<WebCore::HTMLElement>(node) && isType(downcast<WebCore::HTMLElement>(node)); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif

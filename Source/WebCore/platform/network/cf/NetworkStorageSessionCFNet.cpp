@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,69 +29,87 @@
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessID.h>
+#include <wtf/ProcessPrivilege.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 #if PLATFORM(COCOA)
-#include "WebCoreSystemInterface.h"
-#else
-#include <WebKitSystemInterface/WebKitSystemInterface.h>
+#include "PublicSuffix.h"
+#include "ResourceRequest.h"
 #endif
 
 namespace WebCore {
 
-NetworkStorageSession::NetworkStorageSession(RetainPtr<CFURLStorageSessionRef> platformSession)
-    : m_platformSession(platformSession)
+static bool storageAccessAPIEnabled;
+
+RetainPtr<CFURLStorageSessionRef> NetworkStorageSession::createCFStorageSessionForIdentifier(CFStringRef identifier)
 {
+    auto storageSession = adoptCF(_CFURLStorageSessionCreate(kCFAllocatorDefault, identifier, nullptr));
+
+    if (!storageSession)
+        return nullptr;
+
+    auto cache = adoptCF(_CFURLStorageSessionCopyCache(kCFAllocatorDefault, storageSession.get()));
+    if (!cache)
+        return nullptr;
+
+    CFURLCacheSetDiskCapacity(cache.get(), 0);
+
+    auto sharedCache = adoptCF(CFURLCacheCopySharedURLCache());
+    CFURLCacheSetMemoryCapacity(cache.get(), CFURLCacheMemoryCapacity(sharedCache.get()));
+
+    if (!NetworkStorageSession::processMayUseCookieAPI())
+        return storageSession;
+
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+
+    auto cookieStorage = adoptCF(_CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, storageSession.get()));
+    if (!cookieStorage)
+        return nullptr;
+
+    auto sharedCookieStorage = _CFHTTPCookieStorageGetDefault(kCFAllocatorDefault);
+    auto sharedPolicy = CFHTTPCookieStorageGetCookieAcceptPolicy(sharedCookieStorage);
+    CFHTTPCookieStorageSetCookieAcceptPolicy(cookieStorage.get(), sharedPolicy);
+
+    return storageSession;
 }
 
-static std::unique_ptr<NetworkStorageSession>& defaultNetworkStorageSession()
+NetworkStorageSession::NetworkStorageSession(PAL::SessionID sessionID, RetainPtr<CFURLStorageSessionRef>&& platformSession, RetainPtr<CFHTTPCookieStorageRef>&& platformCookieStorage)
+    : m_sessionID(sessionID)
+    , m_platformSession(WTFMove(platformSession))
 {
-    ASSERT(isMainThread());
-    static NeverDestroyed<std::unique_ptr<NetworkStorageSession>> session;
-    return session;
+    ASSERT(processMayUseCookieAPI() || !platformCookieStorage);
+    m_platformCookieStorage = platformCookieStorage ? WTFMove(platformCookieStorage) : cookieStorage();
 }
 
-void NetworkStorageSession::switchToNewTestingSession()
+NetworkStorageSession::NetworkStorageSession(PAL::SessionID sessionID)
+    : m_sessionID(sessionID)
 {
-    // Session name should be short enough for shared memory region name to be under the limit, otehrwise sandbox rules won't work (see <rdar://problem/13642852>).
-    String sessionName = String::format("WebKit Test-%u", static_cast<uint32_t>(getCurrentProcessID()));
-#if PLATFORM(COCOA)
-    defaultNetworkStorageSession() = std::make_unique<NetworkStorageSession>(adoptCF(wkCreatePrivateStorageSession(sessionName.createCFString().get())));
-#else
-    defaultNetworkStorageSession() = std::make_unique<NetworkStorageSession>(adoptCF(wkCreatePrivateStorageSession(sessionName.createCFString().get(), defaultNetworkStorageSession()->platformSession())));
-#endif
-}
-
-NetworkStorageSession& NetworkStorageSession::defaultStorageSession()
-{
-    if (!defaultNetworkStorageSession())
-        defaultNetworkStorageSession() = std::make_unique<NetworkStorageSession>(nullptr);
-    return *defaultNetworkStorageSession();
-}
-
-std::unique_ptr<NetworkStorageSession> NetworkStorageSession::createPrivateBrowsingSession(const String& identifierBase)
-{
-    RetainPtr<CFStringRef> cfIdentifier = String(identifierBase + ".PrivateBrowsing").createCFString();
-
-#if PLATFORM(COCOA)
-    auto session = std::make_unique<NetworkStorageSession>(adoptCF(wkCreatePrivateStorageSession(cfIdentifier.get())));
-#else
-    auto session = std::make_unique<NetworkStorageSession>(adoptCF(wkCreatePrivateStorageSession(cfIdentifier.get(), defaultNetworkStorageSession()->platformSession())));
-#endif
-
-    return session;
 }
 
 RetainPtr<CFHTTPCookieStorageRef> NetworkStorageSession::cookieStorage() const
 {
+    if (!processMayUseCookieAPI())
+        return nullptr;
+
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+
+    if (m_platformCookieStorage)
+        return m_platformCookieStorage;
+
     if (m_platformSession)
         return adoptCF(_CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, m_platformSession.get()));
 
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
     return _CFHTTPCookieStorageGetDefault(kCFAllocatorDefault);
 #else
     // When using NSURLConnection, we also use its shared cookie storage.
-    return 0;
+    return nullptr;
 #endif
 }
 
+void NetworkStorageSession::setStorageAccessAPIEnabled(bool enabled)
+{
+    storageAccessAPIEnabled = enabled;
 }
+
+} // namespace WebCore

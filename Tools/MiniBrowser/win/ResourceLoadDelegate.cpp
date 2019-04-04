@@ -25,14 +25,17 @@
 #include "stdafx.h"
 #include "ResourceLoadDelegate.h"
 
+#include "Common.h"
 #include "PageLoadTestClient.h"
-#include "MiniBrowser.h"
-#include <WebKit/WebKitCOMAPI.h>
+#include "WebKitLegacyBrowserWindow.h"
+#include <WebCore/COMPtr.h>
+#include <WebKitLegacy/WebKitCOMAPI.h>
 #include <comip.h>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <objbase.h>
 #include <shlwapi.h>
+#include <string>
 #include <wininet.h>
 
 HRESULT ResourceLoadDelegate::QueryInterface(_In_ REFIID riid, _COM_Outptr_ void** ppvObject)
@@ -53,16 +56,12 @@ HRESULT ResourceLoadDelegate::QueryInterface(_In_ REFIID riid, _COM_Outptr_ void
 
 ULONG ResourceLoadDelegate::AddRef()
 {
-    return ++m_refCount;
+    return m_client->AddRef();
 }
 
 ULONG ResourceLoadDelegate::Release()
 {
-    ULONG newRef = --m_refCount;
-    if (!newRef)
-        delete this;
-
-    return newRef;
+    return m_client->Release();
 }
 
 HRESULT ResourceLoadDelegate::identifierForInitialRequest(_In_opt_ IWebView*, _In_opt_ IWebURLRequest*, _In_opt_ IWebDataSource*, unsigned long identifier)
@@ -83,9 +82,31 @@ HRESULT ResourceLoadDelegate::willSendRequest(_In_opt_ IWebView*, unsigned long,
     return E_NOTIMPL;
 }
 
-HRESULT ResourceLoadDelegate::didReceiveAuthenticationChallenge(_In_opt_ IWebView*, unsigned long, _In_opt_ IWebURLAuthenticationChallenge*, _In_opt_ IWebDataSource*)
+HRESULT ResourceLoadDelegate::didReceiveAuthenticationChallenge(_In_opt_ IWebView*, unsigned long, _In_opt_ IWebURLAuthenticationChallenge* challenge, _In_opt_ IWebDataSource*)
 {
-    return E_NOTIMPL;
+    COMPtr<IWebURLAuthenticationChallengeSender> sender;
+    if (!challenge || FAILED(challenge->sender(&sender)))
+        return E_FAIL;
+
+    COMPtr<IWebURLProtectionSpace> protectionSpace;
+    if (FAILED(challenge->protectionSpace(&protectionSpace)))
+        return E_FAIL;
+
+    BSTR realm;
+    if (FAILED(protectionSpace->realm(&realm)))
+        return E_FAIL;
+
+    if (auto credential = askCredential(m_client->hwnd(), std::wstring(realm))) {
+        COMPtr<IWebURLCredential> wkCredential;
+        if (FAILED(WebKitCreateInstance(CLSID_WebURLCredential, 0, IID_IWebURLCredential, (void**)&wkCredential)))
+            return E_FAIL;
+        wkCredential->initWithUser(_bstr_t(credential->username.c_str()), _bstr_t(credential->password.c_str()), WebURLCredentialPersistenceForSession);
+
+        sender->useCredential(wkCredential.get(), challenge);
+        return S_OK;
+    }
+
+    return E_FAIL;
 }
 
 HRESULT ResourceLoadDelegate::didCancelAuthenticationChallenge(_In_opt_ IWebView*, unsigned long, _In_opt_ IWebURLAuthenticationChallenge*, _In_opt_ IWebDataSource*)

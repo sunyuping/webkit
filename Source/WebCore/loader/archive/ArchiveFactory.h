@@ -26,13 +26,11 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ArchiveFactory_h
-#define ArchiveFactory_h
+#pragma once
 
 #include "Archive.h"
 
 #include <wtf/Forward.h>
-#include <wtf/PassRefPtr.h>
 
 namespace WebCore {
 
@@ -40,11 +38,9 @@ class SharedBuffer;
 
 class ArchiveFactory {
 public:
-    static bool isArchiveMimeType(const String&);
-    static PassRefPtr<Archive> create(const URL&, SharedBuffer* data, const String& mimeType);
-    static void registerKnownArchiveMIMETypes();
+    static bool isArchiveMIMEType(const String&);
+    static RefPtr<Archive> create(const URL&, SharedBuffer* data, const String& mimeType);
+    static void registerKnownArchiveMIMETypes(HashSet<String, ASCIICaseInsensitiveHash>&);
 };
 
-}
-
-#endif // ArchiveFactory_h
+} // namespace WebCore

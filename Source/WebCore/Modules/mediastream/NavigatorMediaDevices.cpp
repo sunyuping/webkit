@@ -29,9 +29,9 @@
  */
 
 #include "config.h"
+#include "NavigatorMediaDevices.h"
 
 #if ENABLE(MEDIA_STREAM)
-#include "NavigatorMediaDevices.h"
 
 #include "Document.h"
 #include "Frame.h"
@@ -40,20 +40,18 @@
 
 namespace WebCore {
 
-NavigatorMediaDevices::NavigatorMediaDevices(Frame* frame)
-    : DOMWindowProperty(frame)
+NavigatorMediaDevices::NavigatorMediaDevices(DOMWindow* window)
+    : DOMWindowProperty(window)
 {
 }
 
-NavigatorMediaDevices::~NavigatorMediaDevices()
-{
-}
+NavigatorMediaDevices::~NavigatorMediaDevices() = default;
 
 NavigatorMediaDevices* NavigatorMediaDevices::from(Navigator* navigator)
 {
     NavigatorMediaDevices* supplement = static_cast<NavigatorMediaDevices*>(Supplement<Navigator>::from(navigator, supplementName()));
     if (!supplement) {
-        auto newSupplement = std::make_unique<NavigatorMediaDevices>(navigator->frame());
+        auto newSupplement = std::make_unique<NavigatorMediaDevices>(navigator->window());
         supplement = newSupplement.get();
         provideTo(navigator, supplementName(), WTFMove(newSupplement));
     }
@@ -68,7 +66,7 @@ MediaDevices* NavigatorMediaDevices::mediaDevices(Navigator& navigator)
 MediaDevices* NavigatorMediaDevices::mediaDevices() const
 {
     if (!m_mediaDevices && frame())
-        m_mediaDevices = MediaDevices::create(frame()->document());
+        m_mediaDevices = MediaDevices::create(*frame()->document());
     return m_mediaDevices.get();
 }
 

@@ -43,9 +43,9 @@
 
 namespace WebCore {
 
-PassRefPtr<Scrollbar> Scrollbar::createNativeScrollbar(ScrollableArea& scrollableArea, ScrollbarOrientation orientation, ScrollbarControlSize size)
+Ref<Scrollbar> Scrollbar::createNativeScrollbar(ScrollableArea& scrollableArea, ScrollbarOrientation orientation, ScrollbarControlSize size)
 {
-    return adoptRef(new Scrollbar(scrollableArea, orientation, size));
+    return adoptRef(*new Scrollbar(scrollableArea, orientation, size));
 }
 
 int Scrollbar::maxOverlapBetweenPages()
@@ -54,30 +54,12 @@ int Scrollbar::maxOverlapBetweenPages()
     return maxOverlapBetweenPages;
 }
 
-Scrollbar::Scrollbar(ScrollableArea& scrollableArea, ScrollbarOrientation orientation, ScrollbarControlSize controlSize, ScrollbarTheme* customTheme, bool isCustomScrollbar)
+Scrollbar::Scrollbar(ScrollableArea& scrollableArea, ScrollbarOrientation orientation, ScrollbarControlSize controlSize, ScrollbarTheme* customTheme)
     : m_scrollableArea(scrollableArea)
     , m_orientation(orientation)
     , m_controlSize(controlSize)
     , m_theme(customTheme ? *customTheme : ScrollbarTheme::theme())
-    , m_visibleSize(0)
-    , m_totalSize(0)
-    , m_currentPos(0)
-    , m_dragOrigin(0)
-    , m_lineStep(0)
-    , m_pageStep(0)
-    , m_pixelStep(1)
-    , m_hoveredPart(NoPart)
-    , m_pressedPart(NoPart)
-    , m_pressedPos(0)
-    , m_scrollPos(0)
-    , m_draggingDocument(false)
-    , m_documentDragPos(0)
-    , m_enabled(true)
     , m_scrollTimer(*this, &Scrollbar::autoscrollTimerFired)
-    , m_suppressInvalidation(false)
-    , m_isAlphaLocked(false)
-    , m_isCustomScrollbar(isCustomScrollbar)
-    , m_weakPtrFactory(this)
 {
     theme().registerScrollbar(*this);
 
@@ -157,9 +139,9 @@ void Scrollbar::updateThumbProportion()
     updateThumb();
 }
 
-void Scrollbar::paint(GraphicsContext& context, const IntRect& damageRect)
+void Scrollbar::paint(GraphicsContext& context, const IntRect& damageRect, Widget::SecurityOriginPaintPolicy)
 {
-    if (context.updatingControlTints() && theme().supportsControlTints()) {
+    if (context.invalidatingControlTints() && theme().supportsControlTints()) {
         invalidate();
         return;
     }
@@ -183,7 +165,7 @@ static bool thumbUnderMouse(Scrollbar* scrollbar)
     return scrollbar->pressedPos() >= thumbPos && scrollbar->pressedPos() < thumbPos + thumbLength;
 }
 
-void Scrollbar::autoscrollPressedPart(double delay)
+void Scrollbar::autoscrollPressedPart(Seconds delay)
 {
     // Don't do anything for the thumb or if nothing was pressed.
     if (m_pressedPart == ThumbPart || m_pressedPart == NoPart)
@@ -201,7 +183,7 @@ void Scrollbar::autoscrollPressedPart(double delay)
         startTimerIfNeeded(delay);
 }
 
-void Scrollbar::startTimerIfNeeded(double delay)
+void Scrollbar::startTimerIfNeeded(Seconds delay)
 {
     // Don't do anything for the thumb.
     if (m_pressedPart == ThumbPart)
@@ -319,7 +301,7 @@ void Scrollbar::setPressedPart(ScrollbarPart part)
         theme().invalidatePart(*this, m_hoveredPart);
 }
 
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
 bool Scrollbar::mouseMoved(const PlatformMouseEvent& evt)
 {
     if (m_pressedPart == ThumbPart) {
@@ -391,31 +373,34 @@ bool Scrollbar::mouseUp(const PlatformMouseEvent& mouseEvent)
 
 bool Scrollbar::mouseDown(const PlatformMouseEvent& evt)
 {
-    // Early exit for right click
-    if (evt.button() == RightButton)
-        return true; // FIXME: Handled as context menu by Qt right now.  Should just avoid even calling this method on a right click though.
+    ScrollbarPart pressedPart = theme().hitTest(*this, evt.position());
+    auto action = theme().handleMousePressEvent(*this, evt, pressedPart);
+    if (action == ScrollbarButtonPressAction::None)
+        return true;
 
     m_scrollableArea.mouseIsDownInScrollbar(this, true);
-    setPressedPart(theme().hitTest(*this, evt.position()));
-    int pressedPos = (orientation() == HorizontalScrollbar ? convertFromContainingWindow(evt.position()).x() : convertFromContainingWindow(evt.position()).y());
-    
-    if ((m_pressedPart == BackTrackPart || m_pressedPart == ForwardTrackPart) && theme().shouldCenterOnThumb(*this, evt)) {
+    setPressedPart(pressedPart);
+
+    int pressedPosition = (orientation() == HorizontalScrollbar ? convertFromContainingWindow(evt.position()).x() : convertFromContainingWindow(evt.position()).y());
+    if (action == ScrollbarButtonPressAction::CenterOnThumb) {
         setHoveredPart(ThumbPart);
         setPressedPart(ThumbPart);
         m_dragOrigin = m_currentPos;
-        int thumbLen = theme().thumbLength(*this);
-        int desiredPos = pressedPos;
         // Set the pressed position to the middle of the thumb so that when we do the move, the delta
         // will be from the current pixel position of the thumb to the new desired position for the thumb.
-        m_pressedPos = theme().trackPosition(*this) + theme().thumbPosition(*this) + thumbLen / 2;
-        moveThumb(desiredPos);
+        m_pressedPos = theme().trackPosition(*this) + theme().thumbPosition(*this) + theme().thumbLength(*this) / 2;
+        moveThumb(pressedPosition);
         return true;
-    } else if (m_pressedPart == ThumbPart)
-        m_dragOrigin = m_currentPos;
-    
-    m_pressedPos = pressedPos;
+    }
 
-    autoscrollPressedPart(theme().initialAutoscrollTimerDelay());
+    m_pressedPos = pressedPosition;
+
+    if (action == ScrollbarButtonPressAction::StartDrag)
+        m_dragOrigin = m_currentPos;
+
+    if (action == ScrollbarButtonPressAction::Scroll)
+        autoscrollPressedPart(theme().initialAutoscrollTimerDelay());
+
     return true;
 }
 
@@ -451,27 +436,27 @@ void Scrollbar::invalidateRect(const IntRect& rect)
     if (suppressInvalidation())
         return;
 
-    m_scrollableArea.invalidateScrollbar(this, rect);
+    m_scrollableArea.invalidateScrollbar(*this, rect);
 }
 
 IntRect Scrollbar::convertToContainingView(const IntRect& localRect) const
 {
-    return m_scrollableArea.convertFromScrollbarToContainingView(this, localRect);
+    return m_scrollableArea.convertFromScrollbarToContainingView(*this, localRect);
 }
 
 IntRect Scrollbar::convertFromContainingView(const IntRect& parentRect) const
 {
-    return m_scrollableArea.convertFromContainingViewToScrollbar(this, parentRect);
+    return m_scrollableArea.convertFromContainingViewToScrollbar(*this, parentRect);
 }
 
 IntPoint Scrollbar::convertToContainingView(const IntPoint& localPoint) const
 {
-    return m_scrollableArea.convertFromScrollbarToContainingView(this, localPoint);
+    return m_scrollableArea.convertFromScrollbarToContainingView(*this, localPoint);
 }
 
 IntPoint Scrollbar::convertFromContainingView(const IntPoint& parentPoint) const
 {
-    return m_scrollableArea.convertFromContainingViewToScrollbar(this, parentPoint);
+    return m_scrollableArea.convertFromContainingViewToScrollbar(*this, parentPoint);
 }
 
 bool Scrollbar::supportsUpdateOnSecondaryThread() const

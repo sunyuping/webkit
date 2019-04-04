@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef GraphicsLayerUpdater_h
-#define GraphicsLayerUpdater_h
+#pragma once
 
 #include "DisplayRefreshMonitorClient.h"
 #include "PlatformScreen.h"
@@ -35,7 +34,7 @@ class GraphicsLayerUpdater;
 
 class GraphicsLayerUpdaterClient {
 public:
-    virtual ~GraphicsLayerUpdaterClient() { }
+    virtual ~GraphicsLayerUpdaterClient() = default;
     virtual void flushLayersSoon(GraphicsLayerUpdater&) = 0;
 #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
     virtual RefPtr<DisplayRefreshMonitor> createDisplayRefreshMonitor(PlatformDisplayID) const = 0;
@@ -56,17 +55,15 @@ public:
     void screenDidChange(PlatformDisplayID);
 
 #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
-    virtual RefPtr<DisplayRefreshMonitor> createDisplayRefreshMonitor(PlatformDisplayID) const override;
+    RefPtr<DisplayRefreshMonitor> createDisplayRefreshMonitor(PlatformDisplayID) const override;
 #endif
 
 private:
 #if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
-    virtual void displayRefreshFired(double timestamp) override;
+    void displayRefreshFired() override;
     GraphicsLayerUpdaterClient& m_client;
 #endif
     bool m_scheduled { false };
 };
 
 } // namespace WebCore
-
-#endif // GraphicsLayerUpdater_h

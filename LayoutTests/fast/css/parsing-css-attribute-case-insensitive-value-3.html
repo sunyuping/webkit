@@ -18,10 +18,10 @@ function testInvalidSelectorCSSOMSerialization(selectorString) {
 }
 
 function testInvalidSelector(selectorString) {
-    shouldThrow('document.querySelector("' + selectorString.replace(/"/g, '\\"') + '")', '"Error: SyntaxError: DOM Exception 12"');
-    shouldThrow('document.querySelector("' + selectorString.replace(/"/g, '\\"').replace('[', '[|') + '")', '"Error: SyntaxError: DOM Exception 12"');
-    shouldThrow('document.querySelector("' + selectorString.replace(/"/g, '\\"').replace('[', '[*|') + '")', '"Error: SyntaxError: DOM Exception 12"');
-    shouldThrow('document.querySelector("' + selectorString.replace(/"/g, '\\"').replace('[', '[WebKit|') + '")', '"Error: SyntaxError: DOM Exception 12"');
+    shouldThrowErrorName('document.querySelector("' + selectorString.replace(/"/g, '\\"') + '")', 'SyntaxError');
+    shouldThrowErrorName('document.querySelector("' + selectorString.replace(/"/g, '\\"').replace('[', '[|') + '")', 'SyntaxError');
+    shouldThrowErrorName('document.querySelector("' + selectorString.replace(/"/g, '\\"').replace('[', '[*|') + '")', 'SyntaxError');
+    shouldThrowErrorName('document.querySelector("' + selectorString.replace(/"/g, '\\"').replace('[', '[WebKit|') + '")', 'SyntaxError');
 
     testInvalidSelectorCSSOMSerialization(selectorString);
     testInvalidSelectorCSSOMSerialization(selectorString.replace('[', '[|'));
@@ -143,20 +143,6 @@ var invalidSelectors = [
     '[foo$="bar" l]',
     '[foo*=bar l]',
     '[foo*="bar" l]',
-
-    // Missing the closing ']'.
-    '[foo=bar i',
-    '[foo="bar" i',
-    '[foo~=bar i',
-    '[foo~="bar" i',
-    '[foo|=bar i',
-    '[foo|="bar" i',
-    '[foo^=bar i',
-    '[foo^="bar" i',
-    '[foo$=bar i',
-    '[foo$="bar" i',
-    '[foo*=bar i',
-    '[foo*="bar" i',
 ];
 
 debug("Invalid selectors.");

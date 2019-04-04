@@ -26,7 +26,7 @@
 #ifndef InbandTextTrackPrivateLegacyAVFObjC_h
 #define InbandTextTrackPrivateLegacyAVFObjC_h
 
-#if ENABLE(VIDEO) && USE(AVFOUNDATION) && !HAVE(AVFOUNDATION_LEGIBLE_OUTPUT_SUPPORT) && !PLATFORM(IOS)
+#if ENABLE(VIDEO) && USE(AVFOUNDATION) && !HAVE(AVFOUNDATION_LEGIBLE_OUTPUT_SUPPORT) && !PLATFORM(IOS_FAMILY)
 
 #include "InbandTextTrackPrivateAVF.h"
 #include <wtf/RetainPtr.h>
@@ -39,24 +39,24 @@ class MediaPlayerPrivateAVFoundationObjC;
 
 class InbandTextTrackPrivateLegacyAVFObjC : public InbandTextTrackPrivateAVF {
 public:
-    static PassRefPtr<InbandTextTrackPrivateLegacyAVFObjC> create(MediaPlayerPrivateAVFoundationObjC* player, AVPlayerItemTrack *track)
+    static Ref<InbandTextTrackPrivateLegacyAVFObjC> create(MediaPlayerPrivateAVFoundationObjC* player, AVPlayerItemTrack *track)
     {
-        return adoptRef(new InbandTextTrackPrivateLegacyAVFObjC(player, track));
+        return adoptRef(*new InbandTextTrackPrivateLegacyAVFObjC(player, track));
     }
 
-    ~InbandTextTrackPrivateLegacyAVFObjC() { }
+    ~InbandTextTrackPrivateLegacyAVFObjC() = default;
 
-    virtual InbandTextTrackPrivate::Kind kind() const override;
-    virtual bool isClosedCaptions() const override;
-    virtual bool containsOnlyForcedSubtitles() const override;
-    virtual bool isMainProgramContent() const override;
-    virtual bool isEasyToRead() const override;
-    virtual AtomicString label() const override;
-    virtual AtomicString language() const override;
+    InbandTextTrackPrivate::Kind kind() const override;
+    bool isClosedCaptions() const override;
+    bool containsOnlyForcedSubtitles() const override;
+    bool isMainProgramContent() const override;
+    bool isEasyToRead() const override;
+    AtomicString label() const override;
+    AtomicString language() const override;
 
-    virtual void disconnect() override;
+    void disconnect() override;
 
-    virtual Category textTrackCategory() const override { return LegacyClosedCaption; }
+    Category textTrackCategory() const override { return LegacyClosedCaption; }
     
     AVPlayerItemTrack *avPlayerItemTrack() const { return m_playerItemTrack.get(); }
 
@@ -68,6 +68,6 @@ protected:
 
 }
 
-#endif // ENABLE(VIDEO) && USE(AVFOUNDATION) && !HAVE(AVFOUNDATION_LEGIBLE_OUTPUT_SUPPORT) && !PLATFORM(IOS)
+#endif // ENABLE(VIDEO) && USE(AVFOUNDATION) && !HAVE(AVFOUNDATION_LEGIBLE_OUTPUT_SUPPORT) && !PLATFORM(IOS_FAMILY)
 
 #endif

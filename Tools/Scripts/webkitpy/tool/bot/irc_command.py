@@ -85,7 +85,7 @@ class CreateBug(IRCCommand):
             bug_id = tool.bugs.create_bug(bug_title, bug_description, cc=requester_email, assignee=requester_email)
             bug_url = tool.bugs.bug_url_for_bug_id(bug_id)
             return "%s: Created bug: %s" % (nick, bug_url)
-        except Exception, e:
+        except Exception as e:
             return "%s: Failed to create bug:\n%s" % (nick, e)
 
 
@@ -117,8 +117,9 @@ class Hi(IRCCommand):
     def execute(self, nick, args, tool, sheriff):
         if len(args) and re.match(sheriff.name() + r'_*\s*!\s*', ' '.join(args)):
             return "%s: hi %s!" % (nick, nick)
-        if sheriff.name() == 'WKR':  # For some unknown reason, WKR can't use tool.bugs.quips().
-            return "You're doing it wrong"
+        bypass_quips = ['WKR', 'webkitbot']
+        if sheriff.name() in bypass_quips:  # For some unknown reason, WKR/webkitbot can't use tool.bugs.quips().
+            return "%s: hi %s!" % (nick, nick)
         quips = tool.bugs.quips()
         quips.append('"Only you can prevent forest fires." -- Smokey the Bear')
         return random.choice(quips)
@@ -147,6 +148,7 @@ class Restart(IRCCommand):
     def execute(self, nick, args, tool, sheriff):
         tool.irc().post("Restarting...")
         raise TerminateQueue()
+
 
 class Rollout(IRCCommand):
     usage_string = "rollout SVN_REVISION [SVN_REVISIONS] REASON"
@@ -240,7 +242,7 @@ class Rollout(IRCCommand):
             bug_id = sheriff.post_rollout_patch(svn_revision_list, complete_reason)
             bug_url = tool.bugs.bug_url_for_bug_id(bug_id)
             tool.irc().post("%s: Created rollout: %s" % (nicks_string, bug_url))
-        except ScriptError, e:
+        except ScriptError as e:
             tool.irc().post("%s: Failed to create rollout patch:" % nicks_string)
             diff_failure = self._check_diff_failure(e.output, tool)
             if diff_failure:

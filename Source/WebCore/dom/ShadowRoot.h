@@ -24,49 +24,38 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ShadowRoot_h
-#define ShadowRoot_h
+#pragma once
 
-#include "ContainerNode.h"
 #include "Document.h"
 #include "DocumentFragment.h"
 #include "Element.h"
-#include "ExceptionCode.h"
-#include "TreeScope.h"
+#include "ShadowRootMode.h"
 
 namespace WebCore {
 
-class AuthorStyleSheets;
 class HTMLSlotElement;
 class SlotAssignment;
+class StyleSheetList;
 
 class ShadowRoot final : public DocumentFragment, public TreeScope {
+    WTF_MAKE_ISO_ALLOCATED(ShadowRoot);
 public:
-    enum class Type : uint8_t {
-        UserAgent = 0,
-        Closed,
-        Open,
-    };
-
-    static Ref<ShadowRoot> create(Document& document, Type type)
+    static Ref<ShadowRoot> create(Document& document, ShadowRootMode type)
     {
         return adoptRef(*new ShadowRoot(document, type));
     }
 
-#if ENABLE(SHADOW_DOM) || ENABLE(DETAILS_ELEMENT)
     static Ref<ShadowRoot> create(Document& document, std::unique_ptr<SlotAssignment>&& assignment)
     {
         return adoptRef(*new ShadowRoot(document, WTFMove(assignment)));
     }
-#endif
 
     virtual ~ShadowRoot();
 
-    StyleResolver& styleResolver();
-    AuthorStyleSheets& authorStyleSheets();
-    
-    void updateStyle();
-    void resetStyleResolver();
+    using TreeScope::rootNode;
+
+    Style::Scope& styleScope();
+    StyleSheetList& styleSheets();
 
     bool resetStyleInheritance() const { return m_resetStyleInheritance; }
     void setResetStyleInheritance(bool);
@@ -75,57 +64,63 @@ public:
     void setHost(Element* host) { m_host = host; }
 
     String innerHTML() const;
-    void setInnerHTML(const String&, ExceptionCode&);
+    ExceptionOr<void> setInnerHTML(const String&);
 
     Element* activeElement() const;
 
-    Type type() const { return m_type; }
+    ShadowRootMode mode() const { return m_type; }
+    bool shouldFireSlotchangeEvent() const { return m_type != ShadowRootMode::UserAgent && !m_hasBegunDeletingDetachedChildren; }
 
-    virtual void removeAllEventListeners() override;
+    void removeAllEventListeners() override;
 
-#if ENABLE(SHADOW_DOM) || ENABLE(DETAILS_ELEMENT)
     HTMLSlotElement* findAssignedSlot(const Node&);
 
+    void renameSlotElement(HTMLSlotElement&, const AtomicString& oldName, const AtomicString& newName);
     void addSlotElementByName(const AtomicString&, HTMLSlotElement&);
-    void removeSlotElementByName(const AtomicString&, HTMLSlotElement&);
+    void removeSlotElementByName(const AtomicString&, HTMLSlotElement&, ContainerNode& oldParentOfRemovedTree);
+    void slotFallbackDidChange(HTMLSlotElement&);
+    void resolveSlotsBeforeNodeInsertionOrRemoval();
+    void willRemoveAllChildren(ContainerNode&);
 
-    void invalidateSlotAssignments();
-    void invalidateDefaultSlotAssignments();
+    void didRemoveAllChildrenOfShadowHost();
+    void didChangeDefaultSlot();
+    void hostChildElementDidChange(const Element&);
+    void hostChildElementDidChangeSlotAttribute(Element&, const AtomicString& oldValue, const AtomicString& newValue);
 
     const Vector<Node*>* assignedNodesForSlot(const HTMLSlotElement&);
-#endif
+
+    void moveShadowRootToNewParentScope(TreeScope&, Document&);
+    void moveShadowRootToNewDocument(Document&);
 
 protected:
-    ShadowRoot(Document&, Type);
+    ShadowRoot(Document&, ShadowRootMode);
 
-#if ENABLE(SHADOW_DOM) || ENABLE(DETAILS_ELEMENT)
     ShadowRoot(Document&, std::unique_ptr<SlotAssignment>&&);
-#endif
-
-    // FIXME: This shouldn't happen. https://bugs.webkit.org/show_bug.cgi?id=88834
-    bool isOrphan() const { return !m_host; }
 
 private:
-    virtual bool childTypeAllowed(NodeType) const override;
+    bool childTypeAllowed(NodeType) const override;
 
-    virtual Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
+
+    Node::InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
+    void removedFromAncestor(RemovalType, ContainerNode& insertionPoint) override;
+
+    void childrenChanged(const ChildChange&) override;
 
     bool m_resetStyleInheritance { false };
-    Type m_type { Type::UserAgent };
+    bool m_hasBegunDeletingDetachedChildren { false };
+    ShadowRootMode m_type { ShadowRootMode::UserAgent };
 
     Element* m_host { nullptr };
+    RefPtr<StyleSheetList> m_styleSheetList;
 
-    std::unique_ptr<StyleResolver> m_styleResolver;
-    std::unique_ptr<AuthorStyleSheets> m_authorStyleSheets;
-
-#if ENABLE(SHADOW_DOM) || ENABLE(DETAILS_ELEMENT)
+    std::unique_ptr<Style::Scope> m_styleScope;
     std::unique_ptr<SlotAssignment> m_slotAssignment;
-#endif
 };
 
 inline Element* ShadowRoot::activeElement() const
 {
-    return treeScope().focusedElement();
+    return treeScope().focusedElementInScope();
 }
 
 inline ShadowRoot* Node::shadowRoot() const
@@ -148,10 +143,10 @@ inline bool hasShadowRootParent(const Node& node)
     return node.parentNode() && node.parentNode()->isShadowRoot();
 }
 
+Vector<ShadowRoot*> assignedShadowRootsIfSlotted(const Node&);
+
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ShadowRoot)
     static bool isType(const WebCore::Node& node) { return node.isShadowRoot(); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif

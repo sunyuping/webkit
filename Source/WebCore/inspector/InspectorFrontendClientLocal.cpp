@@ -36,29 +36,28 @@
 #include "DOMWrapperWorld.h"
 #include "Document.h"
 #include "FloatRect.h"
+#include "Frame.h"
 #include "FrameLoadRequest.h"
 #include "FrameLoader.h"
 #include "FrameView.h"
 #include "InspectorController.h"
 #include "InspectorFrontendHost.h"
 #include "InspectorPageAgent.h"
-#include "MainFrame.h"
 #include "Page.h"
 #include "ScriptController.h"
-#include "ScriptGlobalObject.h"
 #include "ScriptState.h"
 #include "Settings.h"
 #include "Timer.h"
 #include "UserGestureIndicator.h"
 #include "WindowFeatures.h"
-#include <bindings/ScriptValue.h>
-#include <inspector/InspectorBackendDispatchers.h>
+#include <JavaScriptCore/InspectorBackendDispatchers.h>
 #include <wtf/Deque.h>
 #include <wtf/text/CString.h>
 
-using namespace Inspector;
 
 namespace WebCore {
+
+using namespace Inspector;
 
 static const char* inspectorAttachedHeightSetting = "inspectorAttachedHeight";
 static const unsigned defaultAttachedHeight = 300;
@@ -81,7 +80,7 @@ public:
 
         m_messages.append(message);
         if (!m_timer.isActive())
-            m_timer.startOneShot(0);
+            m_timer.startOneShot(0_s);
     }
 
     void reset()
@@ -97,13 +96,13 @@ public:
 
         // Dispatching a message can possibly close the frontend and destroy
         // the owning frontend client, so keep a protector reference here.
-        Ref<InspectorBackendDispatchTask> protect(*this);
+        Ref<InspectorBackendDispatchTask> protectedThis(*this);
 
         if (!m_messages.isEmpty())
             m_inspectedPageController->dispatchMessageFromFrontend(m_messages.takeFirst());
 
         if (!m_messages.isEmpty() && m_inspectedPageController)
-            m_timer.startOneShot(0);
+            m_timer.startOneShot(0_s);
     }
 
 private:
@@ -152,16 +151,15 @@ void InspectorFrontendClientLocal::windowObjectCleared()
     if (m_frontendHost)
         m_frontendHost->disconnectClient();
     
-    JSC::ExecState* frontendExecState = execStateFromPage(debuggerWorld(), m_frontendPage);
     m_frontendHost = InspectorFrontendHost::create(this, m_frontendPage);
-    ScriptGlobalObject::set(frontendExecState, "InspectorFrontendHost", m_frontendHost.get());
+    m_frontendHost->addSelfToGlobalObjectInWorld(debuggerWorld());
 }
 
 void InspectorFrontendClientLocal::frontendLoaded()
 {
     // Call setDockingUnavailable before bringToFront. If we display the inspector window via bringToFront first it causes
     // the call to canAttachWindow to return the wrong result on Windows.
-    // Calling bringToFront first causes the visibleHeight of the inspected page to always return 0 immediately after. 
+    // Calling bringToFront first causes the visibleHeight of the inspected page to always return 0 immediately after.
     // Thus if we call canAttachWindow first we can avoid this problem. This change does not cause any regressions on Mac.
     setDockingUnavailable(!canAttachWindow());
     bringToFront();
@@ -169,6 +167,11 @@ void InspectorFrontendClientLocal::frontendLoaded()
     for (auto& evaluate : m_evaluateOnLoad)
         evaluateOnLoad(evaluate);
     m_evaluateOnLoad.clear();
+}
+
+UserInterfaceLayoutDirection InspectorFrontendClientLocal::userInterfaceLayoutDirection() const
+{
+    return m_frontendPage->userInterfaceLayoutDirection();
 }
 
 void InspectorFrontendClientLocal::requestSetDockSide(DockSide dockSide)
@@ -202,7 +205,7 @@ bool InspectorFrontendClientLocal::canAttachWindow()
 
 void InspectorFrontendClientLocal::setDockingUnavailable(bool unavailable)
 {
-    evaluateOnLoad(String::format("[\"setDockingUnavailable\", %s]", unavailable ? "true" : "false"));
+    evaluateOnLoad(makeString("[\"setDockingUnavailable\", ", unavailable ? "true" : "false", ']'));
 }
 
 void InspectorFrontendClientLocal::changeAttachedWindowHeight(unsigned height)
@@ -222,23 +225,22 @@ void InspectorFrontendClientLocal::changeAttachedWindowWidth(unsigned width)
 
 void InspectorFrontendClientLocal::openInNewTab(const String& url)
 {
-    UserGestureIndicator indicator(DefinitelyProcessingUserGesture);
+    UserGestureIndicator indicator { ProcessingUserGesture };
     Frame& mainFrame = m_inspectedPageController->inspectedPage().mainFrame();
-    FrameLoadRequest request(mainFrame.document()->securityOrigin(), ResourceRequest(), "_blank", LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, AllowNavigationToInvalidURL::Yes, NewFrameOpenerPolicy::Allow, ReplaceDocumentIfJavaScriptURL, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
+    FrameLoadRequest frameLoadRequest { *mainFrame.document(), mainFrame.document()->securityOrigin(), { }, "_blank"_s, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, AllowNavigationToInvalidURL::Yes, NewFrameOpenerPolicy::Allow, ShouldOpenExternalURLsPolicy::ShouldNotAllow, InitiatedByMainFrame::Unknown };
 
     bool created;
-    WindowFeatures windowFeatures;
-    RefPtr<Frame> frame = WebCore::createWindow(mainFrame, mainFrame, request, windowFeatures, created);
+    auto frame = WebCore::createWindow(mainFrame, mainFrame, WTFMove(frameLoadRequest), { }, created);
     if (!frame)
         return;
 
     frame->loader().setOpener(&mainFrame);
     frame->page()->setOpenedByDOM();
 
-    // FIXME: Why does one use mainFrame and the other frame?
-    ResourceRequest resourceRequest(frame->document()->completeURL(url));
-    FrameLoadRequest frameRequest(mainFrame.document()->securityOrigin(), resourceRequest, "_self", LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, AllowNavigationToInvalidURL::Yes, NewFrameOpenerPolicy::Allow, ReplaceDocumentIfJavaScriptURL, ShouldOpenExternalURLsPolicy::ShouldNotAllow);
-    frame->loader().changeLocation(frameRequest);
+    // FIXME: Why do we compute the absolute URL with respect to |frame| instead of |mainFrame|?
+    ResourceRequest resourceRequest { frame->document()->completeURL(url) };
+    FrameLoadRequest frameLoadRequest2 { *mainFrame.document(), mainFrame.document()->securityOrigin(), resourceRequest, "_self"_s, LockHistory::No, LockBackForwardList::No, MaybeSendReferrer, AllowNavigationToInvalidURL::Yes, NewFrameOpenerPolicy::Allow, ShouldOpenExternalURLsPolicy::ShouldNotAllow, InitiatedByMainFrame::Unknown };
+    frame->loader().changeLocation(WTFMove(frameLoadRequest2));
 }
 
 void InspectorFrontendClientLocal::moveWindowBy(float x, float y)
@@ -258,6 +260,9 @@ void InspectorFrontendClientLocal::setAttachedWindow(DockSide dockSide)
     case DockSide::Right:
         side = "right";
         break;
+    case DockSide::Left:
+        side = "left";
+        break;
     case DockSide::Bottom:
         side = "bottom";
         break;
@@ -265,7 +270,7 @@ void InspectorFrontendClientLocal::setAttachedWindow(DockSide dockSide)
 
     m_dockSide = dockSide;
 
-    evaluateOnLoad(String::format("[\"setDockSide\", \"%s\"]", side));
+    evaluateOnLoad(makeString("[\"setDockSide\", \"", side, "\"]"));
 }
 
 void InspectorFrontendClientLocal::restoreAttachedWindowHeight()
@@ -289,7 +294,7 @@ bool InspectorFrontendClientLocal::isDebuggingEnabled()
 
 void InspectorFrontendClientLocal::setDebuggingEnabled(bool enabled)
 {
-    evaluateOnLoad(String::format("[\"setDebuggingEnabled\", %s]", enabled ? "true" : "false"));
+    evaluateOnLoad(makeString("[\"setDebuggingEnabled\", ", enabled ? "true" : "false", ']'));
 }
 
 bool InspectorFrontendClientLocal::isTimelineProfilingEnabled()
@@ -301,7 +306,7 @@ bool InspectorFrontendClientLocal::isTimelineProfilingEnabled()
 
 void InspectorFrontendClientLocal::setTimelineProfilingEnabled(bool enabled)
 {
-    evaluateOnLoad(String::format("[\"setTimelineProfilingEnabled\", %s]", enabled ? "true" : "false"));
+    evaluateOnLoad(makeString("[\"setTimelineProfilingEnabled\", ", enabled ? "true" : "false", ']'));
 }
 
 bool InspectorFrontendClientLocal::isProfilingJavaScript()
@@ -334,7 +339,7 @@ void InspectorFrontendClientLocal::showResources()
 void InspectorFrontendClientLocal::showMainResourceForFrame(Frame* frame)
 {
     String frameId = m_inspectedPageController->pageAgent()->frameId(frame);
-    evaluateOnLoad(String::format("[\"showMainResourceForFrame\", \"%s\"]", frameId.ascii().data()));
+    evaluateOnLoad(makeString("[\"showMainResourceForFrame\", \"", frameId, "\"]"));
 }
 
 unsigned InspectorFrontendClientLocal::constrainedAttachedWindowHeight(unsigned preferredHeight, unsigned totalWindowHeight)
@@ -364,8 +369,8 @@ unsigned InspectorFrontendClientLocal::inspectionLevel() const
 
 bool InspectorFrontendClientLocal::evaluateAsBoolean(const String& expression)
 {
-    Deprecated::ScriptValue value = m_frontendPage->mainFrame().script().executeScript(expression);
-    return value.toString(mainWorldExecState(&m_frontendPage->mainFrame())) == "true";
+    auto& state = *mainWorldExecState(&m_frontendPage->mainFrame());
+    return m_frontendPage->mainFrame().script().executeScript(expression).toWTFString(&state) == "true";
 }
 
 void InspectorFrontendClientLocal::evaluateOnLoad(const String& expression)

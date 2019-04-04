@@ -1,12 +1,11 @@
 The tests in this directory were imported from the W3C repository.
-Do NOT modify these tests directly in Webkit.
-Instead, create a pull request on the W3C CSS or WPT github:
-	https://github.com/w3c/csswg-test
-	https://github.com/w3c/web-platform-tests
+Do NOT modify these tests directly in WebKit.
+Instead, create a pull request on the WPT github:
+	https://github.com/web-platform-tests/wpt
 
-Then run the Tools/Scripts/import-w3c-tests in Webkit to reimport
+Then run the Tools/Scripts/import-w3c-tests in WebKit to reimport
 
-Do NOT modify or remove this file
+Do NOT modify or remove this file.
 
 ------------------------------------------------------------------------
 Properties requiring vendor prefixes:
@@ -21,7 +20,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/2d.getcontext.extraargs.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/2d.getcontext.shared.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/2d.getcontext.unique.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/2d.scaled-manual.png
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/2d.scaled.png
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/2d.type.exists.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/2d.type.extend.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/2d.type.prototype.html
@@ -37,6 +36,8 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/fallback.basic.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/fallback.multiple.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/fallback.nested.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/historical.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/imagedata.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/initial.colour.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/initial.colour.png
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/initial.reset.2dstate.html
@@ -51,16 +52,26 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/initial.reset.same.png
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/initial.reset.transform.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.dataURI.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.drawImage.canvas.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.drawImage.image.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.fillStyle.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.strokeStyle.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.timing.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.create.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.cross.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.image.fillStyle.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.image.strokeStyle.sub.html
-/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.reset.sub.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.drawImage.canvas.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.drawImage.canvas.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.drawImage.image.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.drawImage.image.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.fillStyle.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.fillStyle.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.strokeStyle.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.strokeStyle.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.timing.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.canvas.timing.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.create.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.create.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.cross.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.cross.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.image.fillStyle.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.image.fillStyle.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.image.strokeStyle.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.pattern.image.strokeStyle.redirect.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.reset.cross.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/security.reset.redirect.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/size.attributes.default.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/size.attributes.default.png
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/size.attributes.get.png
@@ -133,6 +144,7 @@ List of files:
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/size.attributes.style.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/size.attributes.style.png
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/toBlob.jpeg.html
+/LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/toBlob.null.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/toBlob.png.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/toDataURL.arguments.1.html
 /LayoutTests/imported/w3c/web-platform-tests/html/semantics/embedded-content/the-canvas-element/toDataURL.arguments.2.html

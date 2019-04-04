@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012 Google Inc. All rights reserved.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,10 +24,10 @@
  * SUCH DAMAGE.
  */
 
-#ifndef BaseChooserOnlyDateAndTimeInputType_h
-#define BaseChooserOnlyDateAndTimeInputType_h
+#pragma once
 
 #if ENABLE(DATE_AND_TIME_INPUT_TYPES)
+
 #include "BaseClickableWithKeyInputType.h"
 #include "BaseDateAndTimeInputType.h"
 #include "DateTimeChooser.h"
@@ -34,33 +35,34 @@
 
 namespace WebCore {
 
-class BaseChooserOnlyDateAndTimeInputType : public BaseDateAndTimeInputType, public DateTimeChooserClient {
+class BaseChooserOnlyDateAndTimeInputType : public BaseDateAndTimeInputType, private DateTimeChooserClient {
 protected:
     explicit BaseChooserOnlyDateAndTimeInputType(HTMLInputElement& element) : BaseDateAndTimeInputType(element) { }
-    virtual ~BaseChooserOnlyDateAndTimeInputType();
+    ~BaseChooserOnlyDateAndTimeInputType();
 
 private:
-    void updateAppearance();
+    void updateInnerTextValue() override;
     void closeDateTimeChooser();
 
     // InputType functions:
-    virtual void createShadowSubtree() override;
-    virtual void detach() override;
-    virtual void setValue(const String&, bool valueChanged, TextFieldEventBehavior) override;
-    virtual void handleDOMActivateEvent(Event*) override;
-    virtual void handleKeydownEvent(KeyboardEvent*) override;
-    virtual void handleKeypressEvent(KeyboardEvent*) override;
-    virtual void handleKeyupEvent(KeyboardEvent*) override;
-    virtual void accessKeyAction(bool sendMouseEvents) override;
-    virtual bool isMouseFocusable() const override;
+    void createShadowSubtree() override;
+    void detach() override;
+    void setValue(const String&, bool valueChanged, TextFieldEventBehavior) override;
+    void handleDOMActivateEvent(Event&) override;
+    ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) override;
+    void handleKeypressEvent(KeyboardEvent&) override;
+    void handleKeyupEvent(KeyboardEvent&) override;
+    void accessKeyAction(bool sendMouseEvents) override;
+    bool isMouseFocusable() const override;
+    void attributeChanged(const QualifiedName&) override;
 
     // DateTimeChooserClient functions:
-    virtual void didChooseValue(const String&) override;
-    virtual void didEndChooser() override;
+    void didChooseValue(const String&) final;
+    void didEndChooser() final;
 
     RefPtr<DateTimeChooser> m_dateTimeChooser;
 };
 
-}
-#endif
+} // namespace WebCore
+
 #endif

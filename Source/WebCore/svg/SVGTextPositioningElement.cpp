@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006, 2007, 2008 Rob Buis <buis@kde.org>
  * Copyright (C) 2014 Adobe Systems Incorporated. All rights reserved.
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -26,73 +27,53 @@
 #include "RenderSVGResource.h"
 #include "RenderSVGText.h"
 #include "SVGAltGlyphElement.h"
-#include "SVGLengthList.h"
 #include "SVGNames.h"
-#include "SVGNumberList.h"
+#include "SVGTRefElement.h"
+#include "SVGTSpanElement.h"
+#include "SVGTextElement.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
-// Animated property definitions
-DEFINE_ANIMATED_LENGTH_LIST(SVGTextPositioningElement, SVGNames::xAttr, X, x)
-DEFINE_ANIMATED_LENGTH_LIST(SVGTextPositioningElement, SVGNames::yAttr, Y, y)
-DEFINE_ANIMATED_LENGTH_LIST(SVGTextPositioningElement, SVGNames::dxAttr, Dx, dx)
-DEFINE_ANIMATED_LENGTH_LIST(SVGTextPositioningElement, SVGNames::dyAttr, Dy, dy)
-DEFINE_ANIMATED_NUMBER_LIST(SVGTextPositioningElement, SVGNames::rotateAttr, Rotate, rotate)
-
-BEGIN_REGISTER_ANIMATED_PROPERTIES(SVGTextPositioningElement)
-    REGISTER_LOCAL_ANIMATED_PROPERTY(x)
-    REGISTER_LOCAL_ANIMATED_PROPERTY(y)
-    REGISTER_LOCAL_ANIMATED_PROPERTY(dx)
-    REGISTER_LOCAL_ANIMATED_PROPERTY(dy)
-    REGISTER_LOCAL_ANIMATED_PROPERTY(rotate)
-    REGISTER_PARENT_ANIMATED_PROPERTIES(SVGTextContentElement)
-END_REGISTER_ANIMATED_PROPERTIES
+WTF_MAKE_ISO_ALLOCATED_IMPL(SVGTextPositioningElement);
 
 SVGTextPositioningElement::SVGTextPositioningElement(const QualifiedName& tagName, Document& document)
     : SVGTextContentElement(tagName, document)
 {
-    registerAnimatedPropertiesForSVGTextPositioningElement();
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        PropertyRegistry::registerProperty<SVGNames::xAttr, &SVGTextPositioningElement::m_x>();
+        PropertyRegistry::registerProperty<SVGNames::yAttr, &SVGTextPositioningElement::m_y>();
+        PropertyRegistry::registerProperty<SVGNames::dxAttr, &SVGTextPositioningElement::m_dx>();
+        PropertyRegistry::registerProperty<SVGNames::dyAttr, &SVGTextPositioningElement::m_dy>();
+        PropertyRegistry::registerProperty<SVGNames::rotateAttr, &SVGTextPositioningElement::m_rotate>();
+    });
 }
 
 void SVGTextPositioningElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
 {
     if (name == SVGNames::xAttr) {
-        SVGLengthList newList;
-        newList.parse(value, LengthModeWidth);
-        detachAnimatedXListWrappers(newList.size());
-        setXBaseValue(newList);
+        m_x->baseVal()->parse(value);
         return;
     }
 
     if (name == SVGNames::yAttr) {
-        SVGLengthList newList;
-        newList.parse(value, LengthModeHeight);
-        detachAnimatedYListWrappers(newList.size());
-        setYBaseValue(newList);
+        m_y->baseVal()->parse(value);
         return;
     }
 
     if (name == SVGNames::dxAttr) {
-        SVGLengthList newList;
-        newList.parse(value, LengthModeWidth);
-        detachAnimatedDxListWrappers(newList.size());
-        setDxBaseValue(newList);
+        m_dx->baseVal()->parse(value);
         return;
     }
 
     if (name == SVGNames::dyAttr) {
-        SVGLengthList newList;
-        newList.parse(value, LengthModeHeight);
-        detachAnimatedDyListWrappers(newList.size());
-        setDyBaseValue(newList);
+        m_dy->baseVal()->parse(value);
         return;
     }
 
     if (name == SVGNames::rotateAttr) {
-        SVGNumberList newList;
-        newList.parse(value);
-        detachAnimatedRotateListWrappers(newList.size());
-        setRotateBaseValue(newList);
+        m_rotate->baseVal()->parse(value);
         return;
     }
 
@@ -115,7 +96,7 @@ bool SVGTextPositioningElement::isPresentationAttribute(const QualifiedName& nam
 
 void SVGTextPositioningElement::svgAttributeChanged(const QualifiedName& attrName)
 {
-    if (attrName == SVGNames::xAttr || attrName == SVGNames::yAttr || attrName == SVGNames::dxAttr || attrName == SVGNames::dyAttr || attrName == SVGNames::rotateAttr) {
+    if (PropertyRegistry::isKnownAttribute(attrName)) {
         InstanceInvalidationGuard guard(*this);
 
         if (attrName != SVGNames::rotateAttr)

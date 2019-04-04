@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2007, 2011, 2015 Apple Inc. All rights reserved.
+ *  Copyright (C) 2007-2019 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -18,54 +18,41 @@
  *
  */
 
-#ifndef ArrayPrototype_h
-#define ArrayPrototype_h
+#pragma once
 
 #include "JSArray.h"
-#include "Lookup.h"
 
 namespace JSC {
 
-class ArrayPrototypeAdaptiveInferredPropertyWatchpoint;
-
-class ArrayPrototype : public JSArray {
+class ArrayPrototype final : public JSArray {
 private:
     ArrayPrototype(VM&, Structure*);
 
 public:
     typedef JSArray Base;
 
+    enum class SpeciesWatchpointStatus {
+        Uninitialized,
+        Initialized,
+        Fired
+    };
+
     static ArrayPrototype* create(VM&, JSGlobalObject*, Structure*);
         
-    DECLARE_INFO;
+    DECLARE_EXPORT_INFO;
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info(), ArrayClass);
+        return Structure::create(vm, globalObject, prototype, TypeInfo(DerivedArrayType, StructureFlags), info(), ArrayClass);
     }
-
-    void setConstructor(VM&, JSObject* constructorProperty, unsigned attributes);
-
-    bool didChangeConstructorOrSpeciesProperties() const { return m_didChangeConstructorOrSpeciesProperties; }
-
-    static const bool needsDestruction = false;
-    // We don't need destruction since we use a finalizer.
-    static void destroy(JSC::JSCell*);
 
 protected:
     void finishCreation(VM&, JSGlobalObject*);
-
-private:
-    // This bit is set if any user modifies the constructor property Array.prototype. This is used to optimize species creation for JSArrays.
-    friend ArrayPrototypeAdaptiveInferredPropertyWatchpoint;
-    std::unique_ptr<ArrayPrototypeAdaptiveInferredPropertyWatchpoint> m_constructorWatchpoint;
-    std::unique_ptr<ArrayPrototypeAdaptiveInferredPropertyWatchpoint> m_constructorSpeciesWatchpoint;
-    bool m_didChangeConstructorOrSpeciesProperties = false;
 };
 
 EncodedJSValue JSC_HOST_CALL arrayProtoFuncToString(ExecState*);
 EncodedJSValue JSC_HOST_CALL arrayProtoFuncValues(ExecState*);
+EncodedJSValue JSC_HOST_CALL arrayProtoPrivateFuncConcatMemcpy(ExecState*);
+EncodedJSValue JSC_HOST_CALL arrayProtoPrivateFuncAppendMemcpy(ExecState*);
 
 } // namespace JSC
-
-#endif // ArrayPrototype_h

@@ -35,9 +35,8 @@
 #include "ObjectPrototype.h"
 #include "JSCInlines.h"
 #include <wtf/text/StringHash.h>
-#include <wtf/unicode/UTF8.h>
+#include <wtf/unicode/UTF8Conversion.h>
 
-using namespace std;
 using namespace JSC;
 using namespace WTF::Unicode;
 
@@ -119,7 +118,7 @@ Ref<OpaqueJSClass> OpaqueJSClass::create(const JSClassDefinition* clientDefiniti
 
     JSClassDefinition protoDefinition = kJSClassDefinitionEmpty;
     protoDefinition.finalize = 0;
-    swap(definition.staticFunctions, protoDefinition.staticFunctions); // Move static functions to the prototype.
+    std::swap(definition.staticFunctions, protoDefinition.staticFunctions); // Move static functions to the prototype.
     
     // We are supposed to use JSClassRetain/Release but since we know that we currently have
     // the only reference to this class object we cheat and use a RefPtr instead.
@@ -174,14 +173,6 @@ OpaqueJSClassStaticFunctionsTable* OpaqueJSClass::staticFunctions(JSC::ExecState
     return contextData(exec).staticFunctions.get();
 }
 
-/*!
-// Doc here in case we make this public. (Hopefully we won't.)
-@function
- @abstract Returns the prototype that will be used when constructing an object with a given class.
- @param ctx The execution context to use.
- @param jsClass A JSClass whose prototype you want to get.
- @result The JSObject prototype that was automatically generated for jsClass, or NULL if no prototype was automatically generated. This is the prototype that will be used when constructing an object using jsClass.
-*/
 JSObject* OpaqueJSClass::prototype(ExecState* exec)
 {
     /* Class (C++) and prototype (JS) inheritance are parallel, so:
@@ -204,7 +195,7 @@ JSObject* OpaqueJSClass::prototype(ExecState* exec)
     JSObject* prototype = JSCallbackObject<JSDestructibleObject>::create(exec, exec->lexicalGlobalObject(), exec->lexicalGlobalObject()->callbackObjectStructure(), prototypeClass, &jsClassData); // set jsClassData as the object's private data, so it can clear our reference on destruction
     if (parentClass) {
         if (JSObject* parentPrototype = parentClass->prototype(exec))
-            prototype->setPrototype(exec->vm(), parentPrototype);
+            prototype->setPrototypeDirect(exec->vm(), parentPrototype);
     }
 
     jsClassData.cachedPrototype = Weak<JSObject>(prototype);

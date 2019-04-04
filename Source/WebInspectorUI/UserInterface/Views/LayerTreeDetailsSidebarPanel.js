@@ -23,68 +23,83 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel extends WebInspector.DOMDetailsSidebarPanel
+WI.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel extends WI.DOMDetailsSidebarPanel
 {
     constructor()
     {
-        super("layer-tree", WebInspector.UIString("Layers"), WebInspector.UIString("Layer"));
+        super("layer-tree", WI.UIString("Layers"));
 
         this._dataGridNodesByLayerId = new Map;
 
         this.element.classList.add("layer-tree");
-
-        WebInspector.showShadowDOMSetting.addEventListener(WebInspector.Setting.Event.Changed, this._showShadowDOMSettingChanged, this);
-
-        window.addEventListener("resize", this._windowResized.bind(this));
-
-        this._buildLayerInfoSection();
-        this._buildDataGridSection();
-        this._buildBottomBar();
     }
 
     // DetailsSidebarPanel Overrides.
 
     shown()
     {
-        WebInspector.layerTreeManager.addEventListener(WebInspector.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
+        WI.layerTreeManager.addEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
 
         console.assert(this.parentSidebar);
-
-        this.needsRefresh();
 
         super.shown();
     }
 
     hidden()
     {
-        WebInspector.layerTreeManager.removeEventListener(WebInspector.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
+        WI.layerTreeManager.removeEventListener(WI.LayerTreeManager.Event.LayerTreeDidChange, this._layerTreeDidChange, this);
 
         super.hidden();
-    }
-
-    refresh()
-    {
-        if (!this.domNode)
-            return;
-
-        WebInspector.layerTreeManager.layersForNode(this.domNode, function(layerForNode, childLayers) {
-            this._unfilteredChildLayers = childLayers;
-            this._updateDisplayWithLayers(layerForNode, childLayers);
-        }.bind(this));
     }
 
     // DOMDetailsSidebarPanel Overrides
 
     supportsDOMNode(nodeToInspect)
     {
-        return WebInspector.layerTreeManager.supported && nodeToInspect.nodeType() === Node.ELEMENT_NODE;
+        return WI.layerTreeManager.supported && nodeToInspect.nodeType() === Node.ELEMENT_NODE;
+    }
+
+    // Protected
+
+    initialLayout()
+    {
+        super.initialLayout();
+
+        WI.settings.showShadowDOM.addEventListener(WI.Setting.Event.Changed, this._showShadowDOMSettingChanged, this);
+
+        this._buildLayerInfoSection();
+        this._buildDataGridSection();
+        this._buildBottomBar();
+    }
+
+    layout()
+    {
+        super.layout();
+
+        if (!this.domNode)
+            return;
+
+        WI.layerTreeManager.layersForNode(this.domNode, (layers) => {
+            let layerForNode = layers[0] && layers[0].nodeId === this.domNode.id && !layers[0].isGeneratedContent ? layers[0] : null;
+            let childLayers = layers.slice(layerForNode ? 1 : 0);
+            this._unfilteredChildLayers = childLayers;
+            this._updateDisplayWithLayers(layerForNode, childLayers);
+        });
+    }
+
+    sizeDidChange()
+    {
+        super.sizeDidChange();
+
+        // FIXME: <https://webkit.org/b/152269> Web Inspector: Convert DetailsSection classes to use View
+        this._childLayersRow.sizeDidChange();
     }
 
     // Private
 
     _layerTreeDidChange(event)
     {
-        this.needsRefresh();
+        this.needsLayout();
     }
 
     _showShadowDOMSettingChanged(event)
@@ -93,29 +108,23 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
             this._updateDisplayWithLayers(this._layerForNode, this._unfilteredChildLayers);
     }
 
-    _windowResized(event)
-    {
-        if (this._popover && this._popover.visible)
-            this._updatePopoverForSelectedNode();
-    }
-
     _buildLayerInfoSection()
     {
         var rows = this._layerInfoRows = {};
         var rowsArray = [];
 
-        rowsArray.push(rows["Width"] = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Width")));
-        rowsArray.push(rows["Height"] = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Height")));
-        rowsArray.push(rows["Paints"] = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Paints")));
-        rowsArray.push(rows["Memory"] = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Memory")));
+        rowsArray.push(rows["Width"] = new WI.DetailsSectionSimpleRow(WI.UIString("Width")));
+        rowsArray.push(rows["Height"] = new WI.DetailsSectionSimpleRow(WI.UIString("Height")));
+        rowsArray.push(rows["Paints"] = new WI.DetailsSectionSimpleRow(WI.UIString("Paints")));
+        rowsArray.push(rows["Memory"] = new WI.DetailsSectionSimpleRow(WI.UIString("Memory")));
 
-        this._layerInfoGroup = new WebInspector.DetailsSectionGroup(rowsArray);
+        this._layerInfoGroup = new WI.DetailsSectionGroup(rowsArray);
 
-        var emptyRow = new WebInspector.DetailsSectionRow(WebInspector.UIString("No Layer Available"));
+        var emptyRow = new WI.DetailsSectionRow(WI.UIString("No Layer Available"));
         emptyRow.showEmptyMessage();
-        this._noLayerInformationGroup = new WebInspector.DetailsSectionGroup([emptyRow]);
+        this._noLayerInformationGroup = new WI.DetailsSectionGroup([emptyRow]);
 
-        this._layerInfoSection = new WebInspector.DetailsSection("layer-info", WebInspector.UIString("Layer Info"), [this._noLayerInformationGroup]);
+        this._layerInfoSection = new WI.DetailsSection("layer-info", WI.UIString("Layer Info"), [this._noLayerInformationGroup]);
 
         this.contentView.element.appendChild(this._layerInfoSection.element);
     }
@@ -124,35 +133,36 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
     {
         var columns = {name: {}, paintCount: {}, memory: {}};
 
-        columns.name.title = WebInspector.UIString("Node");
+        columns.name.title = WI.UIString("Node");
         columns.name.sortable = false;
 
-        columns.paintCount.title = WebInspector.UIString("Paints");
+        columns.paintCount.title = WI.UIString("Paints");
         columns.paintCount.sortable = true;
         columns.paintCount.aligned = "right";
-        columns.paintCount.width = "50px";
+        columns.paintCount.width = "70px";
 
-        columns.memory.title = WebInspector.UIString("Memory");
+        columns.memory.title = WI.UIString("Memory");
         columns.memory.sortable = true;
         columns.memory.aligned = "right";
         columns.memory.width = "70px";
 
-        this._dataGrid = new WebInspector.DataGrid(columns);
-        this._dataGrid.addEventListener(WebInspector.DataGrid.Event.SortChanged, this._sortDataGrid, this);
-        this._dataGrid.addEventListener(WebInspector.DataGrid.Event.SelectedNodeChanged, this._selectedDataGridNodeChanged, this);
+        this._dataGrid = new WI.DataGrid(columns);
+        this._dataGrid.inline = true;
+        this._dataGrid.addEventListener(WI.DataGrid.Event.SortChanged, this._sortDataGrid, this);
+        this._dataGrid.addEventListener(WI.DataGrid.Event.SelectedNodeChanged, this._selectedDataGridNodeChanged, this);
 
-        this.sortColumnIdentifierSetting = new WebInspector.Setting("layer-tree-details-sidebar-panel-sort", "memory");
-        this.sortOrderSetting = new WebInspector.Setting("layer-tree-details-sidebar-panel-sort-order", WebInspector.DataGrid.SortOrder.Descending);
+        this._dataGrid.sortColumnIdentifier = "memory";
+        this._dataGrid.sortOrder = WI.DataGrid.SortOrder.Descending;
+        this._dataGrid.createSettings("layer-tree-details-sidebar-panel");
 
         var element = this._dataGrid.element;
-        element.classList.add("inline");
         element.addEventListener("focus", this._dataGridGainedFocus.bind(this), false);
         element.addEventListener("blur", this._dataGridLostFocus.bind(this), false);
         element.addEventListener("click", this._dataGridWasClicked.bind(this), false);
 
-        this._childLayersRow = new WebInspector.DetailsSectionDataGridRow(null, WebInspector.UIString("No Child Layers"));
-        var group = new WebInspector.DetailsSectionGroup([this._childLayersRow]);
-        var section = new WebInspector.DetailsSection("layer-children", WebInspector.UIString("Child Layers"), [group], null, true);
+        this._childLayersRow = new WI.DetailsSectionDataGridRow(null, WI.UIString("No Child Layers"));
+        var group = new WI.DetailsSectionGroup([this._childLayersRow]);
+        var section = new WI.DetailsSection("layer-children", WI.UIString("Child Layers"), [group], null, true);
 
         this.contentView.element.appendChild(section.element);
     }
@@ -190,7 +200,7 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
             this._highlightSelectedNode();
             this._showPopoverForSelectedNode();
         } else {
-            WebInspector.domTreeManager.hideDOMNodeHighlight();
+            WI.domManager.hideDOMNodeHighlight();
             this._hidePopover();
         }
     }
@@ -203,7 +213,7 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
 
     _dataGridLostFocus(event)
     {
-        WebInspector.domTreeManager.hideDOMNodeHighlight();
+        WI.domManager.hideDOMNodeHighlight();
         this._hidePopover();
     }
 
@@ -221,14 +231,14 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
 
         var layer = dataGridNode.layer;
         if (layer.isGeneratedContent || layer.isReflection || layer.isAnonymous)
-            WebInspector.domTreeManager.highlightRect(layer.bounds, true);
+            WI.domManager.highlightRect(layer.bounds, true);
         else
-            WebInspector.domTreeManager.highlightDOMNode(layer.nodeId);
+            WI.domManager.highlightDOMNode(layer.nodeId);
     }
 
     _updateDisplayWithLayers(layerForNode, childLayers)
     {
-        if (!WebInspector.showShadowDOMSetting.value) {
+        if (!WI.settings.showShadowDOM.value) {
             childLayers = childLayers.filter(function(layer) {
                 return !layer.isInShadowTree;
             });
@@ -258,7 +268,7 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
     _updateDataGrid(layerForNode, childLayers)
     {
         let dataGrid = this._dataGrid;
-        let mutations = WebInspector.layerTreeManager.layerTreeMutations(this._childLayers, childLayers);
+        let mutations = WI.layerTreeManager.layerTreeMutations(this._childLayers, childLayers);
 
         mutations.removals.forEach(function(layer) {
             let node = this._dataGridNodesByLayerId.get(layer.layerId);
@@ -287,7 +297,7 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
 
     _dataGridNodeForLayer(layer)
     {
-        let node = new WebInspector.LayerTreeDataGridNode(layer);
+        let node = new WI.LayerTreeDataGridNode(layer);
         this._dataGridNodesByLayerId.set(layer.layerId, node);
 
         return node;
@@ -308,8 +318,8 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
             totalMemory += layer.memory || 0;
         });
 
-        this._layersCountLabel.textContent = WebInspector.UIString("Layer Count: %d").format(layerCount);
-        this._layersMemoryLabel.textContent = WebInspector.UIString("Memory: %s").format(Number.bytesToString(totalMemory));
+        this._layersCountLabel.textContent = WI.UIString("Layer Count: %d").format(layerCount);
+        this._layersMemoryLabel.textContent = WI.UIString("Memory: %s").format(Number.bytesToString(totalMemory));
     }
 
     _showPopoverForSelectedNode()
@@ -318,10 +328,10 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
         if (!dataGridNode)
             return;
 
-        this._contentForPopover(dataGridNode.layer, function(content) {
+        this._contentForPopover(dataGridNode.layer, (content) => {
             if (dataGridNode === this._dataGrid.selectedNode)
                 this._updatePopoverForSelectedNode(content);
-        }.bind(this));
+        });
     }
 
     _updatePopoverForSelectedNode(content)
@@ -331,15 +341,17 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
             return;
 
         var popover = this._popover;
-        if (!popover)
-            popover = this._popover = new WebInspector.Popover;
+        if (!popover) {
+            popover = this._popover = new WI.Popover;
+            popover.windowResizeHandler = () => { this._updatePopoverForSelectedNode(); };
+        }
 
-        var targetFrame = WebInspector.Rect.rectFromClientRect(dataGridNode.element.getBoundingClientRect());
+        var targetFrame = WI.Rect.rectFromClientRect(dataGridNode.element.getBoundingClientRect());
 
         if (content)
-            popover.content = content;
-
-        popover.present(targetFrame.pad(2), [WebInspector.RectEdge.MIN_X]);
+            this._popover.presentNewContentWithFrame(content, targetFrame.pad(2), [WI.RectEdge.MIN_X]);
+        else
+            popover.present(targetFrame.pad(2), [WI.RectEdge.MIN_X]);
     }
 
     _hidePopover()
@@ -353,11 +365,11 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
         var content = document.createElement("div");
         content.className = "layer-tree-popover";
 
-        content.appendChild(document.createElement("p")).textContent = WebInspector.UIString("Reasons for compositing:");
+        content.appendChild(document.createElement("p")).textContent = WI.UIString("Reasons for compositing:");
 
         var list = content.appendChild(document.createElement("ul"));
 
-        WebInspector.layerTreeManager.reasonsForCompositingLayer(layer, function(compositingReasons) {
+        WI.layerTreeManager.reasonsForCompositingLayer(layer, (compositingReasons) => {
             if (isEmptyObject(compositingReasons)) {
                 callback(content);
                 return;
@@ -366,7 +378,7 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
             this._populateListOfCompositingReasons(list, compositingReasons);
 
             callback(content);
-        }.bind(this));
+        });
 
         return content;
     }
@@ -379,58 +391,58 @@ WebInspector.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel e
         }
 
         if (compositingReasons.transform3D)
-            addReason(WebInspector.UIString("Element has a 3D transform"));
+            addReason(WI.UIString("Element has a 3D transform"));
         if (compositingReasons.video)
-            addReason(WebInspector.UIString("Element is <video>"));
+            addReason(WI.UIString("Element is <video>"));
         if (compositingReasons.canvas)
-            addReason(WebInspector.UIString("Element is <canvas>"));
+            addReason(WI.UIString("Element is <canvas>"));
         if (compositingReasons.plugin)
-            addReason(WebInspector.UIString("Element is a plug-in"));
+            addReason(WI.UIString("Element is a plug-in"));
         if (compositingReasons.iFrame)
-            addReason(WebInspector.UIString("Element is <iframe>"));
+            addReason(WI.UIString("Element is <iframe>"));
         if (compositingReasons.backfaceVisibilityHidden)
-            addReason(WebInspector.UIString("Element has “backface-visibility: hidden” style"));
+            addReason(WI.UIString("Element has \u201Cbackface-visibility: hidden\u201D style"));
         if (compositingReasons.clipsCompositingDescendants)
-            addReason(WebInspector.UIString("Element clips compositing descendants"));
+            addReason(WI.UIString("Element clips compositing descendants"));
         if (compositingReasons.animation)
-            addReason(WebInspector.UIString("Element is animated"));
+            addReason(WI.UIString("Element is animated"));
         if (compositingReasons.filters)
-            addReason(WebInspector.UIString("Element has CSS filters applied"));
+            addReason(WI.UIString("Element has CSS filters applied"));
         if (compositingReasons.positionFixed)
-            addReason(WebInspector.UIString("Element has “position: fixed” style"));
+            addReason(WI.UIString("Element has \u201Cposition: fixed\u201D style"));
         if (compositingReasons.positionSticky)
-            addReason(WebInspector.UIString("Element has “position: sticky” style"));
+            addReason(WI.UIString("Element has \u201Cposition: sticky\u201D style"));
         if (compositingReasons.overflowScrollingTouch)
-            addReason(WebInspector.UIString("Element has “-webkit-overflow-scrolling: touch” style"));
+            addReason(WI.UIString("Element has \u201C-webkit-overflow-scrolling: touch\u201D style"));
         if (compositingReasons.stacking)
-            addReason(WebInspector.UIString("Element establishes a stacking context"));
+            addReason(WI.UIString("Element may overlap another compositing element"));
         if (compositingReasons.overlap)
-            addReason(WebInspector.UIString("Element overlaps other compositing element"));
+            addReason(WI.UIString("Element overlaps other compositing element"));
         if (compositingReasons.negativeZIndexChildren)
-            addReason(WebInspector.UIString("Element has children with a negative z-index"));
+            addReason(WI.UIString("Element has children with a negative z-index"));
         if (compositingReasons.transformWithCompositedDescendants)
-            addReason(WebInspector.UIString("Element has a 2D transform and composited descendants"));
+            addReason(WI.UIString("Element has a 2D transform and composited descendants"));
         if (compositingReasons.opacityWithCompositedDescendants)
-            addReason(WebInspector.UIString("Element has opacity applied and composited descendants"));
+            addReason(WI.UIString("Element has opacity applied and composited descendants"));
         if (compositingReasons.maskWithCompositedDescendants)
-            addReason(WebInspector.UIString("Element is masked and composited descendants"));
+            addReason(WI.UIString("Element is masked and has composited descendants"));
         if (compositingReasons.reflectionWithCompositedDescendants)
-            addReason(WebInspector.UIString("Element has a reflection and composited descendants"));
+            addReason(WI.UIString("Element has a reflection and composited descendants"));
         if (compositingReasons.filterWithCompositedDescendants)
-            addReason(WebInspector.UIString("Element has CSS filters applied and composited descendants"));
+            addReason(WI.UIString("Element has CSS filters applied and composited descendants"));
         if (compositingReasons.blendingWithCompositedDescendants)
-            addReason(WebInspector.UIString("Element has CSS blending applied and composited descendants"));
+            addReason(WI.UIString("Element has CSS blending applied and composited descendants"));
         if (compositingReasons.isolatesCompositedBlendingDescendants)
-            addReason(WebInspector.UIString("Element is a stacking context and has composited descendants with CSS blending applied"));
+            addReason(WI.UIString("Element is a stacking context and has composited descendants with CSS blending applied"));
         if (compositingReasons.perspective)
-            addReason(WebInspector.UIString("Element has perspective applied"));
+            addReason(WI.UIString("Element has perspective applied"));
         if (compositingReasons.preserve3D)
-            addReason(WebInspector.UIString("Element has “transform-style: preserve-3d” style"));
+            addReason(WI.UIString("Element has \u201Ctransform-style: preserve-3d\u201D style"));
         if (compositingReasons.willChange)
-            addReason(WebInspector.UIString("Element has “will-change” style with includes opacity, transform, transform-style, perspective, filter or backdrop-filter"));
+            addReason(WI.UIString("Element has \u201Cwill-change\u201D style which includes opacity, transform, transform-style, perspective, filter or backdrop-filter"));
         if (compositingReasons.root)
-            addReason(WebInspector.UIString("Element is the root element"));
+            addReason(WI.UIString("Element is the root element"));
         if (compositingReasons.blending)
-            addReason(WebInspector.UIString("Element has “blend-mode” style"));
+            addReason(WI.UIString("Element has \u201Cblend-mode\u201D style"));
     }
 };

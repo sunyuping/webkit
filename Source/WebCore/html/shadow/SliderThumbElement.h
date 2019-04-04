@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2018 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,55 +29,56 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SliderThumbElement_h
-#define SliderThumbElement_h
+#pragma once
 
 #include "HTMLDivElement.h"
-#include "HTMLNames.h"
 #include "RenderBlockFlow.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
 class HTMLInputElement;
-class FloatPoint;
 class TouchEvent;
 
 class SliderThumbElement final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(SliderThumbElement);
 public:
     static Ref<SliderThumbElement> create(Document&);
 
     void setPositionFromValue();
     void dragFrom(const LayoutPoint&);
-    HTMLInputElement* hostInput() const;
+    RefPtr<HTMLInputElement> hostInput() const;
     void setPositionFromPoint(const LayoutPoint&);
 
 #if ENABLE(IOS_TOUCH_EVENTS)
-    void handleTouchEvent(TouchEvent*);
-
-    void disabledAttributeChanged();
+    void handleTouchEvent(TouchEvent&);
 #endif
+
+    void hostDisabledStateChanged();
 
 private:
     SliderThumbElement(Document&);
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual Ref<Element> cloneElementWithoutAttributesAndChildren(Document&) override;
-    virtual bool isDisabledFormControl() const override;
-    virtual bool matchesReadWritePseudoClass() const override;
-    virtual Element* focusDelegate() override;
-#if !PLATFORM(IOS)
-    virtual void defaultEventHandler(Event*) override;
-    virtual bool willRespondToMouseMoveEvents() override;
-    virtual bool willRespondToMouseClickEvents() override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+
+    Ref<Element> cloneElementWithoutAttributesAndChildren(Document&) final;
+    bool isDisabledFormControl() const final;
+    bool matchesReadWritePseudoClass() const final;
+    RefPtr<Element> focusDelegate() final;
+
+#if !PLATFORM(IOS_FAMILY)
+    void defaultEventHandler(Event&) final;
+    bool willRespondToMouseMoveEvents() final;
+    bool willRespondToMouseClickEvents() final;
 #endif
 
 #if ENABLE(IOS_TOUCH_EVENTS)
-    virtual void didAttachRenderers() override;
+    void didAttachRenderers() final;
 #endif
-    virtual void willDetachRenderers() override;
+    void willDetachRenderers() final;
 
-    virtual const AtomicString& shadowPseudoId() const override;
+    Optional<ElementStyle> resolveCustomStyle(const RenderStyle&, const RenderStyle*) final;
+    const AtomicString& shadowPseudoId() const final;
 
     void startDragging();
     void stopDragging();
@@ -87,23 +88,24 @@ private:
     void setExclusiveTouchIdentifier(unsigned);
     void clearExclusiveTouchIdentifier();
 
-    void handleTouchStart(TouchEvent*);
-    void handleTouchMove(TouchEvent*);
-    void handleTouchEndAndCancel(TouchEvent*);
+    void handleTouchStart(TouchEvent&);
+    void handleTouchMove(TouchEvent&);
+    void handleTouchEndAndCancel(TouchEvent&);
 
     bool shouldAcceptTouchEvents();
     void registerForTouchEvents();
     void unregisterForTouchEvents();
 #endif
 
-    bool m_inDragMode;
+    AtomicString m_shadowPseudoId;
+    bool m_inDragMode { false };
 
 #if ENABLE(IOS_TOUCH_EVENTS)
     // FIXME: Currently it is safe to use 0, but this may need to change
     // if touch identifiers change in the future and can be 0.
     static const unsigned NoIdentifier = 0;
-    unsigned m_exclusiveTouchIdentifier;
-    bool m_isRegisteredAsTouchEventListener;
+    unsigned m_exclusiveTouchIdentifier { NoIdentifier };
+    bool m_isRegisteredAsTouchEventListener { false };
 #endif
 };
 
@@ -115,26 +117,35 @@ inline Ref<SliderThumbElement> SliderThumbElement::create(Document& document)
 // --------------------------------
 
 class RenderSliderThumb final : public RenderBlockFlow {
+    WTF_MAKE_ISO_ALLOCATED(RenderSliderThumb);
 public:
-    RenderSliderThumb(SliderThumbElement&, Ref<RenderStyle>&&);
-    void updateAppearance(RenderStyle* parentStyle);
+    RenderSliderThumb(SliderThumbElement&, RenderStyle&&);
+    void updateAppearance(const RenderStyle* parentStyle);
 
 private:
-    virtual bool isSliderThumb() const override;
+    bool isSliderThumb() const final;
 };
 
 // --------------------------------
 
 class SliderContainerElement final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(SliderContainerElement);
 public:
     static Ref<SliderContainerElement> create(Document&);
 
 private:
     SliderContainerElement(Document&);
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual const AtomicString& shadowPseudoId() const override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    Optional<ElementStyle> resolveCustomStyle(const RenderStyle&, const RenderStyle*) final;
+    const AtomicString& shadowPseudoId() const final;
+    bool isSliderContainerElement() const final { return true; }
+
+    AtomicString m_shadowPseudoId;
 };
 
-}
+} // namespace WebCore
 
-#endif
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SliderContainerElement)
+    static bool isType(const WebCore::Element& element) { return element.isSliderContainerElement(); }
+    static bool isType(const WebCore::Node& node) { return is<WebCore::Element>(node) && isType(downcast<WebCore::Element>(node)); }
+SPECIALIZE_TYPE_TRAITS_END()

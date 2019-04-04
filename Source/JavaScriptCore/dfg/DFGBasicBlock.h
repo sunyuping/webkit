@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2011, 2013-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,22 +23,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGBasicBlock_h
-#define DFGBasicBlock_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
 #include "DFGAbstractValue.h"
-#include "DFGAvailability.h"
 #include "DFGAvailabilityMap.h"
 #include "DFGBranchDirection.h"
-#include "DFGFlushedAt.h"
 #include "DFGNode.h"
-#include "DFGNodeOrigin.h"
+#include "DFGNodeAbstractValuePair.h"
 #include "DFGStructureClobberState.h"
 #include "Operands.h"
-#include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
 #include <wtf/Vector.h>
 
 namespace JSC { namespace DFG {
@@ -69,6 +64,11 @@ struct BasicBlock : RefCounted<BasicBlock> {
     }
     Node*& operator[](size_t i) { return at(i); }
     Node* operator[](size_t i) const { return at(i); }
+    Node* last() const
+    {
+        RELEASE_ASSERT(!!size());
+        return at(size() - 1);
+    }
     
     // Use this to find both the index of the terminal and the terminal itself in one go. May
     // return a clear NodeAndIndex if the basic block currently lacks a terminal. That may happen
@@ -87,18 +87,12 @@ struct BasicBlock : RefCounted<BasicBlock> {
         size_t i = size();
         while (i--) {
             Node* node = at(i);
-            switch (node->op()) {
-            case Jump:
-            case Branch:
-            case Switch:
-            case Return:
-            case TailCall:
-            case TailCallVarargs:
-            case TailCallForwardVarargs:
-            case Unreachable:
+            if (node->isTerminal())
                 return NodeAndIndex(node, i);
+            switch (node->op()) {
             // The bitter end can contain Phantoms and the like. There will probably only be one or two nodes after the terminal. They are all no-ops and will not have any checked children.
             case Check: // This is here because it's our universal no-op.
+            case CheckVarargs:
             case Phantom:
             case PhantomLocal:
             case Flush:
@@ -128,7 +122,7 @@ struct BasicBlock : RefCounted<BasicBlock> {
             m_nodes.insert(result.index, node);
     }
     
-    void replaceTerminal(Node*);
+    void replaceTerminal(Graph&, Node*);
     
     size_t numNodes() const { return phis.size() + size(); }
     Node* node(size_t i) const
@@ -187,15 +181,18 @@ struct BasicBlock : RefCounted<BasicBlock> {
     unsigned bytecodeBegin;
     
     BlockIndex index;
-    
-    bool isOSRTarget;
+
+    StructureClobberState cfaStructureClobberStateAtHead;
+    StructureClobberState cfaStructureClobberStateAtTail;
+    BranchDirection cfaBranchDirection;
     bool cfaHasVisited;
     bool cfaShouldRevisit;
     bool cfaFoundConstants;
     bool cfaDidFinish;
-    StructureClobberState cfaStructureClobberStateAtHead;
-    StructureClobberState cfaStructureClobberStateAtTail;
-    BranchDirection cfaBranchDirection;
+    bool intersectionOfCFAHasVisited;
+    bool isOSRTarget;
+    bool isCatchEntrypoint;
+
 #if !ASSERT_DISABLED
     bool isLinked;
 #endif
@@ -228,25 +225,27 @@ struct BasicBlock : RefCounted<BasicBlock> {
     // would not be a productive optimization: it would make setting up a basic block more
     // expensive and would only benefit bizarre pathological cases.
     Operands<AbstractValue> intersectionOfPastValuesAtHead;
-    bool intersectionOfCFAHasVisited;
     
     float executionCount;
     
-    // These fields are reserved for NaturalLoops.
-    static const unsigned numberOfInnerMostLoopIndices = 2;
-    unsigned innerMostLoopIndices[numberOfInnerMostLoopIndices];
-
     struct SSAData {
         WTF_MAKE_FAST_ALLOCATED;
     public:
+        void invalidate()
+        {
+            liveAtTail.clear();
+            liveAtHead.clear();
+            valuesAtHead.clear();
+            valuesAtTail.clear();
+        }
+
         AvailabilityMap availabilityAtHead;
         AvailabilityMap availabilityAtTail;
-        
-        bool liveAtTailIsDirty { false };
-        HashSet<Node*> liveAtTail;
-        HashSet<Node*> liveAtHead;
-        HashMap<Node*, AbstractValue> valuesAtHead;
-        HashMap<Node*, AbstractValue> valuesAtTail;
+
+        Vector<NodeFlowProjection> liveAtHead;
+        Vector<NodeFlowProjection> liveAtTail;
+        Vector<NodeAbstractValuePair> valuesAtHead;
+        Vector<NodeAbstractValuePair> valuesAtTail;
         
         SSAData(BasicBlock*);
         ~SSAData();
@@ -258,22 +257,7 @@ private:
     BlockNodeList m_nodes;
 };
 
-typedef Vector<BasicBlock*, 5> BlockList;
-
-struct UnlinkedBlock {
-    BasicBlock* m_block;
-    bool m_needsNormalLinking;
-    bool m_needsEarlyReturnLinking;
-    
-    UnlinkedBlock() { }
-    
-    explicit UnlinkedBlock(BasicBlock* block)
-        : m_block(block)
-        , m_needsNormalLinking(true)
-        , m_needsEarlyReturnLinking(false)
-    {
-    }
-};
+typedef Vector<BasicBlock*> BlockList;
     
 static inline unsigned getBytecodeBeginForBlock(BasicBlock** basicBlock)
 {
@@ -288,6 +272,3 @@ static inline BasicBlock* blockForBytecodeOffset(Vector<BasicBlock*>& linkingTar
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGBasicBlock_h
-

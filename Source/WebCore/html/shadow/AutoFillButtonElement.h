@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AutoFillButtonElement_h
-#define AutoFillButtonElement_h
+#pragma once
 
 #include "HTMLDivElement.h"
 
@@ -33,10 +32,11 @@ namespace WebCore {
 class TextFieldInputType;
 
 class AutoFillButtonElement final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(AutoFillButtonElement);
 public:
     class AutoFillButtonOwner {
     public:
-        virtual ~AutoFillButtonOwner() { }
+        virtual ~AutoFillButtonOwner() = default;
         virtual void autoFillButtonElementWasClicked() = 0;
     };
 
@@ -45,11 +45,9 @@ public:
 private:
     explicit AutoFillButtonElement(Document&, AutoFillButtonOwner&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
     AutoFillButtonOwner& m_owner;
 };
 
 } // namespace WebCore
-
-#endif // AutoFillButtonElement_h

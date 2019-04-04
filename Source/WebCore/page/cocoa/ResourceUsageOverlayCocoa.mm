@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015, 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,17 +28,22 @@
 
 #if ENABLE(RESOURCE_USAGE)
 
+#include <CoreText/CoreText.h>
+
+#include "CommonVM.h"
 #include "JSDOMWindow.h"
 #include "PlatformCALayer.h"
 #include "ResourceUsageThread.h"
 #include <CoreGraphics/CGContext.h>
 #include <QuartzCore/CALayer.h>
 #include <QuartzCore/CATransaction.h>
+#include <wtf/MainThread.h>
 #include <wtf/MathExtras.h>
+#include <wtf/MemoryFootprint.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
-using namespace WebCore;
-
+using WebCore::ResourceUsageOverlay;
 @interface WebOverlayLayer : CALayer {
     ResourceUsageOverlay* m_overlay;
 }
@@ -85,11 +90,11 @@ public:
         return m_data[index];
     }
 
-    void forEach(std::function<void(T)> func) const
+    void forEach(const WTF::Function<void(T)>& apply) const
     {
         unsigned i = m_current;
         for (unsigned visited = 0; visited < size; ++visited) {
-            func(m_data[i]);
+            apply(m_data[i]);
             incrementIndex(i);
         }
     }
@@ -137,6 +142,7 @@ struct HistoricMemoryCategoryInfo {
     RetainPtr<CGColorRef> color;
     RingBuffer<size_t> dirtySize;
     RingBuffer<size_t> reclaimableSize;
+    RingBuffer<size_t> externalSize;
     bool isSubcategory { false };
     unsigned type { MemoryCategory::NumberOfCategories };
 };
@@ -146,16 +152,18 @@ struct HistoricResourceUsageData {
 
     RingBuffer<float> cpu;
     RingBuffer<size_t> totalDirtySize;
+    RingBuffer<size_t> totalExternalSize;
     RingBuffer<size_t> gcHeapSize;
     std::array<HistoricMemoryCategoryInfo, MemoryCategory::NumberOfCategories> categories;
-    double timeOfNextEdenCollection { 0 };
-    double timeOfNextFullCollection { 0 };
+    MonotonicTime timeOfNextEdenCollection { MonotonicTime::nan() };
+    MonotonicTime timeOfNextFullCollection { MonotonicTime::nan() };
 };
 
 HistoricResourceUsageData::HistoricResourceUsageData()
 {
     // VM tag categories.
     categories[MemoryCategory::JSJIT] = HistoricMemoryCategoryInfo(MemoryCategory::JSJIT, 0xFFFF60FF, "JS JIT");
+    categories[MemoryCategory::WebAssembly] = HistoricMemoryCategoryInfo(MemoryCategory::WebAssembly, 0xFF654FF0, "WebAssembly");
     categories[MemoryCategory::Images] = HistoricMemoryCategoryInfo(MemoryCategory::Images, 0xFFFFFF00, "Images");
     categories[MemoryCategory::Layers] = HistoricMemoryCategoryInfo(MemoryCategory::Layers, 0xFF00FFFF, "Layers");
     categories[MemoryCategory::LibcMalloc] = HistoricMemoryCategoryInfo(MemoryCategory::LibcMalloc, 0xFF00FF00, "libc malloc");
@@ -188,16 +196,18 @@ static void appendDataToHistory(const ResourceUsageData& data)
     auto& historicData = historicUsageData();
     historicData.cpu.append(data.cpu);
     historicData.totalDirtySize.append(data.totalDirtySize);
+    historicData.totalExternalSize.append(data.totalExternalSize);
     for (auto& category : historicData.categories) {
         category.dirtySize.append(data.categories[category.type].dirtySize);
         category.reclaimableSize.append(data.categories[category.type].reclaimableSize);
+        category.externalSize.append(data.categories[category.type].externalSize);
     }
     historicData.timeOfNextEdenCollection = data.timeOfNextEdenCollection;
     historicData.timeOfNextFullCollection = data.timeOfNextFullCollection;
 
     // FIXME: Find a way to add this to ResourceUsageData and calculate it on the resource usage sampler thread.
     {
-        JSC::VM* vm = &JSDOMWindow::commonVM();
+        JSC::VM* vm = &commonVM();
         JSC::JSLockHolder lock(vm);
         historicData.gcHeapSize.append(vm->heap.size() - vm->heap.extraMemorySize());
     }
@@ -218,9 +228,9 @@ void ResourceUsageOverlay::platformInitialize()
     [m_layer.get() setBackgroundColor:adoptCF(createColor(0, 0, 0, 0.8)).get()];
     [m_layer.get() setBounds:CGRectMake(0, 0, normalWidth, normalHeight)];
 
-    overlay().layer().setContentsToPlatformLayer(m_layer.get(), GraphicsLayer::NoContentsLayer);
+    overlay().layer().setContentsToPlatformLayer(m_layer.get(), GraphicsLayer::ContentsLayerPurpose::None);
 
-    ResourceUsageThread::addObserver(this, [this] (const ResourceUsageData& data) {
+    ResourceUsageThread::addObserver(this, All, [this] (const ResourceUsageData& data) {
         appendDataToHistory(data);
 
         // FIXME: It shouldn't be necessary to update the bounds on every single thread loop iteration,
@@ -247,21 +257,24 @@ static void showText(CGContextRef context, float x, float y, CGColorRef color, c
     CGContextSetTextDrawingMode(context, kCGTextFill);
     CGContextSetFillColorWithColor(context, color);
 
-    CGContextSetTextMatrix(context, CGAffineTransformMakeScale(1, -1));
-
-    // FIXME: Don't use deprecated APIs.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
-#if PLATFORM(IOS)
-    CGContextSelectFont(context, "Courier", 10, kCGEncodingMacRoman);
+    auto matrix = CGAffineTransformMakeScale(1, -1);
+#if PLATFORM(IOS_FAMILY)
+    CFStringRef fontName = CFSTR("Courier");
+    CGFloat fontSize = 10;
 #else
-    CGContextSelectFont(context, "Menlo", 11, kCGEncodingMacRoman);
+    CFStringRef fontName = CFSTR("Menlo");
+    CGFloat fontSize = 11;
 #endif
-
+    auto font = adoptCF(CTFontCreateWithName(fontName, fontSize, &matrix));
+    CFTypeRef keys[] = { kCTFontAttributeName, kCTForegroundColorFromContextAttributeName };
+    CFTypeRef values[] = { font.get(), kCFBooleanTrue };
+    auto attributes = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, keys, values, WTF_ARRAY_LENGTH(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
     CString cstr = text.ascii();
-    CGContextShowTextAtPoint(context, x, y, cstr.data(), cstr.length());
-#pragma clang diagnostic pop
+    auto string = adoptCF(CFStringCreateWithBytesNoCopy(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(cstr.data()), cstr.length(), kCFStringEncodingASCII, false, kCFAllocatorNull));
+    auto attributedString = adoptCF(CFAttributedStringCreate(kCFAllocatorDefault, string.get(), attributes.get()));
+    auto line = adoptCF(CTLineCreateWithAttributedString(attributedString.get()));
+    CGContextSetTextPosition(context, x, y);
+    CTLineDraw(line.get(), context);
 
     CGContextRestoreGState(context);
 }
@@ -414,19 +427,19 @@ static void drawMemoryPie(CGContextRef context, FloatRect& rect, HistoricResourc
 static String formatByteNumber(size_t number)
 {
     if (number >= 1024 * 1048576)
-        return String::format("%.3f GB", static_cast<double>(number) / (1024 * 1048576));
+        return makeString(FormattedNumber::fixedWidth(number / (1024. * 1048576), 3), " GB");
     if (number >= 1048576)
-        return String::format("%.2f MB", static_cast<double>(number) / 1048576);
+        return makeString(FormattedNumber::fixedWidth(number / 1048576., 2), " MB");
     if (number >= 1024)
-        return String::format("%.1f kB", static_cast<double>(number) / 1024);
-    return String::format("%lu", number);
+        return makeString(FormattedNumber::fixedWidth(number / 1024, 1), " kB");
+    return String::number(number);
 }
 
-static String gcTimerString(double timerFireDate, double now)
+static String gcTimerString(MonotonicTime timerFireDate, MonotonicTime now)
 {
-    if (!timerFireDate)
-        return ASCIILiteral("[not scheduled]");
-    return String::format("%g", timerFireDate - now);
+    if (std::isnan(timerFireDate))
+        return "[not scheduled]"_s;
+    return String::numberToStringFixedPrecision((timerFireDate - now).seconds());
 }
 
 void ResourceUsageOverlay::platformDraw(CGContextRef context)
@@ -445,24 +458,31 @@ void ResourceUsageOverlay::platformDraw(CGContextRef context)
     CGContextClearRect(context, viewBounds);
 
     static CGColorRef colorForLabels = createColor(0.9, 0.9, 0.9, 1);
-    showText(context, 10, 20, colorForLabels, String::format("        CPU: %g", data.cpu.last()));
-    showText(context, 10, 30, colorForLabels, "  Footprint: " + formatByteNumber(data.totalDirtySize.last()));
+    showText(context, 10, 20, colorForLabels, makeString("        CPU: ", FormattedNumber::fixedPrecision(data.cpu.last(), 6, KeepTrailingZeros)));
+    showText(context, 10, 30, colorForLabels, "  Footprint: " + formatByteNumber(memoryFootprint()));
+    showText(context, 10, 40, colorForLabels, "   External: " + formatByteNumber(data.totalExternalSize.last()));
 
-    float y = 50;
+    float y = 55;
     for (auto& category : data.categories) {
-        String label = String::format("% 11s: %s", category.name.ascii().data(), formatByteNumber(category.dirtySize.last()).ascii().data());
+        size_t dirty = category.dirtySize.last();
         size_t reclaimable = category.reclaimableSize.last();
+        size_t external = category.externalSize.last();
+        
+        String label = makeString(pad(' ', 11, category.name), ": ", formatByteNumber(dirty));
+        if (external)
+            label = label + makeString(" + ", formatByteNumber(external));
         if (reclaimable)
-            label = label + String::format(" [%s]", formatByteNumber(reclaimable).ascii().data());
+            label = label + makeString(" [", formatByteNumber(reclaimable), ']');
 
         // FIXME: Show size/capacity of GC heap.
         showText(context, 10, y, category.color.get(), label);
         y += 10;
     }
+    y -= 5;
 
-    double now = WTF::currentTime();
-    showText(context, 10, y + 10, colorForLabels, String::format("    Eden GC: %s", gcTimerString(data.timeOfNextEdenCollection, now).ascii().data()));
-    showText(context, 10, y + 20, colorForLabels, String::format("    Full GC: %s", gcTimerString(data.timeOfNextFullCollection, now).ascii().data()));
+    MonotonicTime now = MonotonicTime::now();
+    showText(context, 10, y + 10, colorForLabels, "    Eden GC: " + gcTimerString(data.timeOfNextEdenCollection, now));
+    showText(context, 10, y + 20, colorForLabels, "    Full GC: " + gcTimerString(data.timeOfNextFullCollection, now));
 
     drawCpuHistory(context, viewBounds.size.width - 70, 0, viewBounds.size.height, data.cpu);
     drawGCHistory(context, viewBounds.size.width - 140, 0, viewBounds.size.height, data.gcHeapSize, data.categories[MemoryCategory::GCHeap].dirtySize);

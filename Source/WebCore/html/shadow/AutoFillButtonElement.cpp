@@ -31,8 +31,11 @@
 #include "HTMLNames.h"
 #include "MouseEvent.h"
 #include "TextFieldInputType.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(AutoFillButtonElement);
 
 using namespace HTMLNames;
 
@@ -47,22 +50,22 @@ AutoFillButtonElement::AutoFillButtonElement(Document& document, AutoFillButtonO
 {
 }
 
-void AutoFillButtonElement::defaultEventHandler(Event* event)
+void AutoFillButtonElement::defaultEventHandler(Event& event)
 {
-    if (!is<MouseEvent>(*event)) {
-        if (!event->defaultHandled())
+    if (!is<MouseEvent>(event)) {
+        if (!event.defaultHandled())
             HTMLDivElement::defaultEventHandler(event);
         return;
     }
 
-    MouseEvent& mouseEvent = downcast<MouseEvent>(*event);
+    MouseEvent& mouseEvent = downcast<MouseEvent>(event);
 
     if (mouseEvent.type() == eventNames().clickEvent) {
         m_owner.autoFillButtonElementWasClicked();
-        event->setDefaultHandled();
+        event.setDefaultHandled();
     }
 
-    if (!event->defaultHandled())
+    if (!event.defaultHandled())
         HTMLDivElement::defaultEventHandler(event);
 }
 

@@ -10,11 +10,13 @@ accesskey
 action
 align
 alink
+allow
 allowfullscreen
 alt
 archive
 aria-activedescendant
 aria-atomic
+aria-autocomplete
 aria-busy
 aria-checked
 aria-colcount
@@ -23,8 +25,10 @@ aria-colspan
 aria-controls
 aria-current
 aria-describedby
+aria-details
 aria-disabled
 aria-dropeffect
+aria-errormessage
 aria-expanded
 aria-flowto
 aria-grabbed
@@ -32,6 +36,7 @@ aria-haspopup
 aria-help
 aria-hidden
 aria-invalid
+aria-keyshortcuts
 aria-label
 aria-labeledby
 aria-labelledby
@@ -59,7 +64,10 @@ aria-valuemax
 aria-valuemin
 aria-valuenow
 aria-valuetext
+as
 async
+adcampaignid
+addestination
 autocomplete
 autofocus
 autoplay
@@ -100,6 +108,7 @@ crossorigin
 data
 datetime
 declare
+decoding
 default
 defer
 dir
@@ -115,6 +124,7 @@ end
 event
 expanded
 face
+filename
 focused
 for
 form
@@ -136,6 +146,8 @@ http_equiv
 id
 incremental
 indeterminate
+inputmode
+integrity
 is
 ismap
 itemid
@@ -163,6 +175,7 @@ marginheight
 marginwidth
 max
 maxlength
+minlength
 mayscript
 media
 mediagroup
@@ -172,6 +185,7 @@ multiple
 muted
 name
 nohref
+nomodule
 nonce
 noresize
 noshade
@@ -179,15 +193,28 @@ novalidate
 nowrap
 object
 onabort
+onaccessiblecontextmenu
+onaccessibleclick
+onaccessibledecrement
+onaccessibledismiss
+onaccessiblefocus
+onaccessibleincrement
+onaccessiblescrollintoview
+onaccessiblesetvalue
+onaccessibleselect
+onafterprint
 onanimationstart
 onanimationiteration
 onanimationend
+onanimationcancel
 onautocomplete
 onautocompleteerror
 onbeforecopy
 onbeforecut
+onbeforeinput
 onbeforeload
 onbeforepaste
+onbeforeprint
 onbeforeunload
 onblur
 oncanplay
@@ -198,6 +225,7 @@ oncontextmenu
 oncopy
 oncut
 ondblclick
+ondevicechange
 ondrag
 ondragend
 ondragenter
@@ -221,6 +249,7 @@ onkeyup
 ongesturestart
 ongesturechange
 ongestureend
+onlanguagechange
 onload
 onloadeddata
 onloadedmetadata
@@ -262,11 +291,16 @@ onstorage
 onsuspend
 onsubmit
 ontimeupdate
+ontoggle
+ontouchforcechange
 ontouchstart
 ontouchmove
 ontouchend
 ontouchcancel
+ontransitioncancel
 ontransitionend
+ontransitionrun
+ontransitionstart
 onunload
 onvolumechange
 onwaiting
@@ -297,6 +331,7 @@ open
 optimum
 pattern
 placeholder
+playsinline
 pluginspage
 pluginurl
 ping
@@ -309,6 +344,7 @@ progress
 prompt
 pseudo
 readonly
+referrerpolicy
 rel
 required
 results
@@ -366,7 +402,10 @@ version
 vlink
 vspace
 webkitallowfullscreen
+webkitattachmentid
 webkitattachmentpath
+webkitattachmentbloburl
+webkitdirectory
 width
 wrap
 
@@ -380,3 +419,11 @@ webkit-playsinline
 x-webkit-airplay
 x-webkit-wirelessvideoplaybackdisabled
 x-itunes-inherit-uri-query-component
+
+x-apple-data-detectors
+x-apple-data-detectors-type
+x-apple-data-detectors-result
+
+x-apple-pdf-annotation
+
+x-apple-editable-image

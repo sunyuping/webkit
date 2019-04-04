@@ -18,27 +18,26 @@
  *
  */
 
-#ifndef RenderDetailsMarker_h
-#define RenderDetailsMarker_h
+#pragma once
 
-#if ENABLE(DETAILS_ELEMENT)
 #include "DetailsMarkerControl.h"
 #include "RenderBlockFlow.h"
 
 namespace WebCore {
 
 class RenderDetailsMarker final : public RenderBlockFlow {
+    WTF_MAKE_ISO_ALLOCATED(RenderDetailsMarker);
 public:
-    RenderDetailsMarker(DetailsMarkerControl&, Ref<RenderStyle>&&);
+    RenderDetailsMarker(DetailsMarkerControl&, RenderStyle&&);
     DetailsMarkerControl& element() const { return static_cast<DetailsMarkerControl&>(nodeForNonAnonymous()); }
 
     enum Orientation { Up, Down, Left, Right };
     Orientation orientation() const;
 
 private:
-    virtual const char* renderName() const override { return "RenderDetailsMarker"; }
-    virtual bool isDetailsMarker() const override { return true; }
-    virtual void paint(PaintInfo&, const LayoutPoint&) override;
+    const char* renderName() const override { return "RenderDetailsMarker"; }
+    bool isDetailsMarker() const override { return true; }
+    void paint(PaintInfo&, const LayoutPoint&) override;
 
     bool isOpen() const;
     Path getCanonicalPath() const;
@@ -48,8 +47,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderDetailsMarker, isDetailsMarker())
-
-#endif // ENABLE(DETAILS_ELEMENT)
-
-#endif // RenderDetailsMarker_h
-

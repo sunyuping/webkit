@@ -9,9 +9,62 @@
     [
         {
             'target_name': 'libEGL',
-            'type': 'shared_library',
-            'dependencies': [ 'libGLESv2', ],
-            'includes': [ '../build/common_defines.gypi', ],
+            'type': '<(angle_gl_library_type)',
+            'dependencies':
+            [
+                'libGLESv2',
+            ],
+            'includes':
+            [
+                '../gyp/common_defines.gypi',
+            ],
+            'include_dirs':
+            [
+                '.',
+                '../include',
+            ],
+            'sources':
+            [
+                '<@(libegl_sources)',
+            ],
+            'conditions':
+            [
+                ['angle_build_winrt==1',
+                {
+                    'msvs_requires_importlibrary' : 'true',
+                }],
+                ['OS=="win"', {
+                    'defines':
+                    [
+                        'EGLAPI=',
+                    ],
+                }, {
+                    'defines':
+                    [
+                        'EGLAPI=__attribute__((visibility("default")))',
+                    ],
+                }],
+                ['OS == "mac"',
+                {
+                    'xcode_settings':
+                    {
+                        'DYLIB_INSTALL_NAME_BASE': '@rpath',
+                    },
+                }],
+            ],
+        },
+
+        {
+            'target_name': 'libEGL_static',
+            'type': 'static_library',
+            'dependencies':
+            [
+                'libGLESv2_static',
+            ],
+            'includes':
+            [
+                '../gyp/common_defines.gypi',
+            ],
             'include_dirs':
             [
                 '.',
@@ -23,31 +76,15 @@
             ],
             'defines':
             [
-                'GL_APICALL=',
-                'GL_GLEXT_PROTOTYPES=',
                 'EGLAPI=',
-                'LIBEGL_IMPLEMENTATION',
             ],
-            'conditions':
-            [
-                ['angle_build_winrt==1',
-                {
-                    'msvs_enable_winrt' : '1',
-                    'msvs_requires_importlibrary' : 'true',
-                    'msvs_settings':
-                    {
-                        'VCLinkerTool':
-                        {
-                            'EnableCOMDATFolding': '1',
-                            'OptimizeReferences': '1',
-                        }
-                    },
-                }],
-                ['angle_build_winphone==1',
-                {
-                    'msvs_enable_winphone' : '1',
-                }],
-            ],
+            'direct_dependent_settings':
+            {
+                'defines':
+                [
+                    'EGLAPI=',
+                ],
+            },
         },
     ],
 }

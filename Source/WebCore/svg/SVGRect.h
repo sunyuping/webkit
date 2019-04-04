@@ -1,5 +1,6 @@
 /*
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -17,32 +18,89 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGRect_h
-#define SVGRect_h
+#pragma once
 
-#include "FloatRect.h"
 #include "SVGPropertyTraits.h"
-#include <wtf/text/StringBuilder.h>
+#include "SVGValueProperty.h"
 
 namespace WebCore {
 
-template<>
-struct SVGPropertyTraits<FloatRect> {
-    static FloatRect initialValue() { return FloatRect(); }
-    static String toString(const FloatRect& type)
+class SVGRect : public SVGValueProperty<FloatRect> {
+    using Base = SVGValueProperty<FloatRect>;
+    using Base::Base;
+    using Base::m_value;
+
+public:
+    static Ref<SVGRect> create(const FloatRect& value = { })
     {
-        StringBuilder builder;
-        builder.appendNumber(type.x());
-        builder.append(' ');
-        builder.appendNumber(type.y());
-        builder.append(' ');
-        builder.appendNumber(type.width());
-        builder.append(' ');
-        builder.appendNumber(type.height());
-        return builder.toString();
+        return adoptRef(*new SVGRect(value));
+    }
+
+    static Ref<SVGRect> create(SVGPropertyOwner* owner, SVGPropertyAccess access, const FloatRect& value = { })
+    {
+        return adoptRef(*new SVGRect(owner, access, value));
+    }
+
+    template<typename T>
+    static ExceptionOr<Ref<SVGRect>> create(ExceptionOr<T>&& value)
+    {
+        if (value.hasException())
+            return value.releaseException();
+        return adoptRef(*new SVGRect(value.releaseReturnValue()));
+    }
+
+    float x() { return m_value.x(); }
+
+    ExceptionOr<void> setX(float xValue)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setX(xValue);
+        commitChange();
+        return { };
+    }
+
+    float y() { return m_value.y(); }
+
+    ExceptionOr<void> setY(float xValue)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setY(xValue);
+        commitChange();
+        return { };
+    }
+
+    float width() { return m_value.width(); }
+
+    ExceptionOr<void> setWidth(float widthValue)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setWidth(widthValue);
+        commitChange();
+        return { };
+    }
+
+    float height() { return m_value.height(); }
+
+    ExceptionOr<void> setHeight(float heightValue)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setHeight(heightValue);
+        commitChange();
+        return { };
+    }
+    
+    String valueAsString() const override
+    {
+        return SVGPropertyTraits<FloatRect>::toString(m_value);
     }
 };
 
-} // namespace WebCore
-
-#endif // SVGRect_h
+}

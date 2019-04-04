@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef StringConstructor_h
-#define StringConstructor_h
+#pragma once
 
 #include "InternalFunction.h"
 
@@ -28,10 +27,10 @@ namespace JSC {
 class StringPrototype;
 class GetterSetter;
 
-class StringConstructor : public InternalFunction {
+class StringConstructor final : public InternalFunction {
 public:
     typedef InternalFunction Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot;
+    static const unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
     static StringConstructor* create(VM& vm, Structure* structure, StringPrototype* stringPrototype, GetterSetter*)
     {
@@ -44,21 +43,15 @@ public:
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
     }
 
 private:
     StringConstructor(VM&, Structure*);
     void finishCreation(VM&, StringPrototype*);
-    static ConstructType getConstructData(JSCell*, ConstructData&);
-    static CallType getCallData(JSCell*, CallData&);
-
-    static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
 };
 
-JSCell* JSC_HOST_CALL stringFromCharCode(ExecState*, int32_t);
-JSCell* stringConstructor(ExecState*, JSValue);
+JSString* JSC_HOST_CALL stringFromCharCode(ExecState*, int32_t);
+JSString* stringConstructor(ExecState*, JSValue);
 
 } // namespace JSC
-
-#endif // StringConstructor_h

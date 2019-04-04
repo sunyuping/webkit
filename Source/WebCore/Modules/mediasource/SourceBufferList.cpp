@@ -34,14 +34,16 @@
 #if ENABLE(MEDIA_SOURCE)
 
 #include "Event.h"
+#include "EventNames.h"
 #include "SourceBuffer.h"
 
 namespace WebCore {
 
 SourceBufferList::SourceBufferList(ScriptExecutionContext* context)
-    : m_scriptExecutionContext(context)
+    : ActiveDOMObject(context)
     , m_asyncEventQueue(*this)
 {
+    suspendIfNeeded();
 }
 
 SourceBufferList::~SourceBufferList()
@@ -49,15 +51,15 @@ SourceBufferList::~SourceBufferList()
     ASSERT(m_list.isEmpty());
 }
 
-void SourceBufferList::add(PassRefPtr<SourceBuffer> buffer)
+void SourceBufferList::add(Ref<SourceBuffer>&& buffer)
 {
-    m_list.append(buffer);
+    m_list.append(WTFMove(buffer));
     scheduleEvent(eventNames().addsourcebufferEvent);
 }
 
-void SourceBufferList::remove(SourceBuffer* buffer)
+void SourceBufferList::remove(SourceBuffer& buffer)
 {
-    size_t index = m_list.find(buffer);
+    size_t index = m_list.find(&buffer);
     if (index == notFound)
         return;
     m_list.remove(index);
@@ -90,12 +92,45 @@ void SourceBufferList::swap(Vector<RefPtr<SourceBuffer>>& other)
 
 void SourceBufferList::scheduleEvent(const AtomicString& eventName)
 {
-    RefPtr<Event> event = Event::create(eventName, false, false);
+    auto event = Event::create(eventName, Event::CanBubble::No, Event::IsCancelable::No);
     event->setTarget(this);
 
-    m_asyncEventQueue.enqueueEvent(event.release());
+    m_asyncEventQueue.enqueueEvent(WTFMove(event));
 }
 
+bool SourceBufferList::canSuspendForDocumentSuspension() const
+{
+    return !m_asyncEventQueue.hasPendingEvents();
+}
+
+void SourceBufferList::suspend(ReasonForSuspension reason)
+{
+    switch (reason) {
+    case ReasonForSuspension::PageCache:
+    case ReasonForSuspension::PageWillBeSuspended:
+        m_asyncEventQueue.suspend();
+        break;
+    case ReasonForSuspension::JavaScriptDebuggerPaused:
+    case ReasonForSuspension::WillDeferLoading:
+        // Do nothing, we don't pause media playback in these cases.
+        break;
+    }
+}
+
+void SourceBufferList::resume()
+{
+    m_asyncEventQueue.resume();
+}
+
+void SourceBufferList::stop()
+{
+    m_asyncEventQueue.close();
+}
+
+const char* SourceBufferList::activeDOMObjectName() const
+{
+    return "SourceBufferList";
+}
 
 } // namespace WebCore
 

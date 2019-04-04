@@ -23,8 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Unicodes we reserve for function keys on the keyboard,  OpenStep reserves the range 0xF700-0xF8FF for this purpose.  The availability of various keys will be system dependent. */
-
 #ifndef WAKAppKitStubs_h
 #define WAKAppKitStubs_h
 
@@ -154,15 +152,15 @@ typedef NSUInteger NSRectEdge;
 
 /* Device-independent bits found in event modifier flags */
 enum {
-    NSAlphaShiftKeyMask = 1 << 16,
-    NSShiftKeyMask =      1 << 17,
-    NSControlKeyMask =    1 << 18,
-    NSAlternateKeyMask =  1 << 19,
-    NSCommandKeyMask =    1 << 20,
-    NSNumericPadKeyMask = 1 << 21,
-    NSHelpKeyMask =       1 << 22,
-    NSFunctionKeyMask =   1 << 23,
-    NSDeviceIndependentModifierFlagsMask = 0xffff0000U
+    NSEventModifierFlagCapsLock = 1 << 16,
+    NSEventModifierFlagShift = 1 << 17,
+    NSEventModifierFlagControl = 1 << 18,
+    NSEventModifierFlagOption = 1 << 19,
+    NSEventModifierFlagCommand = 1 << 20,
+    NSEventModifierFlagNumericPad = 1 << 21,
+    NSEventModifierFlagHelp = 1 << 22,
+    NSEventModifierFlagFunction = 1 << 23,
+    NSEventModifierFlagDeviceIndependentFlagsMask = 0xffff0000U
 };
 
 typedef enum _WKWritingDirection {
@@ -177,10 +175,10 @@ typedef enum _NSSelectionAffinity {
 } NSSelectionAffinity;
 
 typedef enum _NSCellState {
-    NSMixedState = -1,
-    NSOffState   =  0,
-    NSOnState    =  1    
-} NSCellStateValue;
+    NSControlStateValueMixed = -1,
+    NSControlStateValueOff   =  0,
+    NSControlStateValueOn    =  1
+} NSControlStateValue;
 
 typedef enum _NSCompositingOperation {
     NSCompositeClear           = 0,
@@ -204,20 +202,6 @@ typedef enum _NSSelectionDirection {
     NSSelectingNext,
     NSSelectingPrevious
 } NSSelectionDirection;
-
-WEBCORE_EXPORT @interface NSCursor : NSObject
-+ (void)setHiddenUntilMouseMoves:(BOOL)flag;
-@end
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-BOOL WKMouseInRect(CGPoint aPoint, CGRect aRect);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // TARGET_OS_IPHONE
 

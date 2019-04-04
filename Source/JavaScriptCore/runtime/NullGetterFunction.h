@@ -23,21 +23,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NullGetterFunction_h
-#define  NullGetterFunction_h
+#pragma once
 
 #include "InternalFunction.h"
 
 namespace JSC {
 
-class NullGetterFunction : public InternalFunction {
+class NullGetterFunction final : public InternalFunction {
 public:
     typedef InternalFunction Base;
 
     static NullGetterFunction* create(VM& vm, Structure* structure)
     {
+        // Since NullGetterFunction is per JSGlobalObject, we use put-without-transition in InternalFunction::finishCreation.
         NullGetterFunction* function = new (NotNull, allocateCell< NullGetterFunction>(vm.heap))  NullGetterFunction(vm, structure);
-        function->finishCreation(vm, String());
+        function->finishCreation(vm, String(), NameVisibility::Visible, NameAdditionMode::WithoutStructureTransition);
         return function;
     }
 
@@ -45,18 +45,11 @@ public:
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
     }
 
 private:
-    NullGetterFunction(VM& vm, Structure* structure)
-        : Base(vm, structure)
-    {
-    }
-    static ConstructType getConstructData(JSCell*, ConstructData&);
-    static CallType getCallData(JSCell*, CallData&);
+    NullGetterFunction(VM&, Structure*);
 };
 
-}
-
-#endif // NullGetterFunction_h
+} // namespace JSC

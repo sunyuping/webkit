@@ -20,16 +20,16 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
 #include "HTMLResourcePreloader.h"
 
 #include "CachedResourceLoader.h"
+#include "CrossOriginAccessControl.h"
 #include "Document.h"
 
-#include "MediaList.h"
 #include "MediaQueryEvaluator.h"
 #include "RenderView.h"
 
@@ -43,12 +43,24 @@ URL PreloadRequest::completeURL(Document& document)
 CachedResourceRequest PreloadRequest::resourceRequest(Document& document)
 {
     ASSERT(isMainThread());
-    CachedResourceRequest request(ResourceRequest(completeURL(document)));
-    request.setInitiator(m_initiator);
 
-    // FIXME: It's possible CORS should work for other request types?
-    if (m_resourceType == CachedResource::Script)
-        request.mutableResourceRequest().setAllowCookies(m_crossOriginModeAllowsCookies);
+    bool skipContentSecurityPolicyCheck = false;
+    if (m_resourceType == CachedResource::Type::Script)
+        skipContentSecurityPolicyCheck = document.contentSecurityPolicy()->allowScriptWithNonce(m_nonceAttribute);
+    else if (m_resourceType == CachedResource::Type::CSSStyleSheet)
+        skipContentSecurityPolicyCheck = document.contentSecurityPolicy()->allowStyleWithNonce(m_nonceAttribute);
+
+    ResourceLoaderOptions options = CachedResourceLoader::defaultCachedResourceOptions();
+    if (skipContentSecurityPolicyCheck)
+        options.contentSecurityPolicyImposition = ContentSecurityPolicyImposition::SkipPolicyCheck;
+
+    String crossOriginMode = m_crossOriginMode;
+    if (m_moduleScript == ModuleScript::Yes) {
+        if (crossOriginMode.isNull())
+            crossOriginMode = "omit"_s;
+    }
+    auto request = createPotentialAccessControlRequest(completeURL(document), document, crossOriginMode, WTFMove(options));
+    request.setInitiator(m_initiator);
     return request;
 }
 
@@ -58,22 +70,14 @@ void HTMLResourcePreloader::preload(PreloadRequestStream requests)
         preload(WTFMove(request));
 }
 
-static bool mediaAttributeMatches(Frame* frame, RenderStyle* renderStyle, const String& attributeValue)
-{
-    RefPtr<MediaQuerySet> mediaQueries = MediaQuerySet::createAllowingDescriptionSyntax(attributeValue);
-    MediaQueryEvaluator mediaQueryEvaluator("screen", frame, renderStyle);
-    return mediaQueryEvaluator.eval(mediaQueries.get());
-}
-
 void HTMLResourcePreloader::preload(std::unique_ptr<PreloadRequest> preload)
 {
     ASSERT(m_document.frame());
     ASSERT(m_document.renderView());
-    if (!preload->media().isEmpty() && !mediaAttributeMatches(m_document.frame(), &m_document.renderView()->style(), preload->media()))
+    if (!preload->media().isEmpty() && !MediaQueryEvaluator::mediaAttributeMatches(m_document, preload->media()))
         return;
 
-    CachedResourceRequest request = preload->resourceRequest(m_document);
-    m_document.cachedResourceLoader().preload(preload->resourceType(), request, preload->charset());
+    m_document.cachedResourceLoader().preload(preload->resourceType(), preload->resourceRequest(m_document));
 }
 
 

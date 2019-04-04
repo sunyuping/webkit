@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,23 +23,35 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef Intrinsic_h
-#define Intrinsic_h
+#pragma once
 
 namespace JSC {
 
-enum Intrinsic {
+enum Intrinsic : uint8_t {
     // Call intrinsics.
     NoIntrinsic,
     AbsIntrinsic,
+    ACosIntrinsic,
+    ASinIntrinsic,
+    ATanIntrinsic,
+    ACoshIntrinsic,
+    ASinhIntrinsic,
+    ATanhIntrinsic,
     MinIntrinsic,
     MaxIntrinsic,
     SqrtIntrinsic,
     SinIntrinsic,
+    CbrtIntrinsic,
     Clz32Intrinsic,
     CosIntrinsic,
+    TanIntrinsic,
+    CoshIntrinsic,
+    SinhIntrinsic,
+    TanhIntrinsic,
     ArrayPushIntrinsic,
     ArrayPopIntrinsic,
+    ArraySliceIntrinsic,
+    ArrayIndexOfIntrinsic,
     CharCodeAtIntrinsic,
     CharAtIntrinsic,
     FromCharCodeIntrinsic,
@@ -48,29 +60,115 @@ enum Intrinsic {
     CeilIntrinsic,
     RoundIntrinsic,
     ExpIntrinsic,
+    Expm1Intrinsic,
     LogIntrinsic,
+    Log10Intrinsic,
+    Log1pIntrinsic,
+    Log2Intrinsic,
     RegExpExecIntrinsic,
     RegExpTestIntrinsic,
+    RegExpTestFastIntrinsic,
+    RegExpMatchFastIntrinsic,
+    ObjectCreateIntrinsic,
+    ObjectGetPrototypeOfIntrinsic,
+    ObjectIsIntrinsic,
+    ObjectKeysIntrinsic,
+    ReflectGetPrototypeOfIntrinsic,
     StringPrototypeValueOfIntrinsic,
+    StringPrototypeReplaceIntrinsic,
+    StringPrototypeReplaceRegExpIntrinsic,
+    StringPrototypeSliceIntrinsic,
+    StringPrototypeToLowerCaseIntrinsic,
+    NumberPrototypeToStringIntrinsic,
+    NumberIsIntegerIntrinsic,
     IMulIntrinsic,
     RandomIntrinsic,
     FRoundIntrinsic,
+    TruncIntrinsic,
+    IsTypedArrayViewIntrinsic,
+    BoundThisNoArgsFunctionCallIntrinsic,
+    JSMapGetIntrinsic,
+    JSMapHasIntrinsic,
+    JSMapSetIntrinsic,
+    JSMapBucketHeadIntrinsic,
+    JSMapBucketNextIntrinsic,
+    JSMapBucketKeyIntrinsic,
+    JSMapBucketValueIntrinsic,
+    JSSetHasIntrinsic,
+    JSSetAddIntrinsic,
+    JSSetBucketHeadIntrinsic,
+    JSSetBucketNextIntrinsic,
+    JSSetBucketKeyIntrinsic,
+    JSWeakMapGetIntrinsic,
+    JSWeakMapHasIntrinsic,
+    JSWeakMapSetIntrinsic,
+    JSWeakSetHasIntrinsic,
+    JSWeakSetAddIntrinsic,
+    HasOwnPropertyIntrinsic,
+    AtomicsAddIntrinsic,
+    AtomicsAndIntrinsic,
+    AtomicsCompareExchangeIntrinsic,
+    AtomicsExchangeIntrinsic,
+    AtomicsIsLockFreeIntrinsic,
+    AtomicsLoadIntrinsic,
+    AtomicsOrIntrinsic,
+    AtomicsStoreIntrinsic,
+    AtomicsSubIntrinsic,
+    AtomicsWaitIntrinsic,
+    AtomicsWakeIntrinsic,
+    AtomicsXorIntrinsic,
+    ParseIntIntrinsic,
 
     // Getter intrinsics.
     TypedArrayLengthIntrinsic,
     TypedArrayByteLengthIntrinsic,
     TypedArrayByteOffsetIntrinsic,
+    UnderscoreProtoIntrinsic,
 
     // Debugging intrinsics. These are meant to be used as testing hacks within
     // jsc.cpp and should never be exposed to users.
     DFGTrueIntrinsic,
+    FTLTrueIntrinsic,
     OSRExitIntrinsic,
     IsFinalTierIntrinsic,
     SetInt32HeapPredictionIntrinsic,
     CheckInt32Intrinsic,
     FiatInt52Intrinsic,
+
+    // These are used for $vm performance debugging features.
+    CPUMfenceIntrinsic,
+    CPURdtscIntrinsic,
+    CPUCpuidIntrinsic,
+    CPUPauseIntrinsic,
+
+    DataViewGetInt8,
+    DataViewGetUint8,
+    DataViewGetInt16,
+    DataViewGetUint16,
+    DataViewGetInt32,
+    DataViewGetUint32,
+    DataViewGetFloat32,
+    DataViewGetFloat64,
+    DataViewSetInt8,
+    DataViewSetUint8,
+    DataViewSetInt16,
+    DataViewSetUint16,
+    DataViewSetInt32,
+    DataViewSetUint32,
+    DataViewSetFloat32,
+    DataViewSetFloat64,
 };
+
+const char* intrinsicName(Intrinsic);
 
 } // namespace JSC
 
-#endif // Intrinsic_h
+namespace WTF {
+
+class PrintStream;
+
+void printInternal(PrintStream&, JSC::Intrinsic);
+
+} // namespace WTF
+
+

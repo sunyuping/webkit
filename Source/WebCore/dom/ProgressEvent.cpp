@@ -26,12 +26,10 @@
 #include "config.h"
 #include "ProgressEvent.h"
 
-#include "EventNames.h"
-
 namespace WebCore {
 
-ProgressEvent::ProgressEvent(const AtomicString& type, const ProgressEventInit& initializer)
-    : Event(type, initializer)
+ProgressEvent::ProgressEvent(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
+    : Event(type, initializer, isTrusted)
     , m_lengthComputable(initializer.lengthComputable)
     , m_loaded(initializer.loaded)
     , m_total(initializer.total)
@@ -39,7 +37,7 @@ ProgressEvent::ProgressEvent(const AtomicString& type, const ProgressEventInit& 
 }
 
 ProgressEvent::ProgressEvent(const AtomicString& type, bool lengthComputable, unsigned long long loaded, unsigned long long total)
-    : Event(type, false, false)
+    : Event(type, CanBubble::No, IsCancelable::No)
     , m_lengthComputable(lengthComputable)
     , m_loaded(loaded)
     , m_total(total)

@@ -23,13 +23,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ProtectionSpace_h
-#define ProtectionSpace_h
+#pragma once
 
 #if PLATFORM(COCOA)
 #include "ProtectionSpaceCocoa.h"
-#elif USE(CFNETWORK)
+#elif USE(CFURLCONNECTION)
 #include "ProtectionSpaceCFNet.h"
+#elif USE(CURL)
+#include "ProtectionSpaceCurl.h"
 #else
 
 #include "ProtectionSpaceBase.h"
@@ -49,6 +50,9 @@ public:
 
 } // namespace WebCore
 
-#endif
+namespace WTF {
+template<> struct DefaultHash<WebCore::ProtectionSpace>;
+template<> struct HashTraits<WebCore::ProtectionSpace>;
+}
 
-#endif // ProtectionSpace_h
+#endif

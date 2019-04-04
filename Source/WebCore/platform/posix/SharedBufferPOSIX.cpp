@@ -26,11 +26,10 @@
 #include "config.h"
 #include "SharedBuffer.h"
 
-#include "FileSystem.h"
-
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <wtf/FileSystem.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
@@ -38,23 +37,23 @@ namespace WebCore {
 RefPtr<SharedBuffer> SharedBuffer::createFromReadingFile(const String& filePath)
 {
     if (filePath.isEmpty())
-        return 0;
+        return nullptr;
 
-    CString filename = fileSystemRepresentation(filePath);
+    CString filename = FileSystem::fileSystemRepresentation(filePath);
     int fd = open(filename.data(), O_RDONLY);
     if (fd == -1)
-        return 0;
+        return nullptr;
 
     struct stat fileStat;
     if (fstat(fd, &fileStat)) {
         close(fd);
-        return 0;
+        return nullptr;
     }
 
     size_t bytesToRead;
     if (!WTF::convertSafely(fileStat.st_size, bytesToRead)) {
         close(fd);
-        return 0;
+        return nullptr;
     }
 
     Vector<char> buffer(bytesToRead);
@@ -66,7 +65,10 @@ RefPtr<SharedBuffer> SharedBuffer::createFromReadingFile(const String& filePath)
 
     close(fd);
 
-    return totalBytesRead == bytesToRead ? SharedBuffer::adoptVector(buffer) : 0;
+    if (totalBytesRead != bytesToRead)
+        return nullptr;
+
+    return SharedBuffer::create(WTFMove(buffer));
 }
 
 } // namespace WebCore

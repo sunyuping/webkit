@@ -26,32 +26,22 @@
 #import "config.h"
 #import "ImageSourceCG.h"
 
+#import "UTIUtilities.h"
 #import <wtf/RetainPtr.h>
 #import <wtf/text/WTFString.h>
 
-#if PLATFORM(IOS)
-#include "SoftLinking.h"
-#include <MobileCoreServices/MobileCoreServices.h>
-
-SOFT_LINK_FRAMEWORK(MobileCoreServices)
-
-SOFT_LINK(MobileCoreServices, UTTypeCopyPreferredTagWithClass, CFStringRef, (CFStringRef inUTI, CFStringRef inTagClass), (inUTI, inTagClass))
-
-SOFT_LINK_CONSTANT(MobileCoreServices, kUTTagClassFilenameExtension, CFStringRef)
-SOFT_LINK_CONSTANT(MobileCoreServices, kUTTagClassMIMEType, CFStringRef)
-
-#define kUTTagClassFilenameExtension getkUTTagClassFilenameExtension()
-#define kUTTagClassMIMEType getkUTTagClassMIMEType()
+#if PLATFORM(IOS_FAMILY)
+#import <MobileCoreServices/MobileCoreServices.h>
 #endif
 
 namespace WebCore {
 
-String MIMETypeForImageSourceType(const String& uti)
+String MIMETypeForImageType(const String& uti)
 {
-    return adoptCF(UTTypeCopyPreferredTagWithClass(uti.createCFString().get(), kUTTagClassMIMEType)).get();
+    return MIMETypeFromUTI(uti);
 }
 
-String preferredExtensionForImageSourceType(const String& uti)
+String preferredExtensionForImageType(const String& uti)
 {
     return adoptCF(UTTypeCopyPreferredTagWithClass(uti.createCFString().get(), kUTTagClassFilenameExtension)).get();
 }

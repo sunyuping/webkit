@@ -31,6 +31,9 @@
 
 namespace WTF {
 
+WTF_EXPORT_PRIVATE bool setCloseOnExec(int fileDescriptor);
+WTF_EXPORT_PRIVATE int dupCloseOnExec(int fileDescriptor);
+
 inline int closeWithRetry(int fileDescriptor)
 {
     int ret;
@@ -50,5 +53,7 @@ inline int closeWithRetry(int fileDescriptor)
 } // namespace WTF
 
 using WTF::closeWithRetry;
+using WTF::setCloseOnExec;
+using WTF::dupCloseOnExec;
 
 #endif // UniStdExtras_h

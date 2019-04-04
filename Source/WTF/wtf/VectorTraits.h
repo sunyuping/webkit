@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2006, 2007, 2008, 2016 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,13 +18,13 @@
  *
  */
 
-#ifndef WTF_VectorTraits_h
-#define WTF_VectorTraits_h
+#pragma once
 
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
 #include <utility>
 #include <memory>
+#include <type_traits>
 
 namespace WTF {
 
@@ -48,10 +48,10 @@ namespace WTF {
     struct VectorTraitsBase<true, T>
     {
         static const bool needsInitialization = false;
-        static const bool canInitializeWithMemset = false;
+        static const bool canInitializeWithMemset = true;
         static const bool canMoveWithMemcpy = true;
         static const bool canCopyWithMemcpy = true;
-        static const bool canFillWithMemset = sizeof(T) == sizeof(char);
+        static const bool canFillWithMemset = sizeof(T) == sizeof(char) && std::is_integral<T>::value;
         static const bool canCompareWithMemcmp = true;
     };
 
@@ -91,5 +91,3 @@ namespace WTF {
 
 using WTF::VectorTraits;
 using WTF::SimpleClassVectorTraits;
-
-#endif // WTF_VectorTraits_h

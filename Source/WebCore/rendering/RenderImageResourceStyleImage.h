@@ -23,8 +23,7 @@
  *
  */
 
-#ifndef RenderImageResourceStyleImage_h
-#define RenderImageResourceStyleImage_h
+#pragma once
 
 #include "RenderImageResource.h"
 #include "StyleImage.h"
@@ -35,30 +34,26 @@ namespace WebCore {
 class RenderElement;
 
 class RenderImageResourceStyleImage final : public RenderImageResource {
+    WTF_MAKE_ISO_ALLOCATED(RenderImageResourceStyleImage);
 public:
     explicit RenderImageResourceStyleImage(StyleImage&);
-    virtual ~RenderImageResourceStyleImage();
 
 private:
-    virtual void initialize(RenderElement*) override;
-    virtual void shutdown() override;
+    void initialize(RenderElement&) final;
+    void shutdown() final;
 
-    virtual bool hasImage() const override { return true; }
-    virtual RefPtr<Image> image(int width = 0, int height = 0) const override;
-    virtual bool errorOccurred() const override { return m_styleImage->errorOccurred(); }
+    RefPtr<Image> image(const IntSize& = { }) const final;
+    bool errorOccurred() const final { return m_styleImage->errorOccurred(); }
 
-    virtual void setContainerSizeForRenderer(const IntSize&) override;
-    virtual bool imageHasRelativeWidth() const override { return m_styleImage->imageHasRelativeWidth(); }
-    virtual bool imageHasRelativeHeight() const override { return m_styleImage->imageHasRelativeHeight(); }
+    void setContainerContext(const IntSize&, const URL&) final;
 
-    virtual LayoutSize imageSize(float multiplier) const override { return LayoutSize(m_styleImage->imageSize(m_renderer, multiplier)); }
-    virtual LayoutSize intrinsicSize(float multiplier) const override { return LayoutSize(m_styleImage->imageSize(m_renderer, multiplier)); }
+    bool imageHasRelativeWidth() const final { return m_styleImage->imageHasRelativeWidth(); }
+    bool imageHasRelativeHeight() const final { return m_styleImage->imageHasRelativeHeight(); }
 
-    virtual WrappedImagePtr imagePtr() const override { return m_styleImage->data(); }
+    WrappedImagePtr imagePtr() const final { return m_styleImage->data(); }
+    LayoutSize imageSize(float multiplier, CachedImage::SizeType) const final { return LayoutSize(m_styleImage->imageSize(renderer(), multiplier)); }
 
     Ref<StyleImage> m_styleImage;
 };
 
 } // namespace WebCore
-
-#endif // RenderImageStyleImage_h

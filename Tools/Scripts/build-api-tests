@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 
 # Copyright (C) 2010 Apple Inc. All rights reserved.
 #
@@ -24,6 +24,7 @@
 # THE POSSIBILITY OF SUCH DAMAGE.
 
 use strict;
+use warnings;
 use File::Basename;
 use FindBin;
 use Getopt::Long qw(:config pass_through);
@@ -33,17 +34,20 @@ use POSIX;
 
 my $showHelp = 0;
 my $clean = 0;
+my $wtfOnly = 0;
 
 my $programName = basename($0);
 my $usage = <<EOF;
 Usage: $programName [options] [options to pass to build system]
   --help        Show this help message
   --clean       Clean up the build directory
+  --wtf-only    Only build TestWTF and its dependencies
 EOF
 
 GetOptions(
     'help' => \$showHelp,
     'clean' => \$clean,
+    'wtf-only' => \$wtfOnly,
 );
 
 if ($showHelp) {
@@ -58,15 +62,16 @@ chdirWebKit();
 # Build
 
 my $result;
-if (isAppleMacWebKit()) {
+if (isAppleCocoaWebKit()) {
     chdir "Source/ThirdParty/gtest";
     buildXCodeProject("xcode/gtest", $clean, XcodeOptions(), @ARGV);
     chdir "../../../Tools/TestWebKitAPI" or die;
-    $result = buildXCodeProject("TestWebKitAPI", $clean, XcodeOptions(), @ARGV);
-} elsif (isAppleWinWebKit()) {
-    chdir "Tools/TestWebKitAPI" or die;
-    my $solutionPath = "TestWebKitAPI.vcxproj/TestWebKitAPI.sln";
-    $result = buildVisualStudioProject($solutionPath, $clean);
+
+    my @options = XcodeOptions();
+    if ($wtfOnly) {
+        push @options, ("-target", "TestWTF");
+    }
+    $result = buildXCodeProject("TestWebKitAPI", $clean, @options, @ARGV);
 } else {
     die "TestWebKitAPI is not supported on this platform.\n";
 }

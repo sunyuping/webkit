@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,7 +28,6 @@
 
 #include "CSSParser.h"
 #include "CSSPrimitiveValueMappings.h"
-#include "CSSStyleSheet.h"
 #include "CSSValueKeywords.h"
 #include "CSSValueList.h"
 
@@ -48,11 +47,11 @@ CSSValuePool::CSSValuePool()
     m_unsetValue.construct();
     m_revertValue.construct();
 
-    m_transparentColor.construct(Color::transparent);
-    m_whiteColor.construct(Color::white);
-    m_blackColor.construct(Color::black);
+    m_transparentColor.construct(Color(Color::transparent));
+    m_whiteColor.construct(Color(Color::white));
+    m_blackColor.construct(Color(Color::black));
 
-    for (unsigned i = 0; i < numCSSValueKeywords; ++i)
+    for (unsigned i = firstCSSValueKeyword; i <= lastCSSValueKeyword; ++i)
         m_identifierValues[i].construct(static_cast<CSSValueID>(i));
 
     for (unsigned i = 0; i < (maximumCacheableIntegerValue + 1); ++i) {
@@ -64,7 +63,7 @@ CSSValuePool::CSSValuePool()
 
 Ref<CSSPrimitiveValue> CSSValuePool::createIdentifierValue(CSSValueID ident)
 {
-    RELEASE_ASSERT(ident >= 0 && ident < numCSSValueKeywords);
+    RELEASE_ASSERT(ident >= firstCSSValueKeyword && ident <= lastCSSValueKeyword);
     return m_identifierValues[ident].get();
 }
 
@@ -73,29 +72,29 @@ Ref<CSSPrimitiveValue> CSSValuePool::createIdentifierValue(CSSPropertyID ident)
     return CSSPrimitiveValue::createIdentifier(ident);
 }
 
-Ref<CSSPrimitiveValue> CSSValuePool::createColorValue(unsigned rgbValue)
+Ref<CSSPrimitiveValue> CSSValuePool::createColorValue(const Color& color)
 {
     // These are the empty and deleted values of the hash table.
-    if (rgbValue == Color::transparent)
+    if (color == Color::transparent)
         return m_transparentColor.get();
-    if (rgbValue == Color::white)
+    if (color == Color::white)
         return m_whiteColor.get();
     // Just because it is common.
-    if (rgbValue == Color::black)
+    if (color == Color::black)
         return m_blackColor.get();
 
     // Remove one entry at random if the cache grows too large.
+    // FIXME: Use TinyLRUCache instead?
     const int maximumColorCacheSize = 512;
     if (m_colorValueCache.size() >= maximumColorCacheSize)
-        m_colorValueCache.remove(m_colorValueCache.begin());
+        m_colorValueCache.remove(m_colorValueCache.random());
 
-    ColorValueCache::AddResult entry = m_colorValueCache.add(rgbValue, nullptr);
-    if (entry.isNewEntry)
-        entry.iterator->value = CSSPrimitiveValue::createColor(rgbValue);
-    return *entry.iterator->value;
+    return *m_colorValueCache.ensure(color, [&color] {
+        return CSSPrimitiveValue::create(color);
+    }).iterator->value;
 }
 
-Ref<CSSPrimitiveValue> CSSValuePool::createValue(double value, CSSPrimitiveValue::UnitTypes type)
+Ref<CSSPrimitiveValue> CSSValuePool::createValue(double value, CSSPrimitiveValue::UnitType type)
 {
     ASSERT(std::isfinite(value));
 
@@ -121,28 +120,32 @@ Ref<CSSPrimitiveValue> CSSValuePool::createValue(double value, CSSPrimitiveValue
 Ref<CSSPrimitiveValue> CSSValuePool::createFontFamilyValue(const String& familyName, FromSystemFontID fromSystemFontID)
 {
     // Remove one entry at random if the cache grows too large.
+    // FIXME: Use TinyLRUCache instead?
     const int maximumFontFamilyCacheSize = 128;
     if (m_fontFamilyValueCache.size() >= maximumFontFamilyCacheSize)
-        m_fontFamilyValueCache.remove(m_fontFamilyValueCache.begin());
+        m_fontFamilyValueCache.remove(m_fontFamilyValueCache.random());
 
     bool isFromSystemID = fromSystemFontID == FromSystemFontID::Yes;
-    RefPtr<CSSPrimitiveValue>& value = m_fontFamilyValueCache.add({familyName, isFromSystemID}, nullptr).iterator->value;
-    if (!value)
-        value = CSSPrimitiveValue::create(CSSFontFamily{familyName, isFromSystemID});
-    return *value;
+    return *m_fontFamilyValueCache.ensure({ familyName, isFromSystemID }, [&familyName, isFromSystemID] {
+        return CSSPrimitiveValue::create(CSSFontFamily { familyName, isFromSystemID });
+    }).iterator->value;
 }
 
-PassRefPtr<CSSValueList> CSSValuePool::createFontFaceValue(const AtomicString& string)
+RefPtr<CSSValueList> CSSValuePool::createFontFaceValue(const AtomicString& string)
 {
     // Remove one entry at random if the cache grows too large.
+    // FIXME: Use TinyLRUCache instead?
     const int maximumFontFaceCacheSize = 128;
     if (m_fontFaceValueCache.size() >= maximumFontFaceCacheSize)
-        m_fontFaceValueCache.remove(m_fontFaceValueCache.begin());
+        m_fontFaceValueCache.remove(m_fontFaceValueCache.random());
 
-    RefPtr<CSSValueList>& value = m_fontFaceValueCache.add(string, nullptr).iterator->value;
-    if (!value)
-        value = CSSParser::parseFontFaceValue(string);
-    return value;
+    return m_fontFaceValueCache.ensure(string, [&string] () -> RefPtr<CSSValueList> {
+        auto result = CSSParser::parseSingleValue(CSSPropertyFontFamily, string);
+        if (!is<CSSValueList>(result))
+            return nullptr;
+        // FIXME: Make downcast work on RefPtr, remove the get() below, and save one reference count churn.
+        return downcast<CSSValueList>(result.get());
+    }).iterator->value;
 }
 
 void CSSValuePool::drain()

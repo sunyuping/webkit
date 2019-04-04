@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef NumberObject_h
-#define NumberObject_h
+#pragma once
 
 #include "JSWrapperObject.h"
 
@@ -31,7 +30,7 @@ protected:
     void finishCreation(VM&);
 
 public:
-    typedef JSWrapperObject Base;
+    using Base = JSWrapperObject;
 
     static NumberObject* create(VM& vm, Structure* structure)
     {
@@ -51,5 +50,3 @@ public:
 JS_EXPORT_PRIVATE NumberObject* constructNumber(ExecState*, JSGlobalObject*, JSValue);
 
 } // namespace JSC
-
-#endif // NumberObject_h

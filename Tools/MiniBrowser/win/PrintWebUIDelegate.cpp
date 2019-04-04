@@ -27,13 +27,21 @@
 #include "stdafx.h"
 #include "PrintWebUIDelegate.h"
 
-#include <WebKit/WebKitCOMAPI.h>
+#include "Common.h"
+#include "MainWindow.h"
+#include "WebKitLegacyBrowserWindow.h"
+#include <WebCore/COMPtr.h>
+#include <WebKitLegacy/WebKitCOMAPI.h>
 #include <comip.h>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <objbase.h>
 #include <shlwapi.h>
 #include <wininet.h>
+
+#if USE(CF)
+#include <CoreFoundation/CoreFoundation.h>
+#endif
 
 static const int MARGIN = 20;
 
@@ -57,25 +65,69 @@ HRESULT PrintWebUIDelegate::createWebViewWithRequest(_In_opt_ IWebView*, _In_opt
     if (!request)
         return E_POINTER;
 
-    TCHAR executablePath[MAX_PATH];
-    DWORD length = ::GetModuleFileName(GetModuleHandle(0), executablePath, ARRAYSIZE(executablePath));
-    if (!length)
+    auto& newWindow = MainWindow::create().leakRef();
+    bool ok = newWindow.init(WebKitLegacyBrowserWindow::create, hInst);
+    if (!ok)
         return E_FAIL;
+    ShowWindow(newWindow.hwnd(), SW_SHOW);
 
-    _bstr_t url;
-    HRESULT hr = request->URL(&url.GetBSTR());
+    auto& newBrowserWindow = *static_cast<WebKitLegacyBrowserWindow*>(newWindow.browserWindow());
+    *newWebView = newBrowserWindow.webView();
+    IWebFramePtr frame;
+    HRESULT hr;
+    hr = (*newWebView)->mainFrame(&frame.GetInterfacePtr());
     if (FAILED(hr))
-        return E_FAIL;
+        return hr;
+    hr = frame->loadRequest(request);
+    if (FAILED(hr))
+        return hr;
 
-    if (!url)
-        return S_OK;
+    return S_OK;
+}
 
-    std::wstring command = std::wstring(L"\"") + executablePath + L"\" " + (const wchar_t*)url;
+static HWND getHandleFromWebView(IWebView* webView)
+{
+    COMPtr<IWebViewPrivate2> webViewPrivate;
+    HRESULT hr = webView->QueryInterface(&webViewPrivate);
+    if (FAILED(hr))
+        return nullptr;
 
-    PROCESS_INFORMATION processInformation;
-    STARTUPINFOW startupInfo;
-    memset(&startupInfo, 0, sizeof(startupInfo));
-    if (!::CreateProcessW(0, (LPWSTR)command.c_str(), 0, 0, 0, 0, 0, 0, &startupInfo, &processInformation))
+    HWND webViewWindow = nullptr;
+    hr = webViewPrivate->viewWindow(&webViewWindow);
+    if (FAILED(hr))
+        return nullptr;
+
+    return webViewWindow;
+}
+
+HRESULT PrintWebUIDelegate::webViewClose(_In_opt_ IWebView* webView)
+{
+    HWND hostWindow;
+    HRESULT hr = webView->hostWindow(&hostWindow);
+    if (FAILED(hr))
+        return hr;
+
+    ::DestroyWindow(hostWindow);
+
+    if (hostWindow == m_modalDialogParent)
+        m_modalDialogParent = nullptr;
+
+    return S_OK;
+}
+
+HRESULT PrintWebUIDelegate::setFrame(_In_opt_ IWebView* webView, _In_ RECT* rect)
+{
+    if (m_modalDialogParent)
+        ::MoveWindow(m_modalDialogParent, rect->left, rect->top, rect->right - rect->left, rect->bottom - rect->top, FALSE);
+
+    ::MoveWindow(getHandleFromWebView(webView), 0, 0, rect->right - rect->left, rect->bottom - rect->top, FALSE);
+
+    return S_OK;
+}
+
+HRESULT PrintWebUIDelegate::webViewFrame(_In_opt_ IWebView* webView, _Out_ RECT* rect)
+{
+    if (!::GetWindowRect(getHandleFromWebView(webView), rect))
         return E_FAIL;
 
     return S_OK;
@@ -99,16 +151,12 @@ HRESULT PrintWebUIDelegate::QueryInterface(_In_ REFIID riid, _COM_Outptr_ void**
 
 ULONG PrintWebUIDelegate::AddRef()
 {
-    return ++m_refCount;
+    return m_client.AddRef();
 }
 
 ULONG PrintWebUIDelegate::Release()
 {
-    ULONG newRef = --m_refCount;
-    if (!newRef)
-        delete this;
-
-    return newRef;
+    return m_client.Release();
 }
 
 typedef _com_ptr_t<_com_IIID<IWebFrame, &__uuidof(IWebFrame)>> IWebFramePtr;
@@ -237,10 +285,69 @@ HRESULT PrintWebUIDelegate::drawFooterInRect(_In_opt_ IWebView* webView, _In_ RE
     return S_OK;
 }
 
-HRESULT PrintWebUIDelegate::createModalDialog(_In_opt_ IWebView*, _In_opt_ IWebURLRequest*, _COM_Outptr_opt_ IWebView** webView)
+HRESULT PrintWebUIDelegate::canRunModal(_In_opt_ IWebView*, _Out_ BOOL* canRunBoolean)
 {
-    if (!webView)
+    if (!canRunBoolean)
         return E_POINTER;
-    *webView = nullptr;
-    return E_NOTIMPL;
+    *canRunBoolean = TRUE;
+    return S_OK;
+}
+
+HRESULT PrintWebUIDelegate::runModal(_In_opt_ IWebView* webView)
+{
+    COMPtr<IWebView> protector(webView);
+
+    auto modalDialogOwner = ::GetWindow(m_modalDialogParent, GW_OWNER);
+    auto topLevelParent = ::GetAncestor(modalDialogOwner, GA_ROOT);
+
+    ::EnableWindow(topLevelParent, FALSE);
+
+    while (::IsWindow(getHandleFromWebView(webView))) {
+#if USE(CF)
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
+#endif
+        MSG msg;
+        if (!::GetMessage(&msg, 0, 0, 0))
+            break;
+
+        ::TranslateMessage(&msg);
+        ::DispatchMessage(&msg);        
+    }
+
+    ::EnableWindow(topLevelParent, TRUE);
+
+    return S_OK;
+}
+
+HRESULT PrintWebUIDelegate::createModalDialog(_In_opt_ IWebView* sender, _In_opt_ IWebURLRequest* request, _COM_Outptr_opt_ IWebView** newWebView)
+{
+    if (!newWebView)
+        return E_POINTER;
+    
+    COMPtr<IWebView> webView;
+    HRESULT hr = WebKitCreateInstance(CLSID_WebView, 0, IID_IWebView, (void**)&webView);
+    if (FAILED(hr))
+        return hr;
+
+    m_modalDialogParent = ::CreateWindow(L"STATIC", L"ModalDialog", WS_OVERLAPPED | WS_VISIBLE, 0, 0, 0, 0, getHandleFromWebView(sender), nullptr, nullptr, nullptr);
+
+    hr = webView->setHostWindow(m_modalDialogParent);
+    if (FAILED(hr))
+        return hr;
+
+    RECT clientRect = { 0, 0, 0, 0 };
+    hr = webView->initWithFrame(clientRect, 0, _bstr_t(L""));
+    if (FAILED(hr))
+        return hr;
+
+    COMPtr<IWebUIDelegate> uiDelegate;
+    hr = sender->uiDelegate(&uiDelegate);
+    if (FAILED(hr))
+        return hr;
+
+    webView->setUIDelegate(uiDelegate.get());
+
+    *newWebView = webView.leakRef();
+
+    return S_OK;
 }

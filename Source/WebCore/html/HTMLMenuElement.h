@@ -20,21 +20,27 @@
  *
  */
 
-#ifndef HTMLMenuElement_h
-#define HTMLMenuElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLMenuElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLMenuElement);
 public:
     static Ref<HTMLMenuElement> create(const QualifiedName&, Document&);
     
+    bool isTouchBarMenu() const { return m_isTouchBarMenu; }
+
 private:
     HTMLMenuElement(const QualifiedName&, Document&);
+
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+
+    bool m_isTouchBarMenu;
 };
 
-} //namespace
-
-#endif
+} // namespace WebCore

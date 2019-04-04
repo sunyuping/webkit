@@ -23,8 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DictationCommandIOS_h
-#define DictationCommandIOS_h
+#pragma once
+
+#if PLATFORM(IOS_FAMILY)
 
 #import "CompositeEditCommand.h"
 #import <wtf/RetainPtr.h>
@@ -43,7 +44,7 @@ public:
 private:
     DictationCommandIOS(Document&, Vector<Vector<String>>&& dictationPhrases, RetainPtr<id> metadata);
 
-    virtual void doApply() override;
+    void doApply() override;
 
     Vector<Vector<String>> m_dictationPhrases;
     RetainPtr<id> m_metadata;
@@ -51,4 +52,4 @@ private:
 
 } // namespace WebCore
 
-#endif
+#endif // PLATFORM(IOS_FAMILY)

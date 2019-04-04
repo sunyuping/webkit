@@ -21,51 +21,58 @@
  *
  */
 
-#ifndef StyleCachedImage_h
-#define StyleCachedImage_h
+#pragma once
 
-#include "CachedImageClient.h"
 #include "CachedResourceHandle.h"
 #include "StyleImage.h"
 
 namespace WebCore {
 
+class CSSValue;
 class CachedImage;
+class Document;
 
-class StyleCachedImage final : public StyleImage, private CachedImageClient {
+class StyleCachedImage final : public StyleImage {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    static Ref<StyleCachedImage> create(CachedImage* image) { return adoptRef(*new StyleCachedImage(image)); }
+    static Ref<StyleCachedImage> create(CSSValue& cssValue) { return adoptRef(*new StyleCachedImage(cssValue)); }
     virtual ~StyleCachedImage();
 
-    virtual CachedImage* cachedImage() const override { return m_image.get(); }
+    bool operator==(const StyleImage& other) const final;
+
+    CachedImage* cachedImage() const final;
+
+    WrappedImagePtr data() const final { return m_cachedImage.get(); }
+
+    Ref<CSSValue> cssValue() const final;
+    
+    bool canRender(const RenderElement*, float multiplier) const final;
+    bool isPending() const final;
+    void load(CachedResourceLoader&, const ResourceLoaderOptions&) final;
+    bool isLoaded() const final;
+    bool errorOccurred() const final;
+    FloatSize imageSize(const RenderElement*, float multiplier) const final;
+    bool imageHasRelativeWidth() const final;
+    bool imageHasRelativeHeight() const final;
+    void computeIntrinsicDimensions(const RenderElement*, Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) final;
+    bool usesImageContainerSize() const final;
+    void setContainerContextForRenderer(const RenderElement&, const FloatSize&, float) final;
+    void addClient(RenderElement*) final;
+    void removeClient(RenderElement*) final;
+    RefPtr<Image> image(RenderElement*, const FloatSize&) const final;
+    float imageScaleFactor() const final;
+    bool knownToBeOpaque(const RenderElement*) const final;
 
 private:
-    virtual WrappedImagePtr data() const override { return m_image.get(); }
+    StyleCachedImage(CSSValue&);
+    URL imageURL();
 
-    virtual PassRefPtr<CSSValue> cssValue() const override;
-    
-    virtual bool canRender(const RenderObject*, float multiplier) const override;
-    virtual bool isLoaded() const override;
-    virtual bool errorOccurred() const override;
-    virtual FloatSize imageSize(const RenderElement*, float multiplier) const override;
-    virtual bool imageHasRelativeWidth() const override;
-    virtual bool imageHasRelativeHeight() const override;
-    virtual void computeIntrinsicDimensions(const RenderElement*, Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override;
-    virtual bool usesImageContainerSize() const override;
-    virtual void setContainerSizeForRenderer(const RenderElement*, const FloatSize&, float) override;
-    virtual void addClient(RenderElement*) override;
-    virtual void removeClient(RenderElement*) override;
-    virtual RefPtr<Image> image(RenderElement*, const FloatSize&) const override;
-    virtual bool knownToBeOpaque(const RenderElement*) const override;
-
-    explicit StyleCachedImage(CachedImage*);
-
-    CachedResourceHandle<CachedImage> m_image;
+    Ref<CSSValue> m_cssValue;
+    bool m_isPending { true };
+    mutable float m_scaleFactor { 1 };
+    mutable CachedResourceHandle<CachedImage> m_cachedImage;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_STYLE_IMAGE(StyleCachedImage, isCachedImage)
-
-#endif // StyleCachedImage_h

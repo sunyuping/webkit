@@ -2,20 +2,21 @@ namespace="HTML"
 namespacePrefix="xhtml"
 namespaceURI="http://www.w3.org/1999/xhtml"
 fallbackInterfaceName="HTMLUnknownElement"
+customElementInterfaceName="HTMLElement"
 
 a interfaceName=HTMLAnchorElement
 abbr interfaceName=HTMLElement
 acronym interfaceName=HTMLElement
 address interfaceName=HTMLElement
-applet constructorNeedsCreatedByParser
+applet
 area
 article interfaceName=HTMLElement
 aside interfaceName=HTMLElement
-attachment conditional=ATTACHMENT_ELEMENT, settingsConditional=attachmentElementEnabled
+attachment conditional=ATTACHMENT_ELEMENT, runtimeEnabled=attachmentElement
 audio wrapperOnlyIfMediaIsAvailable, conditional=VIDEO, constructorNeedsCreatedByParser, customTypeHelper
 b interfaceName=HTMLElement
 base
-basefont interfaceName=HTMLUnknownElement
+basefont interfaceName=HTMLElement
 bdi interfaceName=HTMLBDIElement, JSInterfaceName=HTMLElement
 bdo interfaceName=HTMLElement
 bgsound interfaceName=HTMLUnknownElement
@@ -24,27 +25,26 @@ blockquote interfaceName=HTMLQuoteElement
 body
 br interfaceName=HTMLBRElement
 button constructorNeedsFormElement
-canvas
+canvas customTypeHelper
 caption interfaceName=HTMLTableCaptionElement
 center interfaceName=HTMLElement
 cite interfaceName=HTMLElement
 code interfaceName=HTMLElement
 col interfaceName=HTMLTableColElement
 colgroup interfaceName=HTMLTableColElement
-command interfaceName=HTMLElement
-webkitShadowContent interfaceName=HTMLElement, noConstructor
+command interfaceName=HTMLUnknownElement
 data
-datalist interfaceName=HTMLDataListElement, conditional=DATALIST_ELEMENT
+datalist interfaceName=HTMLDataListElement, conditional=DATALIST_ELEMENT, runtimeEnabled=dataListElement
 dd interfaceName=HTMLElement
 del interfaceName=HTMLModElement
-details conditional=DETAILS_ELEMENT
+details
 dfn interfaceName=HTMLElement
 dir interfaceName=HTMLDirectoryElement
 div
 dl interfaceName=HTMLDListElement
 dt interfaceName=HTMLElement
 em interfaceName=HTMLElement
-embed constructorNeedsCreatedByParser
+embed
 fieldset interfaceName=HTMLFieldSetElement, constructorNeedsFormElement
 figcaption interfaceName=HTMLElement
 figure interfaceName=HTMLElement
@@ -70,7 +70,6 @@ image interfaceName=HTMLUnknownElement
 img interfaceName=HTMLImageElement, constructorNeedsFormElement
 input constructorNeedsFormElement, constructorNeedsCreatedByParser
 ins interfaceName=HTMLModElement
-isindex interfaceName=HTMLUnknownElement
 kbd interfaceName=HTMLElement
 keygen constructorNeedsFormElement
 label
@@ -84,6 +83,7 @@ map
 mark interfaceName=HTMLElement
 marquee
 menu
+menuitem interfaceName=HTMLMenuItemElement, runtimeEnabled=menuItemElement
 meta
 meter interfaceName=HTMLMeterElement, conditional=METER_ELEMENT
 nav interfaceName=HTMLElement
@@ -91,7 +91,7 @@ nobr interfaceName=HTMLElement
 noembed interfaceName=HTMLElement
 noframes interfaceName=HTMLElement
 nolayer interfaceName=HTMLElement
-object constructorNeedsFormElement, constructorNeedsCreatedByParser
+object constructorNeedsFormElement
 ol interfaceName=HTMLOListElement
 optgroup interfaceName=HTMLOptGroupElement
 option
@@ -113,7 +113,7 @@ samp interfaceName=HTMLElement
 script constructorNeedsCreatedByParser
 section interfaceName=HTMLElement
 select constructorNeedsFormElement
-slot conditional=SHADOW_DOM
+slot 
 small interfaceName=HTMLElement
 source
 span
@@ -121,15 +121,15 @@ strike interfaceName=HTMLElement
 strong interfaceName=HTMLElement
 style constructorNeedsCreatedByParser
 sub interfaceName=HTMLElement
-summary interfaceName=HTMLSummaryElement, JSInterfaceName=HTMLElement, conditional=DETAILS_ELEMENT
+summary interfaceName=HTMLSummaryElement, JSInterfaceName=HTMLElement
 sup interfaceName=HTMLElement
 table
 tbody interfaceName=HTMLTableSectionElement
-td interfaceName=HTMLTableDataCellElement
-template conditional=TEMPLATE_ELEMENT
+td interfaceName=HTMLTableCellElement
+template
 textarea interfaceName=HTMLTextAreaElement, constructorNeedsFormElement
 tfoot interfaceName=HTMLTableSectionElement
-th interfaceName=HTMLTableHeaderCellElement
+th interfaceName=HTMLTableCellElement
 thead interfaceName=HTMLTableSectionElement
 time
 title

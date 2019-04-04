@@ -32,47 +32,61 @@
 #include "RefPtrCairo.h"
 
 #if ENABLE(ACCELERATED_2D_CANVAS)
+#include "PlatformLayer.h"
 #include "TextureMapper.h"
-#if USE(COORDINATED_GRAPHICS_THREADED)
-#include "TextureMapperPlatformLayerProxy.h"
-#else
 #include "TextureMapperPlatformLayer.h"
+#include "TextureMapperPlatformLayerProxyProvider.h"
 #endif
+
+#if ENABLE(ACCELERATED_2D_CANVAS) && USE(NICOSIA)
+#include "NicosiaContentLayerTextureMapperImpl.h"
 #endif
 
 namespace WebCore {
 
 class IntSize;
+class TextureMapperPlatformLayerProxy;
 
 class ImageBufferData
 #if ENABLE(ACCELERATED_2D_CANVAS)
-#if USE(COORDINATED_GRAPHICS_THREADED)
-    : public TextureMapperPlatformLayerProxyProvider
+#if USE(NICOSIA)
+    : public Nicosia::ContentLayerTextureMapperImpl::Client
 #else
-    : public TextureMapperPlatformLayer
+    : public PlatformLayer
 #endif
 #endif
 {
 public:
-    ImageBufferData(const IntSize&);
+    ImageBufferData(const IntSize&, RenderingMode);
+    virtual ~ImageBufferData();
 
     RefPtr<cairo_surface_t> m_surface;
     PlatformContextCairo m_platformContext;
     std::unique_ptr<GraphicsContext> m_context;
     IntSize m_size;
+    RenderingMode m_renderingMode;
 
 #if ENABLE(ACCELERATED_2D_CANVAS)
     void createCairoGLSurface();
 
-#if USE(COORDINATED_GRAPHICS_THREADED)
-    virtual RefPtr<TextureMapperPlatformLayerProxy> proxy() const override { return m_platformLayerProxy.copyRef(); }
-    virtual void swapBuffersIfNeeded() override;
+#if USE(COORDINATED_GRAPHICS)
+#if USE(NICOSIA)
+    void swapBuffersIfNeeded() override;
+#else
+    RefPtr<TextureMapperPlatformLayerProxy> proxy() const override;
+    void swapBuffersIfNeeded() override;
+#endif
     void createCompositorBuffer();
 
-    RefPtr<TextureMapperPlatformLayerProxy> m_platformLayerProxy;
     RefPtr<cairo_surface_t> m_compositorSurface;
     uint32_t m_compositorTexture;
     RefPtr<cairo_t> m_compositorCr;
+
+#if USE(NICOSIA)
+    RefPtr<Nicosia::ContentLayer> m_nicosiaLayer;
+#else
+    RefPtr<TextureMapperPlatformLayerProxy> m_platformLayerProxy;
+#endif
 #else
     virtual void paintToTextureMapper(TextureMapper&, const FloatRect& target, const TransformationMatrix&, float opacity);
 #endif

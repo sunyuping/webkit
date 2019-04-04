@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGSSAConversionPhase_h
-#define DFGSSAConversionPhase_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -34,7 +33,7 @@ class Graph;
 
 // Convert ThreadedCPS form into SSA form. This results in a form that has:
 //
-// - Minimal Phi's. We use the the Cytron et al (TOPLAS'91) algorithm for
+// - Minimal Phi's. We use the Cytron et al (TOPLAS'91) algorithm for
 //   Phi insertion. Most of the algorithm is implemented in SSACalculator
 //   and Dominators.
 //
@@ -81,12 +80,6 @@ class Graph;
 //   the caveat that the Phi predecessor block lists would have to be
 //   updated).
 //
-//   The easiest way to convert from this SSA form into a different SSA
-//   form is to redo SSA conversion for Phi functions. That is, treat each
-//   Phi in our IR as a non-SSA variable in the foreign IR (so, as an
-//   alloca in LLVM IR, for example); the Upsilons that refer to the Phi
-//   become stores and the Phis themselves become loads.
-//
 //   Fun fact: Upsilon is so named because it comes before Phi in the
 //   alphabet. It can be written as "Y".
 
@@ -95,6 +88,3 @@ bool performSSAConversion(Graph&);
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGSSAConversionPhase_h
-

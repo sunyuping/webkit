@@ -19,8 +19,7 @@
  *
  */
 
-#ifndef ElementRuleCollector_h
-#define ElementRuleCollector_h
+#pragma once
 
 #include "MediaQueryEvaluator.h"
 #include "SelectorChecker.h"
@@ -33,20 +32,20 @@ namespace WebCore {
 
 class DocumentRuleSets;
 class MatchRequest;
-class RenderRegion;
 class RuleData;
 class RuleSet;
 class SelectorFilter;
 
 struct MatchedRule {
     const RuleData* ruleData;
-    unsigned specificity;
+    unsigned specificity;   
+    Style::ScopeOrdinal styleScopeOrdinal;
 };
 
 class ElementRuleCollector {
 public:
-    ElementRuleCollector(Element&, RenderStyle*, const DocumentRuleSets&, const SelectorFilter*);
-    ElementRuleCollector(Element&, const RuleSet& authorStyle, const SelectorFilter*);
+    ElementRuleCollector(const Element&, const DocumentRuleSets&, const SelectorFilter*);
+    ElementRuleCollector(const Element&, const RuleSet& authorStyle, const SelectorFilter*);
 
     void matchAllRules(bool matchAuthorAndUserStyles, bool includeSMILProperties);
     void matchUARules();
@@ -55,8 +54,6 @@ public:
 
     void setMode(SelectorChecker::Mode mode) { m_mode = mode; }
     void setPseudoStyleRequest(const PseudoStyleRequest& request) { m_pseudoStyleRequest = request; }
-    void setSameOriginOnly(bool f) { m_sameOriginOnly = f; } 
-    void setRegionForStyling(const RenderRegion* regionForStyling) { m_regionForStyling = regionForStyling; }
     void setMedium(const MediaQueryEvaluator* medium) { m_isPrintStyle = medium->mediaTypeMatchSpecific("print"); }
 
     bool hasAnyMatchingRules(const RuleSet*);
@@ -67,45 +64,51 @@ public:
     bool hasMatchedRules() const { return !m_matchedRules.isEmpty(); }
     void clearMatchedRules();
 
+    const PseudoIdSet& matchedPseudoElementIds() const { return m_matchedPseudoElementIds; }
+    const Style::Relations& styleRelations() const { return m_styleRelations; }
+    bool didMatchUncommonAttributeSelector() const { return m_didMatchUncommonAttributeSelector; }
+
 private:
     void addElementStyleProperties(const StyleProperties*, bool isCacheable = true);
 
-    void matchUARules(RuleSet*);
-#if ENABLE(SHADOW_DOM)
-    void matchHostPseudoClassRules(bool includeEmptyRules);
-#endif
+    void matchUARules(const RuleSet&);
+    void matchAuthorShadowPseudoElementRules(bool includeEmptyRules, StyleResolver::RuleRange&);
+    void matchHostPseudoClassRules(bool includeEmptyRules, StyleResolver::RuleRange&);
+    void matchSlottedPseudoElementRules(bool includeEmptyRules, StyleResolver::RuleRange&);
+
+    void collectMatchingShadowPseudoElementRules(const MatchRequest&, StyleResolver::RuleRange&);
+    std::unique_ptr<RuleSet::RuleDataVector> collectSlottedPseudoElementRulesForSlot(bool includeEmptyRules);
 
     void collectMatchingRules(const MatchRequest&, StyleResolver::RuleRange&);
-    void collectMatchingRulesForRegion(const MatchRequest&, StyleResolver::RuleRange&);
     void collectMatchingRulesForList(const RuleSet::RuleDataVector*, const MatchRequest&, StyleResolver::RuleRange&);
     bool ruleMatches(const RuleData&, unsigned &specificity);
 
     void sortMatchedRules();
     void sortAndTransferMatchedRules();
 
-    void addMatchedRule(const MatchedRule&);
+    void addMatchedRule(const RuleData&, unsigned specificity, Style::ScopeOrdinal, StyleResolver::RuleRange&);
 
-    void commitStyleRelations(const SelectorChecker::StyleRelations&);
-
-    Element& m_element;
-    RenderStyle* m_style { nullptr };
+    const Element& m_element;
     const RuleSet& m_authorStyle;
     const RuleSet* m_userStyle { nullptr };
+    const RuleSet* m_userAgentMediaQueryStyle { nullptr };
     const SelectorFilter* m_selectorFilter { nullptr };
 
     bool m_isPrintStyle { false };
-    const RenderRegion* m_regionForStyling { nullptr };
-    PseudoStyleRequest m_pseudoStyleRequest { NOPSEUDO };
-    bool m_sameOriginOnly { false };
+    PseudoStyleRequest m_pseudoStyleRequest { PseudoId::None };
     SelectorChecker::Mode m_mode { SelectorChecker::Mode::ResolvingStyle };
+    bool m_isMatchingSlottedPseudoElements { false };
+    bool m_isMatchingHostPseudoClass { false };
+    Vector<std::unique_ptr<RuleSet::RuleDataVector>> m_keepAliveSlottedPseudoElementRules;
 
     Vector<MatchedRule, 64> m_matchedRules;
 
     // Output.
     Vector<RefPtr<StyleRule>> m_matchedRuleList;
+    bool m_didMatchUncommonAttributeSelector { false };
     StyleResolver::MatchResult m_result;
+    Style::Relations m_styleRelations;
+    PseudoIdSet m_matchedPseudoElementIds;
 };
 
 } // namespace WebCore
-
-#endif // ElementRuleCollector_h

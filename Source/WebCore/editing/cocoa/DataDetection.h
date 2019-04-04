@@ -23,8 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DataDetection_h
-#define DataDetection_h
+#pragma once
+
+#if ENABLE(DATA_DETECTION)
 
 #import <wtf/RefPtr.h>
 #import <wtf/RetainPtr.h>
@@ -32,9 +33,11 @@
 
 OBJC_CLASS DDActionContext;
 OBJC_CLASS NSArray;
+OBJC_CLASS NSDictionary;
 
 namespace WebCore {
 
+class Document;
 class Element;
 class FloatRect;
 class HitTestResult;
@@ -46,8 +49,9 @@ enum DataDetectorTypes {
     DataDetectorTypeLink = 1 << 1,
     DataDetectorTypeAddress = 1 << 2,
     DataDetectorTypeCalendarEvent = 1 << 3,
-    DataDetectorTypeTrackingNumber = 1 << 4, // Not individually selectable with the API
-    DataDetectorTypeFlight = 1 << 5, // Not individually selectable with the API
+    DataDetectorTypeTrackingNumber = 1 << 4,
+    DataDetectorTypeFlightNumber = 1 << 5,
+    DataDetectorTypeLookupSuggestion = 1 << 6,
     DataDetectorTypeAll = ULONG_MAX
 };
 
@@ -56,12 +60,21 @@ public:
 #if PLATFORM(MAC)
     WEBCORE_EXPORT static RetainPtr<DDActionContext> detectItemAroundHitTestResult(const HitTestResult&, FloatRect& detectedDataBoundingBox, RefPtr<Range>& detectedDataRange);
 #endif
-    WEBCORE_EXPORT static NSArray *detectContentInRange(RefPtr<Range>& contextRange, DataDetectorTypes);
-    WEBCORE_EXPORT static bool isDataDetectorLink(Element*);
-    WEBCORE_EXPORT static String dataDetectorIdentifier(Element*);
-    WEBCORE_EXPORT static bool shouldCancelDefaultAction(Element*);
+    WEBCORE_EXPORT static NSArray *detectContentInRange(RefPtr<Range>& contextRange, DataDetectorTypes, NSDictionary *context);
+    WEBCORE_EXPORT static void removeDataDetectedLinksInDocument(Document&);
+#if PLATFORM(IOS_FAMILY)
+    WEBCORE_EXPORT static bool canBePresentedByDataDetectors(const URL&);
+    WEBCORE_EXPORT static bool isDataDetectorLink(Element&);
+    WEBCORE_EXPORT static String dataDetectorIdentifier(Element&);
+    WEBCORE_EXPORT static bool shouldCancelDefaultAction(Element&);
+    WEBCORE_EXPORT static bool requiresExtendedContext(Element&);
+#endif
+
+    static const String& dataDetectorURLProtocol();
+    static bool isDataDetectorURL(const URL&);
 };
 
 } // namespace WebCore
 
-#endif // DataDetection_h
+#endif
+

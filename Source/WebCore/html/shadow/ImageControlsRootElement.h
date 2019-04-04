@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ImageControlsRootElement_h
-#define ImageControlsRootElement_h
+#pragma once
 
 #if ENABLE(SERVICE_CONTROLS)
 
@@ -35,19 +34,19 @@ namespace WebCore {
 class Document;
 
 class ImageControlsRootElement : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(ImageControlsRootElement);
 public:
     virtual ~ImageControlsRootElement();
 
-    static RefPtr<ImageControlsRootElement> maybeCreate(Document&);
+    static RefPtr<ImageControlsRootElement> tryCreate(Document&);
 
 protected:
     explicit ImageControlsRootElement(Document&);
 
 private:
-    virtual bool isImageControlsRootElement() const override final { return true; }
+    bool isImageControlsRootElement() const final { return true; }
 };
 
 } // namespace WebCore
 
 #endif // ENABLE(SERVICE_CONTROLS)
-#endif // ImageControlsRootElement_h

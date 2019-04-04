@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (c) 2014, 2015 Apple Inc. All rights reserved.
+# Copyright (c) 2014-2018 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,8 +30,7 @@
 class CppGeneratorTemplates:
 
     HeaderPrelude = (
-    """#ifndef ${headerGuardString}
-#define ${headerGuardString}
+    """#pragma once
 
 ${includes}
 
@@ -40,9 +39,7 @@ namespace Inspector {
 ${typedefs}""")
 
     HeaderPostlude = (
-    """} // namespace Inspector
-
-#endif // !defined(${headerGuardString})""")
+    """} // namespace Inspector""")
 
     ImplementationPrelude = (
     """#include "config.h"
@@ -57,8 +54,7 @@ namespace Inspector {""")
 """)
 
     AlternateDispatchersHeaderPrelude = (
-    """#ifndef ${headerGuardString}
-#define ${headerGuardString}
+    """#pragma once
 
 #if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
 
@@ -78,9 +74,7 @@ private:
     AlternateDispatchersHeaderPostlude = (
     """} // namespace Inspector
 
-#endif // ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-
-#endif // !defined(${headerGuardString})""")
+#endif // ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)""")
 
     AlternateBackendDispatcherHeaderDomainHandlerInterfaceDeclaration = (
     """class Alternate${domainName}BackendDispatcher : public AlternateBackendDispatcher {
@@ -101,18 +95,20 @@ protected:
     """${classAndExportMacro} ${domainName}BackendDispatcher final : public SupplementalBackendDispatcher {
 public:
     static Ref<${domainName}BackendDispatcher> create(BackendDispatcher&, ${domainName}BackendDispatcherHandler*);
-    virtual void dispatch(long requestId, const String& method, Ref<InspectorObject>&& message) override;
+    void dispatch(long requestId, const String& method, Ref<JSON::Object>&& message) override;
 ${commandDeclarations}
 private:
     ${domainName}BackendDispatcher(BackendDispatcher&, ${domainName}BackendDispatcherHandler*);
-    ${domainName}BackendDispatcherHandler* m_agent;
-#if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
+    ${domainName}BackendDispatcherHandler* m_agent { nullptr };
+};""")
+
+    BackendDispatcherHeaderDomainDispatcherAlternatesDeclaration = (
+    """#if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
 public:
     void setAlternateDispatcher(Alternate${domainName}BackendDispatcher* alternateDispatcher) { m_alternateDispatcher = alternateDispatcher; }
 private:
-    Alternate${domainName}BackendDispatcher* m_alternateDispatcher;
-#endif
-};""")
+    Alternate${domainName}BackendDispatcher* m_alternateDispatcher { nullptr };
+#endif""")
 
     BackendDispatcherHeaderAsyncCommandDeclaration = (
     """    ${classAndExportMacro} ${callbackName} : public BackendDispatcher::CallbackBase {
@@ -123,27 +119,27 @@ private:
     virtual void ${commandName}(${inParameters}) = 0;""")
 
     BackendDispatcherImplementationSmallSwitch = (
-    """void ${domainName}BackendDispatcher::dispatch(long requestId, const String& method, Ref<InspectorObject>&& message)
+    """void ${domainName}BackendDispatcher::dispatch(long requestId, const String& method, Ref<JSON::Object>&& message)
 {
     Ref<${domainName}BackendDispatcher> protect(*this);
 
-    RefPtr<InspectorObject> parameters;
-    message->getObject(ASCIILiteral("params"), parameters);
+    RefPtr<JSON::Object> parameters;
+    message->getObject("params"_s, parameters);
 
 ${dispatchCases}
     else
-        m_backendDispatcher->reportProtocolError(BackendDispatcher::MethodNotFound, makeString('\\'', "${domainName}", '.', method, "' was not found"));
+        m_backendDispatcher->reportProtocolError(BackendDispatcher::MethodNotFound, "'${domainName}." + method + "' was not found");
 }""")
 
     BackendDispatcherImplementationLargeSwitch = (
-"""void ${domainName}BackendDispatcher::dispatch(long requestId, const String& method, Ref<InspectorObject>&& message)
+"""void ${domainName}BackendDispatcher::dispatch(long requestId, const String& method, Ref<JSON::Object>&& message)
 {
     Ref<${domainName}BackendDispatcher> protect(*this);
 
-    RefPtr<InspectorObject> parameters;
-    message->getObject(ASCIILiteral("params"), parameters);
+    RefPtr<JSON::Object> parameters;
+    message->getObject("params"_s, parameters);
 
-    typedef void (${domainName}BackendDispatcher::*CallHandler)(long requestId, RefPtr<InspectorObject>&& message);
+    typedef void (${domainName}BackendDispatcher::*CallHandler)(long requestId, RefPtr<JSON::Object>&& message);
     typedef HashMap<String, CallHandler> DispatchMap;
     static NeverDestroyed<DispatchMap> dispatchMap;
     if (dispatchMap.get().isEmpty()) {
@@ -160,7 +156,7 @@ ${dispatchCases}
 
     auto findResult = dispatchMap.get().find(method);
     if (findResult == dispatchMap.get().end()) {
-        m_backendDispatcher->reportProtocolError(BackendDispatcher::MethodNotFound, makeString('\\'', "${domainName}", '.', method, "' was not found"));
+        m_backendDispatcher->reportProtocolError(BackendDispatcher::MethodNotFound, "'${domainName}." + method + "' was not found");
         return;
     }
 
@@ -176,17 +172,14 @@ ${dispatchCases}
 ${domainName}BackendDispatcher::${domainName}BackendDispatcher(BackendDispatcher& backendDispatcher, ${domainName}BackendDispatcherHandler* agent)
     : SupplementalBackendDispatcher(backendDispatcher)
     , m_agent(agent)
-#if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-    , m_alternateDispatcher(nullptr)
-#endif
 {
-    m_backendDispatcher->registerDispatcherForDomain(ASCIILiteral("${domainName}"), this);
+    m_backendDispatcher->registerDispatcherForDomain("${domainName}"_s, this);
 }""")
 
     BackendDispatcherImplementationPrepareCommandArguments = (
 """${inParameterDeclarations}
     if (m_backendDispatcher->hasProtocolErrors()) {
-        m_backendDispatcher->reportProtocolError(BackendDispatcher::InvalidParams, String::format("Some arguments of method \'%s\' can't be processed", "${domainName}.${commandName}"));
+        m_backendDispatcher->reportProtocolError(BackendDispatcher::InvalidParams, "Some arguments of method \'${domainName}.${commandName}\' can't be processed"_s);
         return;
     }
 """)
@@ -196,13 +189,14 @@ ${domainName}BackendDispatcher::${domainName}BackendDispatcher(BackendDispatcher
 
 void ${domainName}BackendDispatcherHandler::${callbackName}::sendSuccess(${formalParameters})
 {
-    Ref<InspectorObject> jsonMessage = InspectorObject::create();
+    Ref<JSON::Object> jsonMessage = JSON::Object::create();
 ${outParameterAssignments}
     CallbackBase::sendSuccess(WTFMove(jsonMessage));
 }""")
 
     FrontendDispatcherDomainDispatcherDeclaration = (
 """${classAndExportMacro} ${domainName}FrontendDispatcher {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     ${domainName}FrontendDispatcher(FrontendRouter& frontendRouter) : m_frontendRouter(frontendRouter) { }
 ${eventDeclarations}
@@ -214,14 +208,14 @@ private:
 """    template<int STATE>
     class Builder {
     private:
-        RefPtr<InspectorObject> m_result;
+        RefPtr<JSON::Object> m_result;
 
         template<int STEP> Builder<STATE | STEP>& castState()
         {
             return *reinterpret_cast<Builder<STATE | STEP>*>(this);
         }
 
-        Builder(Ref</*${objectType}*/InspectorObject>&& object)
+        Builder(Ref</*${objectType}*/JSON::Object>&& object)
             : m_result(WTFMove(object))
         {
             COMPILE_ASSERT(STATE == NoFieldsSet, builder_created_in_non_init_state);
@@ -234,10 +228,11 @@ private:
         Ref<${objectType}> release()
         {
             COMPILE_ASSERT(STATE == AllFieldsSet, result_is_not_ready);
-            COMPILE_ASSERT(sizeof(${objectType}) == sizeof(InspectorObject), cannot_cast);
+            COMPILE_ASSERT(sizeof(${objectType}) == sizeof(JSON::Object), cannot_cast);
 
-            Ref<InspectorObject> result = m_result.releaseNonNull();
-            return WTFMove(*reinterpret_cast<Ref<${objectType}>*>(&result));
+            Ref<JSON::Object> jsonResult = m_result.releaseNonNull();
+            auto result = WTFMove(*reinterpret_cast<Ref<${objectType}>*>(&jsonResult));
+            return result;
         }
     };
 
@@ -247,19 +242,17 @@ ${constructorExample}
      */
     static Builder<NoFieldsSet> create()
     {
-        return Builder<NoFieldsSet>(InspectorObject::create());
+        return Builder<NoFieldsSet>(JSON::Object::create());
     }""")
 
     ProtocolObjectRuntimeCast = (
-"""RefPtr<${objectType}> BindingTraits<${objectType}>::runtimeCast(RefPtr<InspectorValue>&& value)
+"""RefPtr<${objectType}> BindingTraits<${objectType}>::runtimeCast(RefPtr<JSON::Value>&& value)
 {
-    RefPtr<InspectorObject> result;
+    RefPtr<JSON::Object> result;
     bool castSucceeded = value->asObject(result);
     ASSERT_UNUSED(castSucceeded, castSucceeded);
-#if !ASSERT_DISABLED
     BindingTraits<${objectType}>::assertValueHasExpectedType(result.get());
-#endif  // !ASSERT_DISABLED
-    COMPILE_ASSERT(sizeof(${objectType}) == sizeof(InspectorObjectBase), type_cast_problem);
-    return static_cast<${objectType}*>(static_cast<InspectorObjectBase*>(result.get()));
+    COMPILE_ASSERT(sizeof(${objectType}) == sizeof(JSON::ObjectBase), type_cast_problem);
+    return static_cast<${objectType}*>(static_cast<JSON::ObjectBase*>(result.get()));
 }
 """)

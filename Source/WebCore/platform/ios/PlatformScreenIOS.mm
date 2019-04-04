@@ -26,24 +26,21 @@
 #import "config.h"
 #import "PlatformScreen.h"
 
+#if PLATFORM(IOS_FAMILY)
+
+#import "DeprecatedGlobalSettings.h"
 #import "Device.h"
 #import "FloatRect.h"
 #import "FloatSize.h"
 #import "FrameView.h"
+#import "GraphicsContextCG.h"
 #import "HostWindow.h"
 #import "IntRect.h"
-#import "MobileGestaltSPI.h"
-#import "SoftLinking.h"
-#import "UIKitSPI.h"
 #import "WAKWindow.h"
-#import "WebCoreSystemInterface.h"
 #import "Widget.h"
-
-SOFT_LINK_FRAMEWORK(UIKit)
-SOFT_LINK_CLASS(UIKit, UIApplication)
-SOFT_LINK_CLASS(UIKit, UIScreen)
-SOFT_LINK(UIKit, UIAccessibilityIsGrayscaleEnabled, BOOL, (void), ())
-SOFT_LINK(UIKit, UIAccessibilityIsInvertColorsEnabled, BOOL, (void), ())
+#import <pal/ios/UIKitSoftLink.h>
+#import <pal/spi/ios/MobileGestaltSPI.h>
+#import <pal/spi/ios/UIKitSPI.h>
 
 namespace WebCore {
 
@@ -56,17 +53,27 @@ int screenDepth(Widget*)
 int screenDepthPerComponent(Widget*)
 {
     // Assume the screen depth is evenly divided into four color components. See <rdar://problem/9378829>.
-    return screenDepth(0) / 4;
+    return screenDepth(nullptr) / 4;
 }
 
 bool screenIsMonochrome(Widget*)
 {
-    return UIAccessibilityIsGrayscaleEnabled();
+    return PAL::softLinkUIKitUIAccessibilityIsGrayscaleEnabled();
 }
 
 bool screenHasInvertedColors()
 {
-    return UIAccessibilityIsInvertColorsEnabled();
+    return PAL::softLinkUIKitUIAccessibilityIsInvertColorsEnabled();
+}
+
+bool screenSupportsExtendedColor(Widget*)
+{
+    return MGGetBoolAnswer(kMGQHasExtendedColorDisplay);
+}
+
+CGColorSpaceRef screenColorSpace(Widget* widget)
+{
+    return screenSupportsExtendedColor(widget) ? extendedSRGBColorSpaceRef() : sRGBColorSpaceRef();
 }
 
 // These functions scale between screen and page coordinates because JavaScript/DOM operations
@@ -84,7 +91,7 @@ FloatRect screenRect(Widget* widget)
         CGRect screenRect = { CGPointZero, [window screenSize] };
         return enclosingIntRect(screenRect);
     }
-    return enclosingIntRect(FloatRect(FloatPoint(), widget->root()->hostWindow()->screenSize()));
+    return enclosingIntRect(FloatRect(FloatPoint(), widget->root()->hostWindow()->overrideScreenSize()));
 }
 
 FloatRect screenAvailableRect(Widget* widget)
@@ -122,31 +129,35 @@ float screenPPIFactor()
 
 FloatSize screenSize()
 {
-    if (deviceHasIPadCapability() && [[getUIApplicationClass() sharedApplication] _isClassic])
+    if (deviceHasIPadCapability() && [[PAL::getUIApplicationClass() sharedApplication] _isClassic])
         return { 320, 480 };
-    return FloatSize([[getUIScreenClass() mainScreen] _referenceBounds].size);
+    return FloatSize([[PAL::getUIScreenClass() mainScreen] _referenceBounds].size);
 }
 
 FloatSize availableScreenSize()
 {
-    if (deviceHasIPadCapability() && [[getUIApplicationClass() sharedApplication] _isClassic])
+    if (deviceHasIPadCapability() && [[PAL::getUIApplicationClass() sharedApplication] _isClassic])
         return { 320, 480 };
-    return FloatSize([getUIScreenClass() mainScreen].bounds.size);
+    return FloatSize([PAL::getUIScreenClass() mainScreen].bounds.size);
 }
+
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/PlatformScreenIOS.mm>)
+#import <WebKitAdditions/PlatformScreenIOS.mm>
+#else
+FloatSize overrideScreenSize()
+{
+    return screenSize();
+}
+#endif
 
 float screenScaleFactor(UIScreen *screen)
 {
     if (!screen)
-        screen = [getUIScreenClass() mainScreen];
+        screen = [PAL::getUIScreenClass() mainScreen];
 
-    CGFloat scale = screen.scale;
-
-    // We can remove this clamping once <rdar://problem/16395475> is fixed.
-    const CGFloat maximumClassicScreenScaleFactor = 2;
-    if ([[getUIApplicationClass() sharedApplication] _isClassic])
-        return std::min(scale, maximumClassicScreenScaleFactor);
-
-    return scale;
+    return screen.scale;
 }
 
 } // namespace WebCore
+
+#endif // PLATFORM(IOS_FAMILY)

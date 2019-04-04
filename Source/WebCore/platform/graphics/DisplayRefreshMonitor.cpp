@@ -30,11 +30,14 @@
 
 #include "DisplayRefreshMonitorClient.h"
 #include "DisplayRefreshMonitorManager.h"
+#include "Logging.h"
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #include "DisplayRefreshMonitorIOS.h"
-#else
+#elif PLATFORM(MAC)
 #include "DisplayRefreshMonitorMac.h"
+#elif PLATFORM(GTK)
+#include "DisplayRefreshMonitorGtk.h"
 #endif
 
 namespace WebCore {
@@ -44,9 +47,13 @@ RefPtr<DisplayRefreshMonitor> DisplayRefreshMonitor::createDefaultDisplayRefresh
 #if PLATFORM(MAC)
     return DisplayRefreshMonitorMac::create(displayID);
 #endif
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     return DisplayRefreshMonitorIOS::create(displayID);
 #endif
+#if PLATFORM(GTK)
+    return DisplayRefreshMonitorGtk::create(displayID);
+#endif
+    UNUSED_PARAM(displayID);
     return nullptr;
 }
 
@@ -56,19 +63,11 @@ RefPtr<DisplayRefreshMonitor> DisplayRefreshMonitor::create(DisplayRefreshMonito
 }
 
 DisplayRefreshMonitor::DisplayRefreshMonitor(PlatformDisplayID displayID)
-    : m_monotonicAnimationStartTime(0)
-    , m_active(true)
-    , m_scheduled(false)
-    , m_previousFrameDone(true)
-    , m_unscheduledFireCount(0)
-    , m_displayID(displayID)
-    , m_clientsToBeNotified(nullptr)
+    : m_displayID(displayID)
 {
 }
 
-DisplayRefreshMonitor::~DisplayRefreshMonitor()
-{
-}
+DisplayRefreshMonitor::~DisplayRefreshMonitor() = default;
 
 void DisplayRefreshMonitor::handleDisplayRefreshedNotificationOnMainThread(void* data)
 {
@@ -90,22 +89,20 @@ bool DisplayRefreshMonitor::removeClient(DisplayRefreshMonitorClient& client)
 
 void DisplayRefreshMonitor::displayDidRefresh()
 {
-    double monotonicAnimationStartTime;
-
     {
         LockHolder lock(m_mutex);
+        LOG(RequestAnimationFrame, "DisplayRefreshMonitor::displayDidRefresh(%p) - m_scheduled(%d), m_unscheduledFireCount(%d)", this, m_scheduled, m_unscheduledFireCount);
         if (!m_scheduled)
             ++m_unscheduledFireCount;
         else
             m_unscheduledFireCount = 0;
 
         m_scheduled = false;
-        monotonicAnimationStartTime = m_monotonicAnimationStartTime;
     }
 
     // The call back can cause all our clients to be unregistered, so we need to protect
     // against deletion until the end of the method.
-    Ref<DisplayRefreshMonitor> protect(*this);
+    Ref<DisplayRefreshMonitor> protectedThis(*this);
 
     // Copy the hash table and remove clients from it one by one so we don't notify
     // any client twice, but can respond to removal of clients during the delivery process.
@@ -113,7 +110,7 @@ void DisplayRefreshMonitor::displayDidRefresh()
     m_clientsToBeNotified = &clientsToBeNotified;
     while (!clientsToBeNotified.isEmpty()) {
         DisplayRefreshMonitorClient* client = clientsToBeNotified.takeAny();
-        client->fireDisplayRefreshIfNeeded(monotonicAnimationStartTime);
+        client->fireDisplayRefreshIfNeeded();
 
         // This checks if this function was reentered. In that case, stop iterating
         // since it's not safe to use the set any more.
@@ -126,9 +123,9 @@ void DisplayRefreshMonitor::displayDidRefresh()
 
     {
         LockHolder lock(m_mutex);
-        m_previousFrameDone = true;
+        setIsPreviousFrameDone(true);
     }
-    
+
     DisplayRefreshMonitorManager::sharedManager().displayDidRefresh(*this);
 }
 

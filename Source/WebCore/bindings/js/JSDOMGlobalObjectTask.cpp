@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,20 +27,20 @@
 #include "JSDOMGlobalObjectTask.h"
 
 #include "ActiveDOMCallback.h"
-#include "JSMainThreadExecState.h"
-#include <heap/StrongInlines.h>
-#include <runtime/Microtask.h>
+#include "JSDOMGlobalObject.h"
+#include "JSExecState.h"
+#include <JavaScriptCore/Microtask.h>
+#include <JavaScriptCore/StrongInlines.h>
 #include <wtf/Ref.h>
 
-using namespace JSC;
-
 namespace WebCore {
+using namespace JSC;
 
 class JSGlobalObjectCallback final : public RefCounted<JSGlobalObjectCallback>, private ActiveDOMCallback {
 public:
-    static Ref<JSGlobalObjectCallback> create(JSDOMGlobalObject* globalObject, PassRefPtr<Microtask> task)
+    static Ref<JSGlobalObjectCallback> create(JSDOMGlobalObject& globalObject, Ref<Microtask>&& task)
     {
-        return adoptRef(*new JSGlobalObjectCallback(globalObject, task));
+        return adoptRef(*new JSGlobalObjectCallback(globalObject, WTFMove(task)));
     }
 
     void call()
@@ -48,8 +48,10 @@ public:
         if (!canInvokeCallback())
             return;
 
-        Ref<JSGlobalObjectCallback> protect(*this);
-        JSLockHolder lock(m_globalObject->vm());
+        Ref<JSGlobalObjectCallback> protectedThis(*this);
+        VM& vm = m_globalObject->vm();
+        JSLockHolder lock(vm);
+        auto scope = DECLARE_THROW_SCOPE(vm);
 
         ExecState* exec = m_globalObject->globalExec();
 
@@ -57,33 +59,27 @@ public:
         // We will fail to get the context if the frame has been detached.
         if (!context)
             return;
-
-        // When on the main thread (e.g. the document's thread), we need to make sure to
-        // push the current ExecState on to the JSMainThreadExecState stack.
-        if (context->isDocument())
-            JSMainThreadExecState::runTask(exec, *m_task.get());
-        else
-            m_task->run(exec);
-        ASSERT(!exec->hadException());
+        JSExecState::runTask(exec, m_task);
+        scope.assertNoException();
     }
 
 private:
-    JSGlobalObjectCallback(JSDOMGlobalObject* globalObject, PassRefPtr<Microtask> task)
-        : ActiveDOMCallback(globalObject->scriptExecutionContext())
-        , m_globalObject(globalObject->vm(), globalObject)
-        , m_task(task)
+    JSGlobalObjectCallback(JSDOMGlobalObject& globalObject, Ref<Microtask>&& task)
+        : ActiveDOMCallback { globalObject.scriptExecutionContext() }
+        , m_globalObject { globalObject.vm(), &globalObject }
+        , m_task { WTFMove(task) }
     {
     }
 
     Strong<JSDOMGlobalObject> m_globalObject;
-    RefPtr<Microtask> m_task;
+    Ref<Microtask> m_task;
 };
 
-JSGlobalObjectTask::JSGlobalObjectTask(JSDOMGlobalObject* globalObject, PassRefPtr<Microtask> task)
-    : ScriptExecutionContext::Task(nullptr)
+JSGlobalObjectTask::JSGlobalObjectTask(JSDOMGlobalObject& globalObject, Ref<Microtask>&& task)
+    : ScriptExecutionContext::Task({ })
 {
-    RefPtr<JSGlobalObjectCallback> callback = JSGlobalObjectCallback::create(globalObject, task);
-    m_task = [callback] (ScriptExecutionContext&) {
+    auto callback = JSGlobalObjectCallback::create(globalObject, WTFMove(task));
+    m_task = [callback = WTFMove(callback)] (ScriptExecutionContext&) {
         callback->call();
     };
 }

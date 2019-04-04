@@ -27,48 +27,38 @@
 #include "config.h"
 #include "CanvasGradient.h"
 
-#include "CanvasPattern.h"
 #include "CanvasStyle.h"
-#include "CSSParser.h"
-#include "ExceptionCode.h"
 
 namespace WebCore {
 
 CanvasGradient::CanvasGradient(const FloatPoint& p0, const FloatPoint& p1)
-    : m_gradient(Gradient::create(p0, p1))
-#if ENABLE(DASHBOARD_SUPPORT)
-    , m_dashbardCompatibilityMode(false)
-#endif
+    : m_gradient(Gradient::create(Gradient::LinearData { p0, p1 }))
 {
 }
 
 CanvasGradient::CanvasGradient(const FloatPoint& p0, float r0, const FloatPoint& p1, float r1)
-    : m_gradient(Gradient::create(p0, r0, p1, r1))
-#if ENABLE(DASHBOARD_SUPPORT)
-    , m_dashbardCompatibilityMode(false)
-#endif
+    : m_gradient(Gradient::create(Gradient::RadialData { p0, p1, r0, r1, 1 }))
 {
 }
 
-void CanvasGradient::addColorStop(float value, const String& color, ExceptionCode& ec)
+ExceptionOr<void> CanvasGradient::addColorStop(float value, const String& colorString)
 {
-    if (!(value >= 0 && value <= 1.0f)) {
-        ec = INDEX_SIZE_ERR;
-        return;
-    }
+    if (!(value >= 0 && value <= 1))
+        return Exception { IndexSizeError };
 
-    RGBA32 rgba = 0;
-    if (!parseColorOrCurrentColor(rgba, color, 0 /*canvas*/)) {
+    // Passing null for canvas ensures that currentColor is treated as black,
+    // as required by the standard.
+    Color color = parseColorOrCurrentColor(colorString, nullptr /*canvas*/);
+    if (!color.isValid()) {
 #if ENABLE(DASHBOARD_SUPPORT)
-        if (!m_dashbardCompatibilityMode)
-            ec = SYNTAX_ERR;
-#else
-        ec = SYNTAX_ERR;
+        if (m_dashboardCompatibilityMode)
+            return { };
 #endif
-        return;
+        return Exception { SyntaxError };
     }
 
-    m_gradient->addColorStop(value, Color(rgba));
+    m_gradient->addColorStop(value, color);
+    return { };
 }
 
-} // namespace
+}

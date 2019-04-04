@@ -43,7 +43,7 @@ static inline bool compareByDensity(const ImageCandidate& first, const ImageCand
 }
 
 enum DescriptorTokenizerState {
-    Start,
+    Initial,
     InParenthesis,
     AfterToken,
 };
@@ -74,12 +74,12 @@ static bool isEOF(const CharType* position, const CharType* end)
 template<typename CharType>
 static void tokenizeDescriptors(const CharType*& position, const CharType* attributeEnd, Vector<StringView>& descriptors)
 {
-    DescriptorTokenizerState state = Start;
+    DescriptorTokenizerState state = Initial;
     const CharType* descriptorsStart = position;
     const CharType* currentDescriptorStart = descriptorsStart;
     for (; ; ++position) {
         switch (state) {
-        case Start:
+        case Initial:
             if (isEOF(position, attributeEnd)) {
                 appendDescriptorAndReset(currentDescriptorStart, attributeEnd, descriptors);
                 return;
@@ -106,7 +106,7 @@ static void tokenizeDescriptors(const CharType*& position, const CharType* attri
             }
             if (*position == ')') {
                 appendCharacter(currentDescriptorStart, position);
-                state = Start;
+                state = Initial;
             } else
                 appendCharacter(currentDescriptorStart, position);
             break;
@@ -114,7 +114,7 @@ static void tokenizeDescriptors(const CharType*& position, const CharType* attri
             if (isEOF(position, attributeEnd))
                 return;
             if (!isHTMLSpace(*position)) {
-                state = Start;
+                state = Initial;
                 currentDescriptorStart = position;
                 --position;
             }
@@ -131,33 +131,33 @@ static bool parseDescriptors(Vector<StringView>& descriptors, DescriptorParsingR
         unsigned descriptorCharPosition = descriptor.length() - 1;
         UChar descriptorChar = descriptor[descriptorCharPosition];
         descriptor = descriptor.substring(0, descriptorCharPosition);
-        bool isValid = false;
         if (descriptorChar == 'x') {
             if (result.hasDensity() || result.hasHeight() || result.hasWidth())
                 return false;
-            float density = descriptor.toFloat(isValid);
-            if (!isValid || density < 0)
+            Optional<double> density = parseValidHTMLFloatingPointNumber(descriptor);
+            if (!density || density.value() < 0)
                 return false;
-            result.setDensity(density);
+            result.setDensity(density.value());
         } else if (descriptorChar == 'w') {
             if (result.hasDensity() || result.hasWidth())
                 return false;
-            int resourceWidth = descriptor.toInt(isValid);
-            if (!isValid || resourceWidth <= 0)
+            Optional<int> resourceWidth = parseValidHTMLNonNegativeInteger(descriptor);
+            if (!resourceWidth || resourceWidth.value() <= 0)
                 return false;
-            result.setResourceWidth(resourceWidth);
+            result.setResourceWidth(resourceWidth.value());
         } else if (descriptorChar == 'h') {
             // This is here only for future compat purposes.
             // The value of the 'h' descriptor is not used.
             if (result.hasDensity() || result.hasHeight())
                 return false;
-            int resourceHeight = descriptor.toInt(isValid);
-            if (!isValid || resourceHeight <= 0)
+            Optional<int> resourceHeight = parseValidHTMLNonNegativeInteger(descriptor);
+            if (!resourceHeight || resourceHeight.value() <= 0)
                 return false;
-            result.setResourceHeight(resourceHeight);
-        }
+            result.setResourceHeight(resourceHeight.value());
+        } else
+            return false;
     }
-    return true;
+    return !result.hasHeight() || result.hasWidth();
 }
 
 // http://picture.responsiveimages.org/#parse-srcset-attr
@@ -193,9 +193,7 @@ static Vector<ImageCandidate> parseImageCandidatesFromSrcsetAttribute(const Char
             if (imageURLStart == imageURLEnd)
                 continue;
         } else {
-            // Advancing position here (contrary to spec) to avoid an useless extra state machine step.
-            // Filed a spec bug: https://github.com/ResponsiveImagesCG/picture-element/issues/189
-            ++position;
+            skipWhile<CharType, isHTMLSpace<CharType>>(position, attributeEnd);
             Vector<StringView> descriptorTokens;
             tokenizeDescriptors(position, attributeEnd, descriptorTokens);
             // Contrary to spec language - descriptor parsing happens on each candidate.

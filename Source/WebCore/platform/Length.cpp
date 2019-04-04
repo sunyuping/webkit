@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller ( mueller@kde.org )
- * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2019 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Andrew Wellington (proton@wiretapped.net)
  *
  * This library is free software; you can redistribute it and/or
@@ -26,15 +26,13 @@
 #include "Length.h"
 
 #include "CalculationValue.h"
-#include "TextStream.h"
 #include <wtf/ASCIICType.h>
 #include <wtf/HashMap.h>
+#include <wtf/MallocPtr.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
-#include <wtf/text/StringBuffer.h>
 #include <wtf/text/StringView.h>
-
-using namespace WTF;
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -88,10 +86,11 @@ static unsigned countCharacter(StringImpl& string, UChar character)
     return count;
 }
 
-std::unique_ptr<Length[]> newCoordsArray(const String& string, int& len)
+UniqueArray<Length> newCoordsArray(const String& string, int& len)
 {
     unsigned length = string.length();
-    StringBuffer<UChar> spacified(length);
+    UChar* spacified;
+    auto str = StringImpl::createUninitialized(length, spacified);
     for (unsigned i = 0; i < length; i++) {
         UChar cc = string[i];
         if (cc > '9' || (cc < '0' && cc != '-' && cc != '*' && cc != '.'))
@@ -99,30 +98,28 @@ std::unique_ptr<Length[]> newCoordsArray(const String& string, int& len)
         else
             spacified[i] = cc;
     }
-    RefPtr<StringImpl> str = StringImpl::adopt(spacified);
 
     str = str->simplifyWhiteSpace();
 
-    len = countCharacter(*str, ' ') + 1;
-    auto r = std::make_unique<Length[]>(len);
+    len = countCharacter(str, ' ') + 1;
+    auto r = makeUniqueArray<Length>(len);
 
     int i = 0;
     unsigned pos = 0;
     size_t pos2;
 
-    auto upconvertedCharacters = StringView(str.get()).upconvertedCharacters();
     while ((pos2 = str->find(' ', pos)) != notFound) {
-        r[i++] = parseLength(upconvertedCharacters + pos, pos2 - pos);
+        r[i++] = parseLength(str->characters16() + pos, pos2 - pos);
         pos = pos2+1;
     }
-    r[i] = parseLength(upconvertedCharacters + pos, str->length() - pos);
+    r[i] = parseLength(str->characters16() + pos, str->length() - pos);
 
     ASSERT(i == len - 1);
 
     return r;
 }
 
-std::unique_ptr<Length[]> newLengthArray(const String& string, int& len)
+UniqueArray<Length> newLengthArray(const String& string, int& len)
 {
     RefPtr<StringImpl> str = string.impl()->simplifyWhiteSpace();
     if (!str->length()) {
@@ -131,7 +128,7 @@ std::unique_ptr<Length[]> newLengthArray(const String& string, int& len)
     }
 
     len = countCharacter(*str, ',') + 1;
-    auto r = std::make_unique<Length[]>(len);
+    auto r = makeUniqueArray<Length>(len);
 
     int i = 0;
     unsigned pos = 0;
@@ -251,18 +248,6 @@ Length::Length(Ref<CalculationValue>&& value)
 {
     m_calculationValueHandle = calculationValues().insert(WTFMove(value));
 }
-        
-Length Length::blendMixedTypes(const Length& from, double progress) const
-{
-    if (progress <= 0.0)
-        return from;
-        
-    if (progress >= 1.0)
-        return *this;
-        
-    auto blend = std::make_unique<CalcExpressionBlendLength>(from, *this, progress);
-    return Length(CalculationValue::create(WTFMove(blend), CalculationRangeAll));
-}
 
 CalculationValue& Length::calculationValue() const
 {
@@ -294,6 +279,61 @@ float Length::nonNanCalculatedValue(int maxValue) const
 bool Length::isCalculatedEqual(const Length& other) const
 {
     return calculationValue() == other.calculationValue();
+}
+
+Length convertTo100PercentMinusLength(const Length& length)
+{
+    if (length.isPercent())
+        return Length(100 - length.value(), Percent);
+    
+    // Turn this into a calc expression: calc(100% - length)
+    Vector<std::unique_ptr<CalcExpressionNode>> lengths;
+    lengths.reserveInitialCapacity(2);
+    lengths.uncheckedAppend(std::make_unique<CalcExpressionLength>(Length(100, Percent)));
+    lengths.uncheckedAppend(std::make_unique<CalcExpressionLength>(length));
+    auto op = std::make_unique<CalcExpressionOperation>(WTFMove(lengths), CalcOperator::Subtract);
+    return Length(CalculationValue::create(WTFMove(op), ValueRangeAll));
+}
+
+static Length blendMixedTypes(const Length& from, const Length& to, double progress)
+{
+    if (progress <= 0.0)
+        return from;
+        
+    if (progress >= 1.0)
+        return to;
+        
+    auto blend = std::make_unique<CalcExpressionBlendLength>(from, to, progress);
+    return Length(CalculationValue::create(WTFMove(blend), ValueRangeAll));
+}
+
+Length blend(const Length& from, const Length& to, double progress)
+{
+    if (from.isAuto() || to.isAuto())
+        return progress < 0.5 ? from : to;
+
+    if (from.isUndefined() || to.isUndefined())
+        return to;
+
+    if (from.type() == Calculated || to.type() == Calculated)
+        return blendMixedTypes(from, to, progress);
+
+    if (!from.isZero() && !to.isZero() && from.type() != to.type())
+        return blendMixedTypes(from, to, progress);
+
+    LengthType resultType = to.type();
+    if (to.isZero())
+        resultType = from.type();
+
+    if (resultType == Percent) {
+        float fromPercent = from.isZero() ? 0 : from.percent();
+        float toPercent = to.isZero() ? 0 : to.percent();
+        return Length(WebCore::blend(fromPercent, toPercent, progress), Percent);
+    }
+
+    float fromValue = from.isZero() ? 0 : from.value();
+    float toValue = to.isZero() ? 0 : to.value();
+    return Length(WebCore::blend(fromValue, toValue, progress), resultType);
 }
 
 struct SameSizeAsLength {
@@ -328,8 +368,10 @@ TextStream& operator<<(TextStream& ts, Length length)
     case Undefined:
         ts << length.type();
         break;
-    case Relative:
     case Fixed:
+        ts << TextStream::FormatNumberRespectingIntegers(length.value()) << "px";
+        break;
+    case Relative:
     case Intrinsic:
     case MinIntrinsic:
     case MinContent:
@@ -342,7 +384,7 @@ TextStream& operator<<(TextStream& ts, Length length)
         ts << TextStream::FormatNumberRespectingIntegers(length.percent()) << "%";
         break;
     case Calculated:
-        // FIXME: dump CalculationValue.
+        ts << length.calculationValue();
         break;
     }
     

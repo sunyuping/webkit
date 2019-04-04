@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010. Adam Barth. All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +30,7 @@
 #include "config.h"
 #include "DocumentWriter.h"
 
+#include "ContentSecurityPolicy.h"
 #include "DOMImplementation.h"
 #include "DOMWindow.h"
 #include "Frame.h"
@@ -37,7 +39,6 @@
 #include "FrameLoaderStateMachine.h"
 #include "FrameView.h"
 #include "MIMETypeRegistry.h"
-#include "MainFrame.h"
 #include "PluginDocument.h"
 #include "RawDataDocumentParser.h"
 #include "ScriptController.h"
@@ -54,23 +55,21 @@ namespace WebCore {
 
 static inline bool canReferToParentFrameEncoding(const Frame* frame, const Frame* parentFrame) 
 {
-    return parentFrame && parentFrame->document()->securityOrigin()->canAccess(frame->document()->securityOrigin());
+    return parentFrame && parentFrame->document()->securityOrigin().canAccess(frame->document()->securityOrigin());
 }
     
-DocumentWriter::DocumentWriter(Frame* frame)
-    : m_frame(frame)
-    , m_hasReceivedSomeData(false)
-    , m_encodingWasChosenByUser(false)
-    , m_state(NotStartedWritingState)
-{
-}
-
 // This is only called by ScriptController::executeIfJavaScriptURL
 // and always contains the result of evaluating a javascript: url.
 // This is the <iframe src="javascript:'html'"> case.
 void DocumentWriter::replaceDocument(const String& source, Document* ownerDocument)
 {
     m_frame->loader().stopAllLoaders();
+
+    // If we are in the midst of changing the frame's document, don't execute script
+    // that modifies the document further:
+    if (m_frame->documentIsBeingReplaced())
+        return;
+
     begin(m_frame->document()->url(), true, ownerDocument);
 
     // begin() might fire an unload event, which will result in a situation where no new document has been attached,
@@ -101,25 +100,25 @@ void DocumentWriter::clear()
         m_encoding = String();
 }
 
-void DocumentWriter::begin()
+bool DocumentWriter::begin()
 {
-    begin(URL());
+    return begin(URL());
 }
 
 Ref<Document> DocumentWriter::createDocument(const URL& url)
 {
     if (!m_frame->loader().stateMachine().isDisplayingInitialEmptyDocument() && m_frame->loader().client().shouldAlwaysUsePluginDocument(m_mimeType))
         return PluginDocument::create(m_frame, url);
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     if (MIMETypeRegistry::isPDFMIMEType(m_mimeType) && (m_frame->isMainFrame() || !m_frame->settings().useImageDocumentForSubframePDF()))
         return SinkDocument::create(m_frame, url);
 #endif
     if (!m_frame->loader().client().hasHTMLView())
-        return Document::createNonRenderedPlaceholder(m_frame, url);
+        return Document::createNonRenderedPlaceholder(*m_frame, url);
     return DOMImplementation::createDocument(m_mimeType, m_frame, url);
 }
 
-void DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* ownerDocument)
+bool DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* ownerDocument)
 {
     // We grab a local copy of the URL because it's easy for callers to supply
     // a URL that will be deallocated during the execution of this function.
@@ -139,17 +138,25 @@ void DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* own
 
     bool shouldReuseDefaultView = m_frame->loader().stateMachine().isDisplayingInitialEmptyDocument() && m_frame->document()->isSecureTransitionTo(url);
     if (shouldReuseDefaultView)
-        document->takeDOMWindowFrom(m_frame->document());
+        document->takeDOMWindowFrom(*m_frame->document());
     else
         document->createDOMWindow();
 
+    // Per <http://www.w3.org/TR/upgrade-insecure-requests/>, we need to retain an ongoing set of upgraded
+    // requests in new navigation contexts. Although this information is present when we construct the
+    // Document object, it is discard in the subsequent 'clear' statements below. So, we must capture it
+    // so we can restore it.
+    HashSet<SecurityOriginData> insecureNavigationRequestsToUpgrade;
+    if (auto* existingDocument = m_frame->document())
+        insecureNavigationRequestsToUpgrade = existingDocument->contentSecurityPolicy()->takeNavigationRequestsToUpgrade();
+    
     m_frame->loader().clear(document.ptr(), !shouldReuseDefaultView, !shouldReuseDefaultView);
     clear();
 
     // m_frame->loader().clear() might fire unload event which could remove the view of the document.
     // Bail out if document has no view.
     if (!document->view())
-        return;
+        return false;
 
     if (!shouldReuseDefaultView)
         m_frame->script().updatePlatformScriptObjects();
@@ -157,11 +164,14 @@ void DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* own
     m_frame->loader().setOutgoingReferrer(url);
     m_frame->setDocument(document.copyRef());
 
+    document->contentSecurityPolicy()->setInsecureNavigationRequestsToUpgrade(WTFMove(insecureNavigationRequestsToUpgrade));
+
     if (m_decoder)
         document->setDecoder(m_decoder.get());
     if (ownerDocument) {
         document->setCookieURL(ownerDocument->cookieURL());
         document->setSecurityOriginPolicy(ownerDocument->securityOriginPolicy());
+        document->setStrictMixedContentMode(ownerDocument->isStrictMixedContentMode());
     }
 
     m_frame->loader().didBeginDocument(dispatch);
@@ -176,10 +186,11 @@ void DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* own
     if (m_frame->view() && m_frame->loader().client().hasHTMLView())
         m_frame->view()->setContentsSize(IntSize());
 
-    m_state = StartedWritingState;
+    m_state = State::Started;
+    return true;
 }
 
-TextResourceDecoder* DocumentWriter::createDecoderIfNeeded()
+TextResourceDecoder& DocumentWriter::decoder()
 {
     if (!m_decoder) {
         m_decoder = TextResourceDecoder::create(m_mimeType,
@@ -206,7 +217,7 @@ TextResourceDecoder* DocumentWriter::createDecoderIfNeeded()
         }
         m_frame->document()->setDecoder(m_decoder.get());
     }
-    return m_decoder.get();
+    return *m_decoder;
 }
 
 void DocumentWriter::reportDataReceived()
@@ -217,21 +228,24 @@ void DocumentWriter::reportDataReceived()
     m_hasReceivedSomeData = true;
     if (m_decoder->encoding().usesVisualOrdering())
         m_frame->document()->setVisuallyOrdered();
-    m_frame->document()->recalcStyle(Style::Force);
+    m_frame->document()->resolveStyle(Document::ResolveStyleType::Rebuild);
 }
 
 void DocumentWriter::addData(const char* bytes, size_t length)
 {
-    // Check that we're inside begin()/end().
-    // FIXME: Change these to ASSERT once https://bugs.webkit.org/show_bug.cgi?id=80427 has
-    // been resolved.
-    if (m_state == NotStartedWritingState)
-        CRASH();
-    if (m_state == FinishedWritingState)
-        CRASH();
-
+    // FIXME: Change these to ASSERT once https://bugs.webkit.org/show_bug.cgi?id=80427 has been resolved.
+    RELEASE_ASSERT(m_state != State::NotStarted);
+    RELEASE_ASSERT(m_state != State::Finished);
     ASSERT(m_parser);
     m_parser->appendBytes(*this, bytes, length);
+}
+
+void DocumentWriter::insertDataSynchronously(const String& markup)
+{
+    ASSERT(m_state != State::NotStarted);
+    ASSERT(m_state != State::Finished);
+    ASSERT(m_parser);
+    m_parser->insert(markup);
 }
 
 void DocumentWriter::end()
@@ -241,7 +255,7 @@ void DocumentWriter::end()
 
     // The parser is guaranteed to be released after this point. begin() would
     // have to be called again before we can start writing more data.
-    m_state = FinishedWritingState;
+    m_state = State::Finished;
 
     // http://bugs.webkit.org/show_bug.cgi?id=10854
     // The frame's last ref may be removed and it can be deleted by checkCompleted(), 

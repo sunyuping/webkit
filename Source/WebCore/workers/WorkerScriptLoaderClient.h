@@ -22,28 +22,21 @@
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
- *
  */
 
-#ifndef WorkerScriptLoaderClient_h
-#define WorkerScriptLoaderClient_h
+#pragma once
 
 namespace WebCore {
 
-    class ResourceResponse;
+class ResourceResponse;
 
-    class WorkerScriptLoaderClient {
-    public:
-        virtual void didReceiveResponse(unsigned long /*identifier*/, const ResourceResponse&) { }
+class WorkerScriptLoaderClient {
+public:
+    virtual void didReceiveResponse(unsigned long identifier, const ResourceResponse&) = 0;
+    virtual void notifyFinished() = 0;
 
-        // FIXME: notifyFinished() is not currently guaranteed to be invoked if used from worker context and the worker shuts down in the middle of an operation.
-        // This will cause leaks when we support nested workers.
-        virtual void notifyFinished() { }
-
-    protected:
-        virtual ~WorkerScriptLoaderClient() { }
-    };
+protected:
+    virtual ~WorkerScriptLoaderClient() = default;
+};
 
 } // namespace WebCore
-
-#endif // WorkerScriptLoaderClient_h

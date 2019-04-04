@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,23 +23,27 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "LargeChunk.h"
 #include "ObjectType.h"
+
+#include "Chunk.h"
+#include "Heap.h"
+#include "Object.h"
+#include "PerProcess.h"
 
 namespace bmalloc {
 
-ObjectType objectType(void* object)
+ObjectType objectType(Heap& heap, void* object)
 {
-    if (isSmallOrMedium(object)) {
-        if (isSmall(object))
-            return Small;
-        return Medium;
+    if (mightBeLarge(object)) {
+        if (!object)
+            return ObjectType::Small;
+
+        std::unique_lock<Mutex> lock(Heap::mutex());
+        if (heap.isLarge(lock, object))
+            return ObjectType::Large;
     }
     
-    if (!isXLarge(object))
-        return Large;
-    
-    return XLarge;
+    return ObjectType::Small;
 }
 
 } // namespace bmalloc

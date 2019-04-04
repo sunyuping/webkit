@@ -62,7 +62,7 @@ bool WillChangeData::containsProperty(CSSPropertyID property) const
 
 // "If any non-initial value of a property would create a stacking context on the element,
 // specifying that property in will-change must create a stacking context on the element."
-static bool propertyCreatesStackingContext(CSSPropertyID property)
+bool WillChangeData::propertyCreatesStackingContext(CSSPropertyID property)
 {
     switch (property) {
     case CSSPropertyPerspective:
@@ -87,10 +87,7 @@ static bool propertyCreatesStackingContext(CSSPropertyID property)
     case CSSPropertyWebkitMask:
     case CSSPropertyWebkitMaskImage:
     case CSSPropertyWebkitMaskBoxImage:
-#if ENABLE(CSS_REGIONS)
-    case CSSPropertyWebkitFlowFrom:
-#endif
-#if ENABLE(ACCELERATED_OVERFLOW_SCROLLING)
+#if ENABLE(OVERFLOW_SCROLLING_TOUCH)
     case CSSPropertyWebkitOverflowScrolling:
 #endif
         return true;

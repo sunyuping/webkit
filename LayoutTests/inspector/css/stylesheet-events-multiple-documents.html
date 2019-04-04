@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="resources/external.css">
 <script>
 function addSubframe() {
-    var iframe = document.createElement("iframe");
+    let iframe = document.createElement("iframe");
     iframe.id = "subframe";
     iframe.src = "resources/stylesheet-events-subframe.html";
     document.body.appendChild(iframe);
@@ -17,13 +17,9 @@ function removeSubframe() {
 
 function test()
 {
-    function sanitizeURL(url) {
-        return url.replace(/^.*?LayoutTests\//, "");
-    }
-
     function logStyleSheets() {
-        WebInspector.cssStyleManager.styleSheets.sort((a, b) => a.url.localeCompare(b.url)).forEach(function(styleSheet) {
-            var frameString = styleSheet.parentFrame.id === WebInspector.frameResourceManager.mainFrame.id ? "<mainframe>" : "<childframe>";
+        WI.cssManager.styleSheets.sort((a, b) => a.url.localeCompare(b.url)).forEach((styleSheet) => {
+            let frameString = styleSheet.parentFrame.id === WI.networkManager.mainFrame.id ? "<mainframe>" : "<childframe>";
             InspectorTest.log(`URL: ${sanitizeURL(styleSheet.url)} ${frameString}`);
         });
     }
@@ -33,8 +29,8 @@ function test()
     suite.addTestCase({
         name: "CheckStyleSheets",
         description: "Ensure there is currently one stylesheet.",
-        test: (resolve, reject) => {
-            InspectorTest.expectThat(WebInspector.cssStyleManager.styleSheets.length === 1, "Should be one stylesheets.");
+        test(resolve, reject) {
+            InspectorTest.expectThat(WI.cssManager.styleSheets.length === 1, "Should be one stylesheets.");
             logStyleSheets();
             resolve();
         }
@@ -43,28 +39,32 @@ function test()
     suite.addTestCase({
         name: "CheckStyleSheetsAfterAddingSubframe",
         description: "Ensure subframe stylesheets are added.",
-        test: (resolve, reject) => {
-            InspectorTest.evaluateInPage("addSubframe()");
-            WebInspector.cssStyleManager.singleFireEventListener(WebInspector.CSSStyleManager.Event.StyleSheetAdded, function(event) {
-                InspectorTest.expectThat(WebInspector.cssStyleManager.styleSheets.length === 2, "Should be two stylesheets.");
-                InspectorTest.expectThat(event.data.styleSheet.parentFrame !== WebInspector.frameResourceManager.mainFrame.id, "New StyleSheet is for a subframe");
+        test(resolve, reject) {
+            WI.cssManager.awaitEvent(WI.CSSManager.Event.StyleSheetAdded)
+            .then((event) => {
+                InspectorTest.expectThat(WI.cssManager.styleSheets.length === 2, "Should be two stylesheets.");
+                InspectorTest.expectThat(event.data.styleSheet.parentFrame !== WI.networkManager.mainFrame.id, "New StyleSheet is for a subframe");
                 logStyleSheets();
-                resolve();
-            });
+            })
+            .then(resolve, reject);
+
+            InspectorTest.evaluateInPage("addSubframe()");
         }
     });
 
     suite.addTestCase({
         name: "CheckStyleSheetsAfterRemovingSubframe",
         description: "Ensure subframe stylesheets are removed.",
-        test: (resolve, reject) => {
-            InspectorTest.evaluateInPage("removeSubframe()");
-            WebInspector.cssStyleManager.singleFireEventListener(WebInspector.CSSStyleManager.Event.StyleSheetRemoved, function(event) {
-                InspectorTest.expectThat(WebInspector.cssStyleManager.styleSheets.length === 1, "Should be one stylesheet.");
-                InspectorTest.expectThat(event.data.styleSheet.parentFrame !== WebInspector.frameResourceManager.mainFrame.id, "Removed StyleSheet is for a subframe");
+        test(resolve, reject) {
+            WI.cssManager.awaitEvent(WI.CSSManager.Event.StyleSheetRemoved)
+            .then((event) => {
+                InspectorTest.expectThat(WI.cssManager.styleSheets.length === 1, "Should be one stylesheet.");
+                InspectorTest.expectThat(event.data.styleSheet.parentFrame !== WI.networkManager.mainFrame.id, "Removed StyleSheet is for a subframe");
                 logStyleSheets();
-                resolve();
-            });
+            })
+            .then(resolve, reject);
+
+            InspectorTest.evaluateInPage("removeSubframe()");
         }
     });
 

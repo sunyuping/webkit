@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,31 +29,28 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MutationObserver_h
-#define MutationObserver_h
+#pragma once
 
-#include <wtf/HashMap.h>
+#include "ExceptionOr.h"
+#include "GCReachableRef.h"
+#include <wtf/Forward.h>
 #include <wtf/HashSet.h>
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
-#include <wtf/text/AtomicString.h>
-#include <wtf/text/AtomicStringHash.h>
+#include <wtf/IsoMalloc.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
-class Dictionary;
+class HTMLSlotElement;
 class MutationCallback;
 class MutationObserverRegistration;
 class MutationRecord;
 class Node;
 
-typedef int ExceptionCode;
+using MutationObserverOptions = unsigned char;
+using MutationRecordDeliveryOptions = unsigned char;
 
-typedef unsigned char MutationObserverOptions;
-typedef unsigned char MutationRecordDeliveryOptions;
-
-class MutationObserver : public RefCounted<MutationObserver> {
+class MutationObserver final : public RefCounted<MutationObserver> {
+    WTF_MAKE_ISO_ALLOCATED(MutationObserver);
     friend class MutationObserverMicrotask;
 public:
     enum MutationType {
@@ -73,36 +71,53 @@ public:
         CharacterDataOldValue = 1 << 6,
     };
 
-    static Ref<MutationObserver> create(PassRefPtr<MutationCallback>);
+    static Ref<MutationObserver> create(Ref<MutationCallback>&&);
 
     ~MutationObserver();
 
-    void observe(Node*, const Dictionary&, ExceptionCode&);
-    Vector<RefPtr<MutationRecord>> takeRecords();
+    struct Init {
+        bool childList;
+        Optional<bool> attributes;
+        Optional<bool> characterData;
+        bool subtree;
+        Optional<bool> attributeOldValue;
+        Optional<bool> characterDataOldValue;
+        Optional<Vector<String>> attributeFilter;
+    };
+
+    ExceptionOr<void> observe(Node&, const Init&);
+    
+    struct TakenRecords {
+        Vector<Ref<MutationRecord>> records;
+        HashSet<GCReachableRef<Node>> pendingTargets;
+    };
+    TakenRecords takeRecords();
     void disconnect();
-    void observationStarted(MutationObserverRegistration*);
-    void observationEnded(MutationObserverRegistration*);
-    void enqueueMutationRecord(PassRefPtr<MutationRecord>);
+
+    void observationStarted(MutationObserverRegistration&);
+    void observationEnded(MutationObserverRegistration&);
+    void enqueueMutationRecord(Ref<MutationRecord>&&);
     void setHasTransientRegistration();
     bool canDeliver();
 
-    HashSet<Node*> getObservedNodes() const;
+    HashSet<Node*> observedNodes() const;
+
+    MutationCallback& callback() const { return m_callback.get(); }
+
+    static void enqueueSlotChangeEvent(HTMLSlotElement&);
 
 private:
-    struct ObserverLessThan;
-
-    explicit MutationObserver(PassRefPtr<MutationCallback>);
+    explicit MutationObserver(Ref<MutationCallback>&&);
     void deliver();
 
-    static void deliverAllMutations();
+    static void notifyMutationObservers();
     static bool validateOptions(MutationObserverOptions);
 
-    RefPtr<MutationCallback> m_callback;
-    Vector<RefPtr<MutationRecord>> m_records;
+    Ref<MutationCallback> m_callback;
+    Vector<Ref<MutationRecord>> m_records;
+    HashSet<GCReachableRef<Node>> m_pendingTargets;
     HashSet<MutationObserverRegistration*> m_registrations;
     unsigned m_priority;
 };
 
-}
-
-#endif // MutationObserver_h
+} // namespace WebCore

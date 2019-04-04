@@ -28,44 +28,69 @@
 
 #import "config.h"
 #import "WebCoreURLResponseIOS.h"
-#import "UTIUtilities.h"
-#import "WebCoreSystemInterface.h"
+
+#if PLATFORM(IOS_FAMILY)
 
 #import "QuickLook.h"
-#import "QuickLookSoftLink.h"
-#import "SoftLinking.h"
+#import "UTIUtilities.h"
 #import <MobileCoreServices/MobileCoreServices.h>
-
-SOFT_LINK_FRAMEWORK(MobileCoreServices)
-
-SOFT_LINK(MobileCoreServices, UTTypeCreatePreferredIdentifierForTag, CFStringRef, (CFStringRef inTagClass, CFStringRef inTag, CFStringRef inConformingToUTI), (inTagClass, inTag, inConformingToUTI))
-
-SOFT_LINK_CONSTANT(MobileCoreServices, kUTTagClassFilenameExtension, CFStringRef)
-
-#define kUTTagClassFilenameExtension getkUTTagClassFilenameExtension()
+#import <pal/ios/QuickLookSoftLink.h>
 
 namespace WebCore {
 
-void adjustMIMETypeIfNecessary(CFURLResponseRef cfResponse)
+// <rdar://problem/46332893> Register .mjs files as whatever UTI indicates JavaScript
+static CFDictionaryRef createExtensionToMIMETypeMap()
+{
+    CFStringRef keys[] = {
+        CFSTR("mjs")
+    };
+
+    CFStringRef values[] = {
+        CFSTR("text/javascript")
+    };
+
+    ASSERT(sizeof(keys) == sizeof(values));
+    return CFDictionaryCreate(kCFAllocatorDefault, (const void**)&keys, (const void**)&values, sizeof(keys) / sizeof(CFStringRef), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+}
+
+void adjustMIMETypeIfNecessary(CFURLResponseRef cfResponse, bool isMainResourceLoad)
 {
     RetainPtr<CFStringRef> mimeType = CFURLResponseGetMIMEType(cfResponse);
     RetainPtr<CFStringRef> updatedMIMEType = mimeType;
     if (!updatedMIMEType)
         updatedMIMEType = defaultMIMEType().createCFString();
 
+    // <rdar://problem/46332893> Register .mjs files as whatever UTI indicates JavaScript
+    if (!mimeType) {
+        auto url = CFURLResponseGetURL(cfResponse);
+        if ([(__bridge NSURL *)url isFileURL]) {
+            RetainPtr<CFStringRef> extension = adoptCF(CFURLCopyPathExtension(url));
+            if (extension) {
+                static CFDictionaryRef extensionMap = createExtensionToMIMETypeMap();
+                CFMutableStringRef mutableExtension = CFStringCreateMutableCopy(kCFAllocatorDefault, 0, extension.get());
+                CFStringLowercase(mutableExtension, NULL);
+                extension = adoptCF(mutableExtension);
+                if (auto newMIMEType = (CFStringRef)CFDictionaryGetValue(extensionMap, extension.get()))
+                    updatedMIMEType = newMIMEType;
+            }
+        }
+    }
+
 #if USE(QUICK_LOOK)
     // We must ensure that the MIME type is correct, so that QuickLook's web plugin is called when needed.
     // We filter the basic MIME types so that we don't do unnecessary work in standard browsing situations.
-    if (shouldUseQuickLookForMIMEType((NSString *)updatedMIMEType.get())) {
+    if (isMainResourceLoad && shouldUseQuickLookForMIMEType((NSString *)updatedMIMEType.get())) {
         RetainPtr<CFStringRef> suggestedFilename = adoptCF(CFURLResponseCopySuggestedFilename(cfResponse));
-        RetainPtr<CFStringRef> quickLookMIMEType = adoptCF((CFStringRef)QLTypeCopyBestMimeTypeForFileNameAndMimeType((NSString *)suggestedFilename.get(), (NSString *)mimeType.get()));
+        RetainPtr<CFStringRef> quickLookMIMEType = adoptCF((CFStringRef)PAL::softLink_QuickLook_QLTypeCopyBestMimeTypeForFileNameAndMimeType((NSString *)suggestedFilename.get(), (NSString *)mimeType.get()));
         if (!quickLookMIMEType) {
             auto url = CFURLResponseGetURL(cfResponse);
             if ([(NSURL *)url isFileURL]) {
                 RetainPtr<CFStringRef> extension = adoptCF(CFURLCopyPathExtension(url));
                 if (extension) {
                     RetainPtr<CFStringRef> uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, extension.get(), nullptr));
-                    quickLookMIMEType = mimeTypeFromUTITree(uti.get());
+                    String MIMEType = MIMETypeFromUTITree(uti.get());
+                    if (!MIMEType.isEmpty())
+                        quickLookMIMEType = MIMEType.createCFString();
                 }
             }
         }
@@ -73,9 +98,13 @@ void adjustMIMETypeIfNecessary(CFURLResponseRef cfResponse)
         if (quickLookMIMEType)
             updatedMIMEType = quickLookMIMEType;
     }
+#else
+    UNUSED_PARAM(isMainResourceLoad);
 #endif // USE(QUICK_LOOK)
     if (!mimeType || CFStringCompare(mimeType.get(), updatedMIMEType.get(), kCFCompareCaseInsensitive) != kCFCompareEqualTo)
         CFURLResponseSetMIMEType(cfResponse, updatedMIMEType.get());
 }
 
 } // namespace WebCore
+
+#endif // PLATFORM(IOS_FAMILY)

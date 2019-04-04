@@ -32,49 +32,48 @@
 #include "Crypto.h"
 
 #include "Document.h"
-#include "ExceptionCode.h"
 #include "SubtleCrypto.h"
-#include <runtime/ArrayBufferView.h>
+#include <JavaScriptCore/ArrayBufferView.h>
 #include <wtf/CryptographicallyRandomNumber.h>
+
+#if OS(DARWIN)
+#include "CommonCryptoUtilities.h"
+#endif
 
 namespace WebCore {
 
-Crypto::Crypto(Document& document)
-    : ContextDestructionObserver(&document)
+Crypto::Crypto(ScriptExecutionContext* context)
+    : ContextDestructionObserver(context)
+#if ENABLE(WEB_CRYPTO)
+    , m_subtle(SubtleCrypto::create(context))
+#endif
 {
 }
 
-Crypto::~Crypto()
+Crypto::~Crypto() = default;
+
+ExceptionOr<void> Crypto::getRandomValues(ArrayBufferView& array)
 {
+    if (!isInt(array.getType()))
+        return Exception { TypeMismatchError };
+    if (array.byteLength() > 65536)
+        return Exception { QuotaExceededError };
+#if OS(DARWIN)
+    auto rc = CCRandomGenerateBytes(array.baseAddress(), array.byteLength());
+    RELEASE_ASSERT(rc == kCCSuccess);
+#else
+    cryptographicallyRandomValues(array.baseAddress(), array.byteLength());
+#endif
+    return { };
 }
 
-Document* Crypto::document() const
+#if ENABLE(WEB_CRYPTO)
+
+SubtleCrypto& Crypto::subtle()
 {
-    return downcast<Document>(scriptExecutionContext());
+    return m_subtle;
 }
 
-void Crypto::getRandomValues(ArrayBufferView* array, ExceptionCode& ec)
-{
-    if (!array || !JSC::isInt(array->getType())) {
-        ec = TYPE_MISMATCH_ERR;
-        return;
-    }
-    if (array->byteLength() > 65536) {
-        ec = QUOTA_EXCEEDED_ERR;
-        return;
-    }
-    cryptographicallyRandomValues(array->baseAddress(), array->byteLength());
-}
-
-#if ENABLE(SUBTLE_CRYPTO)
-SubtleCrypto* Crypto::subtle()
-{
-    ASSERT(isMainThread());
-    if (!m_subtle)
-        m_subtle = SubtleCrypto::create(*document());
-
-    return m_subtle.get();
-}
 #endif
 
 }

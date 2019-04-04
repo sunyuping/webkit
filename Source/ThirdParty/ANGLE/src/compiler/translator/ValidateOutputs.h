@@ -3,36 +3,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
+// ValidateOutputs validates fragment shader outputs. It checks for conflicting locations,
+// out-of-range locations, that locations are specified when using multiple outputs, and YUV output
+// validity.
+//
 
 #ifndef COMPILER_TRANSLATOR_VALIDATEOUTPUTS_H_
 #define COMPILER_TRANSLATOR_VALIDATEOUTPUTS_H_
 
-#include "compiler/translator/IntermNode.h"
+#include "compiler/translator/ExtensionBehavior.h"
 
-#include <set>
-
-class TInfoSinkBase;
-
-class ValidateOutputs : public TIntermTraverser
+namespace sh
 {
-  public:
-    ValidateOutputs(TInfoSinkBase& sink, int maxDrawBuffers);
 
-    int numErrors() const { return mNumErrors; }
+class TIntermBlock;
+class TDiagnostics;
 
-    virtual void visitSymbol(TIntermSymbol*);
+// Returns true if the shader has no conflicting or otherwise erroneous fragment outputs.
+bool ValidateOutputs(TIntermBlock *root,
+                     const TExtensionBehavior &extBehavior,
+                     int maxDrawBuffers,
+                     TDiagnostics *diagnostics);
 
-  private:
-    TInfoSinkBase& mSink;
-    int mMaxDrawBuffers;
-    int mNumErrors;
-    bool mHasUnspecifiedOutputLocation;
+}  // namespace sh
 
-    typedef std::map<int, TIntermSymbol*> OutputMap;
-    OutputMap mOutputMap;
-    std::set<TString> mVisitedSymbols;
-
-    void error(TSourceLoc loc, const char *reason, const char* token);
-};
-
-#endif // COMPILER_TRANSLATOR_VALIDATEOUTPUTS_H_
+#endif  // COMPILER_TRANSLATOR_VALIDATEOUTPUTS_H_

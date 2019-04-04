@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,24 +26,27 @@
 #import "config.h"
 #import "AudioSession.h"
 
-#if USE(AUDIO_SESSION) && PLATFORM(IOS)
+#if USE(AUDIO_SESSION) && PLATFORM(IOS_FAMILY)
 
 #import "Logging.h"
-#import "SoftLinking.h"
 #import <AVFoundation/AVAudioSession.h>
 #import <objc/runtime.h>
+#import <pal/spi/mac/AVFoundationSPI.h>
+#import <wtf/OSObjectPtr.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/SoftLinking.h>
 
 SOFT_LINK_FRAMEWORK(AVFoundation)
 SOFT_LINK_CLASS(AVFoundation, AVAudioSession)
 
-SOFT_LINK_POINTER(AVFoundation, AVAudioSessionCategoryAmbient, NSString *)
-SOFT_LINK_POINTER(AVFoundation, AVAudioSessionCategorySoloAmbient, NSString *)
-SOFT_LINK_POINTER(AVFoundation, AVAudioSessionCategoryPlayback, NSString *)
-SOFT_LINK_POINTER(AVFoundation, AVAudioSessionCategoryRecord, NSString *)
-SOFT_LINK_POINTER(AVFoundation, AVAudioSessionCategoryPlayAndRecord, NSString *)
-SOFT_LINK_POINTER(AVFoundation, AVAudioSessionCategoryAudioProcessing, NSString *)
-SOFT_LINK_POINTER(AVFoundation, AVAudioSessionInterruptionTypeKey, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVAudioSessionCategoryAmbient, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVAudioSessionCategorySoloAmbient, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVAudioSessionCategoryPlayback, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVAudioSessionCategoryRecord, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVAudioSessionCategoryPlayAndRecord, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVAudioSessionCategoryAudioProcessing, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVAudioSessionModeDefault, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVAudioSessionModeVideoChat, NSString *)
 
 #define AVAudioSession getAVAudioSessionClass()
 #define AVAudioSessionCategoryAmbient getAVAudioSessionCategoryAmbient()
@@ -52,7 +55,8 @@ SOFT_LINK_POINTER(AVFoundation, AVAudioSessionInterruptionTypeKey, NSString *)
 #define AVAudioSessionCategoryRecord getAVAudioSessionCategoryRecord()
 #define AVAudioSessionCategoryPlayAndRecord getAVAudioSessionCategoryPlayAndRecord()
 #define AVAudioSessionCategoryAudioProcessing getAVAudioSessionCategoryAudioProcessing()
-#define AVAudioSessionInterruptionTypeKey getAVAudioSessionInterruptionTypeKey()
+#define AVAudioSessionModeDefault getAVAudioSessionModeDefault()
+#define AVAudioSessionModeVideoChat getAVAudioSessionModeVideoChat()
 
 namespace WebCore {
 
@@ -79,6 +83,7 @@ class AudioSessionPrivate {
 public:
     AudioSessionPrivate(AudioSession*);
     AudioSession::CategoryType m_categoryOverride;
+    OSObjectPtr<dispatch_queue_t> m_dispatchQueue;
 };
 
 AudioSessionPrivate::AudioSessionPrivate(AudioSession*)
@@ -105,6 +110,10 @@ void AudioSession::setCategory(CategoryType newCategory)
     }
 
     NSString *categoryString;
+    NSString *categoryMode = AVAudioSessionModeDefault;
+    AVAudioSessionCategoryOptions options = 0;
+    AVAudioSessionRouteSharingPolicy policy = AVAudioSessionRouteSharingPolicyDefault;
+
     switch (newCategory) {
     case AmbientSound:
         categoryString = AVAudioSessionCategoryAmbient;
@@ -114,24 +123,31 @@ void AudioSession::setCategory(CategoryType newCategory)
         break;
     case MediaPlayback:
         categoryString = AVAudioSessionCategoryPlayback;
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        policy = AVAudioSessionRouteSharingPolicyLongForm;
         break;
+ALLOW_DEPRECATED_DECLARATIONS_END
     case RecordAudio:
         categoryString = AVAudioSessionCategoryRecord;
         break;
     case PlayAndRecord:
         categoryString = AVAudioSessionCategoryPlayAndRecord;
+        categoryMode = AVAudioSessionModeVideoChat;
+        options |= AVAudioSessionCategoryOptionAllowBluetooth | AVAudioSessionCategoryOptionAllowBluetoothA2DP | AVAudioSessionCategoryOptionDefaultToSpeaker | AVAudioSessionCategoryOptionAllowAirPlay;
         break;
     case AudioProcessing:
         categoryString = AVAudioSessionCategoryAudioProcessing;
         break;
     case None:
-    default:
-        categoryString = nil;
+        categoryString = AVAudioSessionCategoryAmbient;
         break;
     }
+
     NSError *error = nil;
-    [[AVAudioSession sharedInstance] setCategory:categoryString error:&error];
+    [[AVAudioSession sharedInstance] setCategory:categoryString mode:categoryMode routeSharingPolicy:policy options:options error:&error];
+#if !PLATFORM(IOS_FAMILY_SIMULATOR) && !PLATFORM(IOSMAC)
     ASSERT(!error);
+#endif
 }
 
 AudioSession::CategoryType AudioSession::category() const
@@ -150,6 +166,28 @@ AudioSession::CategoryType AudioSession::category() const
     if ([categoryString isEqual:AVAudioSessionCategoryAudioProcessing])
         return AudioProcessing;
     return None;
+}
+
+RouteSharingPolicy AudioSession::routeSharingPolicy() const
+{
+    static_assert(static_cast<size_t>(RouteSharingPolicy::Default) == static_cast<size_t>(AVAudioSessionRouteSharingPolicyDefault), "RouteSharingPolicy::Default is not AVAudioSessionRouteSharingPolicyDefault as expected");
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    static_assert(static_cast<size_t>(RouteSharingPolicy::LongForm) == static_cast<size_t>(AVAudioSessionRouteSharingPolicyLongForm), "RouteSharingPolicy::LongForm is not AVAudioSessionRouteSharingPolicyLongForm as expected");
+ALLOW_DEPRECATED_DECLARATIONS_END
+    static_assert(static_cast<size_t>(RouteSharingPolicy::Independent) == static_cast<size_t>(AVAudioSessionRouteSharingPolicyIndependent), "RouteSharingPolicy::Independent is not AVAudioSessionRouteSharingPolicyIndependent as expected");
+
+    AVAudioSessionRouteSharingPolicy policy = [[AVAudioSession sharedInstance] routeSharingPolicy];
+    ASSERT(static_cast<RouteSharingPolicy>(policy) <= RouteSharingPolicy::Independent);
+    return static_cast<RouteSharingPolicy>(policy);
+}
+
+String AudioSession::routingContextUID() const
+{
+#if !PLATFORM(IOS_FAMILY_SIMULATOR) && !PLATFORM(IOSMAC) && !PLATFORM(WATCHOS)
+    return [[AVAudioSession sharedInstance] routingContextUID];
+#else
+    return emptyString();
+#endif
 }
 
 void AudioSession::setCategoryOverride(CategoryType category)
@@ -171,16 +209,39 @@ float AudioSession::sampleRate() const
     return [[AVAudioSession sharedInstance] sampleRate];
 }
 
+size_t AudioSession::bufferSize() const
+{
+    return [[AVAudioSession sharedInstance] IOBufferDuration] * sampleRate();
+}
+
 size_t AudioSession::numberOfOutputChannels() const
 {
     return [[AVAudioSession sharedInstance] outputNumberOfChannels];
 }
 
-bool AudioSession::tryToSetActive(bool active)
+bool AudioSession::tryToSetActiveInternal(bool active)
 {
-    NSError *error = nil;
-    [[AVAudioSession sharedInstance] setActive:active error:&error];
-    return !error;
+    __block NSError* error = nil;
+
+    if (!m_private->m_dispatchQueue)
+        m_private->m_dispatchQueue = adoptOSObject(dispatch_queue_create("AudioSession Activation Queue", DISPATCH_QUEUE_SERIAL));
+
+    // We need to deactivate the session on another queue because the AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation option
+    // means that AVAudioSession may synchronously unduck previously ducked clients. Activation needs to complete before this method
+    // returns, so do it synchronously on the same serial queue.
+    if (active) {
+        dispatch_sync(m_private->m_dispatchQueue.get(), ^{
+            [[AVAudioSession sharedInstance] setActive:YES withOptions:0 error:&error];
+        });
+
+        return !error;
+    }
+
+    dispatch_async(m_private->m_dispatchQueue.get(), ^{
+        [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error];
+    });
+
+    return true;
 }
 
 size_t AudioSession::preferredBufferSize() const
@@ -198,4 +259,4 @@ void AudioSession::setPreferredBufferSize(size_t bufferSize)
 
 }
 
-#endif // USE(AUDIO_SESSION) && PLATFORM(IOS)
+#endif // USE(AUDIO_SESSION) && PLATFORM(IOS_FAMILY)

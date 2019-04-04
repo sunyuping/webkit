@@ -30,13 +30,11 @@
 
 #include "DisplayRefreshMonitor.h"
 #include "DisplayRefreshMonitorClient.h"
-#include <wtf/CurrentTime.h>
+#include "Logging.h"
 
 namespace WebCore {
 
-DisplayRefreshMonitorManager::~DisplayRefreshMonitorManager()
-{
-}
+DisplayRefreshMonitorManager::~DisplayRefreshMonitorManager() = default;
 
 DisplayRefreshMonitorManager& DisplayRefreshMonitorManager::sharedManager()
 {
@@ -54,13 +52,14 @@ DisplayRefreshMonitor* DisplayRefreshMonitorManager::createMonitorForClient(Disp
         return monitor.get();
     }
 
-    RefPtr<DisplayRefreshMonitor> monitor = DisplayRefreshMonitor::create(client);
+    auto monitor = DisplayRefreshMonitor::create(client);
     if (!monitor)
         return nullptr;
 
+    LOG(RequestAnimationFrame, "DisplayRefreshMonitorManager::createMonitorForClient() - created monitor %p", monitor.get());
     monitor->addClient(client);
     DisplayRefreshMonitor* result = monitor.get();
-    m_monitors.append(monitor.release());
+    m_monitors.append(WTFMove(monitor));
     return result;
 }
 
@@ -107,10 +106,11 @@ void DisplayRefreshMonitorManager::displayDidRefresh(DisplayRefreshMonitor& moni
 {
     if (!monitor.shouldBeTerminated())
         return;
+    LOG(RequestAnimationFrame, "DisplayRefreshMonitorManager::displayDidRefresh() - destroying monitor %p", &monitor);
 
     size_t monitorIndex = m_monitors.find(&monitor);
-    ASSERT(monitorIndex != notFound);
-    m_monitors.remove(monitorIndex);
+    if (monitorIndex != notFound)
+        m_monitors.remove(monitorIndex);
 }
 
 void DisplayRefreshMonitorManager::windowScreenDidChange(PlatformDisplayID displayID, DisplayRefreshMonitorClient& client)
@@ -123,6 +123,14 @@ void DisplayRefreshMonitorManager::windowScreenDidChange(PlatformDisplayID displ
     registerClient(client);
     if (client.isScheduled())
         scheduleAnimation(client);
+}
+
+void DisplayRefreshMonitorManager::displayWasUpdated(PlatformDisplayID displayID)
+{
+    for (const auto& monitor : m_monitors) {
+        if (displayID == monitor->displayID() && monitor->hasRequestedRefreshCallback())
+            monitor->displayLinkFired();
+    }
 }
 
 }

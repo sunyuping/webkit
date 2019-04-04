@@ -30,6 +30,7 @@
 
 #include "ContextMenuController.h"
 #include "Event.h"
+#include "EventNames.h"
 #include "Frame.h"
 #include "FrameSelection.h"
 #include "HTMLDivElement.h"
@@ -39,30 +40,31 @@
 #include "RenderStyle.h"
 #include "RenderTheme.h"
 #include "ShadowRoot.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_ISO_ALLOCATED_IMPL(ImageControlsButtonElementMac);
+
 class RenderImageControlsButton final : public RenderBlockFlow {
+    WTF_MAKE_ISO_ALLOCATED_INLINE(RenderImageControlsButton);
 public:
-    RenderImageControlsButton(HTMLElement&, Ref<RenderStyle>&&);
+    RenderImageControlsButton(HTMLElement&, RenderStyle&&);
     virtual ~RenderImageControlsButton();
 
 private:
-    virtual void updateLogicalWidth() override;
-    virtual void computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop, LogicalExtentComputedValues&) const override;
+    void updateLogicalWidth() override;
+    LogicalExtentComputedValues computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const override;
 
-    virtual const char* renderName() const override { return "RenderImageControlsButton"; }
-    virtual bool requiresForcedStyleRecalcPropagation() const override { return true; }
+    const char* renderName() const override { return "RenderImageControlsButton"; }
 };
 
-RenderImageControlsButton::RenderImageControlsButton(HTMLElement& element, Ref<RenderStyle>&& style)
+RenderImageControlsButton::RenderImageControlsButton(HTMLElement& element, RenderStyle&& style)
     : RenderBlockFlow(element, WTFMove(style))
 {
 }
 
-RenderImageControlsButton::~RenderImageControlsButton()
-{
-}
+RenderImageControlsButton::~RenderImageControlsButton() = default;
 
 void RenderImageControlsButton::updateLogicalWidth()
 {
@@ -72,12 +74,12 @@ void RenderImageControlsButton::updateLogicalWidth()
     setLogicalWidth(isHorizontalWritingMode() ? frameSize.width() : frameSize.height());
 }
 
-void RenderImageControlsButton::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop, LogicalExtentComputedValues& computedValues) const
+RenderBox::LogicalExtentComputedValues RenderImageControlsButton::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const
 {
-    RenderBox::computeLogicalHeight(logicalHeight, logicalTop, computedValues);
-
+    auto computedValues = RenderBox::computeLogicalHeight(logicalHeight, logicalTop);
     IntSize frameSize = theme().imageControlsButtonSize(*this);
     computedValues.m_extent = isHorizontalWritingMode() ? frameSize.height() : frameSize.width();
+    return computedValues;
 }
 
 ImageControlsButtonElementMac::ImageControlsButtonElementMac(Document& document)
@@ -85,31 +87,29 @@ ImageControlsButtonElementMac::ImageControlsButtonElementMac(Document& document)
 {
 }
 
-ImageControlsButtonElementMac::~ImageControlsButtonElementMac()
-{
-}
+ImageControlsButtonElementMac::~ImageControlsButtonElementMac() = default;
 
-PassRefPtr<ImageControlsButtonElementMac> ImageControlsButtonElementMac::maybeCreate(Document& document)
+RefPtr<ImageControlsButtonElementMac> ImageControlsButtonElementMac::tryCreate(Document& document)
 {
     if (!document.page())
         return nullptr;
 
-    RefPtr<ImageControlsButtonElementMac> button = adoptRef(new ImageControlsButtonElementMac(document));
-    button->setAttribute(HTMLNames::classAttr, "x-webkit-image-controls-button");
+    auto button = adoptRef(*new ImageControlsButtonElementMac(document));
+    button->setAttributeWithoutSynchronization(HTMLNames::classAttr, AtomicString("x-webkit-image-controls-button", AtomicString::ConstructFromLiteral));
 
-    IntSize positionOffset = document.page()->theme().imageControlsButtonPositionOffset();
+    IntSize positionOffset = RenderTheme::singleton().imageControlsButtonPositionOffset();
     button->setInlineStyleProperty(CSSPropertyTop, positionOffset.height(), CSSPrimitiveValue::CSS_PX);
 
     // FIXME: Why is right: 0px off the right edge of the parent?
     button->setInlineStyleProperty(CSSPropertyRight, positionOffset.width(), CSSPrimitiveValue::CSS_PX);
 
-    return button.release();
+    return WTFMove(button);
 }
 
-void ImageControlsButtonElementMac::defaultEventHandler(Event* event)
+void ImageControlsButtonElementMac::defaultEventHandler(Event& event)
 {
-    if (event->type() == eventNames().clickEvent) {
-        Frame* frame = document().frame();
+    if (event.type() == eventNames().clickEvent) {
+        RefPtr<Frame> frame = document().frame();
         if (!frame)
             return;
 
@@ -118,14 +118,14 @@ void ImageControlsButtonElementMac::defaultEventHandler(Event* event)
             return;
 
         page->contextMenuController().showImageControlsMenu(event);
-        event->setDefaultHandled();
+        event.setDefaultHandled();
         return;
     }
 
     HTMLDivElement::defaultEventHandler(event);
 }
 
-RenderPtr<RenderElement> ImageControlsButtonElementMac::createElementRenderer(Ref<RenderStyle>&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> ImageControlsButtonElementMac::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderImageControlsButton>(*this, WTFMove(style));
 }

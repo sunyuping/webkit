@@ -9,7 +9,7 @@
 #ifndef LIBANGLE_RENDERER_GL_WGL_PBUFFERSURFACEWGL_H_
 #define LIBANGLE_RENDERER_GL_WGL_PBUFFERSURFACEWGL_H_
 
-#include "libANGLE/renderer/gl/SurfaceGL.h"
+#include "libANGLE/renderer/gl/wgl/SurfaceWGL.h"
 
 #include <GL/wglext.h>
 
@@ -18,21 +18,32 @@ namespace rx
 
 class FunctionsWGL;
 
-class PbufferSurfaceWGL : public SurfaceGL
+class PbufferSurfaceWGL : public SurfaceWGL
 {
   public:
-    PbufferSurfaceWGL(EGLint width, EGLint height, EGLenum textureFormat, EGLenum textureTarget,
-                      bool largest, int pixelFormat, HDC deviceContext, HGLRC wglContext,
+    PbufferSurfaceWGL(const egl::SurfaceState &state,
+                      RendererGL *renderer,
+                      EGLint width,
+                      EGLint height,
+                      EGLenum textureFormat,
+                      EGLenum textureTarget,
+                      bool largest,
+                      int pixelFormat,
+                      HDC deviceContext,
                       const FunctionsWGL *functions);
     ~PbufferSurfaceWGL() override;
 
-    egl::Error initialize();
+    egl::Error initialize(const egl::Display *display) override;
     egl::Error makeCurrent() override;
 
-    egl::Error swap() override;
-    egl::Error postSubBuffer(EGLint x, EGLint y, EGLint width, EGLint height) override;
+    egl::Error swap(const gl::Context *context) override;
+    egl::Error postSubBuffer(const gl::Context *context,
+                             EGLint x,
+                             EGLint y,
+                             EGLint width,
+                             EGLint height) override;
     egl::Error querySurfacePointerANGLE(EGLint attribute, void **value) override;
-    egl::Error bindTexImage(EGLint buffer) override;
+    egl::Error bindTexImage(gl::Texture *texture, EGLint buffer) override;
     egl::Error releaseTexImage(EGLint buffer) override;
     void setSwapInterval(EGLint interval) override;
 
@@ -40,6 +51,9 @@ class PbufferSurfaceWGL : public SurfaceGL
     EGLint getHeight() const override;
 
     EGLint isPostSubBufferSupported() const override;
+    EGLint getSwapBehavior() const override;
+
+    HDC getDC() const override;
 
   private:
     EGLint mWidth;
@@ -49,8 +63,6 @@ class PbufferSurfaceWGL : public SurfaceGL
     EGLenum mTextureTarget;
 
     int mPixelFormat;
-
-    HGLRC mShareWGLContext;
 
     HDC mParentDeviceContext;
 

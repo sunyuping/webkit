@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,35 +28,43 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MockRealtimeVideoSourceMac_h
-#define MockRealtimeVideoSourceMac_h
+#pragma once
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "FontCascade.h"
 #include "MockRealtimeVideoSource.h"
-#include <wtf/RunLoop.h>
+#include "OrientationNotifier.h"
+#include "PixelBufferConformerCV.h"
+
+typedef struct __CVBuffer *CVBufferRef;
+typedef CVBufferRef CVImageBufferRef;
+typedef CVImageBufferRef CVPixelBufferRef;
+typedef struct __CVPixelBufferPool *CVPixelBufferPoolRef;
 
 namespace WebCore {
 
-class MockRealtimeVideoSourceMac final : public MockRealtimeVideoSource {
-public:
+class ImageTransferSessionVT;
 
-    virtual ~MockRealtimeVideoSourceMac() { }
+class MockRealtimeVideoSourceMac final : public MockRealtimeVideoSource, private OrientationNotifier::Observer {
+public:
+    virtual ~MockRealtimeVideoSourceMac() = default;
 
 private:
     friend class MockRealtimeVideoSource;
-    MockRealtimeVideoSourceMac();
+    MockRealtimeVideoSourceMac(String&& deviceID, String&& name, String&& hashSalt);
 
-    PlatformLayer* platformLayer() const override;
-    void updatePlatformLayer() const override;
+    PlatformLayer* platformLayer() const;
+    void updateSampleBuffer() final;
+    bool canResizeVideoFrames() const final { return true; }
 
-    mutable RetainPtr<CGImageRef> m_previewImage;
-    mutable RetainPtr<PlatformLayer> m_previewLayer;
+    void orientationChanged(int orientation) final;
+    void monitorOrientation(OrientationNotifier&) final;
+
+    MediaSample::VideoRotation m_deviceOrientation { MediaSample::VideoRotation::None };
+    std::unique_ptr<ImageTransferSessionVT> m_imageTransferSession;
+    IntSize m_presetSize;
 };
 
 } // namespace WebCore
 
 #endif // ENABLE(MEDIA_STREAM)
-
-#endif // MockRealtimeVideoSourceMac_h

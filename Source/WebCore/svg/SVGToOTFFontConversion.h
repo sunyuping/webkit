@@ -23,13 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SVGToOTFFontConversion_h
-#define SVGToOTFFontConversion_h
+#pragma once
 
-#if ENABLE(SVG_OTF_CONVERTER)
-
-#include <wtf/Optional.h>
-#include <wtf/Vector.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
@@ -37,7 +33,4 @@ class SVGFontElement;
 
 Optional<Vector<char>> convertSVGToOTFFont(const SVGFontElement&);
 
-}
-
-#endif // ENABLE(SVG_OTF_CONVERTER)
-#endif
+} // namespace WebCore

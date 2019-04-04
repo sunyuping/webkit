@@ -21,8 +21,7 @@
  *
  */
 
-#ifndef HTMLQuoteElement_h
-#define HTMLQuoteElement_h
+#pragma once
 
 #include <wtf/Forward.h>
 #include "HTMLElement.h"
@@ -30,15 +29,14 @@
 namespace WebCore {
 
 class HTMLQuoteElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLQuoteElement);
 public:
     static Ref<HTMLQuoteElement> create(const QualifiedName&, Document&);
 
 private:
     HTMLQuoteElement(const QualifiedName&, Document&);
-    
-    virtual bool isURLAttribute(const Attribute&) const override;
+
+    bool isURLAttribute(const Attribute&) const final;
 };
 
-} //namespace
-
-#endif
+} // namespace WebCore

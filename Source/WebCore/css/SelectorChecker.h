@@ -25,14 +25,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SelectorChecker_h
-#define SelectorChecker_h
+#pragma once
 
 #include "CSSSelector.h"
 #include "Element.h"
-#include "SpaceSplitString.h"
-#include <wtf/HashSet.h>
-#include <wtf/Vector.h>
+#include "StyleRelations.h"
 
 namespace WebCore {
 
@@ -76,49 +73,30 @@ public:
 
     SelectorChecker(Document&);
 
-    struct StyleRelation {
-        enum Type {
-            AffectedByActive,
-            AffectedByDrag,
-            AffectedByEmpty,
-            AffectedByHover,
-            AffectedByPreviousSibling,
-            AffectsNextSibling,
-            ChildrenAffectedByBackwardPositionalRules,
-            ChildrenAffectedByFirstChildRules,
-            ChildrenAffectedByPropertyBasedBackwardPositionalRules,
-            ChildrenAffectedByLastChildRules,
-            FirstChild,
-            LastChild,
-            NthChildIndex,
-            Unique,
-        };
-        Element& element;
-        Type type;
-        unsigned value;
-    };
-    using StyleRelations = Vector<StyleRelation, 8>;
-
     struct CheckingContext {
         CheckingContext(SelectorChecker::Mode resolvingMode)
             : resolvingMode(resolvingMode)
         { }
 
         const SelectorChecker::Mode resolvingMode;
-        PseudoId pseudoId { NOPSEUDO };
+        PseudoId pseudoId { PseudoId::None };
         RenderScrollbar* scrollbar { nullptr };
         ScrollbarPart scrollbarPart { NoPart };
         const ContainerNode* scope { nullptr };
+        bool isMatchingHostPseudoClass { false };
 
         // FIXME: It would be nicer to have a separate object for return values. This requires some more work in the selector compiler.
-        StyleRelations styleRelations;
+        Style::Relations styleRelations;
         PseudoIdSet pseudoIDSet;
     };
 
     bool match(const CSSSelector&, const Element&, CheckingContext&, unsigned& specificity) const;
 
+    bool matchHostPseudoClass(const CSSSelector&, const Element&, CheckingContext&, unsigned& specificity) const;
+
     static bool isCommonPseudoClassSelector(const CSSSelector*);
     static bool matchesFocusPseudoClass(const Element&);
+    static bool attributeSelectorMatches(const Element&, const QualifiedName&, const AtomicString& attributeValue, const CSSSelector&);
 
     enum LinkMatchMask { MatchDefault = 0, MatchLink = 1, MatchVisited = 2, MatchAll = MatchLink | MatchVisited };
     static unsigned determineLinkMatchType(const CSSSelector*);
@@ -148,6 +126,4 @@ inline bool SelectorChecker::isCommonPseudoClassSelector(const CSSSelector* sele
         || pseudoType == CSSSelector::PseudoClassFocus;
 }
 
-}
-
-#endif
+} // namespace WebCore

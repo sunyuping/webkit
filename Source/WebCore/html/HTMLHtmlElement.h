@@ -21,14 +21,14 @@
  *
  */
 
-#ifndef HTMLHtmlElement_h
-#define HTMLHtmlElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLHtmlElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLHtmlElement);
 public:
     static Ref<HTMLHtmlElement> create(Document&);
     static Ref<HTMLHtmlElement> create(const QualifiedName&, Document&);
@@ -38,9 +38,7 @@ public:
 private:
     HTMLHtmlElement(const QualifiedName&, Document&);
 
-    virtual bool isURLAttribute(const Attribute&) const override;
+    bool isURLAttribute(const Attribute&) const final;
 };
 
-} // namespace
-
-#endif
+} // namespace WebCore

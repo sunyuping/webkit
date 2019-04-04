@@ -27,10 +27,10 @@ testNodes.forEach(function(referenceName) {
       } else {
         assert_false(reference.contains(other));
       }
-    }, referenceName + ".compareDocumentPosition(" + otherName + ")");
+    }, referenceName + ".contains(" + otherName + ")");
   });
 });
 
 testDiv.parentNode.removeChild(testDiv);
 </script>
-<!--  vim: set expandtab tabstop=2 shiftwidth=2:  -->
+<!-- vim: set expandtab tabstop=2 shiftwidth=2: -->

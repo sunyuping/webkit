@@ -22,31 +22,27 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ChannelSplitterNode_h
-#define ChannelSplitterNode_h
+#pragma once
 
 #include "AudioNode.h"
-#include <wtf/PassRefPtr.h>
 
 namespace WebCore {
 
 class AudioContext;
     
-class ChannelSplitterNode : public AudioNode {
+class ChannelSplitterNode final : public AudioNode {
 public:
     static RefPtr<ChannelSplitterNode> create(AudioContext&, float sampleRate, unsigned numberOfOutputs);
 
     // AudioNode
-    virtual void process(size_t framesToProcess) override;
-    virtual void reset() override;
+    void process(size_t framesToProcess) override;
+    void reset() override;
 
 private:
-    virtual double tailTime() const override { return 0; }
-    virtual double latencyTime() const override { return 0; }
+    double tailTime() const override { return 0; }
+    double latencyTime() const override { return 0; }
 
     ChannelSplitterNode(AudioContext&, float sampleRate, unsigned numberOfOutputs);
 };
 
 } // namespace WebCore
-
-#endif // ChannelSplitterNode_h

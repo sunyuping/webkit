@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,9 +33,10 @@
 #include "B3Const32Value.h"
 #include "B3ConstDoubleValue.h"
 #include "B3ConstPtrValue.h"
-#include "B3ControlValue.h"
 #include "B3UpsilonValue.h"
 #include "B3ValueInlines.h"
+#include "JSCPtrTag.h"
+#include "MathCommon.h"
 
 namespace JSC { namespace B3 {
 
@@ -50,21 +51,20 @@ std::pair<BasicBlock*, Value*> powDoubleInt32(Procedure& procedure, BasicBlock* 
 
     Value* shouldGoSlowPath = start->appendNew<Value>(procedure, Above, origin,
         y,
-        start->appendNew<Const32Value>(procedure, origin, 1000));
-    start->appendNew<ControlValue>(
-        procedure, Branch, origin,
-        shouldGoSlowPath,
-        FrequentedBlock(functionCallCase), FrequentedBlock(loopPreHeaderCase));
+        start->appendNew<Const32Value>(procedure, origin, maxExponentForIntegerMathPow));
+    start->appendNew<Value>(procedure, Branch, origin, shouldGoSlowPath);
+    start->setSuccessors(FrequentedBlock(functionCallCase), FrequentedBlock(loopPreHeaderCase));
 
     // Function call.
     Value* yAsDouble = functionCallCase->appendNew<Value>(procedure, IToD, origin, y);
-    double (*powDouble)(double, double) = pow;
+    auto* powDouble = tagCFunctionPtr<double (*)(double, double)>(pow, B3CCallPtrTag);
     Value* powResult = functionCallCase->appendNew<CCallValue>(
         procedure, Double, origin,
         functionCallCase->appendNew<ConstPtrValue>(procedure, origin, bitwise_cast<void*>(powDouble)),
         x, yAsDouble);
     UpsilonValue* powResultUpsilon = functionCallCase->appendNew<UpsilonValue>(procedure, origin, powResult);
-    functionCallCase->appendNew<ControlValue>(procedure, Jump, origin, FrequentedBlock(continuation));
+    functionCallCase->appendNew<Value>(procedure, Jump, origin);
+    functionCallCase->setSuccessors(FrequentedBlock(continuation));
 
     // Loop pre-header.
     Value* initialResult = loopPreHeaderCase->appendNew<ConstDoubleValue>(procedure, origin, 1.);
@@ -72,7 +72,8 @@ std::pair<BasicBlock*, Value*> powDoubleInt32(Procedure& procedure, BasicBlock* 
     UpsilonValue* initialResultValue = loopPreHeaderCase->appendNew<UpsilonValue>(procedure, origin, initialResult);
     UpsilonValue* initialSquaredInput = loopPreHeaderCase->appendNew<UpsilonValue>(procedure, origin, x);
     UpsilonValue* initialLoopCounter = loopPreHeaderCase->appendNew<UpsilonValue>(procedure, origin, y);
-    loopPreHeaderCase->appendNew<ControlValue>(procedure, Jump, origin, FrequentedBlock(loopTestForEvenCase));
+    loopPreHeaderCase->appendNew<Value>(procedure, Jump, origin);
+    loopPreHeaderCase->setSuccessors(FrequentedBlock(loopTestForEvenCase));
 
     // Test if what is left of the counter is even.
     Value* inLoopCounter = loopTestForEvenCase->appendNew<Value>(procedure, Phi, Int32, origin);
@@ -80,10 +81,8 @@ std::pair<BasicBlock*, Value*> powDoubleInt32(Procedure& procedure, BasicBlock* 
     Value* lastCounterBit = loopTestForEvenCase->appendNew<Value>(procedure, BitAnd, origin,
         inLoopCounter,
         loopTestForEvenCase->appendNew<Const32Value>(procedure, origin, 1));
-    loopTestForEvenCase->appendNew<ControlValue>(
-        procedure, Branch, origin,
-        lastCounterBit,
-        FrequentedBlock(loopOdd), FrequentedBlock(loopEvenOdd));
+    loopTestForEvenCase->appendNew<Value>(procedure, Branch, origin, lastCounterBit);
+    loopTestForEvenCase->setSuccessors(FrequentedBlock(loopOdd), FrequentedBlock(loopEvenOdd));
 
     // Counter is odd.
     Value* inLoopResult = loopOdd->appendNew<Value>(procedure, Phi, Double, origin);
@@ -93,7 +92,8 @@ std::pair<BasicBlock*, Value*> powDoubleInt32(Procedure& procedure, BasicBlock* 
     updatedLoopResultUpsilon->setPhi(inLoopResult);
     UpsilonValue* updatedLoopResult = loopOdd->appendNew<UpsilonValue>(procedure, origin, updatedResult);
 
-    loopOdd->appendNew<ControlValue>(procedure, Jump, origin, FrequentedBlock(loopEvenOdd));
+    loopOdd->appendNew<Value>(procedure, Jump, origin);
+    loopOdd->setSuccessors(FrequentedBlock(loopEvenOdd));
 
     // Even value and following the Odd.
     Value* squaredInput = loopEvenOdd->appendNew<Value>(procedure, Mul, origin, inLoopSquaredInput, inLoopSquaredInput);
@@ -108,10 +108,8 @@ std::pair<BasicBlock*, Value*> powDoubleInt32(Procedure& procedure, BasicBlock* 
     initialLoopCounter->setPhi(inLoopCounter);
     updatedCounterUpsilon->setPhi(inLoopCounter);
 
-    loopEvenOdd->appendNew<ControlValue>(
-        procedure, Branch, origin,
-        updatedCounter,
-        FrequentedBlock(loopTestForEvenCase), FrequentedBlock(continuation));
+    loopEvenOdd->appendNew<Value>(procedure, Branch, origin, updatedCounter);
+    loopEvenOdd->setSuccessors(FrequentedBlock(loopTestForEvenCase), FrequentedBlock(continuation));
 
     // Inline loop.
     Value* finalResultPhi = continuation->appendNew<Value>(procedure, Phi, Double, origin);

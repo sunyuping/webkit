@@ -25,16 +25,16 @@
 
 Dashboard = {
     Platform: {
-        MacOSXElCapitan: { name: "mac-os-x-elcapitan", readableName: "OS X El Capitan", order: 9 },
-        MacOSXYosemite: { name: "mac-os-x-yosemite", readableName: "OS X Yosemite", order: 10 },
-        MacOSXMavericks: { name: "mac-os-x-mavericks", readableName: "OS X Mavericks", order: 20 },
-        iOS9Simulator: { name: "ios-simulator-9", readableName: "iOS 9 Simulator", order: 30 },
-        iOS9Device: { name: "ios-9", readableName: "iOS 9", order: 40 },
-        Windows8: { name: "windows-8", readableName: "Windows 8", order: 50 },
-        Windows7: { name: "windows-7", readableName: "Windows 7", order: 60 },
-        WindowsXP: { name: "windows-xp", readableName: "Windows XP", order: 70 },
-        LinuxGTK: { name : "linux-gtk", readableName: "Linux GTK", order: 90 },
-        LinuxEFL: { name: "linux-efl", readableName: "Linux EFL", order : 100 }
+        macOSMojave: { name: "macos-mojave", readableName: "macOS Mojave", order: 1 },
+        macOSHighSierra: { name: "macos-highsierra", readableName: "macOS High Sierra", order: 2 },
+        iOS12Simulator: { name: "ios-simulator-12", readableName: "iOS 12 Simulator", order: 20 },
+        iOS12Device: { name: "ios-12", readableName: "iOS 12", order: 25 },
+        Windows10: { name: "windows-10", readableName: "Windows 10", order: 30 },
+        Windows7: { name: "windows-7", readableName: "Windows 7", order: 35 },
+        WinCairo: { name: "wincairo-windows-10", readableName: "WinCairo", order: 50 },
+        LinuxWPE: { name : "linux-wpe", readableName: "Linux WPE", order: 90 },
+        LinuxGTK: { name : "linux-gtk", readableName: "Linux GTK", order: 91 },
+        LinuxJSCOnly: { name : "linux-jsconly", readableName: "Linux JSCOnly", order: 92 },
     },
     Branch: {},
     Repository: {

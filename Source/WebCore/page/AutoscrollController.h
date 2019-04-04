@@ -23,11 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef AutoscrollController_h
-#define AutoscrollController_h
+#pragma once
 
 #include "IntPoint.h"
 #include "Timer.h"
+#include <wtf/WallTime.h>
 
 namespace WebCore {
 
@@ -49,8 +49,9 @@ enum AutoscrollType {
 #endif
 };
 
-// AutscrollController handels autoscroll and pan scroll for EventHandler.
+// AutscrollController handles autoscroll and pan scroll for EventHandler.
 class AutoscrollController {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     AutoscrollController();
     RenderBox* autoscrollRenderer() const;
@@ -59,7 +60,7 @@ public:
     void startAutoscrollForSelection(RenderObject*);
     void stopAutoscrollTimer(bool rendererIsBeingDestroyed = false);
     void updateAutoscrollRenderer();
-    void updateDragAndDrop(Node* targetNode, const IntPoint& eventPosition, double eventTime);
+    void updateDragAndDrop(Node* targetNode, const IntPoint& eventPosition, WallTime eventTime);
 #if ENABLE(PAN_SCROLLING)
     void didPanScrollStart();
     void didPanScrollStop();
@@ -79,12 +80,10 @@ private:
     RenderBox* m_autoscrollRenderer;
     AutoscrollType m_autoscrollType;
     IntPoint m_dragAndDropAutoscrollReferencePosition;
-    double m_dragAndDropAutoscrollStartTime;
+    WallTime m_dragAndDropAutoscrollStartTime;
 #if ENABLE(PAN_SCROLLING)
     IntPoint m_panScrollStartPos;
 #endif
 };
 
 } // namespace WebCore
-
-#endif // AutoscrollController_h

@@ -18,17 +18,16 @@
  *
  */
 
-#ifndef NumberPrototype_h
-#define NumberPrototype_h
+#pragma once
 
 #include "NumberObject.h"
 
 namespace JSC {
 
-class NumberPrototype : public NumberObject {
+class NumberPrototype final : public NumberObject {
 public:
     typedef NumberObject Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot;
+    static const unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
     static NumberPrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
     {
@@ -49,9 +48,13 @@ protected:
 
 private:
     NumberPrototype(VM&, Structure*);
-    static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
 };
 
-} // namespace JSC
+EncodedJSValue JSC_HOST_CALL numberProtoFuncValueOf(ExecState*);
+JSString* int32ToString(VM&, int32_t value, int32_t radix);
+JSString* int52ToString(VM&, int64_t value, int32_t radix);
+JSString* numberToString(VM&, double value, int32_t radix);
+String toStringWithRadix(double doubleValue, int32_t radix);
+int32_t extractToStringRadixArgument(ExecState*, JSValue radixValue, ThrowScope&);
 
-#endif // NumberPrototype_h
+} // namespace JSC

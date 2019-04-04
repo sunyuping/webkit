@@ -24,6 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+
 // @conditional=ENABLE(STREAMS_API)
 // @internal
 
@@ -78,17 +79,15 @@ function validateAndNormalizeQueuingStrategy(size, highWaterMark)
     "use strict";
 
     if (size !== @undefined && typeof size !== "function")
-        throw new @TypeError("size parameter must be a function");
+        @throwTypeError("size parameter must be a function");
 
-    const normalizedStrategy = { };
+    const normalizedStrategy = {
+        size: size,
+        highWaterMark: @toNumber(highWaterMark)
+    };
 
-    normalizedStrategy.size = size;
-    normalizedStrategy.highWaterMark = @Number(highWaterMark);
-
-    if (@isNaN(normalizedStrategy.highWaterMark))
-        throw new @TypeError("highWaterMark parameter is not a number");
-    if (normalizedStrategy.highWaterMark < 0)
-        throw new @RangeError("highWaterMark is negative");
+    if (@isNaN(normalizedStrategy.highWaterMark) || normalizedStrategy.highWaterMark < 0)
+        @throwRangeError("highWaterMark value is negative or not a number");
 
     return normalizedStrategy;
 }
@@ -106,6 +105,9 @@ function dequeueValue(queue)
 
     const record = queue.content.@shift();
     queue.size -= record.size;
+    // As described by spec, below case may occur due to rounding errors.
+    if (queue.size < 0)
+        queue.size = 0;
     return record.value;
 }
 
@@ -113,9 +115,9 @@ function enqueueValueWithSize(queue, value, size)
 {
     "use strict";
 
-    size = @Number(size);
+    size = @toNumber(size);
     if (!@isFinite(size) || size < 0)
-        throw new @RangeError("size has an incorrect value");
+        @throwRangeError("size has an incorrect value");
     queue.content.@push({ value: value, size: size });
     queue.size += size;
 }

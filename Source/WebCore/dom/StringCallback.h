@@ -28,9 +28,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef StringCallback_h
-#define StringCallback_h
+#pragma once
 
+#include "ActiveDOMCallback.h"
+#include "CallbackResult.h"
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 
@@ -38,15 +39,14 @@ namespace WebCore {
 
 class ScriptExecutionContext;
 
-class StringCallback : public RefCounted<StringCallback> {
+class StringCallback : public RefCounted<StringCallback>, public ActiveDOMCallback {
 public:
-    virtual ~StringCallback() { }
-    virtual bool handleEvent(const String& data) = 0;
+    using ActiveDOMCallback::ActiveDOMCallback;
+
+    virtual CallbackResult<void> handleEvent(const String& data) = 0;
 
     // Helper to post callback task.
-    void scheduleCallback(ScriptExecutionContext*, const String& data);
+    void scheduleCallback(ScriptExecutionContext&, const String& data);
 };
 
 } // namespace WebCore
-
-#endif // StringCallback_h

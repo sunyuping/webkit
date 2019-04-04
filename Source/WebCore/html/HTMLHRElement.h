@@ -20,14 +20,14 @@
  *
  */
 
-#ifndef HTMLHRElement_h
-#define HTMLHRElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLHRElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLHRElement);
 public:
     static Ref<HTMLHRElement> create(Document&);
     static Ref<HTMLHRElement> create(const QualifiedName&, Document&);
@@ -35,11 +35,9 @@ public:
 private:
     HTMLHRElement(const QualifiedName&, Document&);
 
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
-    virtual bool canContainRangeEndPoint() const override;
+    bool isPresentationAttribute(const QualifiedName&) const final;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
+    bool canContainRangeEndPoint() const final;
 };
 
 } // namespace WebCore
-
-#endif // HTMLHRElement_h

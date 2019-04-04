@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2003, 2007, 2009, 2012 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003, 2007, 2009, 2012, 2016 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -41,9 +41,9 @@ CommonIdentifiers::CommonIdentifiers(VM* vm)
     , useStrictIdentifier(Identifier::fromString(vm, "use strict"))
     , timesIdentifier(Identifier::fromString(vm, "*"))
     , m_builtinNames(new BuiltinNames(vm, this))
+    JSC_PARSER_PRIVATE_NAMES(INITIALIZE_PRIVATE_NAME)
     JSC_COMMON_IDENTIFIERS_EACH_KEYWORD(INITIALIZE_KEYWORD)
     JSC_COMMON_IDENTIFIERS_EACH_PROPERTY_NAME(INITIALIZE_PROPERTY_NAME)
-    JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_PROPERTY_NAME(INITIALIZE_PRIVATE_NAME)
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_WELL_KNOWN_SYMBOL(INITIALIZE_SYMBOL)
 {
 }
@@ -52,29 +52,14 @@ CommonIdentifiers::~CommonIdentifiers()
 {
 }
 
-bool CommonIdentifiers::isPrivateName(SymbolImpl& uid) const
-{
-    return m_builtinNames->isPrivateName(uid);
-}
-
-bool CommonIdentifiers::isPrivateName(UniquedStringImpl& uid) const
-{
-    return m_builtinNames->isPrivateName(uid);
-}
-
-bool CommonIdentifiers::isPrivateName(const Identifier& ident) const
-{
-    return m_builtinNames->isPrivateName(ident);
-}
-
-const Identifier* CommonIdentifiers::lookUpPrivateName(const Identifier& ident) const
+SymbolImpl* CommonIdentifiers::lookUpPrivateName(const Identifier& ident) const
 {
     return m_builtinNames->lookUpPrivateName(ident);
 }
-    
-Identifier CommonIdentifiers::lookUpPublicName(const Identifier& ident) const
+
+Identifier CommonIdentifiers::getPublicName(VM& vm, SymbolImpl* symbol) const
 {
-    return m_builtinNames->lookUpPublicName(ident);
+    return m_builtinNames->getPublicName(vm, symbol);
 }
 
 void CommonIdentifiers::appendExternalName(const Identifier& publicName, const Identifier& privateName)

@@ -1,5 +1,5 @@
 # Copyright (C) 2009 Google Inc. All rights reserved.
-# Copyright (C) 2009 Apple Inc. All rights reserved.
+# Copyright (C) 2009, 2016 Apple Inc. All rights reserved.
 # Copyright (C) 2011 Daniel Bates (dbates@intudata.com). All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -47,11 +47,12 @@ import unittest
 from datetime import date
 from webkitpy.common.checkout.checkout import Checkout
 from webkitpy.common.config.committers import Committer  # FIXME: This should not be needed
-from webkitpy.common.net.bugzilla import Attachment # FIXME: This should not be needed
+from webkitpy.common.net.bugzilla import Attachment  # FIXME: This should not be needed
 from webkitpy.common.system.executive import Executive, ScriptError
 from webkitpy.common.system.filesystem_mock import MockFileSystem
 from webkitpy.common.system.outputcapture import OutputCapture
 from webkitpy.common.system.executive_mock import MockExecutive
+from webkitpy.common.version import Version
 from .git import Git, AmbiguousCommitError
 from .detection import detect_scm_system
 from .scm import SCM, CheckoutNeedsUpdate, commit_error_handler, AuthenticationError
@@ -60,7 +61,8 @@ from .svn import SVN
 
 # We cache the mock SVN repo so that we don't create it again for each call to an SVNTest or GitTest test_ method.
 # We store it in a global variable so that we can delete this cached repo on exit(3).
-# FIXME: Remove this once we migrate to Python 2.7. Unittest in Python 2.7 supports module-specific setup and teardown functions.
+# FIXME: Remove this once test-webkitpy supports class and module fixtures (i.e. setUpClass()/setUpModule()
+# are called exactly once per class/module).
 cached_svn_repo_path = None
 
 
@@ -70,7 +72,8 @@ def remove_dir(path):
     shutil.rmtree(path)
 
 
-# FIXME: Remove this once we migrate to Python 2.7. Unittest in Python 2.7 supports module-specific setup and teardown functions.
+# FIXME: Remove this once test-webkitpy supports class and module fixtures (i.e. setUpClass()/setUpModule()
+# are called exactly once per class/module).
 @atexit.register
 def delete_cached_mock_repo_at_exit():
     if cached_svn_repo_path:
@@ -78,6 +81,7 @@ def delete_cached_mock_repo_at_exit():
 
 # Eventually we will want to write tests which work for both scms. (like update_webkit, changed_files, etc.)
 # Perhaps through some SCMTest base-class which both SVNTest and GitTest inherit from.
+
 
 def run_command(*args, **kwargs):
     # FIXME: This should not be a global static.
@@ -90,7 +94,7 @@ def run_command(*args, **kwargs):
 def run_silent(args, cwd=None):
     # Note: Not thread safe: http://bugs.python.org/issue2320
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
-    process.communicate() # ignore output
+    process.communicate()  # ignore output
     exit_code = process.wait()
     if exit_code:
         raise ScriptError('Failed to run "%s"  exit_code: %d  cwd: %s' % (args, exit_code, cwd))
@@ -234,7 +238,7 @@ class SVNTestRepository(object):
 # For testing the SCM baseclass directly.
 class SCMClassTests(unittest.TestCase):
     def setUp(self):
-        self.dev_null = open(os.devnull, "w") # Used to make our Popen calls quiet.
+        self.dev_null = open(os.devnull, "w")  # Used to make our Popen calls quiet.
 
     def tearDown(self):
         self.dev_null.close()
@@ -253,23 +257,23 @@ class SCMClassTests(unittest.TestCase):
         self.assertRaises(ScriptError, run_command, ['grep', 'bar'], input=input_process.stdout)
 
         # Test when the run_command process fails.
-        input_process = subprocess.Popen(['echo', 'foo\nbar'], stdout=subprocess.PIPE, stderr=self.dev_null) # grep shows usage and calls exit(2) when called w/o arguments.
+        input_process = subprocess.Popen(['echo', 'foo\nbar'], stdout=subprocess.PIPE, stderr=self.dev_null)  # grep shows usage and calls exit(2) when called w/o arguments.
         self.assertRaises(ScriptError, run_command, command_returns_non_zero, input=input_process.stdout)
 
     def test_error_handlers(self):
-        git_failure_message="Merge conflict during commit: Your file or directory 'WebCore/ChangeLog' is probably out-of-date: resource out of date; try updating at /usr/local/libexec/git-core//git-svn line 469"
-        svn_failure_message="""svn: Commit failed (details follow):
+        git_failure_message = "Merge conflict during commit: Your file or directory 'WebCore/ChangeLog' is probably out-of-date: resource out of date; try updating at /usr/local/libexec/git-core//git-svn line 469"
+        svn_failure_message = """svn: Commit failed (details follow):
 svn: File or directory 'ChangeLog' is out of date; try updating
 svn: resource out of date; try updating
 """
         command_does_not_exist = ['does_not_exist', 'invalid_option']
         self.assertRaises(OSError, run_command, command_does_not_exist)
-        self.assertRaises(OSError, run_command, command_does_not_exist, error_handler=Executive.ignore_error)
+        self.assertRaises(OSError, run_command, command_does_not_exist, ignore_errors=True)
 
         command_returns_non_zero = ['/bin/sh', '--invalid-option']
         self.assertRaises(ScriptError, run_command, command_returns_non_zero)
         # Check if returns error text:
-        self.assertTrue(run_command(command_returns_non_zero, error_handler=Executive.ignore_error))
+        self.assertTrue(run_command(command_returns_non_zero, ignore_errors=True))
 
         self.assertRaises(CheckoutNeedsUpdate, commit_error_handler, ScriptError(output=git_failure_message))
         self.assertRaises(CheckoutNeedsUpdate, commit_error_handler, ScriptError(output=svn_failure_message))
@@ -409,13 +413,13 @@ class SCMTest(unittest.TestCase):
 
     def _shared_test_revisions_changing_file(self):
         self.assertItemsEqual(self.scm.revisions_changing_file("test_file"), [5, 4, 3, 2])
-        self.assertRaises(ScriptError, self.scm.revisions_changing_file, "non_existent_file")
+        self.assertItemsEqual(self.scm.revisions_changing_file("non_existent_file"), [])
 
     def _shared_test_committer_email_for_revision(self):
         self.assertEqual(self.scm.committer_email_for_revision(3), getpass.getuser())  # Committer "email" will be the current user
 
     def _shared_test_reverse_diff(self):
-        self._setup_webkittools_scripts_symlink(self.scm) # Git's apply_reverse_diff uses resolve-ChangeLogs
+        self._setup_webkittools_scripts_symlink(self.scm)  # Git's apply_reverse_diff uses resolve-ChangeLogs.
         # Only test the simple case, as any other will end up with conflict markers.
         self.scm.apply_reverse_diff('5')
         self.assertEqual(read_from_path('test_file'), "test1test2test3\n")
@@ -696,16 +700,22 @@ class SVNTest(SCMTest):
         scripts_path = os.path.join(self.svn_checkout_path, 'Tools', 'Scripts')
         os.makedirs(scripts_path)
         create_patch_path = os.path.join(scripts_path, 'svn-create-patch')
-        write_into_file_at_path(create_patch_path, '#!/bin/sh\necho $PWD') # We could pass -n to prevent the \n, but not all echo accept -n.
+        write_into_file_at_path(create_patch_path, '#!/bin/sh\necho $PWD')  # We could pass -n to prevent the \n, but not all echo accept -n.
         os.chmod(create_patch_path, stat.S_IXUSR | stat.S_IRUSR)
 
         # Change into our test directory and run the create_patch command.
         os.chdir(test_dir_path)
         scm = detect_scm_system(test_dir_path)
-        self.assertEqual(scm.checkout_root, self.svn_checkout_path) # Sanity check that detection worked right.
-        patch_contents = scm.create_patch()
-        # Our fake 'svn-create-patch' returns $PWD instead of a patch, check that it was executed from the root of the repo.
-        self.assertEqual("%s\n" % os.path.realpath(scm.checkout_root), patch_contents) # Add a \n because echo adds a \n.
+        self.assertEqual(scm.checkout_root, self.svn_checkout_path)  # Sanity check that detection worked right.
+        actual_patch_contents = scm.create_patch()
+        expected_patch_contents = """Index: test_dir2/test_file2
+===================================================================
+--- test_dir2/test_file2\t(nonexistent)
++++ test_dir2/test_file2\t(working copy)
+@@ -0,0 +1 @@\n+test content
+\\ No newline at end of file
+"""
+        self.assertEqual(expected_patch_contents, actual_patch_contents)
 
     def test_detection(self):
         self.assertEqual(self.scm.display_name(), "svn")
@@ -895,6 +905,13 @@ END
     def test_head_svn_revision(self):
         self._shared_test_head_svn_revision()
 
+    def test_native_revision(self):
+        self.assertEqual(self.scm.head_svn_revision(), self.scm.native_revision('.'))
+        self.assertEqual(self.scm.native_revision('.'), '5')
+
+    def test_native_branch(self):
+        self.assertEqual(self.scm.native_branch('.'), 'trunk')
+
     def test_propset_propget(self):
         filepath = os.path.join(self.svn_checkout_path, "test_file")
         expected_mime_type = "x-application/foo-bar"
@@ -942,7 +959,7 @@ END
         self.assertFalse(os.path.exists(self.bogus_dir))
 
     def test_svn_lock(self):
-        if self.scm.svn_version() >= "1.7":
+        if self.scm.svn_version() >= Version(1, 7):
             # the following technique with .svn/lock then svn update doesn't work with subversion client 1.7 or later
             pass
         else:
@@ -956,6 +973,7 @@ END
 
     def test_exists(self):
         self._shared_test_exists(self.scm, self.scm.commit_with_message)
+
 
 class GitTest(SCMTest):
 
@@ -1007,6 +1025,26 @@ class GitTest(SCMTest):
 
         patch = scm.create_patch()
         self.assertNotRegexpMatches(patch, r'Subversion Revision:')
+
+    def test_create_patch_with_git_index(self):
+        # First change. Committed.
+        write_into_file_at_path('test_file_commit1', 'first cat')
+        run_command(['git', 'add', 'test_file_commit1'])
+        scm = self.tracking_scm
+        scm.commit_locally_with_message('message')
+
+        # Second change. Staged but not committed.
+        write_into_file_at_path('test_file_commit1', 'second dog')
+        run_command(['git', 'add', 'test_file_commit1'])
+
+        # Third change. Not even staged.
+        write_into_file_at_path('test_file_commit1', 'third unicorn')
+
+        patch = scm.create_patch(None, None, True)
+        self.assertRegexpMatches(patch, r'-first cat')
+        self.assertRegexpMatches(patch, r'\+second dog')
+        self.assertNotRegexpMatches(patch, r'third')
+        self.assertNotRegexpMatches(patch, r'unicorn')
 
     def test_orderfile(self):
         os.mkdir("Tools")
@@ -1071,6 +1109,15 @@ class GitTest(SCMTest):
         # If we cloned a git repo tracking an SVN repo, this would give the same result as
         # self._shared_test_head_svn_revision().
         self.assertEqual(scm.head_svn_revision(), '')
+
+    def test_native_revision(self):
+        scm = self.tracking_scm
+        command = ['git', '-C', scm.checkout_root, 'rev-parse', 'HEAD']
+        self.assertEqual(scm.native_revision(scm.checkout_root), run_command(command).strip())
+
+    def test_native_branch(self):
+        scm = self.tracking_scm
+        self.assertEqual('master', scm.native_branch(scm.checkout_root))
 
     def test_rename_files(self):
         scm = self.tracking_scm
@@ -1173,7 +1220,7 @@ class GitSVNTest(SCMTest):
         run_command(['git', 'commit', '-a', '-m', 'commit to be thrown away by rebase abort'])
 
         # --quiet doesn't make git svn silent, so use run_silent to redirect output
-        self.assertRaises(ScriptError, run_silent, ['git', 'svn', '--quiet', 'rebase']) # Will fail due to a conflict leaving us mid-rebase.
+        self.assertRaises(ScriptError, run_silent, ['git', 'svn', '--quiet', 'rebase'])  # Will fail due to a conflict leaving us mid-rebase.
 
         self.assertTrue(self.scm.rebase_in_progress())
 
@@ -1583,6 +1630,13 @@ class GitSVNTest(SCMTest):
     def test_head_svn_revision(self):
         self._shared_test_head_svn_revision()
 
+    def test_native_revision(self):
+        command = ['git', '-C', self.git_checkout_path, 'rev-parse', 'HEAD']
+        self.assertEqual(self.scm.native_revision(self.git_checkout_path), run_command(command).strip())
+
+    def test_native_branch(self):
+        self.assertEqual('trunk', self.scm.native_branch(self.git_checkout_path))
+
     def test_to_object_name(self):
         relpath = 'test_file_commit1'
         fullpath = os.path.realpath(os.path.join(self.git_checkout_path, relpath))
@@ -1664,3 +1718,15 @@ MOCK run_command: ['git', 'log', '-1', '--grep=git-svn-id:', '--date=iso', './MO
 
         scm._run_git = lambda args: 'Date: 2013-02-08 01:55:21 -0800'
         self.assertEqual(scm.timestamp_of_revision('some-path', '12345'), '2013-02-08T09:55:21Z')
+
+    def test_timestamp_of_native_revision(self):
+        scm = self.make_scm()
+        scm.find_checkout_root = lambda path: ''
+        scm._run_git = lambda args: '1360310749'
+        self.assertEqual(scm.timestamp_of_native_revision('some-path', '1a1c3b08814bc2a8c15b0f6db63cdce68f2aaa7a'), '2013-02-08T08:05:49Z')
+
+        scm._run_git = lambda args: '1360279923'
+        self.assertEqual(scm.timestamp_of_native_revision('some-path', '1a1c3b08814bc2a8c15b0f6db63cdce68f2aaa7a'), '2013-02-07T23:32:03Z')
+
+        scm._run_git = lambda args: '1360317321'
+        self.assertEqual(scm.timestamp_of_native_revision('some-path', '1a1c3b08814bc2a8c15b0f6db63cdce68f2aaa7a'), '2013-02-08T09:55:21Z')

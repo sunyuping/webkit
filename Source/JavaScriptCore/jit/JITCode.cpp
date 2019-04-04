@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2012, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,15 +26,15 @@
 #include "config.h"
 #include "JITCode.h"
 
-#include "LLIntThunks.h"
 #include "JSCInlines.h"
 #include "ProtoCallFrame.h"
 #include <wtf/PrintStream.h>
 
 namespace JSC {
 
-JITCode::JITCode(JITType jitType)
+JITCode::JITCode(JITType jitType, ShareAttribute shareAttribute)
     : m_jitType(jitType)
+    , m_shareAttribute(shareAttribute)
 {
 }
 
@@ -67,20 +67,6 @@ void JITCode::validateReferences(const TrackedReferences&)
 {
 }
 
-JSValue JITCode::execute(VM* vm, ProtoCallFrame* protoCallFrame)
-{
-    void* entryAddress;
-    JSFunction* function = jsDynamicCast<JSFunction*>(protoCallFrame->callee());
-
-    if (!function || !protoCallFrame->needArityCheck()) {
-        ASSERT(!protoCallFrame->needArityCheck());
-        entryAddress = executableAddress();
-    } else
-        entryAddress = addressForCall(MustCheckArity).executableAddress();
-    JSValue result = JSValue::decode(vmEntryToJavaScript(entryAddress, vm, protoCallFrame));
-    return vm->exception() ? jsNull() : result;
-}
-
 DFG::CommonData* JITCode::dfgCommon()
 {
     RELEASE_ASSERT_NOT_REACHED();
@@ -110,8 +96,8 @@ JITCodeWithCodeRef::JITCodeWithCodeRef(JITType jitType)
 {
 }
 
-JITCodeWithCodeRef::JITCodeWithCodeRef(CodeRef ref, JITType jitType)
-    : JITCode(jitType)
+JITCodeWithCodeRef::JITCodeWithCodeRef(CodeRef<JSEntryPtrTag> ref, JITType jitType, JITCode::ShareAttribute shareAttribute)
+    : JITCode(jitType, shareAttribute)
     , m_ref(ref)
 {
 }
@@ -126,20 +112,25 @@ JITCodeWithCodeRef::~JITCodeWithCodeRef()
 void* JITCodeWithCodeRef::executableAddressAtOffset(size_t offset)
 {
     RELEASE_ASSERT(m_ref);
-    return reinterpret_cast<char*>(m_ref.code().executableAddress()) + offset;
+    assertIsTaggedWith(m_ref.code().executableAddress(), JSEntryPtrTag);
+    if (!offset)
+        return m_ref.code().executableAddress();
+
+    char* executableAddress = untagCodePtr<char*, JSEntryPtrTag>(m_ref.code().executableAddress());
+    return tagCodePtr<JSEntryPtrTag>(executableAddress + offset);
 }
 
 void* JITCodeWithCodeRef::dataAddressAtOffset(size_t offset)
 {
     RELEASE_ASSERT(m_ref);
     ASSERT(offset <= size()); // use <= instead of < because it is valid to ask for an address at the exclusive end of the code.
-    return reinterpret_cast<char*>(m_ref.code().dataLocation()) + offset;
+    return m_ref.code().dataLocation<char*>() + offset;
 }
 
 unsigned JITCodeWithCodeRef::offsetOf(void* pointerIntoCode)
 {
     RELEASE_ASSERT(m_ref);
-    intptr_t result = reinterpret_cast<intptr_t>(pointerIntoCode) - reinterpret_cast<intptr_t>(m_ref.code().executableAddress());
+    intptr_t result = reinterpret_cast<intptr_t>(pointerIntoCode) - m_ref.code().executableAddress<intptr_t>();
     ASSERT(static_cast<intptr_t>(static_cast<unsigned>(result)) == result);
     return static_cast<unsigned>(result);
 }
@@ -161,24 +152,37 @@ DirectJITCode::DirectJITCode(JITType jitType)
 {
 }
 
-DirectJITCode::DirectJITCode(JITCode::CodeRef ref, JITCode::CodePtr withArityCheck, JITType jitType)
-    : JITCodeWithCodeRef(ref, jitType)
+DirectJITCode::DirectJITCode(JITCode::CodeRef<JSEntryPtrTag> ref, JITCode::CodePtr<JSEntryPtrTag> withArityCheck, JITType jitType, JITCode::ShareAttribute shareAttribute)
+    : JITCodeWithCodeRef(ref, jitType, shareAttribute)
     , m_withArityCheck(withArityCheck)
 {
+    ASSERT(m_ref);
+    ASSERT(m_withArityCheck);
+}
+
+DirectJITCode::DirectJITCode(JITCode::CodeRef<JSEntryPtrTag> ref, JITCode::CodePtr<JSEntryPtrTag> withArityCheck, JITType jitType, Intrinsic intrinsic, JITCode::ShareAttribute shareAttribute)
+    : JITCodeWithCodeRef(ref, jitType, shareAttribute)
+    , m_withArityCheck(withArityCheck)
+{
+    m_intrinsic = intrinsic;
+    ASSERT(m_ref);
+    ASSERT(m_withArityCheck);
 }
 
 DirectJITCode::~DirectJITCode()
 {
 }
 
-void DirectJITCode::initializeCodeRef(JITCode::CodeRef ref, JITCode::CodePtr withArityCheck)
+void DirectJITCode::initializeCodeRefForDFG(JITCode::CodeRef<JSEntryPtrTag> ref, JITCode::CodePtr<JSEntryPtrTag> withArityCheck)
 {
     RELEASE_ASSERT(!m_ref);
     m_ref = ref;
     m_withArityCheck = withArityCheck;
+    ASSERT(m_ref);
+    ASSERT(m_withArityCheck);
 }
 
-JITCode::CodePtr DirectJITCode::addressForCall(ArityCheckMode arity)
+JITCode::CodePtr<JSEntryPtrTag> DirectJITCode::addressForCall(ArityCheckMode arity)
 {
     switch (arity) {
     case ArityCheckNotRequired:
@@ -189,7 +193,7 @@ JITCode::CodePtr DirectJITCode::addressForCall(ArityCheckMode arity)
         return m_withArityCheck;
     }
     RELEASE_ASSERT_NOT_REACHED();
-    return CodePtr();
+    return CodePtr<JSEntryPtrTag>();
 }
 
 NativeJITCode::NativeJITCode(JITType jitType)
@@ -197,31 +201,39 @@ NativeJITCode::NativeJITCode(JITType jitType)
 {
 }
 
-NativeJITCode::NativeJITCode(CodeRef ref, JITType jitType)
-    : JITCodeWithCodeRef(ref, jitType)
+NativeJITCode::NativeJITCode(CodeRef<JSEntryPtrTag> ref, JITType jitType, Intrinsic intrinsic, JITCode::ShareAttribute shareAttribute)
+    : JITCodeWithCodeRef(ref, jitType, shareAttribute)
 {
+    m_intrinsic = intrinsic;
 }
 
 NativeJITCode::~NativeJITCode()
 {
 }
 
-void NativeJITCode::initializeCodeRef(CodeRef ref)
+JITCode::CodePtr<JSEntryPtrTag> NativeJITCode::addressForCall(ArityCheckMode arity)
 {
-    ASSERT(!m_ref);
-    m_ref = ref;
+    RELEASE_ASSERT(m_ref);
+    switch (arity) {
+    case ArityCheckNotRequired:
+        return m_ref.code();
+    case MustCheckArity:
+        return m_ref.code();
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+    return CodePtr<JSEntryPtrTag>();
 }
 
-JITCode::CodePtr NativeJITCode::addressForCall(ArityCheckMode)
+NativeDOMJITCode::NativeDOMJITCode(CodeRef<JSEntryPtrTag> ref, JITType type, Intrinsic intrinsic, const DOMJIT::Signature* signature)
+    : NativeJITCode(ref, type, intrinsic)
+    , m_signature(signature)
 {
-    RELEASE_ASSERT(!!m_ref);
-    return m_ref.code();
 }
 
 #if ENABLE(JIT)
 RegisterSet JITCode::liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBlock*, CallSiteIndex)
 {
-    return RegisterSet();
+    return { };
 }
 #endif
 

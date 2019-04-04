@@ -23,65 +23,59 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.LayoutTimelineDataGridNode = class LayoutTimelineDataGridNode extends WebInspector.TimelineDataGridNode
+WI.LayoutTimelineDataGridNode = class LayoutTimelineDataGridNode extends WI.TimelineDataGridNode
 {
-    constructor(layoutTimelineRecord, baseStartTime)
+    constructor(record, options = {})
     {
-        super(false, null);
+        console.assert(record instanceof WI.LayoutTimelineRecord);
 
-        this._record = layoutTimelineRecord;
-        this._baseStartTime = baseStartTime || 0;
+        super([record], options);
     }
 
     // Public
 
-    get record()
-    {
-        return this._record;
-    }
-
-    get records()
-    {
-        return [this._record];
-    }
-
     get data()
     {
-        if (!this._cachedData) {
-            this._cachedData = {
-                eventType: this._record.eventType,
-                width: this._record.width,
-                height: this._record.height,
-                area: this._record.width * this._record.height,
-                startTime: this._record.startTime,
-                totalTime: this._record.duration,
-                location: this._record.initiatorCallFrame,
-            };
-        }
+        if (this._cachedData)
+            return this._cachedData;
 
+        this._cachedData = super.data;
+        this._cachedData.type = this.record.eventType;
+        this._cachedData.name = this.displayName();
+        this._cachedData.width = this.record.width;
+        this._cachedData.height = this.record.height;
+        this._cachedData.area = this.record.width * this.record.height;
+        this._cachedData.startTime = this.record.startTime - (this.graphDataSource ? this.graphDataSource.zeroTime : 0);
+        this._cachedData.totalTime = this.record.duration;
+        this._cachedData.initiator = this.record.initiatorCallFrame;
         return this._cachedData;
     }
 
     createCellContent(columnIdentifier, cell)
     {
         var value = this.data[columnIdentifier];
+        const higherResolution = true;
 
         switch (columnIdentifier) {
-        case "eventType":
-            return WebInspector.LayoutTimelineRecord.displayNameForEventType(value);
+        case "name":
+            cell.classList.add(...this.iconClassNames());
+            return value;
 
         case "width":
         case "height":
-            return isNaN(value) ? emDash : WebInspector.UIString("%fpx").format(value);
+            return isNaN(value) ? emDash : WI.UIString("%dpx").format(value);
 
         case "area":
-            return isNaN(value) ? emDash : WebInspector.UIString("%fpx²").format(value);
+            return isNaN(value) ? emDash : WI.UIString("%dpx\u00B2").format(value);
 
         case "startTime":
-            return isNaN(value) ? emDash : Number.secondsToString(value - this._baseStartTime, true);
+            return isNaN(value) ? emDash : Number.secondsToString(value, higherResolution);
 
         case "totalTime":
-            return isNaN(value) ? emDash : Number.secondsToString(value, true);
+            return isNaN(value) ? emDash : Number.secondsToString(value, higherResolution);
+
+        case "source": // Timeline Overview
+            return super.createCellContent("initiator", cell);
         }
 
         return super.createCellContent(columnIdentifier, cell);

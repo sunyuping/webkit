@@ -29,73 +29,30 @@
 #import "TestController.h"
 #import "TestRunnerWKWebView.h"
 #import "WebKitTestRunnerDraggingInfo.h"
+#import "WebKitTestRunnerWindow.h"
 #import <WebKit/WKImageCG.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebViewConfiguration.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/mac/AppKitCompatibilityDeclarations.h>
 
-#if WK_API_ENABLED
-@interface WKWebView (Details)
+@interface WKWebView ()
 - (WKPageRef)_pageForTesting;
 @end
-#endif
 
 using namespace WTR;
 
+// FIXME: Move to NSWindowSPI.h.
 enum {
     _NSBackingStoreUnbuffered = 3
 };
 
-@interface WebKitTestRunnerWindow : NSWindow {
-    PlatformWebView* _platformWebView;
-    NSPoint _fakeOrigin;
-}
-@property (nonatomic, assign) PlatformWebView* platformWebView;
-@end
-
-@implementation WebKitTestRunnerWindow
-@synthesize platformWebView = _platformWebView;
-
-- (BOOL)isKeyWindow
-{
-    return _platformWebView ? _platformWebView->windowIsKey() : YES;
-}
-
-- (void)setFrameOrigin:(NSPoint)point
-{
-    _fakeOrigin = point;
-}
-
-- (void)setFrame:(NSRect)windowFrame display:(BOOL)displayViews animate:(BOOL)performAnimation
-{
-    NSRect currentFrame = [super frame];
-
-    _fakeOrigin = windowFrame.origin;
-
-    [super setFrame:NSMakeRect(currentFrame.origin.x, currentFrame.origin.y, windowFrame.size.width, windowFrame.size.height) display:displayViews animate:performAnimation];
-}
-
-- (void)setFrame:(NSRect)windowFrame display:(BOOL)displayViews
-{
-    NSRect currentFrame = [super frame];
-
-    _fakeOrigin = windowFrame.origin;
-
-    [super setFrame:NSMakeRect(currentFrame.origin.x, currentFrame.origin.y, windowFrame.size.width, windowFrame.size.height) display:displayViews];
-}
-
-- (NSRect)frameRespectingFakeOrigin
-{
-    NSRect currentFrame = [self frame];
-    return NSMakeRect(_fakeOrigin.x, _fakeOrigin.y, currentFrame.size.width, currentFrame.size.height);
-}
-@end
-
+// FIXME: Move to NSWindowSPI.h.
 @interface NSWindow ()
-
+- (void)_setWindowResolution:(CGFloat)resolution;
+// FIXME: Remove once the variant above exists on all platforms we need (cf. rdar://problem/47614795).
 - (void)_setWindowResolution:(CGFloat)resolution displayIfChanged:(BOOL)displayIfChanged;
-
 @end
 
 namespace WTR {
@@ -104,13 +61,12 @@ PlatformWebView::PlatformWebView(WKWebViewConfiguration* configuration, const Te
     : m_windowIsKey(true)
     , m_options(options)
 {
-#if WK_API_ENABLED
     // FIXME: Not sure this is the best place for this; maybe we should have API to set this so we can do it from TestController?
     if (m_options.useRemoteLayerTree)
         [[NSUserDefaults standardUserDefaults] setValue:@YES forKey:@"WebKit2UseRemoteLayerTreeDrawingArea"];
 
     RetainPtr<WKWebViewConfiguration> copiedConfiguration = adoptNS([configuration copy]);
-    WKPreferencesSetThreadedScrollingEnabled((WKPreferencesRef)[copiedConfiguration preferences], m_options.useThreadedScrolling);
+    WKPreferencesSetThreadedScrollingEnabled((__bridge WKPreferencesRef)[copiedConfiguration preferences], m_options.useThreadedScrolling);
 
     NSRect rect = NSMakeRect(0, 0, TestController::viewWidth, TestController::viewHeight);
     m_view = [[TestRunnerWKWebView alloc] initWithFrame:rect configuration:copiedConfiguration.get()];
@@ -118,30 +74,30 @@ PlatformWebView::PlatformWebView(WKWebViewConfiguration* configuration, const Te
 
     NSScreen *firstScreen = [[NSScreen screens] objectAtIndex:0];
     NSRect windowRect = m_options.shouldShowWebView ? NSOffsetRect(rect, 100, 100) : NSOffsetRect(rect, -10000, [firstScreen frame].size.height - rect.size.height + 10000);
-    m_window = [[WebKitTestRunnerWindow alloc] initWithContentRect:windowRect styleMask:NSBorderlessWindowMask backing:(NSBackingStoreType)_NSBackingStoreUnbuffered defer:YES];
+    m_window = [[WebKitTestRunnerWindow alloc] initWithContentRect:windowRect styleMask:NSWindowStyleMaskBorderless backing:(NSBackingStoreType)_NSBackingStoreUnbuffered defer:YES];
     m_window.platformWebView = this;
     [m_window setColorSpace:[firstScreen colorSpace]];
+    [m_window setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameAqua]];
     [m_window setCollectionBehavior:NSWindowCollectionBehaviorStationary];
     [[m_window contentView] addSubview:m_view];
-    if (m_options.shouldShowWebView)
-        [m_window orderFront:nil];
-    else
-        [m_window orderBack:nil];
     [m_window setReleasedWhenClosed:NO];
-#endif
 }
 
 void PlatformWebView::setWindowIsKey(bool isKey)
 {
     m_windowIsKey = isKey;
+    if (m_windowIsKey)
+        [m_window makeKeyWindow];
+    else
+        [m_window resignKeyWindow];
 }
 
-void PlatformWebView::resizeTo(unsigned width, unsigned height)
+void PlatformWebView::resizeTo(unsigned width, unsigned height, WebViewSizingMode sizingMode)
 {
     WKRect frame = windowFrame();
     frame.size.width = width;
     frame.size.height = height;
-    setWindowFrame(frame);
+    setWindowFrame(frame, sizingMode);
 }
 
 PlatformWebView::~PlatformWebView()
@@ -152,13 +108,14 @@ PlatformWebView::~PlatformWebView()
     [m_view release];
 }
 
+PlatformWindow PlatformWebView::keyWindow()
+{
+    return [WebKitTestRunnerWindow _WTR_keyWindow];
+}
+
 WKPageRef PlatformWebView::page()
 {
-#if WK_API_ENABLED
     return [m_view _pageForTesting];
-#else
-    return nullptr;
-#endif
 }
 
 void PlatformWebView::focus()
@@ -179,7 +136,7 @@ WKRect PlatformWebView::windowFrame()
     return wkFrame;
 }
 
-void PlatformWebView::setWindowFrame(WKRect frame)
+void PlatformWebView::setWindowFrame(WKRect frame, WebViewSizingMode)
 {
     [m_window setFrame:NSMakeRect(frame.origin.x, frame.origin.y, frame.size.width, frame.size.height) display:YES];
     [platformView() setFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height)];
@@ -212,12 +169,37 @@ void PlatformWebView::removeChromeInputField()
     }
 }
 
+void PlatformWebView::addToWindow()
+{
+    [[m_window contentView] addSubview:m_view];
+}
+
+void PlatformWebView::removeFromWindow()
+{
+    [m_view removeFromSuperview];
+}
+
 void PlatformWebView::makeWebViewFirstResponder()
 {
     [m_window makeFirstResponder:platformView()];
 }
 
-WKRetainPtr<WKImageRef> PlatformWebView::windowSnapshotImage()
+bool PlatformWebView::drawsBackground() const
+{
+    return [m_view _drawsBackground];
+}
+
+void PlatformWebView::setDrawsBackground(bool drawsBackground)
+{
+    [m_view _setDrawsBackground:drawsBackground];
+}
+
+void PlatformWebView::setEditable(bool editable)
+{
+    m_view._editable = editable;
+}
+
+RetainPtr<CGImageRef> PlatformWebView::windowSnapshotImage()
 {
     [platformView() display];
     CGWindowImageOption options = kCGWindowImageBoundsIgnoreFraming | kCGWindowImageShouldBeOpaque;
@@ -225,18 +207,7 @@ WKRetainPtr<WKImageRef> PlatformWebView::windowSnapshotImage()
     if ([m_window backingScaleFactor] == 1)
         options |= kCGWindowImageNominalResolution;
 
-    RetainPtr<CGImageRef> windowSnapshotImage = adoptCF(CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, [m_window windowNumber], options));
-
-    // windowSnapshotImage will be in GenericRGB, as we've set the main display's color space to GenericRGB.
-    return adoptWK(WKImageCreateFromCGImage(windowSnapshotImage.get(), 0));
-}
-
-bool PlatformWebView::viewSupportsOptions(const TestOptions& options) const
-{
-    if (m_options.useThreadedScrolling != options.useThreadedScrolling || m_options.overrideLanguages != options.overrideLanguages)
-        return false;
-
-    return true;
+    return adoptCF(CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, [m_window windowNumber], options));
 }
 
 void PlatformWebView::changeWindowScaleIfNeeded(float newScale)
@@ -244,7 +215,13 @@ void PlatformWebView::changeWindowScaleIfNeeded(float newScale)
     CGFloat currentScale = [m_window backingScaleFactor];
     if (currentScale == newScale)
         return;
-    [m_window _setWindowResolution:newScale displayIfChanged:YES];
+
+    if ([m_window respondsToSelector:@selector(_setWindowResolution:)])
+        [m_window _setWindowResolution:newScale];
+    else
+        [m_window _setWindowResolution:newScale displayIfChanged:YES];
+    [m_view _setOverrideDeviceScaleFactor:newScale];
+
     // Instead of re-constructing the current window, let's fake resize it to ensure that the scale change gets picked up.
     forceWindowFramesChanged();
     // Changing the scaling factor on the window does not trigger NSWindowDidChangeBackingPropertiesNotification. We need to send the notification manually.
@@ -262,9 +239,7 @@ void PlatformWebView::forceWindowFramesChanged()
 
 void PlatformWebView::setNavigationGesturesEnabled(bool enabled)
 {
-#if WK_API_ENABLED
     [platformView() setAllowsBackForwardNavigationGestures:enabled];
-#endif
 }
 
 } // namespace WTR

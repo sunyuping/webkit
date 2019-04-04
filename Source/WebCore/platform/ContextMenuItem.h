@@ -33,7 +33,6 @@ namespace WebCore {
 
 class ContextMenu;
 class Image;
-class URL;
 
 enum ContextMenuAction {
     ContextMenuItemTagNoAction,
@@ -43,7 +42,7 @@ enum ContextMenuAction {
     ContextMenuItemTagOpenImageInNewWindow,
     ContextMenuItemTagDownloadImageToDisk,
     ContextMenuItemTagCopyImageToClipboard,
-#if PLATFORM(GTK) || PLATFORM(EFL)
+#if PLATFORM(GTK)
     ContextMenuItemTagCopyImageUrlToClipboard,
 #endif
     ContextMenuItemTagOpenFrameInNewWindow,
@@ -56,11 +55,7 @@ enum ContextMenuAction {
     ContextMenuItemTagPaste,
 #if PLATFORM(GTK)
     ContextMenuItemTagDelete,
-#endif
-#if PLATFORM(GTK) || PLATFORM (EFL)
     ContextMenuItemTagSelectAll,
-#endif
-#if PLATFORM(GTK)
     ContextMenuItemTagInputMethods,
     ContextMenuItemTagUnicode,
     ContextMenuItemTagUnicodeInsertLRMMark,
@@ -146,7 +141,8 @@ enum ContextMenuAction {
     ContextMenuItemTagMediaMute,
     ContextMenuItemTagDictationAlternative,
     ContextMenuItemTagToggleVideoFullscreen,
-    ContextMenuItemTagShareMenu, 
+    ContextMenuItemTagShareMenu,
+    ContextMenuItemTagToggleVideoEnhancedFullscreen,
     ContextMenuItemBaseCustomTag = 5000,
     ContextMenuItemLastCustomTag = 5999,
     ContextMenuItemBaseApplicationTag = 10000
@@ -181,7 +177,7 @@ public:
 
     void setSubMenu(ContextMenu*);
 
-    ContextMenuItem(ContextMenuAction, const String&, bool enabled, bool checked, const Vector<ContextMenuItem>& subMenuItems);
+    WEBCORE_EXPORT ContextMenuItem(ContextMenuAction, const String&, bool enabled, bool checked, const Vector<ContextMenuItem>& subMenuItems);
     ContextMenuItem();
 
     bool isNull() const;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2008, 2016 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,6 @@
 #include "UniscribeController.h"
 #include <wtf/MathExtras.h>
 
-using namespace std;
 
 namespace WebCore {
 
@@ -50,7 +49,7 @@ bool FontCascade::canExpandAroundIdeographsInComplexText()
     return false;
 }
 
-void FontCascade::adjustSelectionRectForComplexText(const TextRun& run, LayoutRect& selectionRect, int from, int to) const
+void FontCascade::adjustSelectionRectForComplexText(const TextRun& run, LayoutRect& selectionRect, unsigned from, unsigned to) const
 {
     UniscribeController it(this, run);
     it.advance(from);
@@ -66,7 +65,7 @@ void FontCascade::adjustSelectionRectForComplexText(const TextRun& run, LayoutRe
     selectionRect.setWidth(afterWidth - beforeWidth);
 }
 
-float FontCascade::getGlyphsAndAdvancesForComplexText(const TextRun& run, int from, int to, GlyphBuffer& glyphBuffer, ForTextEmphasisOrNot forTextEmphasis) const
+float FontCascade::getGlyphsAndAdvancesForComplexText(const TextRun& run, unsigned from, unsigned to, GlyphBuffer& glyphBuffer, ForTextEmphasisOrNot forTextEmphasis) const
 {
     if (forTextEmphasis) {
         // FIXME: Add forTextEmphasis paremeter to UniscribeController and use it.
@@ -91,26 +90,15 @@ float FontCascade::getGlyphsAndAdvancesForComplexText(const TextRun& run, int fr
     return beforeWidth;
 }
 
-void FontCascade::drawEmphasisMarksForComplexText(GraphicsContext& context, const TextRun& run, const AtomicString& mark, const FloatPoint& point, int from, int to) const
-{
-    GlyphBuffer glyphBuffer;
-    float initialAdvance = getGlyphsAndAdvancesForComplexText(run, from, to, glyphBuffer, ForTextEmphasis);
-
-    if (glyphBuffer.isEmpty())
-        return;
-
-    drawEmphasisMarks(context, run, glyphBuffer, mark, FloatPoint(point.x() + initialAdvance, point.y()));
-}
-
 float FontCascade::floatWidthForComplexText(const TextRun& run, HashSet<const Font*>* fallbackFonts, GlyphOverflow* glyphOverflow) const
 {
     UniscribeController controller(this, run, fallbackFonts);
     controller.advance(run.length());
     if (glyphOverflow) {
-        glyphOverflow->top = max<int>(glyphOverflow->top, ceilf(-controller.minGlyphBoundingBoxY()) - (glyphOverflow->computeBounds ? 0 : fontMetrics().ascent()));
-        glyphOverflow->bottom = max<int>(glyphOverflow->bottom, ceilf(controller.maxGlyphBoundingBoxY()) - (glyphOverflow->computeBounds ? 0  : fontMetrics().descent()));
-        glyphOverflow->left = max<int>(0, ceilf(-controller.minGlyphBoundingBoxX()));
-        glyphOverflow->right = max<int>(0, ceilf(controller.maxGlyphBoundingBoxX() - controller.runWidthSoFar()));
+        glyphOverflow->top = std::max<int>(glyphOverflow->top, ceilf(-controller.minGlyphBoundingBoxY()) - (glyphOverflow->computeBounds ? 0 : fontMetrics().ascent()));
+        glyphOverflow->bottom = std::max<int>(glyphOverflow->bottom, ceilf(controller.maxGlyphBoundingBoxY()) - (glyphOverflow->computeBounds ? 0  : fontMetrics().descent()));
+        glyphOverflow->left = std::max<int>(0, ceilf(-controller.minGlyphBoundingBoxX()));
+        glyphOverflow->right = std::max<int>(0, ceilf(controller.maxGlyphBoundingBoxX() - controller.runWidthSoFar()));
     }
     return controller.runWidthSoFar();
 }

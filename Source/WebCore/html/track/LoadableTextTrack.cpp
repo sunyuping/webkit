@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2011, 2013 Google Inc.  All rights reserved.
+ * Copyright (C) 2011, 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,41 +25,32 @@
  */
 
 #include "config.h"
+#include "LoadableTextTrack.h"
 
 #if ENABLE(VIDEO_TRACK)
 
-#include "LoadableTextTrack.h"
-
-#include "Event.h"
 #include "HTMLTrackElement.h"
-#include "ScriptExecutionContext.h"
 #include "TextTrackCueList.h"
+#include "VTTCue.h"
 #include "VTTRegionList.h"
 
 namespace WebCore {
 
-LoadableTextTrack::LoadableTextTrack(HTMLTrackElement* track, const String& kind, const String& label, const String& language)
-    : TextTrack(&track->document(), track, kind, emptyString(), label, language, TrackElement)
-    , m_trackElement(track)
+LoadableTextTrack::LoadableTextTrack(HTMLTrackElement& track, const String& kind, const String& label, const String& language)
+    : TextTrack(&track.document(), &track, kind, emptyString(), label, language, TrackElement)
+    , m_trackElement(&track)
     , m_loadTimer(*this, &LoadableTextTrack::loadTimerFired)
     , m_isDefault(false)
 {
-}
-
-LoadableTextTrack::~LoadableTextTrack()
-{
-}
-
-void LoadableTextTrack::clearClient()
-{
-    m_trackElement = 0;
-    TextTrack::clearClient();
 }
 
 void LoadableTextTrack::scheduleLoad(const URL& url)
 {
     if (url == m_url)
         return;
+
+    // When src attribute is changed we need to flush all collected track data
+    removeAllCues();
 
     // 4.8.10.12.3 Sourcing out-of-band text tracks (continued)
 
@@ -68,18 +60,12 @@ void LoadableTextTrack::scheduleLoad(const URL& url)
     // 3. Asynchronously run the remaining steps, while continuing with whatever task 
     // was responsible for creating the text track or changing the text track mode.
     if (!m_loadTimer.isActive())
-        m_loadTimer.startOneShot(0);
+        m_loadTimer.startOneShot(0_s);
 }
 
 Element* LoadableTextTrack::element()
 {
     return m_trackElement;
-}
-    
-void LoadableTextTrack::setTrackElement(HTMLTrackElement* element)
-{
-    ASSERT(!m_trackElement || m_trackElement == element);
-    m_trackElement = element;
 }
 
 void LoadableTextTrack::loadTimerFired()
@@ -96,13 +82,13 @@ void LoadableTextTrack::loadTimerFired()
     // mode being the state of the media element's crossorigin content attribute, the origin being the
     // origin of the media element's Document, and the default origin behaviour set to fail.
     m_loader = std::make_unique<TextTrackLoader>(static_cast<TextTrackLoaderClient&>(*this), static_cast<ScriptExecutionContext*>(&m_trackElement->document()));
-    if (!m_loader->load(m_url, m_trackElement->mediaElementCrossOriginAttribute(), m_trackElement->isInUserAgentShadowTree()))
+    if (!m_loader->load(m_url, *m_trackElement))
         m_trackElement->didCompleteLoad(HTMLTrackElement::Failure);
 }
 
-void LoadableTextTrack::newCuesAvailable(TextTrackLoader* loader)
+void LoadableTextTrack::newCuesAvailable(TextTrackLoader& loader)
 {
-    ASSERT_UNUSED(loader, m_loader.get() == loader);
+    ASSERT_UNUSED(loader, m_loader.get() == &loader);
 
     Vector<RefPtr<TextTrackCue>> newCues;
     m_loader->getNewCues(newCues);
@@ -112,41 +98,50 @@ void LoadableTextTrack::newCuesAvailable(TextTrackLoader* loader)
 
     for (auto& newCue : newCues) {
         newCue->setTrack(this);
-        m_cues->add(newCue);
+        INFO_LOG(LOGIDENTIFIER, *toVTTCue(newCue.get()));
+        m_cues->add(newCue.releaseNonNull());
     }
 
     if (client())
-        client()->textTrackAddCues(this, m_cues.get());
+        client()->textTrackAddCues(*this, *m_cues);
 }
 
-void LoadableTextTrack::cueLoadingCompleted(TextTrackLoader* loader, bool loadingFailed)
+void LoadableTextTrack::cueLoadingCompleted(TextTrackLoader& loader, bool loadingFailed)
 {
-    ASSERT_UNUSED(loader, m_loader.get() == loader);
+    ASSERT_UNUSED(loader, m_loader.get() == &loader);
 
     if (!m_trackElement)
         return;
 
+    INFO_LOG(LOGIDENTIFIER);
+
     m_trackElement->didCompleteLoad(loadingFailed ? HTMLTrackElement::Failure : HTMLTrackElement::Success);
 }
 
-void LoadableTextTrack::newRegionsAvailable(TextTrackLoader* loader)
+void LoadableTextTrack::newRegionsAvailable(TextTrackLoader& loader)
 {
-    ASSERT_UNUSED(loader, m_loader.get() == loader);
+    ASSERT_UNUSED(loader, m_loader.get() == &loader);
 
     Vector<RefPtr<VTTRegion>> newRegions;
     m_loader->getNewRegions(newRegions);
 
     for (auto& newRegion : newRegions) {
         newRegion->setTrack(this);
-        regions()->add(newRegion);
+        regions()->add(newRegion.releaseNonNull());
     }
+}
+
+void LoadableTextTrack::newStyleSheetsAvailable(TextTrackLoader& loader)
+{
+    ASSERT_UNUSED(loader, m_loader.get() == &loader);
+    m_styleSheets = m_loader->getNewStyleSheets();
 }
 
 AtomicString LoadableTextTrack::id() const
 {
-    if (m_trackElement)
-        return m_trackElement->getAttribute("id");
-    return emptyString();
+    if (!m_trackElement)
+        return emptyAtom();
+    return m_trackElement->attributeWithoutSynchronization(idAttr);
 }
 
 size_t LoadableTextTrack::trackElementIndex()
@@ -155,7 +150,7 @@ size_t LoadableTextTrack::trackElementIndex()
     ASSERT(m_trackElement->parentNode());
 
     size_t index = 0;
-    for (Node* node = m_trackElement->parentNode()->firstChild(); node; node = node->nextSibling()) {
+    for (RefPtr<Node> node = m_trackElement->parentNode()->firstChild(); node; node = node->nextSibling()) {
         if (!node->hasTagName(trackTag) || !node->parentNode())
             continue;
         if (node == m_trackElement)

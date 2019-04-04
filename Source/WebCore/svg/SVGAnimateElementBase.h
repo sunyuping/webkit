@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
  * Copyright (C) Research In Motion Limited 2011. All rights reserved.
  * Copyright (C) 2014 Adobe Systems Incorporated. All rights reserved.
  *
@@ -21,55 +21,49 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGAnimateElementBase_h
-#define SVGAnimateElementBase_h
+#pragma once
 
-#include "SVGAnimatedType.h"
-#include "SVGAnimatedTypeAnimator.h"
 #include "SVGAnimationElement.h"
 #include "SVGNames.h"
 
 namespace WebCore {
 
-class SVGAnimateElementBase : public SVGAnimationElement {
-public:
-    virtual ~SVGAnimateElementBase();
+class SVGAttributeAnimator;
 
-    AnimatedPropertyType determineAnimatedPropertyType(SVGElement&) const;
+class SVGAnimateElementBase : public SVGAnimationElement {
+    WTF_MAKE_ISO_ALLOCATED(SVGAnimateElementBase);
+public:
+    bool isDiscreteAnimator() const;
 
 protected:
     SVGAnimateElementBase(const QualifiedName&, Document&);
 
-    virtual void resetAnimatedType() override;
-    virtual void clearAnimatedType(SVGElement* targetElement) override;
+    SVGAttributeAnimator* animator() const;
+    SVGAttributeAnimator* animatorIfExists() const { return m_animator.get(); }
 
-    virtual bool calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString) override;
-    virtual bool calculateFromAndToValues(const String& fromString, const String& toString) override;
-    virtual bool calculateFromAndByValues(const String& fromString, const String& byString) override;
-    virtual void calculateAnimatedValue(float percentage, unsigned repeatCount, SVGSMILElement* resultElement) override;
-    virtual void applyResultsToTarget() override;
-    virtual float calculateDistance(const String& fromString, const String& toString) override;
-    virtual bool isAdditive() const override;
+    bool hasValidAttributeType() const override;
 
-    virtual void setTargetElement(SVGElement*) override;
-    virtual void setAttributeName(const QualifiedName&) override;
-    virtual void resetAnimatedPropertyType() override;
+    void setTargetElement(SVGElement*) override;
+    void setAttributeName(const QualifiedName&) override;
+    void resetAnimation() override;
 
-    AnimatedPropertyType m_animatedPropertyType;
+    bool calculateFromAndToValues(const String& fromString, const String& toString) override;
+    bool calculateFromAndByValues(const String& fromString, const String& byString) override;
+    bool calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString) override;
+
+    void resetAnimatedType() override;
+    void calculateAnimatedValue(float progress, unsigned repeatCount, SVGSMILElement* resultElement) override;
+    void applyResultsToTarget() override;
+    void clearAnimatedType(SVGElement* targetElement) override;
+    Optional<float> calculateDistance(const String& fromString, const String& toString) override;
+
+    virtual String animateRangeString(const String& string) const { return string; }
 
 private:
-    SVGAnimatedTypeAnimator* ensureAnimator();
-    bool animatedPropertyTypeSupportsAddition() const;
+    bool hasInvalidCSSAttributeType() const;
 
-    virtual bool hasValidAttributeType() override;
-
-    std::unique_ptr<SVGAnimatedType> m_fromType;
-    std::unique_ptr<SVGAnimatedType> m_toType;
-    std::unique_ptr<SVGAnimatedType> m_toAtEndOfDurationType;
-    std::unique_ptr<SVGAnimatedType> m_animatedType;
-
-    SVGElementAnimatedPropertyList m_animatedProperties;
-    std::unique_ptr<SVGAnimatedTypeAnimator> m_animator;
+    mutable std::unique_ptr<SVGAttributeAnimator> m_animator;
+    mutable Optional<bool> m_hasInvalidCSSAttributeType;
 };
 
 } // namespace WebCore
@@ -82,5 +76,3 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SVGAnimateElementBase)
     }
     static bool isType(const WebCore::Node& node) { return is<WebCore::SVGElement>(node) && isType(downcast<WebCore::SVGElement>(node)); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // SVGAnimateElementBase_h

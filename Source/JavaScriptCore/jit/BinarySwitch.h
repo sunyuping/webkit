@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef BinarySwitch_h
-#define BinarySwitch_h
+#pragma once
 
 #if ENABLE(JIT)
 
@@ -79,6 +78,7 @@ public:
 private:
     void build(unsigned start, bool hardStart, unsigned end);
     
+    Type m_type;
     GPRReg m_value;
     
     struct Case {
@@ -135,13 +135,8 @@ private:
     Vector<MacroAssembler::Jump> m_jumpStack;
     
     MacroAssembler::JumpList m_fallThrough;
-    
-    Type m_type;
 };
 
 } // namespace JSC
 
 #endif // ENABLE(JIT)
-
-#endif // BinarySwitch_h
-

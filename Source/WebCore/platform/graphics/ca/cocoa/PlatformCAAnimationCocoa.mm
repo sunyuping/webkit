@@ -23,30 +23,31 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "config.h"
+#import "config.h"
 #import "PlatformCAAnimationCocoa.h"
 
 #import "FloatConversion.h"
 #import "PlatformCAFilters.h"
 #import "TimingFunction.h"
 #import <QuartzCore/QuartzCore.h>
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/text/WTFString.h>
 
-using namespace WebCore;
+namespace WebCore {
 
 static NSString * const WKExplicitBeginTimeFlag = @"WKPlatformCAAnimationExplicitBeginTimeFlag";
 
-bool WebCore::hasExplicitBeginTime(CAAnimation *animation)
+bool hasExplicitBeginTime(CAAnimation *animation)
 {
     return [[animation valueForKey:WKExplicitBeginTimeFlag] boolValue];
 }
 
-void WebCore::setHasExplicitBeginTime(CAAnimation *animation, bool value)
+void setHasExplicitBeginTime(CAAnimation *animation, bool value)
 {
     [animation setValue:[NSNumber numberWithBool:value] forKey:WKExplicitBeginTimeFlag];
 }
     
-NSString* WebCore::toCAFillModeType(PlatformCAAnimation::FillModeType type)
+NSString* toCAFillModeType(PlatformCAAnimation::FillModeType type)
 {
     switch (type) {
     case PlatformCAAnimation::NoFillMode:
@@ -68,7 +69,7 @@ static PlatformCAAnimation::FillModeType fromCAFillModeType(NSString* string)
     return PlatformCAAnimation::Forwards;
 }
 
-NSString* WebCore::toCAValueFunctionType(PlatformCAAnimation::ValueFunctionType type)
+NSString* toCAValueFunctionType(PlatformCAAnimation::ValueFunctionType type)
 {
     switch (type) {
     case PlatformCAAnimation::NoValueFunction: return @"";
@@ -125,22 +126,22 @@ static PlatformCAAnimation::ValueFunctionType fromCAValueFunctionType(NSString* 
     return PlatformCAAnimation::NoValueFunction;
 }
 
-CAMediaTimingFunction* WebCore::toCAMediaTimingFunction(const TimingFunction* timingFunction, bool reverse)
+CAMediaTimingFunction* toCAMediaTimingFunction(const TimingFunction* timingFunction, bool reverse)
 {
     ASSERT(timingFunction);
-    if (timingFunction->isCubicBezierTimingFunction()) {
+    if (is<CubicBezierTimingFunction>(timingFunction)) {
         RefPtr<CubicBezierTimingFunction> reversed;
-        const CubicBezierTimingFunction* ctf = static_cast<const CubicBezierTimingFunction*>(timingFunction);
+        auto* function = downcast<CubicBezierTimingFunction>(timingFunction);
 
         if (reverse) {
-            reversed = ctf->createReversed();
-            ctf = reversed.get();
+            reversed = function->createReversed();
+            function = reversed.get();
         }
 
-        float x1 = static_cast<float>(ctf->x1());
-        float y1 = static_cast<float>(ctf->y1());
-        float x2 = static_cast<float>(ctf->x2());
-        float y2 = static_cast<float>(ctf->y2());
+        float x1 = static_cast<float>(function->x1());
+        float y1 = static_cast<float>(function->y1());
+        float x2 = static_cast<float>(function->x2());
+        float y2 = static_cast<float>(function->y2());
         return [CAMediaTimingFunction functionWithControlPoints: x1 : y1 : x2 : y2];
     }
     
@@ -148,33 +149,43 @@ CAMediaTimingFunction* WebCore::toCAMediaTimingFunction(const TimingFunction* ti
     return [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
 }
 
-PassRefPtr<PlatformCAAnimation> PlatformCAAnimationCocoa::create(AnimationType type, const String& keyPath)
+Ref<PlatformCAAnimation> PlatformCAAnimationCocoa::create(AnimationType type, const String& keyPath)
 {
-    return adoptRef(new PlatformCAAnimationCocoa(type, keyPath));
+    return adoptRef(*new PlatformCAAnimationCocoa(type, keyPath));
 }
 
-PassRefPtr<PlatformCAAnimation> PlatformCAAnimationCocoa::create(PlatformAnimationRef animation)
+Ref<PlatformCAAnimation> PlatformCAAnimationCocoa::create(PlatformAnimationRef animation)
 {
-    return adoptRef(new PlatformCAAnimationCocoa(animation));
+    return adoptRef(*new PlatformCAAnimationCocoa(animation));
 }
 
 PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(AnimationType type, const String& keyPath)
     : PlatformCAAnimation(type)
 {
-    if (type == Basic)
+    switch (type) {
+    case Basic:
         m_animation = [CABasicAnimation animationWithKeyPath:keyPath];
-    else
+        break;
+    case Keyframe:
         m_animation = [CAKeyframeAnimation animationWithKeyPath:keyPath];
+        break;
+    case Spring:
+        m_animation = [CASpringAnimation animationWithKeyPath:keyPath];
+        break;
+    }
 }
 
 PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(PlatformAnimationRef animation)
 {
-    if ([static_cast<CAAnimation*>(animation) isKindOfClass:[CABasicAnimation class]])
-        setType(Basic);
-    else if ([static_cast<CAAnimation*>(animation) isKindOfClass:[CAKeyframeAnimation class]])
+    if ([static_cast<CAAnimation*>(animation) isKindOfClass:[CABasicAnimation class]]) {
+        if ([static_cast<CAAnimation*>(animation) isKindOfClass:[CASpringAnimation class]])
+            setType(Spring);
+        else
+            setType(Basic);
+    } else if ([static_cast<CAAnimation*>(animation) isKindOfClass:[CAKeyframeAnimation class]])
         setType(Keyframe);
     else {
-        ASSERT(0);
+        ASSERT_NOT_REACHED();
         return;
     }
     
@@ -185,9 +196,9 @@ PlatformCAAnimationCocoa::~PlatformCAAnimationCocoa()
 {
 }
 
-PassRefPtr<PlatformCAAnimation> PlatformCAAnimationCocoa::copy() const
+Ref<PlatformCAAnimation> PlatformCAAnimationCocoa::copy() const
 {
-    RefPtr<PlatformCAAnimation> animation = create(animationType(), keyPath());
+    auto animation = create(animationType(), keyPath());
     
     animation->setBeginTime(beginTime());
     animation->setDuration(duration());
@@ -201,7 +212,7 @@ PassRefPtr<PlatformCAAnimation> PlatformCAAnimationCocoa::copy() const
     animation->copyTimingFunctionFrom(*this);
     animation->setValueFunction(valueFunction());
 
-    setHasExplicitBeginTime(downcast<PlatformCAAnimationCocoa>(*animation).platformAnimation(), hasExplicitBeginTime(platformAnimation()));
+    setHasExplicitBeginTime(downcast<PlatformCAAnimationCocoa>(animation.get()).platformAnimation(), hasExplicitBeginTime(platformAnimation()));
     
     // Copy the specific Basic or Keyframe values.
     if (animationType() == Keyframe) {
@@ -305,7 +316,23 @@ void PlatformCAAnimationCocoa::setFillMode(FillModeType value)
 
 void PlatformCAAnimationCocoa::setTimingFunction(const TimingFunction* value, bool reverse)
 {
-    [m_animation setTimingFunction:toCAMediaTimingFunction(value, reverse)];
+    switch (animationType()) {
+    case Basic:
+    case Keyframe:
+        [m_animation setTimingFunction:toCAMediaTimingFunction(value, reverse)];
+        break;
+    case Spring:
+        if (value->isSpringTimingFunction()) {
+            // FIXME: Handle reverse.
+            auto& function = *static_cast<const SpringTimingFunction*>(value);
+            CASpringAnimation *springAnimation = (CASpringAnimation *)m_animation.get();
+            springAnimation.mass = function.mass();
+            springAnimation.stiffness = function.stiffness();
+            springAnimation.damping = function.damping();
+            springAnimation.initialVelocity = function.initialVelocity();
+        }
+        break;
+    }
 }
 
 void PlatformCAAnimationCocoa::copyTimingFunctionFrom(const PlatformCAAnimation& value)
@@ -346,14 +373,14 @@ void PlatformCAAnimationCocoa::setValueFunction(ValueFunctionType value)
 
 void PlatformCAAnimationCocoa::setFromValue(float value)
 {
-    if (animationType() != Basic)
+    if (!isBasicAnimation())
         return;
     [static_cast<CABasicAnimation*>(m_animation.get()) setFromValue:[NSNumber numberWithDouble:value]];
 }
 
-void PlatformCAAnimationCocoa::setFromValue(const WebCore::TransformationMatrix& value)
+void PlatformCAAnimationCocoa::setFromValue(const TransformationMatrix& value)
 {
-    if (animationType() != Basic)
+    if (!isBasicAnimation())
         return;
 
     [static_cast<CABasicAnimation*>(m_animation.get()) setFromValue:[NSValue valueWithCATransform3D:value]];
@@ -361,7 +388,7 @@ void PlatformCAAnimationCocoa::setFromValue(const WebCore::TransformationMatrix&
 
 void PlatformCAAnimationCocoa::setFromValue(const FloatPoint3D& value)
 {
-    if (animationType() != Basic)
+    if (!isBasicAnimation())
         return;
 
     NSArray* array = [NSArray arrayWithObjects:
@@ -372,9 +399,9 @@ void PlatformCAAnimationCocoa::setFromValue(const FloatPoint3D& value)
     [static_cast<CABasicAnimation*>(m_animation.get()) setFromValue:array];
 }
 
-void PlatformCAAnimationCocoa::setFromValue(const WebCore::Color& value)
+void PlatformCAAnimationCocoa::setFromValue(const Color& value)
 {
-    if (animationType() != Basic)
+    if (!isBasicAnimation())
         return;
 
     NSArray* array = [NSArray arrayWithObjects:
@@ -394,7 +421,7 @@ void PlatformCAAnimationCocoa::setFromValue(const FilterOperation* operation, in
 
 void PlatformCAAnimationCocoa::copyFromValueFrom(const PlatformCAAnimation& value)
 {
-    if (animationType() != Basic || value.animationType() != Basic)
+    if (!isBasicAnimation() || !value.isBasicAnimation())
         return;
 
     CABasicAnimation* otherAnimation = static_cast<CABasicAnimation*>(downcast<PlatformCAAnimationCocoa>(value).m_animation.get());
@@ -403,14 +430,14 @@ void PlatformCAAnimationCocoa::copyFromValueFrom(const PlatformCAAnimation& valu
 
 void PlatformCAAnimationCocoa::setToValue(float value)
 {
-    if (animationType() != Basic)
+    if (!isBasicAnimation())
         return;
     [static_cast<CABasicAnimation*>(m_animation.get()) setToValue:[NSNumber numberWithDouble:value]];
 }
 
-void PlatformCAAnimationCocoa::setToValue(const WebCore::TransformationMatrix& value)
+void PlatformCAAnimationCocoa::setToValue(const TransformationMatrix& value)
 {
-    if (animationType() != Basic)
+    if (!isBasicAnimation())
         return;
 
     [static_cast<CABasicAnimation*>(m_animation.get()) setToValue:[NSValue valueWithCATransform3D:value]];
@@ -418,7 +445,7 @@ void PlatformCAAnimationCocoa::setToValue(const WebCore::TransformationMatrix& v
 
 void PlatformCAAnimationCocoa::setToValue(const FloatPoint3D& value)
 {
-    if (animationType() != Basic)
+    if (!isBasicAnimation())
         return;
 
     NSArray* array = [NSArray arrayWithObjects:
@@ -429,9 +456,9 @@ void PlatformCAAnimationCocoa::setToValue(const FloatPoint3D& value)
     [static_cast<CABasicAnimation*>(m_animation.get()) setToValue:array];
 }
 
-void PlatformCAAnimationCocoa::setToValue(const WebCore::Color& value)
+void PlatformCAAnimationCocoa::setToValue(const Color& value)
 {
-    if (animationType() != Basic)
+    if (!isBasicAnimation())
         return;
 
     NSArray* array = [NSArray arrayWithObjects:
@@ -451,7 +478,7 @@ void PlatformCAAnimationCocoa::setToValue(const FilterOperation* operation, int 
 
 void PlatformCAAnimationCocoa::copyToValueFrom(const PlatformCAAnimation& value)
 {
-    if (animationType() != Basic || value.animationType() != Basic)
+    if (!isBasicAnimation() || !value.isBasicAnimation())
         return;
 
     CABasicAnimation* otherAnimation = static_cast<CABasicAnimation*>(downcast<PlatformCAAnimationCocoa>(value).m_animation.get());
@@ -471,7 +498,7 @@ void PlatformCAAnimationCocoa::setValues(const Vector<float>& value)
     [static_cast<CAKeyframeAnimation*>(m_animation.get()) setValues:array];
 }
 
-void PlatformCAAnimationCocoa::setValues(const Vector<WebCore::TransformationMatrix>& value)
+void PlatformCAAnimationCocoa::setValues(const Vector<TransformationMatrix>& value)
 {
     if (animationType() != Keyframe)
         return;
@@ -502,7 +529,7 @@ void PlatformCAAnimationCocoa::setValues(const Vector<FloatPoint3D>& value)
     [static_cast<CAKeyframeAnimation*>(m_animation.get()) setValues:array];
 }
 
-void PlatformCAAnimationCocoa::setValues(const Vector<WebCore::Color>& value)
+void PlatformCAAnimationCocoa::setValues(const Vector<Color>& value)
 {
     if (animationType() != Keyframe)
         return;
@@ -575,3 +602,5 @@ void PlatformCAAnimationCocoa::copyTimingFunctionsFrom(const PlatformCAAnimation
     CAKeyframeAnimation* other = static_cast<CAKeyframeAnimation*>(downcast<PlatformCAAnimationCocoa>(value).m_animation.get());
     [static_cast<CAKeyframeAnimation*>(m_animation.get()) setTimingFunctions:[other timingFunctions]];
 }
+
+} // namespace WebCore

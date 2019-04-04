@@ -28,8 +28,7 @@
 #define BridgeJSC_h
 
 #include "Bridge.h"
-#include <runtime/JSCInlines.h>
-#include <runtime/JSString.h>
+#include <JavaScriptCore/JSString.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
@@ -52,20 +51,20 @@ class RuntimeObject;
 class Field {
 public:
     virtual JSValue valueFromInstance(ExecState*, const Instance*) const = 0;
-    virtual void setValueToInstance(ExecState*, const Instance*, JSValue) const = 0;
+    virtual bool setValueToInstance(ExecState*, const Instance*, JSValue) const = 0;
 
-    virtual ~Field() { }
+    virtual ~Field() = default;
 };
 
 class Class {
     WTF_MAKE_NONCOPYABLE(Class); WTF_MAKE_FAST_ALLOCATED;
 public:
-    Class() { }
+    Class() = default;
     virtual Method* methodNamed(PropertyName, Instance*) const = 0;
     virtual Field* fieldNamed(PropertyName, Instance*) const = 0;
     virtual JSValue fallbackObject(ExecState*, Instance*, PropertyName) { return jsUndefined(); }
 
-    virtual ~Class() { }
+    virtual ~Class() = default;
 };
 
 class Instance : public RefCounted<Instance> {
@@ -105,7 +104,7 @@ public:
     WEBCORE_EXPORT virtual ~Instance();
 
     virtual bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&) { return false; }
-    virtual void put(JSObject*, ExecState*, PropertyName, JSValue, PutPropertySlot&) { }
+    virtual bool put(JSObject*, ExecState*, PropertyName, JSValue, PutPropertySlot&) { return false; }
 
 protected:
     virtual void virtualBegin() { }
@@ -124,7 +123,7 @@ public:
     explicit Array(RefPtr<RootObject>&&);
     virtual ~Array();
 
-    virtual void setValueAt(ExecState*, unsigned index, JSValue) const = 0;
+    virtual bool setValueAt(ExecState*, unsigned index, JSValue) const = 0;
     virtual JSValue valueAt(ExecState*, unsigned index) const = 0;
     virtual unsigned int getLength() const = 0;
 

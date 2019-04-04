@@ -30,11 +30,11 @@ import re
 
 
 def view_source_url(local_path):
-    return "http://trac.webkit.org/browser/trunk/%s" % local_path
+    return "https://trac.webkit.org/browser/trunk/%s" % local_path
 
 
 def view_revision_url(revision_number):
-    return "http://trac.webkit.org/changeset/%s" % revision_number
+    return "https://trac.webkit.org/changeset/%s" % revision_number
 
 
 contribution_guidelines = "http://webkit.org/coding/contributing.html"
@@ -55,6 +55,7 @@ svn_server_host = "svn.webkit.org"
 svn_server_realm = "<http://svn.webkit.org:80> Mac OS Forge"
 
 statusserver_default_host = "webkit-queues.webkit.org"
+
 
 def parse_bug_id(string):
     if not string:

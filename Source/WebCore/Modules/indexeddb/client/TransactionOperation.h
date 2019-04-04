@@ -23,14 +23,18 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TransactionOperation_h
-#define TransactionOperation_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
-#include "IDBRequestImpl.h"
+#include "IDBRequest.h"
+#include "IDBRequestData.h"
 #include "IDBResourceIdentifier.h"
-#include "IDBTransactionImpl.h"
+#include "IDBResultData.h"
+#include "IDBTransaction.h"
+#include <wtf/Function.h>
+#include <wtf/MainThread.h>
+#include <wtf/Threading.h>
 
 namespace WebCore {
 
@@ -42,35 +46,76 @@ enum class IndexRecordType;
 
 namespace IDBClient {
 
-class TransactionOperation : public RefCounted<TransactionOperation> {
+class TransactionOperation : public ThreadSafeRefCounted<TransactionOperation> {
+    friend IDBRequestData::IDBRequestData(TransactionOperation&);
 public:
+    virtual ~TransactionOperation()
+    {
+        ASSERT(m_originThread.ptr() == &Thread::current());
+    }
+
     void perform()
     {
+        ASSERT(m_originThread.ptr() == &Thread::current());
         ASSERT(m_performFunction);
         m_performFunction();
         m_performFunction = { };
     }
 
-    void completed(const IDBResultData& data)
+    void transitionToCompleteOnThisThread(const IDBResultData& data)
     {
-        ASSERT(m_completeFunction);
-        m_completeFunction(data);
-        m_transaction->operationDidComplete(*this);
-        m_completeFunction = { };
+        ASSERT(m_originThread.ptr() == &Thread::current());
+        m_transaction->operationCompletedOnServer(data, *this);
+    }
+
+    void transitionToComplete(const IDBResultData& data, RefPtr<TransactionOperation>&& lastRef)
+    {
+        ASSERT(isMainThread());
+
+        if (m_originThread.ptr() == &Thread::current())
+            transitionToCompleteOnThisThread(data);
+        else {
+            m_transaction->performCallbackOnOriginThread(*this, &TransactionOperation::transitionToCompleteOnThisThread, data);
+            m_transaction->callFunctionOnOriginThread([lastRef = WTFMove(lastRef)]() {
+            });
+        }
+    }
+
+    void doComplete(const IDBResultData& data)
+    {
+        ASSERT(m_originThread.ptr() == &Thread::current());
+
+        if (m_performFunction)
+            m_performFunction = { };
+
+        // Due to race conditions between the server sending an "operation complete" message and the client
+        // forcefully aborting an operation, it's unavoidable that this method might be called twice.
+        // It's okay to handle that gracefully with an early return.
+        if (m_didComplete)
+            return;
+        m_didComplete = true;
+
+        if (m_completeFunction) {
+            m_completeFunction(data);
+            // m_completeFunction should not hold ref to this TransactionOperation after its execution.
+            m_completeFunction = { };
+        }
+        m_transaction->operationCompletedOnClient(*this);
     }
 
     const IDBResourceIdentifier& identifier() const { return m_identifier; }
-    IDBResourceIdentifier transactionIdentifier() const { return m_transaction->info().identifier(); }
-    uint64_t objectStoreIdentifier() const { return m_objectStoreIdentifier; }
-    uint64_t indexIdentifier() const { return m_indexIdentifier; }
-    IDBResourceIdentifier* cursorIdentifier() const { return m_cursorIdentifier.get(); }
-    IDBTransaction& transaction() { return m_transaction.get(); }
-    IndexedDB::IndexRecordType indexRecordType() const { return m_indexRecordType; }
+
+    Thread& originThread() const { return m_originThread.get(); }
+
+    IDBRequest* idbRequest() { return m_idbRequest.get(); }
+
+    bool nextRequestCanGoToServer() const { return m_nextRequestCanGoToServer && m_idbRequest; }
+    void setNextRequestCanGoToServer(bool nextRequestCanGoToServer) { m_nextRequestCanGoToServer = nextRequestCanGoToServer; }
 
 protected:
     TransactionOperation(IDBTransaction& transaction)
         : m_transaction(transaction)
-        , m_identifier(transaction.serverConnection())
+        , m_identifier(transaction.connectionProxy())
     {
     }
 
@@ -82,126 +127,59 @@ protected:
     uint64_t m_indexIdentifier { 0 };
     std::unique_ptr<IDBResourceIdentifier> m_cursorIdentifier;
     IndexedDB::IndexRecordType m_indexRecordType;
-    std::function<void ()> m_performFunction;
-    std::function<void (const IDBResultData&)> m_completeFunction;
+    Function<void()> m_performFunction;
+    Function<void(const IDBResultData&)> m_completeFunction;
+
+private:
+    IDBResourceIdentifier transactionIdentifier() const { return m_transaction->info().identifier(); }
+    uint64_t objectStoreIdentifier() const { return m_objectStoreIdentifier; }
+    uint64_t indexIdentifier() const { return m_indexIdentifier; }
+    IDBResourceIdentifier* cursorIdentifier() const { return m_cursorIdentifier.get(); }
+    IDBTransaction& transaction() { return m_transaction.get(); }
+    IndexedDB::IndexRecordType indexRecordType() const { return m_indexRecordType; }
+
+    Ref<Thread> m_originThread { Thread::current() };
+    RefPtr<IDBRequest> m_idbRequest;
+    bool m_nextRequestCanGoToServer { true };
+    bool m_didComplete { false };
 };
 
-template <typename... Arguments>
 class TransactionOperationImpl final : public TransactionOperation {
 public:
-    TransactionOperationImpl(IDBTransaction& transaction, void (IDBTransaction::*completeMethod)(const IDBResultData&), void (IDBTransaction::*performMethod)(TransactionOperation&, Arguments...), Arguments&&... arguments)
+    template<typename... Args> static Ref<TransactionOperationImpl> create(Args&&... args) { return adoptRef(*new TransactionOperationImpl(std::forward<Args>(args)...)); }
+private:
+    TransactionOperationImpl(IDBTransaction& transaction, Function<void(const IDBResultData&)> completeMethod, Function<void(TransactionOperation&)> performMethod)
         : TransactionOperation(transaction)
     {
-        relaxAdoptionRequirement();
-        RefPtr<TransactionOperation> self(this);
-
         ASSERT(performMethod);
-        m_performFunction = [self, this, performMethod, arguments...] {
-            (&m_transaction.get()->*performMethod)(*this, arguments...);
+        m_performFunction = [protectedThis = makeRef(*this), performMethod = WTFMove(performMethod)] {
+            performMethod(protectedThis.get());
         };
 
         if (completeMethod) {
-            m_completeFunction = [self, this, completeMethod](const IDBResultData& resultData) {
-                if (completeMethod)
-                    (&m_transaction.get()->*completeMethod)(resultData);
+            m_completeFunction = [protectedThis = makeRef(*this), completeMethod = WTFMove(completeMethod)] (const IDBResultData& resultData) {
+                completeMethod(resultData);
             };
         }
     }
 
-    TransactionOperationImpl(IDBTransaction& transaction, IDBRequest& request, void (IDBTransaction::*completeMethod)(IDBRequest&, const IDBResultData&), void (IDBTransaction::*performMethod)(TransactionOperation&, Arguments...), Arguments&&... arguments)
+    TransactionOperationImpl(IDBTransaction& transaction, IDBRequest& request, Function<void(const IDBResultData&)> completeMethod, Function<void(TransactionOperation&)> performMethod)
         : TransactionOperation(transaction, request)
     {
-        relaxAdoptionRequirement();
-        RefPtr<TransactionOperation> self(this);
-
         ASSERT(performMethod);
-        m_performFunction = [self, this, performMethod, arguments...] {
-            (&m_transaction.get()->*performMethod)(*this, arguments...);
+        m_performFunction = [protectedThis = makeRef(*this), performMethod = WTFMove(performMethod)] {
+            performMethod(protectedThis.get());
         };
 
         if (completeMethod) {
-            RefPtr<IDBRequest> refRequest(&request);
-            m_completeFunction = [self, this, refRequest, completeMethod](const IDBResultData& resultData) {
-                if (completeMethod)
-                    (&m_transaction.get()->*completeMethod)(*refRequest, resultData);
+            m_completeFunction = [protectedThis = makeRef(*this), completeMethod = WTFMove(completeMethod)] (const IDBResultData& resultData) {
+                completeMethod(resultData);
             };
         }
     }
 };
-
-inline RefPtr<TransactionOperation> createTransactionOperation(
-    IDBTransaction& transaction,
-    void (IDBTransaction::*complete)(const IDBResultData&),
-    void (IDBTransaction::*perform)(TransactionOperation&))
-{
-    auto operation = new TransactionOperationImpl<>(transaction, complete, perform);
-    return adoptRef(operation);
-}
-
-template<typename MP1, typename P1>
-RefPtr<TransactionOperation> createTransactionOperation(
-    IDBTransaction& transaction,
-    void (IDBTransaction::*complete)(const IDBResultData&),
-    void (IDBTransaction::*perform)(TransactionOperation&, MP1),
-    const P1& parameter1)
-{
-    auto operation = new TransactionOperationImpl<MP1>(transaction, complete, perform, parameter1);
-    return adoptRef(operation);
-}
-
-template<typename MP1, typename P1, typename MP2, typename P2>
-RefPtr<TransactionOperation> createTransactionOperation(
-    IDBTransaction& transaction,
-    void (IDBTransaction::*complete)(const IDBResultData&),
-    void (IDBTransaction::*perform)(TransactionOperation&, MP1, MP2),
-    const P1& parameter1,
-    const P2& parameter2)
-{
-    auto operation = new TransactionOperationImpl<MP1, MP2>(transaction, complete, perform, parameter1, parameter2);
-    return adoptRef(operation);
-}
-
-template<typename MP1, typename P1>
-RefPtr<TransactionOperation> createTransactionOperation(
-    IDBTransaction& transaction,
-    IDBRequest& request,
-    void (IDBTransaction::*complete)(IDBRequest&, const IDBResultData&),
-    void (IDBTransaction::*perform)(TransactionOperation&, MP1),
-    const P1& parameter1)
-{
-    auto operation = new TransactionOperationImpl<MP1>(transaction, request, complete, perform, parameter1);
-    return adoptRef(operation);
-}
-
-template<typename MP1, typename P1, typename MP2, typename P2>
-RefPtr<TransactionOperation> createTransactionOperation(
-    IDBTransaction& transaction,
-    IDBRequest& request,
-    void (IDBTransaction::*complete)(IDBRequest&, const IDBResultData&),
-    void (IDBTransaction::*perform)(TransactionOperation&, MP1, MP2),
-    const P1& parameter1,
-    const P2& parameter2)
-{
-    auto operation = new TransactionOperationImpl<MP1, MP2>(transaction, request, complete, perform, parameter1, parameter2);
-    return adoptRef(operation);
-}
-
-template<typename MP1, typename MP2, typename MP3, typename P1, typename P2, typename P3>
-RefPtr<TransactionOperation> createTransactionOperation(
-    IDBTransaction& transaction,
-    IDBRequest& request,
-    void (IDBTransaction::*complete)(IDBRequest&, const IDBResultData&),
-    void (IDBTransaction::*perform)(TransactionOperation&, MP1, MP2, MP3),
-    const P1& parameter1,
-    const P2& parameter2,
-    const P3& parameter3)
-{
-    auto operation = new TransactionOperationImpl<MP1, MP2, MP3>(transaction, request, complete, perform, parameter1, parameter2, parameter3);
-    return adoptRef(operation);
-}
 
 } // namespace IDBClient
 } // namespace WebCore
 
 #endif // ENABLE(INDEXED_DATABASE)
-#endif // TransactionOperation_h

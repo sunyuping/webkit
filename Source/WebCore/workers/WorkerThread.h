@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2017 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -21,84 +21,119 @@
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
- *
  */
 
-#ifndef WorkerThread_h
-#define WorkerThread_h
+#pragma once
 
 #include "WorkerRunLoop.h"
+#include <JavaScriptCore/RuntimeFlags.h>
 #include <memory>
 #include <wtf/Forward.h>
-#include <wtf/PassRefPtr.h>
+#include <wtf/Function.h>
 #include <wtf/RefCounted.h>
+
+namespace PAL {
+class SessionID;
+}
 
 namespace WebCore {
 
-    class ContentSecurityPolicyResponseHeaders;
-    class URL;
-    class NotificationClient;
-    class SecurityOrigin;
-    class WorkerGlobalScope;
-    class WorkerLoaderProxy;
-    class WorkerReportingProxy;
-    struct WorkerThreadStartupData;
+class ContentSecurityPolicyResponseHeaders;
+class NotificationClient;
+class SecurityOrigin;
+class SocketProvider;
+class WorkerGlobalScope;
+class WorkerLoaderProxy;
+class WorkerDebuggerProxy;
+class WorkerReportingProxy;
 
-    enum WorkerThreadStartMode { DontPauseWorkerGlobalScopeOnStart, PauseWorkerGlobalScopeOnStart };
+enum class WorkerThreadStartMode {
+    Normal,
+    WaitForInspector,
+};
 
-    class WorkerThread : public RefCounted<WorkerThread> {
-    public:
-        virtual ~WorkerThread();
+namespace IDBClient {
+class IDBConnectionProxy;
+}
 
-        bool start();
-        void stop();
+struct WorkerThreadStartupData;
 
-        ThreadIdentifier threadID() const { return m_threadID; }
-        WorkerRunLoop& runLoop() { return m_runLoop; }
-        WorkerLoaderProxy& workerLoaderProxy() const { return m_workerLoaderProxy; }
-        WorkerReportingProxy& workerReportingProxy() const { return m_workerReportingProxy; }
+class WorkerThread : public ThreadSafeRefCounted<WorkerThread> {
+public:
+    virtual ~WorkerThread();
 
-        // Number of active worker threads.
-        WEBCORE_EXPORT static unsigned workerThreadCount();
-        static void releaseFastMallocFreeMemoryInAllThreads();
+    static HashSet<WorkerThread*>& workerThreads(const LockHolder&);
+    static Lock& workerThreadsMutex();
 
-#if ENABLE(NOTIFICATIONS) || ENABLE(LEGACY_NOTIFICATIONS)
-        NotificationClient* getNotificationClient() { return m_notificationClient; }
-        void setNotificationClient(NotificationClient* client) { m_notificationClient = client; }
+    WEBCORE_EXPORT void start(WTF::Function<void(const String&)>&& evaluateCallback);
+    void stop(WTF::Function<void()>&& terminatedCallback);
+
+    Thread* thread() const { return m_thread.get(); }
+    WorkerRunLoop& runLoop() { return m_runLoop; }
+    WorkerLoaderProxy& workerLoaderProxy() const { return m_workerLoaderProxy; }
+    WorkerDebuggerProxy& workerDebuggerProxy() const { return m_workerDebuggerProxy; }
+    WorkerReportingProxy& workerReportingProxy() const { return m_workerReportingProxy; }
+
+    // Number of active worker threads.
+    WEBCORE_EXPORT static unsigned workerThreadCount();
+    static void releaseFastMallocFreeMemoryInAllThreads();
+
+#if ENABLE(NOTIFICATIONS)
+    NotificationClient* getNotificationClient() { return m_notificationClient; }
+    void setNotificationClient(NotificationClient* client) { m_notificationClient = client; }
 #endif
 
-    protected:
-        WorkerThread(const URL&, const String& userAgent, const String& sourceCode, WorkerLoaderProxy&, WorkerReportingProxy&, WorkerThreadStartMode, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, const SecurityOrigin* topOrigin);
+    void startRunningDebuggerTasks();
+    void stopRunningDebuggerTasks();
+    
+    JSC::RuntimeFlags runtimeFlags() const { return m_runtimeFlags; }
 
-        // Factory method for creating a new worker context for the thread.
-        virtual Ref<WorkerGlobalScope> createWorkerGlobalScope(const URL&, const String& userAgent, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, PassRefPtr<SecurityOrigin> topOrigin) = 0;
+    String identifier() const { return m_identifier; }
 
-        // Executes the event loop for the worker thread. Derived classes can override to perform actions before/after entering the event loop.
-        virtual void runEventLoop();
+protected:
+    WorkerThread(const URL&, const String& name, const String& identifier, const String& userAgent, bool isOnline, const String& sourceCode, WorkerLoaderProxy&, WorkerDebuggerProxy&, WorkerReportingProxy&, WorkerThreadStartMode, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, const SecurityOrigin& topOrigin, MonotonicTime timeOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, JSC::RuntimeFlags, PAL::SessionID);
 
-        WorkerGlobalScope* workerGlobalScope() { return m_workerGlobalScope.get(); }
+    // Factory method for creating a new worker context for the thread.
+    virtual Ref<WorkerGlobalScope> createWorkerGlobalScope(const URL&, Ref<SecurityOrigin>&&, const String& name, const String& identifier, const String& userAgent, bool isOnline, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, Ref<SecurityOrigin>&& topOrigin, MonotonicTime timeOrigin, PAL::SessionID) = 0;
 
-    private:
-        // Static function executed as the core routine on the new thread. Passed a pointer to a WorkerThread object.
-        static void workerThreadStart(void*);
-        void workerThread();
+    // Executes the event loop for the worker thread. Derived classes can override to perform actions before/after entering the event loop.
+    virtual void runEventLoop();
 
-        ThreadIdentifier m_threadID;
-        WorkerRunLoop m_runLoop;
-        WorkerLoaderProxy& m_workerLoaderProxy;
-        WorkerReportingProxy& m_workerReportingProxy;
+    WorkerGlobalScope* workerGlobalScope() { return m_workerGlobalScope.get(); }
 
-        RefPtr<WorkerGlobalScope> m_workerGlobalScope;
-        Lock m_threadCreationMutex;
+    IDBClient::IDBConnectionProxy* idbConnectionProxy();
+    SocketProvider* socketProvider();
 
-        std::unique_ptr<WorkerThreadStartupData> m_startupData;
+private:
+    void workerThread();
+    virtual bool isServiceWorkerThread() const { return false; }
 
-#if ENABLE(NOTIFICATIONS) || ENABLE(LEGACY_NOTIFICATIONS)
-        NotificationClient* m_notificationClient;
+    RefPtr<Thread> m_thread;
+    String m_identifier;
+    WorkerRunLoop m_runLoop;
+    WorkerLoaderProxy& m_workerLoaderProxy;
+    WorkerDebuggerProxy& m_workerDebuggerProxy;
+    WorkerReportingProxy& m_workerReportingProxy;
+    JSC::RuntimeFlags m_runtimeFlags;
+    bool m_pausedForDebugger { false };
+
+    RefPtr<WorkerGlobalScope> m_workerGlobalScope;
+    Lock m_threadCreationAndWorkerGlobalScopeMutex;
+
+    std::unique_ptr<WorkerThreadStartupData> m_startupData;
+    
+    WTF::Function<void(const String&)> m_evaluateCallback;
+
+#if ENABLE(NOTIFICATIONS)
+    NotificationClient* m_notificationClient { nullptr };
 #endif
-    };
+
+#if ENABLE(INDEXED_DATABASE)
+    RefPtr<IDBClient::IDBConnectionProxy> m_idbConnectionProxy;
+#endif
+    RefPtr<SocketProvider> m_socketProvider;
+
+    WTF::Function<void()> m_stoppedCallback;
+};
 
 } // namespace WebCore
-
-#endif // WorkerThread_h
-

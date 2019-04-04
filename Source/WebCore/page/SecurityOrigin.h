@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,15 +26,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SecurityOrigin_h
-#define SecurityOrigin_h
+#pragma once
 
+#include "SecurityOriginData.h"
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-
-class URL;
 
 class SecurityOrigin : public ThreadSafeRefCounted<SecurityOrigin> {
 public:
@@ -51,16 +49,10 @@ public:
     };
 
     WEBCORE_EXPORT static Ref<SecurityOrigin> create(const URL&);
-    static Ref<SecurityOrigin> createUnique();
-
-    WEBCORE_EXPORT static Ref<SecurityOrigin> createFromDatabaseIdentifier(const String&);
-    // Alternate form of createFromDatabaseIdentifier that returns a nullptr on failure, instead of an empty origin.
-    // FIXME: Many users of createFromDatabaseIdentifier seem to expect maybeCreateFromDatabaseIdentifier behavior,
-    // but they aren't getting it so they might be buggy.
-    WEBCORE_EXPORT static RefPtr<SecurityOrigin> maybeCreateFromDatabaseIdentifier(const String&);
+    WEBCORE_EXPORT static Ref<SecurityOrigin> createUnique();
 
     WEBCORE_EXPORT static Ref<SecurityOrigin> createFromString(const String&);
-    WEBCORE_EXPORT static Ref<SecurityOrigin> create(const String& protocol, const String& host, int port);
+    WEBCORE_EXPORT static Ref<SecurityOrigin> create(const String& protocol, const String& host, Optional<uint16_t> port);
 
     // Some URL schemes use nested URLs for their security context. For example,
     // filesystem URLs look like the following:
@@ -85,10 +77,10 @@ public:
     void setDomainFromDOM(const String& newDomain);
     bool domainWasSetInDOM() const { return m_domainWasSetInDOM; }
 
-    String protocol() const { return m_protocol; }
-    String host() const { return m_host; }
-    String domain() const { return m_domain; }
-    unsigned short port() const { return m_port; }
+    const String& protocol() const { return m_data.protocol; }
+    const String& host() const { return m_data.host; }
+    const String& domain() const { return m_domain; }
+    Optional<uint16_t> port() const { return m_data.port; }
 
     // Returns true if a given URL is secure, based either directly on its
     // own protocol, or, when relevant, on the protocol of its "inner URL"
@@ -99,22 +91,17 @@ public:
     // SecurityOrigin. For example, call this function before allowing
     // script from one security origin to read or write objects from
     // another SecurityOrigin.
-    WEBCORE_EXPORT bool canAccess(const SecurityOrigin*) const;
+    WEBCORE_EXPORT bool canAccess(const SecurityOrigin&) const;
 
     // Returns true if this SecurityOrigin can read content retrieved from
     // the given URL. For example, call this function before issuing
     // XMLHttpRequests.
-    bool canRequest(const URL&) const;
-
-    // Returns true if drawing an image from this URL taints a canvas from
-    // this security origin. For example, call this function before
-    // drawing an image onto an HTML canvas element with the drawImage API.
-    bool taintsCanvas(const URL&) const;
+    WEBCORE_EXPORT bool canRequest(const URL&) const;
 
     // Returns true if this SecurityOrigin can receive drag content from the
     // initiator. For example, call this function before allowing content to be
     // dropped onto a target.
-    bool canReceiveDragData(const SecurityOrigin* dragInitiator) const;    
+    bool canReceiveDragData(const SecurityOrigin& dragInitiator) const;
 
     // Returns true if |document| can display content from the given URL (e.g.,
     // in an iframe or as an image). For example, web sites generally cannot
@@ -143,18 +130,20 @@ public:
     //
     // WARNING: This is an extremely powerful ability. Use with caution!
     void grantUniversalAccess();
+    bool hasUniversalAccess() const { return m_universalAccess; }
 
     void setStorageBlockingPolicy(StorageBlockingPolicy policy) { m_storageBlockingPolicy = policy; }
 
-#if ENABLE(CACHE_PARTITIONING)
-    WEBCORE_EXPORT String domainForCachePartition() const;
-#endif
+    void grantStorageAccessFromFileURLsQuirk();
+    bool needsStorageAccessFromFileURLsQuirk() const { return m_needsStorageAccessFromFileURLsQuirk; }
 
-    bool canAccessDatabase(const SecurityOrigin* topOrigin = nullptr) const { return canAccessStorage(topOrigin); };
-    bool canAccessSessionStorage(const SecurityOrigin* topOrigin) const { return canAccessStorage(topOrigin, AlwaysAllowFromThirdParty); }
+    WEBCORE_EXPORT String domainForCachePartition() const;
+
+    bool canAccessDatabase(const SecurityOrigin& topOrigin) const { return canAccessStorage(&topOrigin); };
+    bool canAccessSessionStorage(const SecurityOrigin& topOrigin) const { return canAccessStorage(&topOrigin, AlwaysAllowFromThirdParty); }
     bool canAccessLocalStorage(const SecurityOrigin* topOrigin) const { return canAccessStorage(topOrigin); };
-    bool canAccessPluginStorage(const SecurityOrigin* topOrigin) const { return canAccessStorage(topOrigin); }
-    bool canAccessApplicationCache(const SecurityOrigin* topOrigin) const { return canAccessStorage(topOrigin); }
+    bool canAccessPluginStorage(const SecurityOrigin& topOrigin) const { return canAccessStorage(&topOrigin); }
+    bool canAccessApplicationCache(const SecurityOrigin& topOrigin) const { return canAccessStorage(&topOrigin); }
     bool canAccessCookies() const { return !isUnique(); }
     bool canRequestGeolocation() const { return !isUnique(); }
     Policy canShowNotifications() const;
@@ -162,7 +151,7 @@ public:
     // The local SecurityOrigin is the most privileged SecurityOrigin.
     // The local SecurityOrigin can script any document, navigate to local
     // resources, and can set arbitrary headers on XMLHttpRequests.
-    WEBCORE_EXPORT bool isLocal() const;
+    bool isLocal() const { return m_isLocal; }
 
     // The origin is a globally unique identifier assigned when the Document is
     // created. http://www.whatwg.org/specs/web-apps/current-work/#sandboxOrigin
@@ -175,7 +164,8 @@ public:
     // Marks a file:// origin as being in a domain defined by its path.
     // FIXME 81578: The naming of this is confusing. Files with restricted access to other local files
     // still can have other privileges that can be remembered, thereby not making them unique.
-    void enforceFilePathSeparation();
+    void setEnforcesFilePathSeparation();
+    bool enforcesFilePathSeparation() const { return m_enforcesFilePathSeparation; }
 
     // Convert this SecurityOrigin into a string. The string
     // representation of a SecurityOrigin is similar to a URL, except it
@@ -193,10 +183,6 @@ public:
     // could make the string return "null".
     WEBCORE_EXPORT String toRawString() const;
 
-    // Serialize the security origin to a string that could be used as part of
-    // file names. This format should be used in storage APIs only.
-    WEBCORE_EXPORT String databaseIdentifier() const;
-
     // This method checks for equality between SecurityOrigins, not whether
     // one origin can access another. It is used for hash table keys.
     // For access checks, use canAccess().
@@ -206,9 +192,21 @@ public:
 
     // This method checks for equality, ignoring the value of document.domain
     // (and whether it was set) but considering the host. It is used for postMessage.
-    WEBCORE_EXPORT bool isSameSchemeHostPort(const SecurityOrigin*) const;
+    WEBCORE_EXPORT bool isSameSchemeHostPort(const SecurityOrigin&) const;
 
-    static URL urlWithUniqueSecurityOrigin();
+    // This method implements the "same origin" algorithm from the HTML Standard:
+    // https://html.spec.whatwg.org/multipage/browsers.html#same-origin
+    WEBCORE_EXPORT bool isSameOriginAs(const SecurityOrigin&) const;
+
+    bool isPotentiallyTrustworthy() const { return m_isPotentiallyTrustworthy; }
+    void setIsPotentiallyTrustworthy(bool value) { m_isPotentiallyTrustworthy = value; }
+
+    static bool isLocalHostOrLoopbackIPAddress(StringView);
+
+    const SecurityOriginData& data() const { return m_data; }
+
+    template<class Encoder> void encode(Encoder&) const;
+    template<class Decoder> static RefPtr<SecurityOrigin> decode(Decoder&);
 
 private:
     SecurityOrigin();
@@ -216,30 +214,84 @@ private:
     explicit SecurityOrigin(const SecurityOrigin*);
 
     // FIXME: Rename this function to something more semantic.
-    bool passesFileCheck(const SecurityOrigin*) const;
-    bool isThirdParty(const SecurityOrigin*) const;
+    bool passesFileCheck(const SecurityOrigin&) const;
 
     // This method checks that the scheme for this origin is an HTTP-family
     // scheme, e.g. HTTP and HTTPS.
-    bool isHTTPFamily() const { return m_protocol == "http" || m_protocol == "https"; }
+    bool isHTTPFamily() const { return m_data.protocol == "http" || m_data.protocol == "https"; }
     
     enum ShouldAllowFromThirdParty { AlwaysAllowFromThirdParty, MaybeAllowFromThirdParty };
     WEBCORE_EXPORT bool canAccessStorage(const SecurityOrigin*, ShouldAllowFromThirdParty = MaybeAllowFromThirdParty) const;
 
-    String m_protocol;
-    String m_host;
+    SecurityOriginData m_data;
     String m_domain;
     String m_filePath;
-    unsigned short m_port;
-    bool m_isUnique;
-    bool m_universalAccess;
-    bool m_domainWasSetInDOM;
-    bool m_canLoadLocalResources;
-    StorageBlockingPolicy m_storageBlockingPolicy;
-    bool m_enforceFilePathSeparation;
-    bool m_needsDatabaseIdentifierQuirkForFiles;
+    bool m_isUnique { false };
+    bool m_universalAccess { false };
+    bool m_domainWasSetInDOM { false };
+    bool m_canLoadLocalResources { false };
+    StorageBlockingPolicy m_storageBlockingPolicy { AllowAllStorage };
+    bool m_enforcesFilePathSeparation { false };
+    bool m_needsStorageAccessFromFileURLsQuirk { false };
+    bool m_isPotentiallyTrustworthy { false };
+    bool m_isLocal { false };
 };
 
-} // namespace WebCore
+bool shouldTreatAsPotentiallyTrustworthy(const URL&);
 
-#endif // SecurityOrigin_h
+// Returns true if the Origin header values serialized from these two origins would be the same.
+bool serializedOriginsMatch(const SecurityOrigin&, const SecurityOrigin&);
+bool serializedOriginsMatch(const SecurityOrigin*, const SecurityOrigin*);
+
+template<class Encoder> inline void SecurityOrigin::encode(Encoder& encoder) const
+{
+    encoder << m_data;
+    encoder << m_domain;
+    encoder << m_filePath;
+    encoder << m_isUnique;
+    encoder << m_universalAccess;
+    encoder << m_domainWasSetInDOM;
+    encoder << m_canLoadLocalResources;
+    encoder.encodeEnum(m_storageBlockingPolicy);
+    encoder << m_enforcesFilePathSeparation;
+    encoder << m_needsStorageAccessFromFileURLsQuirk;
+    encoder << m_isPotentiallyTrustworthy;
+    encoder << m_isLocal;
+}
+
+template<class Decoder> inline RefPtr<SecurityOrigin> SecurityOrigin::decode(Decoder& decoder)
+{
+    Optional<SecurityOriginData> data;
+    decoder >> data;
+    if (!data)
+        return nullptr;
+
+    auto origin = SecurityOrigin::create(data->protocol, data->host, data->port);
+
+    if (!decoder.decode(origin->m_domain))
+        return nullptr;
+    if (!decoder.decode(origin->m_filePath))
+        return nullptr;
+    if (!decoder.decode(origin->m_isUnique))
+        return nullptr;
+    if (!decoder.decode(origin->m_universalAccess))
+        return nullptr;
+    if (!decoder.decode(origin->m_domainWasSetInDOM))
+        return nullptr;
+    if (!decoder.decode(origin->m_canLoadLocalResources))
+        return nullptr;
+    if (!decoder.decodeEnum(origin->m_storageBlockingPolicy))
+        return nullptr;
+    if (!decoder.decode(origin->m_enforcesFilePathSeparation))
+        return nullptr;
+    if (!decoder.decode(origin->m_needsStorageAccessFromFileURLsQuirk))
+        return nullptr;
+    if (!decoder.decode(origin->m_isPotentiallyTrustworthy))
+        return nullptr;
+    if (!decoder.decode(origin->m_isLocal))
+        return nullptr;
+
+    return origin;
+}
+
+} // namespace WebCore

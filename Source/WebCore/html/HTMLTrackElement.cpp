@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011, 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,22 +25,28 @@
  */
 
 #include "config.h"
-#if ENABLE(VIDEO_TRACK)
 #include "HTMLTrackElement.h"
+
+#if ENABLE(VIDEO_TRACK)
 
 #include "ContentSecurityPolicy.h"
 #include "Event.h"
+#include "EventNames.h"
 #include "HTMLMediaElement.h"
 #include "HTMLNames.h"
 #include "Logging.h"
 #include "RuntimeEnabledFeatures.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
 
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLTrackElement);
+
 using namespace HTMLNames;
 
 #if !LOG_DISABLED
+
 static String urlForLoggingTrack(const URL& url)
 {
     static const unsigned maximumURLLengthForLogging = 128;
@@ -48,6 +55,7 @@ static String urlForLoggingTrack(const URL& url)
         return url.string();
     return url.string().substring(0, maximumURLLengthForLogging) + "...";
 }
+
 #endif
     
 inline HTMLTrackElement::HTMLTrackElement(const QualifiedName& tagName, Document& document)
@@ -60,8 +68,10 @@ inline HTMLTrackElement::HTMLTrackElement(const QualifiedName& tagName, Document
 
 HTMLTrackElement::~HTMLTrackElement()
 {
-    if (m_track)
+    if (m_track) {
+        m_track->clearElement();
         m_track->clearClient();
+    }
 }
 
 Ref<HTMLTrackElement> HTMLTrackElement::create(const QualifiedName& tagName, Document& document)
@@ -69,108 +79,84 @@ Ref<HTMLTrackElement> HTMLTrackElement::create(const QualifiedName& tagName, Doc
     return adoptRef(*new HTMLTrackElement(tagName, document));
 }
 
-Node::InsertionNotificationRequest HTMLTrackElement::insertedInto(ContainerNode& insertionPoint)
+Node::InsertedIntoAncestorResult HTMLTrackElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    // Since we've moved to a new parent, we may now be able to load.
-    scheduleLoad();
+    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
 
-    HTMLElement::insertedInto(insertionPoint);
-    HTMLMediaElement* parent = mediaElement();
-    if (&insertionPoint == parent) {
-        ensureTrack();
-        parent->didAddTextTrack(this);
+    if (parentNode() == &parentOfInsertedTree && is<HTMLMediaElement>(parentOfInsertedTree)) {
+        downcast<HTMLMediaElement>(parentOfInsertedTree).didAddTextTrack(*this);
+        scheduleLoad();
     }
-    return InsertionDone;
+
+    return InsertedIntoAncestorResult::Done;
 }
 
-void HTMLTrackElement::removedFrom(ContainerNode& insertionPoint)
+void HTMLTrackElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    if (!parentNode() && is<HTMLMediaElement>(insertionPoint))
-        downcast<HTMLMediaElement>(insertionPoint).didRemoveTextTrack(this);
-    HTMLElement::removedFrom(insertionPoint);
+    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+
+    if (!parentNode() && is<HTMLMediaElement>(oldParentOfRemovedTree))
+        downcast<HTMLMediaElement>(oldParentOfRemovedTree).didRemoveTextTrack(*this);
 }
 
 void HTMLTrackElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
 {
-    if (RuntimeEnabledFeatures::sharedFeatures().webkitVideoTrackEnabled()) {
-        if (name == srcAttr) {
-            if (!value.isEmpty())
-                scheduleLoad();
-            else if (m_track)
-                m_track->removeAllCues();
+    if (name == srcAttr) {
+        scheduleLoad();
 
-        // 4.8.10.12.3 Sourcing out-of-band text tracks
-        // As the kind, label, and srclang attributes are set, changed, or removed, the text track must update accordingly...
-        } else if (name == kindAttr)
-            track()->setKind(value.convertToASCIILowercase());
-        else if (name == labelAttr)
-            track()->setLabel(value);
-        else if (name == srclangAttr)
-            track()->setLanguage(value);
-        else if (name == defaultAttr)
-            track()->setIsDefault(!value.isNull());
-    }
+    // 4.8.10.12.3 Sourcing out-of-band text tracks
+    // As the kind, label, and srclang attributes are set, changed, or removed, the text track must update accordingly...
+    } else if (name == kindAttr)
+        track().setKindKeywordIgnoringASCIICase(value.string());
+    else if (name == labelAttr)
+        track().setLabel(value);
+    else if (name == srclangAttr)
+        track().setLanguage(value);
+    else if (name == defaultAttr)
+        track().setIsDefault(!value.isNull());
 
     HTMLElement::parseAttribute(name, value);
 }
 
-String HTMLTrackElement::kind()
+const AtomicString& HTMLTrackElement::kind()
 {
-    return track()->kind();
+    return track().kindKeyword();
 }
 
-void HTMLTrackElement::setKind(const String& kind)
+void HTMLTrackElement::setKind(const AtomicString& kind)
 {
-    setAttribute(kindAttr, kind);
+    setAttributeWithoutSynchronization(kindAttr, kind);
 }
 
-String HTMLTrackElement::srclang() const
+const AtomicString& HTMLTrackElement::srclang() const
 {
-    return getAttribute(srclangAttr);
+    return attributeWithoutSynchronization(srclangAttr);
 }
 
-void HTMLTrackElement::setSrclang(const String& srclang)
+const AtomicString& HTMLTrackElement::label() const
 {
-    setAttribute(srclangAttr, srclang);
-}
-
-String HTMLTrackElement::label() const
-{
-    return getAttribute(labelAttr);
-}
-
-void HTMLTrackElement::setLabel(const String& label)
-{
-    setAttribute(labelAttr, label);
+    return attributeWithoutSynchronization(labelAttr);
 }
 
 bool HTMLTrackElement::isDefault() const
 {
-    return fastHasAttribute(defaultAttr);
+    return hasAttributeWithoutSynchronization(defaultAttr);
 }
 
-void HTMLTrackElement::setIsDefault(bool isDefault)
+LoadableTextTrack& HTMLTrackElement::track()
 {
-    setBooleanAttribute(defaultAttr, isDefault);
-}
-
-LoadableTextTrack& HTMLTrackElement::ensureTrack()
-{
+    // FIXME: There is no practical value in lazily initializing this.
+    // Instead this should be created in the constructor.
     if (!m_track) {
         // The kind attribute is an enumerated attribute, limited only to known values. It defaults to 'subtitles' if missing or invalid.
-        String kind = fastGetAttribute(kindAttr).convertToASCIILowercase();
+        String kind = attributeWithoutSynchronization(kindAttr).convertToASCIILowercase();
         if (!TextTrack::isValidKindKeyword(kind))
             kind = TextTrack::subtitlesKeyword();
-        m_track = LoadableTextTrack::create(this, kind, label(), srclang());
-    } else
-        m_track->setTrackElement(this);
+        m_track = LoadableTextTrack::create(*this, kind, label(), srclang());
+    }
+    ASSERT(m_track->trackElement() == this);
 
     return *m_track;
-}
-
-TextTrack* HTMLTrackElement::track()
-{
-    return &ensureTrack();
 }
 
 bool HTMLTrackElement::isURLAttribute(const Attribute& attribute) const
@@ -185,11 +171,8 @@ void HTMLTrackElement::scheduleLoad()
     if (m_loadTimer.isActive())
         return;
 
-    if (!RuntimeEnabledFeatures::sharedFeatures().webkitVideoTrackEnabled())
-        return;
-
     // 2. If the text track's text track mode is not set to one of hidden or showing, abort these steps.
-    if (ensureTrack().mode() != TextTrack::hiddenKeyword() && ensureTrack().mode() != TextTrack::showingKeyword())
+    if (track().mode() != TextTrack::Mode::Hidden && track().mode() != TextTrack::Mode::Showing)
         return;
 
     // 3. If the text track's track element does not have a media element as a parent, abort these steps.
@@ -197,13 +180,15 @@ void HTMLTrackElement::scheduleLoad()
         return;
 
     // 4. Run the remainder of these steps asynchronously, allowing whatever caused these steps to run to continue.
-    m_loadTimer.startOneShot(0);
+    m_loadTimer.startOneShot(0_s);
 }
 
 void HTMLTrackElement::loadTimerFired()
 {
-    if (!fastHasAttribute(srcAttr))
+    if (!hasAttributeWithoutSynchronization(srcAttr)) {
+        track().removeAllCues();
         return;
+    }
 
     // 6. Set the text track readiness state to loading.
     setReadyState(HTMLTrackElement::LOADING);
@@ -211,22 +196,22 @@ void HTMLTrackElement::loadTimerFired()
     // 7. Let URL be the track URL of the track element.
     URL url = getNonEmptyURLAttribute(srcAttr);
 
+    // ... if URL is the empty string, then queue a task to first change the text track readiness state
+    // to failed to load and then fire an event named error at the track element.
     // 8. If the track element's parent is a media element then let CORS mode be the state of the parent media
     // element's crossorigin content attribute. Otherwise, let CORS mode be No CORS.
-    if (!canLoadURL(url)) {
+    if (url.isEmpty() || !canLoadURL(url)) {
+        track().removeAllCues();
         didCompleteLoad(HTMLTrackElement::Failure);
         return;
     }
 
-    ensureTrack().scheduleLoad(url);
+    track().scheduleLoad(url);
 }
 
 bool HTMLTrackElement::canLoadURL(const URL& url)
 {
-    if (!RuntimeEnabledFeatures::sharedFeatures().webkitVideoTrackEnabled())
-        return false;
-
-    HTMLMediaElement* parent = mediaElement();
+    auto parent = mediaElement();
     if (!parent)
         return false;
 
@@ -238,11 +223,13 @@ bool HTMLTrackElement::canLoadURL(const URL& url)
     if (url.isEmpty())
         return false;
 
-    if (!document().contentSecurityPolicy()->allowMediaFromSource(url, isInUserAgentShadowTree())) {
+    ASSERT(document().contentSecurityPolicy());
+    // Elements in user agent show tree should load whatever the embedding document policy is.
+    if (!isInUserAgentShadowTree() && !document().contentSecurityPolicy()->allowMediaFromSource(url)) {
         LOG(Media, "HTMLTrackElement::canLoadURL(%s) -> rejected by Content Security Policy", urlForLoggingTrack(url).utf8().data());
         return false;
     }
-    
+
     return dispatchBeforeLoadEvent(url.string());
 }
 
@@ -260,7 +247,7 @@ void HTMLTrackElement::didCompleteLoad(LoadStatus status)
 
     if (status == Failure) {
         setReadyState(HTMLTrackElement::TRACK_ERROR);
-        dispatchEvent(Event::create(eventNames().errorEvent, false, false));
+        dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
         return;
     }
 
@@ -271,7 +258,7 @@ void HTMLTrackElement::didCompleteLoad(LoadStatus status)
 
     //     2. If the file was successfully processed, fire a simple event named load at the 
     //        track element.
-    dispatchEvent(Event::create(eventNames().loadEvent, false, false));
+    dispatchEvent(Event::create(eventNames().loadEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 // NOTE: The values in the TextTrack::ReadinessState enum must stay in sync with those in HTMLTrackElement::ReadyState.
@@ -282,71 +269,69 @@ COMPILE_ASSERT(HTMLTrackElement::TRACK_ERROR == static_cast<HTMLTrackElement::Re
 
 void HTMLTrackElement::setReadyState(ReadyState state)
 {
-    ensureTrack().setReadinessState(static_cast<TextTrack::ReadinessState>(state));
-    if (HTMLMediaElement* parent = mediaElement())
-        return parent->textTrackReadyStateChanged(m_track.get());
+    track().setReadinessState(static_cast<TextTrack::ReadinessState>(state));
+    if (auto parent = mediaElement())
+        parent->textTrackReadyStateChanged(m_track.get());
 }
 
 HTMLTrackElement::ReadyState HTMLTrackElement::readyState() 
 {
-    return static_cast<ReadyState>(ensureTrack().readinessState());
+    return static_cast<ReadyState>(track().readinessState());
 }
 
 const AtomicString& HTMLTrackElement::mediaElementCrossOriginAttribute() const
 {
-    if (HTMLMediaElement* parent = mediaElement())
-        return parent->fastGetAttribute(HTMLNames::crossoriginAttr);
-    
-    return nullAtom;
+    if (auto parent = mediaElement())
+        return parent->attributeWithoutSynchronization(HTMLNames::crossoriginAttr);
+    return nullAtom();
 }
 
-void HTMLTrackElement::textTrackKindChanged(TextTrack* track)
+void HTMLTrackElement::textTrackKindChanged(TextTrack& track)
 {
-    if (HTMLMediaElement* parent = mediaElement())
-        return parent->textTrackKindChanged(track);
+    if (auto parent = mediaElement())
+        parent->textTrackKindChanged(track);
 }
 
-void HTMLTrackElement::textTrackModeChanged(TextTrack* track)
+void HTMLTrackElement::textTrackModeChanged(TextTrack& track)
 {
     // Since we've moved to a new parent, we may now be able to load.
     if (readyState() == HTMLTrackElement::NONE)
         scheduleLoad();
 
-    if (HTMLMediaElement* parent = mediaElement())
-        return parent->textTrackModeChanged(track);
+    if (auto parent = mediaElement())
+        parent->textTrackModeChanged(track);
 }
 
-void HTMLTrackElement::textTrackAddCues(TextTrack* track, const TextTrackCueList* cues)
+void HTMLTrackElement::textTrackAddCues(TextTrack& track, const TextTrackCueList& cues)
 {
-    if (HTMLMediaElement* parent = mediaElement())
-        return parent->textTrackAddCues(track, cues);
+    if (auto parent = mediaElement())
+        parent->textTrackAddCues(track, cues);
 }
     
-void HTMLTrackElement::textTrackRemoveCues(TextTrack* track, const TextTrackCueList* cues)
+void HTMLTrackElement::textTrackRemoveCues(TextTrack& track, const TextTrackCueList& cues)
 {
-    if (HTMLMediaElement* parent = mediaElement())
-        return parent->textTrackRemoveCues(track, cues);
+    if (auto parent = mediaElement())
+        parent->textTrackRemoveCues(track, cues);
 }
     
-void HTMLTrackElement::textTrackAddCue(TextTrack* track, PassRefPtr<TextTrackCue> cue)
+void HTMLTrackElement::textTrackAddCue(TextTrack& track, TextTrackCue& cue)
 {
-    if (HTMLMediaElement* parent = mediaElement())
-        return parent->textTrackAddCue(track, cue);
+    if (auto parent = mediaElement())
+        parent->textTrackAddCue(track, cue);
 }
     
-void HTMLTrackElement::textTrackRemoveCue(TextTrack* track, PassRefPtr<TextTrackCue> cue)
+void HTMLTrackElement::textTrackRemoveCue(TextTrack& track, TextTrackCue& cue)
 {
-    if (HTMLMediaElement* parent = mediaElement())
-        return parent->textTrackRemoveCue(track, cue);
+    if (auto parent = mediaElement())
+        parent->textTrackRemoveCue(track, cue);
 }
 
-HTMLMediaElement* HTMLTrackElement::mediaElement() const
+RefPtr<HTMLMediaElement> HTMLTrackElement::mediaElement() const
 {
-    Element* parent = parentElement();
-    if (is<HTMLMediaElement>(parent))
-        return downcast<HTMLMediaElement>(parentNode());
-
-    return nullptr;
+    auto parent = makeRefPtr(parentElement());
+    if (!is<HTMLMediaElement>(parent))
+        return nullptr;
+    return downcast<HTMLMediaElement>(parent.get());
 }
 
 }

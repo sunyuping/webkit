@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.Point = class Point
+WI.Point = class Point
 {
     constructor(x, y)
     {
@@ -35,41 +35,41 @@ WebInspector.Point = class Point
 
     static fromEvent(event)
     {
-        return new WebInspector.Point(event.pageX, event.pageY);
+        return new WI.Point(event.pageX, event.pageY);
     }
 
     static fromEventInElement(event, element)
     {
         var wkPoint = window.webkitConvertPointFromPageToNode(element, new WebKitPoint(event.pageX, event.pageY));
-        return new WebInspector.Point(wkPoint.x, wkPoint.y);
+        return new WI.Point(wkPoint.x, wkPoint.y);
     }
 
     // Public
 
     toString()
     {
-        return "WebInspector.Point[" + this.x + "," + this.y + "]";
+        return "WI.Point[" + this.x + "," + this.y + "]";
     }
 
     copy()
     {
-        return new WebInspector.Point(this.x, this.y);
+        return new WI.Point(this.x, this.y);
     }
 
     equals(anotherPoint)
     {
-        return (this.x === anotherPoint.x && this.y === anotherPoint.y);
+        return this.x === anotherPoint.x && this.y === anotherPoint.y;
     }
 
     distance(anotherPoint)
     {
-        var dx = anotherPoint.x - this.x;
-        var dy = anotherPoint.y - this.y;
-        return Math.sqrt(dx * dx, dy * dy);
+        let dx = anotherPoint.x - this.x;
+        let dy = anotherPoint.y - this.y;
+        return Math.sqrt((dx * dx) + (dy * dy));
     }
 };
 
-WebInspector.Size = class Size
+WI.Size = class Size
 {
     constructor(width, height)
     {
@@ -81,36 +81,36 @@ WebInspector.Size = class Size
 
     toString()
     {
-        return "WebInspector.Size[" + this.width + "," + this.height + "]";
+        return "WI.Size[" + this.width + "," + this.height + "]";
     }
 
     copy()
     {
-        return new WebInspector.Size(this.width, this.height);
+        return new WI.Size(this.width, this.height);
     }
 
     equals(anotherSize)
     {
-        return (this.width === anotherSize.width && this.height === anotherSize.height);
+        return this.width === anotherSize.width && this.height === anotherSize.height;
     }
 };
 
-WebInspector.Size.ZERO_SIZE = new WebInspector.Size(0, 0);
+WI.Size.ZERO_SIZE = new WI.Size(0, 0);
 
 
-WebInspector.Rect = class Rect
+WI.Rect = class Rect
 {
     constructor(x, y, width, height)
     {
-        this.origin = new WebInspector.Point(x || 0, y || 0);
-        this.size = new WebInspector.Size(width || 0, height || 0);
+        this.origin = new WI.Point(x || 0, y || 0);
+        this.size = new WI.Size(width || 0, height || 0);
     }
 
     // Static
 
     static rectFromClientRect(clientRect)
     {
-        return new WebInspector.Rect(clientRect.left, clientRect.top, clientRect.width, clientRect.height);
+        return new WI.Rect(clientRect.left, clientRect.top, clientRect.width, clientRect.height);
     }
 
     static unionOfRects(rects)
@@ -125,22 +125,22 @@ WebInspector.Rect = class Rect
 
     toString()
     {
-        return "WebInspector.Rect[" + [this.origin.x, this.origin.y, this.size.width, this.size.height].join(", ") + "]";
+        return "WI.Rect[" + [this.origin.x, this.origin.y, this.size.width, this.size.height].join(", ") + "]";
     }
 
     copy()
     {
-        return new WebInspector.Rect(this.origin.x, this.origin.y, this.size.width, this.size.height);
+        return new WI.Rect(this.origin.x, this.origin.y, this.size.width, this.size.height);
     }
 
     equals(anotherRect)
     {
-        return (this.origin.equals(anotherRect.origin) && this.size.equals(anotherRect.size));
+        return this.origin.equals(anotherRect.origin) && this.size.equals(anotherRect.size);
     }
 
     inset(insets)
     {
-        return new WebInspector.Rect(
+        return new WI.Rect(
             this.origin.x + insets.left,
             this.origin.y + insets.top,
             this.size.width - insets.left - insets.right,
@@ -150,7 +150,7 @@ WebInspector.Rect = class Rect
 
     pad(padding)
     {
-        return new WebInspector.Rect(
+        return new WI.Rect(
             this.origin.x - padding,
             this.origin.y - padding,
             this.size.width + padding * 2,
@@ -193,14 +193,14 @@ WebInspector.Rect = class Rect
         var x1 = Math.max(this.minX(), rect.minX());
         var x2 = Math.min(this.maxX(), rect.maxX());
         if (x1 > x2)
-            return WebInspector.Rect.ZERO_RECT;
-        var intersection = new WebInspector.Rect;
+            return WI.Rect.ZERO_RECT;
+        var intersection = new WI.Rect;
         intersection.origin.x = x1;
         intersection.size.width = x2 - x1;
         var y1 = Math.max(this.minY(), rect.minY());
         var y2 = Math.min(this.maxY(), rect.maxY());
         if (y1 > y2)
-            return WebInspector.Rect.ZERO_RECT;
+            return WI.Rect.ZERO_RECT;
         intersection.origin.y = y1;
         intersection.size.height = y2 - y1;
         return intersection;
@@ -212,12 +212,12 @@ WebInspector.Rect = class Rect
         var y = Math.min(this.minY(), rect.minY());
         var width = Math.max(this.maxX(), rect.maxX()) - x;
         var height = Math.max(this.maxY(), rect.maxY()) - y;
-        return new WebInspector.Rect(x, y, width, height);
+        return new WI.Rect(x, y, width, height);
     }
 
     round()
     {
-        return new WebInspector.Rect(
+        return new WI.Rect(
             Math.floor(this.origin.x),
             Math.floor(this.origin.y),
             Math.ceil(this.size.width),
@@ -226,10 +226,10 @@ WebInspector.Rect = class Rect
     }
 };
 
-WebInspector.Rect.ZERO_RECT = new WebInspector.Rect(0, 0, 0, 0);
+WI.Rect.ZERO_RECT = new WI.Rect(0, 0, 0, 0);
 
 
-WebInspector.EdgeInsets = class EdgeInsets
+WI.EdgeInsets = class EdgeInsets
 {
     constructor(top, right, bottom, left)
     {
@@ -252,36 +252,48 @@ WebInspector.EdgeInsets = class EdgeInsets
 
     equals(anotherInset)
     {
-        return (this.top === anotherInset.top && this.right === anotherInset.right &&
-                this.bottom === anotherInset.bottom && this.left === anotherInset.left);
+        return this.top === anotherInset.top && this.right === anotherInset.right
+            && this.bottom === anotherInset.bottom && this.left === anotherInset.left;
     }
 
     copy()
     {
-        return new WebInspector.EdgeInsets(this.top, this.right, this.bottom, this.left);
+        return new WI.EdgeInsets(this.top, this.right, this.bottom, this.left);
     }
 };
 
-WebInspector.RectEdge = {
-    MIN_X : 0,
-    MIN_Y : 1,
-    MAX_X : 2,
-    MAX_Y : 3
+WI.RectEdge = {
+    MIN_X: 0,
+    MIN_Y: 1,
+    MAX_X: 2,
+    MAX_Y: 3
 };
 
-WebInspector.Quad = class Quad
+WI.Quad = class Quad
 {
     constructor(quad)
     {
         this.points = [
-            new WebInspector.Point(quad[0], quad[1]), // top left
-            new WebInspector.Point(quad[2], quad[3]), // top right
-            new WebInspector.Point(quad[4], quad[5]), // bottom right
-            new WebInspector.Point(quad[6], quad[7])  // bottom left
+            new WI.Point(quad[0], quad[1]), // top left
+            new WI.Point(quad[2], quad[3]), // top right
+            new WI.Point(quad[4], quad[5]), // bottom right
+            new WI.Point(quad[6], quad[7])  // bottom left
         ];
 
         this.width = Math.round(Math.sqrt(Math.pow(quad[0] - quad[2], 2) + Math.pow(quad[1] - quad[3], 2)));
         this.height = Math.round(Math.sqrt(Math.pow(quad[0] - quad[6], 2) + Math.pow(quad[1] - quad[7], 2)));
+    }
+
+    // Import / Export
+
+    static fromJSON(json)
+    {
+        return new WI.Quad(json);
+    }
+
+    toJSON()
+    {
+        return this.toProtocol();
     }
 
     // Public
@@ -297,7 +309,7 @@ WebInspector.Quad = class Quad
     }
 };
 
-WebInspector.Polygon = class Polygon
+WI.Polygon = class Polygon
 {
     constructor(points)
     {
@@ -318,22 +330,22 @@ WebInspector.Polygon = class Polygon
             minY = Math.min(minY, point.y);
             maxY = Math.max(maxY, point.y);
         }
-        return new WebInspector.Rect(minX, minY, maxX - minX, maxY - minY);
+        return new WI.Rect(minX, minY, maxX - minX, maxY - minY);
     }
-}
+};
 
-WebInspector.CubicBezier = class CubicBezier
+WI.CubicBezier = class CubicBezier
 {
     constructor(x1, y1, x2, y2)
     {
-        this._inPoint = new WebInspector.Point(x1, y1);
-        this._outPoint = new WebInspector.Point(x2, y2);
+        this._inPoint = new WI.Point(x1, y1);
+        this._outPoint = new WI.Point(x2, y2);
 
         // Calculate the polynomial coefficients, implicit first and last control points are (0,0) and (1,1).
         this._curveInfo = {
             x: {c: 3.0 * x1},
             y: {c: 3.0 * y1}
-        }
+        };
 
         this._curveInfo.x.b = 3.0 * (x2 - x1) - this._curveInfo.x.c;
         this._curveInfo.x.a = 1.0 - this._curveInfo.x.c - this._curveInfo.x.b;
@@ -353,7 +365,7 @@ WebInspector.CubicBezier = class CubicBezier
         if (coordinates.includes(NaN))
             return null;
 
-        return new WebInspector.CubicBezier(coordinates[0], coordinates[1], coordinates[2], coordinates[3]);
+        return new WI.CubicBezier(coordinates[0], coordinates[1], coordinates[2], coordinates[3]);
     }
 
     static fromString(text)
@@ -365,15 +377,15 @@ WebInspector.CubicBezier = class CubicBezier
         if (!trimmedText.length)
             return null;
 
-        if (Object.keys(WebInspector.CubicBezier.keywordValues).includes(trimmedText))
-            return WebInspector.CubicBezier.fromCoordinates(WebInspector.CubicBezier.keywordValues[trimmedText]);
+        if (Object.keys(WI.CubicBezier.keywordValues).includes(trimmedText))
+            return WI.CubicBezier.fromCoordinates(WI.CubicBezier.keywordValues[trimmedText]);
 
         var matches = trimmedText.match(/^cubic-bezier\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\)$/);
         if (!matches)
             return null;
 
         matches.splice(0, 1);
-        return WebInspector.CubicBezier.fromCoordinates(matches);
+        return WI.CubicBezier.fromCoordinates(matches);
     }
 
     // Public
@@ -390,14 +402,14 @@ WebInspector.CubicBezier = class CubicBezier
 
     copy()
     {
-        return new WebInspector.CubicBezier(this._inPoint.x, this._inPoint.y, this._outPoint.x, this._outPoint.y);
+        return new WI.CubicBezier(this._inPoint.x, this._inPoint.y, this._outPoint.x, this._outPoint.y);
     }
 
     toString()
     {
         var values = [this._inPoint.x, this._inPoint.y, this._outPoint.x, this._outPoint.y];
-        for (var key in WebInspector.CubicBezier.keywordValues) {
-            if (Object.shallowEqual(WebInspector.CubicBezier.keywordValues[key], values))
+        for (var key in WI.CubicBezier.keywordValues) {
+            if (Array.shallowEqual(WI.CubicBezier.keywordValues[key], values))
                 return key;
         }
 
@@ -467,12 +479,105 @@ WebInspector.CubicBezier = class CubicBezier
         // Failure.
         return t2;
     }
-}
+};
 
-WebInspector.CubicBezier.keywordValues = {
+WI.CubicBezier.keywordValues = {
     "ease":         [0.25, 0.1, 0.25, 1],
     "ease-in":      [0.42, 0, 1, 1],
     "ease-out":     [0, 0, 0.58, 1],
     "ease-in-out":  [0.42, 0, 0.58, 1],
     "linear":       [0, 0, 1, 1]
+};
+
+WI.Spring = class Spring
+{
+    constructor(mass, stiffness, damping, initialVelocity)
+    {
+        this.mass = Math.max(1, mass);
+        this.stiffness = Math.max(1, stiffness);
+        this.damping = Math.max(0, damping);
+        this.initialVelocity = initialVelocity;
+    }
+
+    // Static
+
+    static fromValues(values)
+    {
+        if (!values || values.length < 4)
+            return null;
+
+        values = values.map(Number);
+        if (values.includes(NaN))
+            return null;
+
+        return new WI.Spring(...values);
+    }
+
+    static fromString(text)
+    {
+        if (!text || !text.length)
+            return null;
+
+        let trimmedText = text.toLowerCase().trim();
+        if (!trimmedText.length)
+            return null;
+
+        let matches = trimmedText.match(/^spring\(([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([-\d.]+)\)$/);
+        if (!matches)
+            return null;
+
+        return WI.Spring.fromValues(matches.slice(1));
+    }
+
+    // Public
+
+    copy()
+    {
+        return new WI.Spring(this.mass, this.stiffness, this.damping, this.initialVelocity);
+    }
+
+    toString()
+    {
+        return `spring(${this.mass} ${this.stiffness} ${this.damping} ${this.initialVelocity})`;
+    }
+
+    solve(t)
+    {
+        let w0 = Math.sqrt(this.stiffness / this.mass);
+        let zeta = this.damping / (2 * Math.sqrt(this.stiffness * this.mass));
+
+        let wd = 0;
+        let A = 1;
+        let B = -this.initialVelocity + w0;
+        if (zeta < 1) {
+            // Under-damped.
+            wd = w0 * Math.sqrt(1 - zeta * zeta);
+            A = 1;
+            B = (zeta * w0 + -this.initialVelocity) / wd;
+        }
+
+        if (zeta < 1) // Under-damped
+            t = Math.exp(-t * zeta * w0) * (A * Math.cos(wd * t) + B * Math.sin(wd * t));
+        else // Critically damped (ignoring over-damped case).
+            t = (A + B * t) * Math.exp(-t * w0);
+
+        return 1 - t; // Map range from [1..0] to [0..1].
+    }
+
+    calculateDuration(epsilon)
+    {
+        epsilon = epsilon || 0.0001;
+        let t = 0;
+        let current = 0;
+        let minimum = Number.POSITIVE_INFINITY;
+        while (current >= epsilon || minimum >= epsilon) {
+            current = Math.abs(1 - this.solve(t)); // Undo the range mapping
+            if (minimum < epsilon && current >= epsilon)
+                minimum = Number.POSITIVE_INFINITY; // Spring reversed direction
+            else if (current < minimum)
+                minimum = current;
+            t += 0.1;
+        }
+        return t;
+    }
 };

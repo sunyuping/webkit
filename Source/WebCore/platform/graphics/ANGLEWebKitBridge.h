@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,29 +26,34 @@
 #ifndef ANGLEWebKitBridge_h
 #define ANGLEWebKitBridge_h
 
-#include <wtf/text/CString.h>
+#if USE(LIBEPOXY)
+// libepoxy headers have to be included before <ANGLE/ShaderLang.h> in order to avoid
+// picking up khrplatform.h inclusion that's done in ANGLE.
+#include <epoxy/gl.h>
+#endif
+
+#include <ANGLE/ShaderLang.h>
 #include <wtf/text/WTFString.h>
 
-#if PLATFORM(IOS)
+#if PLATFORM(COCOA)
+
+#if USE(OPENGL_ES)
 #import <OpenGLES/ES2/glext.h>
-#elif PLATFORM(MAC)
-#include <OpenGL/gl.h>
-#elif PLATFORM(WIN)
-#include "OpenGLESShims.h"
-#elif PLATFORM(GTK) || PLATFORM(EFL)
-#if USE(OPENGL_ES_2)
-#include <GLES2/gl2.h>
 #else
-#include "OpenGLShims.h"
-#endif
+#include <OpenGL/gl.h>
 #endif
 
-#if !PLATFORM(GTK) && !PLATFORM(EFL) && !PLATFORM(WIN) && !defined(BUILDING_WITH_CMAKE)
-#include "ANGLE/ShaderLang.h"
-#elif PLATFORM(WIN) && !defined(BUILDING_WITH_CMAKE)
-#include "GLSLANG/ShaderLang.h"
+#elif PLATFORM(WIN)
+#include "OpenGLESShims.h"
+
+#elif USE(LIBEPOXY)
+// <epoxy/gl.h> already included above.
+
+#elif USE(OPENGL_ES)
+#include <GLES2/gl2.h>
+
 #else
-#include <ANGLE/ShaderLang.h>
+#include "OpenGLShims.h"
 #endif
 
 namespace WebCore {
@@ -64,37 +69,16 @@ enum ANGLEShaderSymbolType {
     SHADER_SYMBOL_TYPE_VARYING
 };
 
-struct ANGLEShaderSymbol {
-    ANGLEShaderSymbolType symbolType;
-    String name;
-    String mappedName;
-    sh::GLenum dataType;
-    unsigned size;
-    sh::GLenum precision;
-    int staticUse;
-
-    bool isSampler() const
-    {
-        return symbolType == SHADER_SYMBOL_TYPE_UNIFORM
-            && (dataType == GL_SAMPLER_2D
-            || dataType == GL_SAMPLER_CUBE
-#if !PLATFORM(IOS) && !((PLATFORM(EFL) || PLATFORM(GTK)) && USE(OPENGL_ES_2))
-            || dataType == GL_SAMPLER_2D_RECT_ARB
-#endif
-            );
-    }
-};
-
 class ANGLEWebKitBridge {
 public:
 
-    ANGLEWebKitBridge(ShShaderOutput = SH_GLSL_OUTPUT, ShShaderSpec = SH_WEBGL_SPEC);
+    ANGLEWebKitBridge(ShShaderOutput = SH_GLSL_COMPATIBILITY_OUTPUT, ShShaderSpec = SH_WEBGL_SPEC);
     ~ANGLEWebKitBridge();
     
-    ShBuiltInResources getResources() { return m_resources; }
-    void setResources(ShBuiltInResources);
+    const ShBuiltInResources& getResources() { return m_resources; }
+    void setResources(const ShBuiltInResources&);
     
-    bool compileShaderSource(const char* shaderSource, ANGLEShaderType, String& translatedShaderSource, String& shaderValidationLog, Vector<ANGLEShaderSymbol>& symbols, int extraCompileOptions = 0);
+    bool compileShaderSource(const char* shaderSource, ANGLEShaderType, String& translatedShaderSource, String& shaderValidationLog, Vector<std::pair<ANGLEShaderSymbolType, sh::ShaderVariable>>& symbols, uint64_t extraCompileOptions = 0);
 
 private:
 

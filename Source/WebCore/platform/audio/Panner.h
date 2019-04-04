@@ -36,23 +36,21 @@ namespace WebCore {
 class AudioBus;
 class HRTFDatabaseLoader;
 
+enum class PanningModelType {
+    Equalpower,
+    HRTF
+};
+
 // Abstract base class for panning a mono or stereo source.
 
 class Panner {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
-    enum {
-        PanningModelEqualPower = 0,
-        PanningModelHRTF = 1,
-        PanningModelSoundField = 2
-    };
-    
-    typedef unsigned PanningModel;
-
-    static std::unique_ptr<Panner> create(PanningModel, float sampleRate, HRTFDatabaseLoader*);
+    static std::unique_ptr<Panner> create(PanningModelType, float sampleRate, HRTFDatabaseLoader*);
 
     virtual ~Panner() { };
 
-    PanningModel panningModel() const { return m_panningModel; }
+    PanningModelType panningModel() const { return m_panningModel; }
 
     virtual void pan(double azimuth, double elevation, const AudioBus* inputBus, AudioBus* outputBus, size_t framesToProcess) = 0;
 
@@ -62,9 +60,12 @@ public:
     virtual double latencyTime() const = 0;
 
 protected:
-    Panner(PanningModel model) : m_panningModel(model) { }
+    Panner(PanningModelType model)
+        : m_panningModel(model)
+    {
+    }
 
-    PanningModel m_panningModel;
+    PanningModelType m_panningModel;
 };
 
 } // namespace WebCore

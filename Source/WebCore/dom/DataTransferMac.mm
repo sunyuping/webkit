@@ -26,6 +26,8 @@
 #import "config.h"
 #import "DataTransfer.h"
 
+#if PLATFORM(MAC)
+
 #import "CachedImage.h"
 #import "Element.h"
 #import "DragImage.h"
@@ -49,7 +51,7 @@ DragImageRef DataTransfer::createDragImage(IntPoint& location) const
             location.setY(imageRect.height() - (elementRect.y() - imageRect.y() + m_dragLocation.y()));
         }
     } else if (m_dragImage) {
-        result = m_dragImage->image()->getNSImage();
+        result = m_dragImage->image()->snapshotNSImage();
         
         location = m_dragLocation;
         location.setY([result size].height - location.y());
@@ -58,3 +60,5 @@ DragImageRef DataTransfer::createDragImage(IntPoint& location) const
 }
 
 }
+
+#endif // PLATFORM(MAC)

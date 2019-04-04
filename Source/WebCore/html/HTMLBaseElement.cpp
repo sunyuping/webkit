@@ -27,8 +27,11 @@
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
 #include "TextResourceDecoder.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLBaseElement);
 
 using namespace HTMLNames;
 
@@ -51,18 +54,18 @@ void HTMLBaseElement::parseAttribute(const QualifiedName& name, const AtomicStri
         HTMLElement::parseAttribute(name, value);
 }
 
-Node::InsertionNotificationRequest HTMLBaseElement::insertedInto(ContainerNode& insertionPoint)
+Node::InsertedIntoAncestorResult HTMLBaseElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedInto(insertionPoint);
-    if (insertionPoint.inDocument())
+    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    if (insertionType.connectedToDocument)
         document().processBaseElement();
-    return InsertionDone;
+    return InsertedIntoAncestorResult::Done;
 }
 
-void HTMLBaseElement::removedFrom(ContainerNode& insertionPoint)
+void HTMLBaseElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFrom(insertionPoint);
-    if (insertionPoint.inDocument())
+    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    if (removalType.disconnectedFromDocument)
         document().processBaseElement();
 }
 
@@ -73,7 +76,7 @@ bool HTMLBaseElement::isURLAttribute(const Attribute& attribute) const
 
 String HTMLBaseElement::target() const
 {
-    return fastGetAttribute(targetAttr);
+    return attributeWithoutSynchronization(targetAttr);
 }
 
 URL HTMLBaseElement::href() const
@@ -82,13 +85,12 @@ URL HTMLBaseElement::href() const
     // base elements like this one can be used to set that base URL. Thus we need to resolve relative to the document's
     // URL and ignore the base URL.
 
-    const AtomicString& attributeValue = fastGetAttribute(hrefAttr);
+    const AtomicString& attributeValue = attributeWithoutSynchronization(hrefAttr);
     if (attributeValue.isNull())
         return document().url();
 
-    URL url = !document().decoder() ?
-        URL(document().url(), stripLeadingAndTrailingHTMLSpaces(attributeValue)) :
-        URL(document().url(), stripLeadingAndTrailingHTMLSpaces(attributeValue), document().decoder()->encoding());
+    auto* encoding = document().decoder() ? document().decoder()->encodingForURLParsing() : nullptr;
+    URL url(document().url(), stripLeadingAndTrailingHTMLSpaces(attributeValue), encoding);
 
     if (!url.isValid())
         return URL();
@@ -98,7 +100,7 @@ URL HTMLBaseElement::href() const
 
 void HTMLBaseElement::setHref(const AtomicString& value)
 {
-    setAttribute(hrefAttr, value);
+    setAttributeWithoutSynchronization(hrefAttr, value);
 }
 
 }

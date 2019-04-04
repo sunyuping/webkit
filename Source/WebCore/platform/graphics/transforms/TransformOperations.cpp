@@ -25,6 +25,7 @@
 #include "IdentityTransformOperation.h"
 #include "Matrix3DTransformOperation.h"
 #include <algorithm>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -86,11 +87,11 @@ TransformOperations TransformOperations::blendByMatchingOperations(const Transfo
         if (blendedOperation)
             result.operations().append(blendedOperation);
         else {
-            RefPtr<TransformOperation> identityOperation = IdentityTransformOperation::create();
+            auto identityOperation = IdentityTransformOperation::create();
             if (progress > 0.5)
-                result.operations().append(toOperation ? toOperation : identityOperation);
+                result.operations().append(toOperation ? toOperation : WTFMove(identityOperation));
             else
-                result.operations().append(fromOperation ? fromOperation : identityOperation);
+                result.operations().append(fromOperation ? fromOperation : WTFMove(identityOperation));
         }
     }
 
@@ -124,6 +125,13 @@ TransformOperations TransformOperations::blend(const TransformOperations& from, 
         return blendByMatchingOperations(from, progress);
 
     return blendByUsingMatrixInterpolation(from, progress, size);
+}
+
+TextStream& operator<<(TextStream& ts, const TransformOperations& ops)
+{
+    for (const auto& operation : ops.operations())
+        ts << *operation;
+    return ts;
 }
 
 } // namespace WebCore

@@ -30,8 +30,6 @@
 #import "TileController.h"
 #import <wtf/MainThread.h>
 
-using namespace WebCore;
-
 @implementation WebTiledBackingLayer
 
 - (id)init
@@ -61,7 +59,7 @@ using namespace WebCore;
     return nil;
 }
 
-- (TileController*)createTileController:(PlatformCALayer*)rootLayer
+- (WebCore::TileController*)createTileController:(WebCore::PlatformCALayer*)rootLayer
 {
     ASSERT(!_tileController);
     _tileController = std::make_unique<WebCore::TileController>(rootLayer);
@@ -100,17 +98,37 @@ using namespace WebCore;
 
 - (void)setNeedsDisplayInRect:(CGRect)rect
 {
-    _tileController->setNeedsDisplayInRect(enclosingIntRect(rect));
+    _tileController->setNeedsDisplayInRect(WebCore::enclosingIntRect(rect));
 }
 
-- (void)setAcceleratesDrawing:(BOOL)acceleratesDrawing
+- (void)setDrawsAsynchronously:(BOOL)acceleratesDrawing
 {
     _tileController->setAcceleratesDrawing(acceleratesDrawing);
 }
 
-- (BOOL)acceleratesDrawing
+- (BOOL)drawsAsynchronously
 {
     return _tileController ? _tileController->acceleratesDrawing() : NO;
+}
+
+- (void)setWantsDeepColorBackingStore:(BOOL)wantsDeepColor
+{
+    _tileController->setWantsDeepColorBackingStore(wantsDeepColor);
+}
+
+- (BOOL)wantsDeepColorBackingStore
+{
+    return _tileController->wantsDeepColorBackingStore();
+}
+
+- (void)setSupportsSubpixelAntialiasedText:(BOOL)supportsSubpixelAntialiasedText
+{
+    _tileController->setSupportsSubpixelAntialiasedText(supportsSubpixelAntialiasedText);
+}
+
+- (BOOL)supportsSubpixelAntialiasedText
+{
+    return _tileController->supportsSubpixelAntialiasedText();
 }
 
 - (void)setContentsScale:(CGFloat)contentsScale
@@ -137,7 +155,7 @@ using namespace WebCore;
 
 - (void)setBorderColor:(CGColorRef)borderColor
 {
-    _tileController->setTileDebugBorderColor(Color(borderColor));
+    _tileController->setTileDebugBorderColor(WebCore::Color(borderColor));
 }
 
 - (void)setBorderWidth:(CGFloat)borderWidth

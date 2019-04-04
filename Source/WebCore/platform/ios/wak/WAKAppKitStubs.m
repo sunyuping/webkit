@@ -26,22 +26,8 @@
 #import "config.h"
 #import "WAKAppKitStubs.h"
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 
 id NSApp = nil;
 
-BOOL WKMouseInRect(CGPoint aPoint, CGRect aRect) 
-{
-    return aPoint.x >= aRect.origin.x &&
-        aPoint.x < (aRect.origin.x + aRect.size.width) &&
-        aPoint.y >= aRect.origin.y && aPoint.y < (aRect.origin.y + aRect.size.height);
-}
-
-@implementation NSCursor
-+ (void)setHiddenUntilMouseMoves:(BOOL)flag
-{
-    UNUSED_PARAM(flag);
-}
-@end
-
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)

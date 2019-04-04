@@ -24,8 +24,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DeviceController_h
-#define DeviceController_h
+#pragma once
 
 #include "DOMWindow.h"
 #include "Event.h"
@@ -41,16 +40,17 @@ class Page;
 class DeviceController : public Supplement<Page> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit DeviceController(DeviceClient*);
-    virtual ~DeviceController() { }
+    explicit DeviceController(DeviceClient&);
+    virtual ~DeviceController() = default;
 
-    void addDeviceEventListener(DOMWindow*);
-    void removeDeviceEventListener(DOMWindow*);
-    void removeAllDeviceEventListeners(DOMWindow*);
+    void addDeviceEventListener(DOMWindow&);
+    void removeDeviceEventListener(DOMWindow&);
+    void removeAllDeviceEventListeners(DOMWindow&);
+    bool hasDeviceEventListener(DOMWindow&) const;
 
     void dispatchDeviceEvent(Event&);
     bool isActive() { return !m_listeners.isEmpty(); }
-    DeviceClient* client() { return m_client; }
+    DeviceClient& client() { return m_client; }
 
     virtual bool hasLastData() { return false; }
     virtual RefPtr<Event> getLastEvent() { return nullptr; }
@@ -60,10 +60,8 @@ protected:
 
     HashCountedSet<RefPtr<DOMWindow>> m_listeners;
     HashCountedSet<RefPtr<DOMWindow>> m_lastEventListeners;
-    DeviceClient* m_client;
+    DeviceClient& m_client;
     Timer m_timer;
 };
 
 } // namespace WebCore
-
-#endif // DeviceController_h

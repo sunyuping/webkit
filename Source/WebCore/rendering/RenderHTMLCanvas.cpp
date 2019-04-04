@@ -37,12 +37,15 @@
 #include "Page.h"
 #include "PaintInfo.h"
 #include "RenderView.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-RenderHTMLCanvas::RenderHTMLCanvas(HTMLCanvasElement& element, Ref<RenderStyle>&& style)
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderHTMLCanvas);
+
+RenderHTMLCanvas::RenderHTMLCanvas(HTMLCanvasElement& element, RenderStyle&& style)
     : RenderReplaced(element, WTFMove(style), element.size())
 {
     // Actual size is not known yet, report the default intrinsic size.
@@ -71,7 +74,7 @@ void RenderHTMLCanvas::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& pa
 
     LayoutRect contentBoxRect = this->contentBoxRect();
     contentBoxRect.moveBy(paintOffset);
-    LayoutRect replacedContentRect = this->replacedContentRect(intrinsicSize());
+    LayoutRect replacedContentRect = this->replacedContentRect();
     replacedContentRect.moveBy(paintOffset);
 
     // Not allowed to overflow the content box.
@@ -80,10 +83,8 @@ void RenderHTMLCanvas::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& pa
     if (clip)
         paintInfo.context().clip(snappedIntRect(contentBoxRect));
 
-    if (Page* page = frame().page()) {
-        if (paintInfo.phase == PaintPhaseForeground)
-            page->addRelevantRepaintedObject(this, intersection(replacedContentRect, contentBoxRect));
-    }
+    if (paintInfo.phase == PaintPhase::Foreground)
+        page().addRelevantRepaintedObject(this, intersection(replacedContentRect, contentBoxRect));
 
     InterpolationQualityMaintainer interpolationMaintainer(context, ImageQualityController::interpolationQualityFromStyle(style()));
     canvasElement().paint(context, replacedContentRect);
@@ -101,18 +102,7 @@ void RenderHTMLCanvas::canvasSizeChanged()
 
     if (!parent())
         return;
-
-    if (!preferredLogicalWidthsDirty())
-        setPreferredLogicalWidthsDirty(true);
-
-    LayoutSize oldSize = size();
-    updateLogicalWidth();
-    updateLogicalHeight();
-    if (oldSize == size())
-        return;
-
-    if (!selfNeedsLayout())
-        setNeedsLayout();
+    setNeedsLayoutIfNeededAfterIntrinsicSizeChange();
 }
 
 } // namespace WebCore

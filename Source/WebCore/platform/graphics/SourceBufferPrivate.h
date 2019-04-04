@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2013 Google Inc. All rights reserved.
- * Copyright (C) 2013-2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,44 +28,50 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef SourceBufferPrivate_h
-#define SourceBufferPrivate_h
+
+#pragma once
 
 #if ENABLE(MEDIA_SOURCE)
 
 #include "MediaPlayer.h"
-#include "TimeRanges.h"
-#include <wtf/RefCounted.h>
-#include <wtf/Vector.h>
+#include <wtf/Logger.h>
 
 namespace WebCore {
 
 class MediaSample;
 class SourceBufferPrivateClient;
-class TimeRanges;
 
 class SourceBufferPrivate : public RefCounted<SourceBufferPrivate> {
 public:
-    virtual ~SourceBufferPrivate() { }
+    virtual ~SourceBufferPrivate() = default;
 
     virtual void setClient(SourceBufferPrivateClient*) = 0;
 
-    virtual void append(const unsigned char* data, unsigned length) = 0;
+    virtual void append(Vector<unsigned char>&&) = 0;
     virtual void abort() = 0;
+    virtual void resetParserState() = 0;
     virtual void removedFromMediaSource() = 0;
 
     virtual MediaPlayer::ReadyState readyState() const = 0;
     virtual void setReadyState(MediaPlayer::ReadyState) = 0;
 
-    virtual void flushAndEnqueueNonDisplayingSamples(Vector<RefPtr<MediaSample>>, AtomicString) { }
-    virtual void enqueueSample(PassRefPtr<MediaSample>, AtomicString) { }
-    virtual bool isReadyForMoreSamples(AtomicString) { return false; }
+    virtual void flush(const AtomicString&) { }
+    virtual void enqueueSample(Ref<MediaSample>&&, const AtomicString&) { }
+    virtual void allSamplesInTrackEnqueued(const AtomicString&) { }
+    virtual bool isReadyForMoreSamples(const AtomicString&) { return false; }
     virtual void setActive(bool) { }
-    virtual void stopAskingForMoreSamples(AtomicString) { }
-    virtual void notifyClientWhenReadyForMoreSamples(AtomicString) { }
+    virtual void notifyClientWhenReadyForMoreSamples(const AtomicString&) { }
+
+    virtual Vector<String> enqueuedSamplesForTrackID(const AtomicString&) { return { }; }
+
+    virtual bool canSwitchToType(const ContentType&) { return false; }
+
+#if !RELEASE_LOG_DISABLED
+    virtual const Logger& sourceBufferLogger() const = 0;
+    virtual const void* sourceBufferLogIdentifier() = 0;
+#endif
 };
 
 }
 
-#endif
 #endif

@@ -26,8 +26,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RegisterID_h
-#define RegisterID_h
+#pragma once
 
 #include "VirtualRegister.h"
 
@@ -38,6 +37,8 @@ namespace JSC {
 
     class RegisterID {
         WTF_MAKE_NONCOPYABLE(RegisterID);
+
+        friend class VirtualRegister;
     public:
         RegisterID()
             : m_refCount(0)
@@ -123,7 +124,6 @@ namespace JSC {
         bool m_didSetIndex;
 #endif
     };
-
 } // namespace JSC
 
 namespace WTF {
@@ -134,5 +134,3 @@ namespace WTF {
     };
 
 } // namespace WTF
-
-#endif // RegisterID_h

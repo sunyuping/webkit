@@ -23,12 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef LLIntCLoop_h
-#define LLIntCLoop_h
+#pragma once
 
-#if !ENABLE(JIT)
+#if ENABLE(C_LOOP)
 
-#include "CallFrame.h"
 #include "JSCJSValue.h"
 #include "Opcode.h"
 #include "ProtoCallFrame.h"
@@ -46,6 +44,4 @@ public:
 
 using JSC::LLInt::CLoop;
 
-#endif // !ENABLE(JIT)
-
-#endif // LLIntCLoop_h
+#endif // ENABLE(C_LOOP)

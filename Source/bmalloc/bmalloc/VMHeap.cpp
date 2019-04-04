@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,39 +23,43 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "LargeObject.h"
-#include "Line.h"
 #include "PerProcess.h"
-#include "SuperChunk.h"
 #include "VMHeap.h"
 #include <thread>
 
 namespace bmalloc {
 
-VMHeap::VMHeap()
-    : m_largeObjects(Owner::VMHeap)
+DEFINE_STATIC_PER_PROCESS_STORAGE(VMHeap);
+
+VMHeap::VMHeap(std::lock_guard<Mutex>&)
 {
 }
 
-void VMHeap::grow()
+LargeRange VMHeap::tryAllocateLargeChunk(size_t alignment, size_t size)
 {
-    SuperChunk* superChunk = SuperChunk::create();
+    // We allocate VM in aligned multiples to increase the chances that
+    // the OS will provide contiguous ranges that we can merge.
+    size_t roundedAlignment = roundUpToMultipleOf<chunkSize>(alignment);
+    if (roundedAlignment < alignment) // Check for overflow
+        return LargeRange();
+    alignment = roundedAlignment;
+
+    size_t roundedSize = roundUpToMultipleOf<chunkSize>(size);
+    if (roundedSize < size) // Check for overflow
+        return LargeRange();
+    size = roundedSize;
+
+    void* memory = tryVMAllocate(alignment, size);
+    if (!memory)
+        return LargeRange();
+    
+    Chunk* chunk = static_cast<Chunk*>(memory);
+    
 #if BOS(DARWIN)
-    m_zone.addSuperChunk(superChunk);
+    PerProcess<Zone>::get()->addRange(Range(chunk->bytes(), size));
 #endif
 
-    SmallChunk* smallChunk = superChunk->smallChunk();
-    for (auto* it = smallChunk->begin(); it != smallChunk->end(); ++it)
-        m_smallPages.push(it);
-
-    MediumChunk* mediumChunk = superChunk->mediumChunk();
-    for (auto* it = mediumChunk->begin(); it != mediumChunk->end(); ++it)
-        m_mediumPages.push(it);
-
-    LargeChunk* largeChunk = superChunk->largeChunk();
-    LargeObject result(LargeObject::init(largeChunk).begin());
-    BASSERT(result.size() == largeMax);
-    m_largeObjects.insert(result);
+    return LargeRange(chunk->bytes(), size, 0, 0);
 }
 
 } // namespace bmalloc

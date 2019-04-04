@@ -20,31 +20,30 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGAnimateTransformElement_h
-#define SVGAnimateTransformElement_h
+#pragma once
 
 #include "SVGAnimateElementBase.h"
-#include "SVGTransform.h"
+#include "SVGTransformValue.h"
 
 namespace WebCore {
 
 class AffineTransform;
 
 class SVGAnimateTransformElement final : public SVGAnimateElementBase {
+    WTF_MAKE_ISO_ALLOCATED(SVGAnimateTransformElement);
 public:
     static Ref<SVGAnimateTransformElement> create(const QualifiedName&, Document&);
 
-    SVGTransform::SVGTransformType transformType() const { return m_type; }
+    SVGTransformValue::SVGTransformType transformType() const { return m_type; }
 
 private:
     SVGAnimateTransformElement(const QualifiedName&, Document&);
     
-    virtual bool hasValidAttributeType() override;
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    bool hasValidAttributeType() const final;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    String animateRangeString(const String&) const final;
 
-    SVGTransform::SVGTransformType m_type;
+    SVGTransformValue::SVGTransformType m_type;
 };
 
 } // namespace WebCore
-
-#endif // SVGAnimateTransformElement_h

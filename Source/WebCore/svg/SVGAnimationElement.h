@@ -2,7 +2,7 @@
  * Copyright (C) 2004, 2005 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
  * Copyright (C) 2007 Eric Seidel <eric@webkit.org>
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Cameron McCormack <cam@mcc.id.au>
  * Copyright (C) Research In Motion Limited 2011. All rights reserved.
  *
@@ -22,11 +22,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGAnimationElement_h
-#define SVGAnimationElement_h
+#pragma once
 
-#include "SMILTime.h"
-#include "SVGAnimatedBoolean.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGSMILElement.h"
 #include "SVGTests.h"
@@ -34,43 +31,19 @@
 
 namespace WebCore {
 
-enum AnimationMode {
-    NoAnimation,
-    FromToAnimation,
-    FromByAnimation,
-    ToAnimation,
-    ByAnimation,
-    ValuesAnimation,
-    PathAnimation // Used by AnimateMotion.
-};
+class ConditionEventListener;
+class TimeContainer;
 
 // If we have 'currentColor' or 'inherit' as animation value, we need to grab
 // the value during the animation since the value can be animated itself.
-enum AnimatedPropertyValueType {
-    RegularPropertyValue,
-    CurrentColorValue,
-    InheritValue
-};
+enum AnimatedPropertyValueType { RegularPropertyValue, CurrentColorValue, InheritValue };
 
-enum CalcMode {
-    CalcModeDiscrete,
-    CalcModeLinear,
-    CalcModePaced,
-    CalcModeSpline
-};
-
-class ConditionEventListener;
-class TimeContainer;
-class SVGAnimatedType;
-
-class SVGAnimationElement : public SVGSMILElement,
-                            public SVGTests,
-                            public SVGExternalResourcesRequired {
+class SVGAnimationElement : public SVGSMILElement, public SVGExternalResourcesRequired, public SVGTests {
+    WTF_MAKE_ISO_ALLOCATED(SVGAnimationElement);
 public:
-    // SVGAnimationElement
     float getStartTime() const;
     float getCurrentTime() const;
-    float getSimpleDuration(ExceptionCode&) const;
+    float getSimpleDuration() const;
 
     void beginElement();
     void beginElementAt(float offset);
@@ -79,77 +52,18 @@ public:
 
     static bool isTargetAttributeCSSProperty(SVGElement*, const QualifiedName&);
 
-    virtual bool isAdditive() const override;
+    bool isAdditive() const override;
     bool isAccumulated() const;
     AnimationMode animationMode() const { return m_animationMode; }
     CalcMode calcMode() const { return m_calcMode; }
 
-    enum ShouldApplyAnimation {
-        DontApplyAnimation,
-        ApplyCSSAnimation,
-        ApplyXMLAnimation,
-        ApplyXMLandCSSAnimation // For presentation attributes with SVG DOM properties.
-    };
-
-    ShouldApplyAnimation shouldApplyAnimation(SVGElement* targetElement, const QualifiedName& attributeName);
-
     AnimatedPropertyValueType fromPropertyValueType() const { return m_fromPropertyValueType; }
     AnimatedPropertyValueType toPropertyValueType() const { return m_toPropertyValueType; }
-
-    template<typename AnimatedType>
-    void adjustForInheritance(AnimatedType (*parseTypeFromString)(SVGAnimationElement*, const String&),
-                              AnimatedPropertyValueType valueType, AnimatedType& animatedType, SVGElement* contextElement)
-    {
-        if (valueType != InheritValue)
-            return;
-        // Replace 'inherit' by its computed property value.
-        ASSERT(parseTypeFromString);
-        String typeString;
-        adjustForInheritance(contextElement, attributeName(), typeString);
-        animatedType = (*parseTypeFromString)(this, typeString);
-    }
-
-    template<typename AnimatedType>
-    bool adjustFromToListValues(const AnimatedType& fromList, const AnimatedType& toList, AnimatedType& animatedList, float percentage, bool resizeAnimatedListIfNeeded = true)
-    {
-        // If no 'to' value is given, nothing to animate.
-        unsigned toListSize = toList.size();
-        if (!toListSize)
-            return false;
-
-        // If the 'from' value is given and it's length doesn't match the 'to' value list length, fallback to a discrete animation.
-        unsigned fromListSize = fromList.size();
-        if (fromListSize != toListSize && fromListSize) {
-            if (percentage < 0.5) {
-                if (animationMode() != ToAnimation)
-                    animatedList = AnimatedType(fromList);
-            } else
-                animatedList = AnimatedType(toList);
-
-            return false;
-        }
-
-        ASSERT(!fromListSize || fromListSize == toListSize);
-        if (resizeAnimatedListIfNeeded && animatedList.size() < toListSize)
-            animatedList.resize(toListSize);
-
-        return true;
-    }
-
-    template<typename AnimatedType>
-    void animateDiscreteType(float percentage, const AnimatedType& fromType, const AnimatedType& toType, AnimatedType& animatedType)
-    {
-        if ((animationMode() == FromToAnimation && percentage > 0.5) || animationMode() == ToAnimation || percentage == 1) {
-            animatedType = AnimatedType(toType);
-            return;
-        }
-        animatedType = AnimatedType(fromType);
-    }
 
     void animateAdditiveNumber(float percentage, unsigned repeatCount, float fromNumber, float toNumber, float toAtEndOfDurationNumber, float& animatedNumber)
     {
         float number;
-        if (calcMode() == CalcModeDiscrete)
+        if (calcMode() == CalcMode::Discrete)
             number = percentage < 0.5 ? fromNumber : toNumber;
         else
             number = (toNumber - fromNumber) * percentage + fromNumber;
@@ -157,29 +71,29 @@ public:
         if (isAccumulated() && repeatCount)
             number += toAtEndOfDurationNumber * repeatCount;
 
-        if (isAdditive() && animationMode() != ToAnimation)
+        if (isAdditive() && animationMode() != AnimationMode::To)
             animatedNumber += number;
         else
             animatedNumber = number;
     }
 
-protected:
-    SVGAnimationElement(const QualifiedName&, Document&);
+    enum class AttributeType : uint8_t { CSS, XML, Auto };
+    AttributeType attributeType() const { return m_attributeType; }
 
     void computeCSSPropertyValue(SVGElement*, CSSPropertyID, String& value);
     virtual void determinePropertyValueTypes(const String& from, const String& to);
-    virtual void resetAnimatedPropertyType();
+
+protected:
+    SVGAnimationElement(const QualifiedName&, Document&);
+
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGAnimationElement, SVGElement, SVGExternalResourcesRequired, SVGTests>;
+    const SVGPropertyRegistry& propertyRegistry() const override { return m_propertyRegistry; }
+
+    virtual void resetAnimation();
 
     static bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-
-    enum AttributeType {
-        AttributeTypeCSS,
-        AttributeTypeXML,
-        AttributeTypeAuto
-    };
-    AttributeType attributeType() const { return m_attributeType; }
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
 
     String toValue() const;
     String byValue() const;
@@ -188,30 +102,27 @@ protected:
     String targetAttributeBaseValue();
 
     // from SVGSMILElement
-    virtual void startedActiveInterval() override;
-    virtual void updateAnimation(float percent, unsigned repeat, SVGSMILElement* resultElement) override;
+    void startedActiveInterval() override;
+    void updateAnimation(float percent, unsigned repeat, SVGSMILElement* resultElement) override;
 
-    AnimatedPropertyValueType m_fromPropertyValueType;
-    AnimatedPropertyValueType m_toPropertyValueType;
+    AnimatedPropertyValueType m_fromPropertyValueType { RegularPropertyValue };
+    AnimatedPropertyValueType m_toPropertyValueType { RegularPropertyValue };
 
-    virtual void setTargetElement(SVGElement*) override;
-    virtual void setAttributeName(const QualifiedName&) override { }
-    bool hasInvalidCSSAttributeType() const { return m_hasInvalidCSSAttributeType; }
-    void checkInvalidCSSAttributeType(SVGElement*);
+    void setAttributeName(const QualifiedName&) override { }
 
     virtual void updateAnimationMode();
     void setAnimationMode(AnimationMode animationMode) { m_animationMode = animationMode; }
     void setCalcMode(CalcMode calcMode) { m_calcMode = calcMode; }
 
 private:
-    virtual void animationAttributeChanged() override;
+    void animationAttributeChanged() override;
     void setAttributeType(const AtomicString&);
 
     virtual bool calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString) = 0;
     virtual bool calculateFromAndToValues(const String& fromString, const String& toString) = 0;
     virtual bool calculateFromAndByValues(const String& fromString, const String& byString) = 0;
     virtual void calculateAnimatedValue(float percent, unsigned repeatCount, SVGSMILElement* resultElement) = 0;
-    virtual float calculateDistance(const String& /*fromString*/, const String& /*toString*/) { return -1.f; }
+    virtual Optional<float> calculateDistance(const String& /*fromString*/, const String& /*toString*/) = 0;
 
     void currentValuesForValuesAnimation(float percent, float& effectivePercent, String& from, String& to);
     void calculateKeyTimesForCalcModePaced();
@@ -221,34 +132,20 @@ private:
     float calculatePercentForFromTo(float percent) const;
     unsigned calculateKeyTimesIndex(float percent) const;
 
-    void applyAnimatedValue(ShouldApplyAnimation, SVGElement* targetElement, const QualifiedName& attributeName, SVGAnimatedType*);
-    void adjustForInheritance(SVGElement* targetElement, const QualifiedName& attributeName, String&);
-
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGAnimationElement)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
-
-    // SVGTests
-    virtual void synchronizeRequiredFeatures() override { SVGTests::synchronizeRequiredFeatures(this); }
-    virtual void synchronizeRequiredExtensions() override { SVGTests::synchronizeRequiredExtensions(this); }
-    virtual void synchronizeSystemLanguage() override { SVGTests::synchronizeSystemLanguage(this); }
-
     void setCalcMode(const AtomicString&);
 
-    bool m_animationValid;
+    bool m_animationValid { false };
 
-    AttributeType m_attributeType;
+    AttributeType m_attributeType { AttributeType::Auto };
     Vector<String> m_values;
     Vector<float> m_keyTimes;
     Vector<float> m_keyPoints;
     Vector<UnitBezier> m_keySplines;
     String m_lastValuesAnimationFrom;
     String m_lastValuesAnimationTo;
-    bool m_hasInvalidCSSAttributeType;
-    CalcMode m_calcMode;
-    AnimationMode m_animationMode;
+    CalcMode m_calcMode { CalcMode::Linear };
+    AnimationMode m_animationMode { AnimationMode::None };
+    PropertyRegistry m_propertyRegistry { *this };
 };
 
 } // namespace WebCore
-
-#endif // SVGAnimationElement_h

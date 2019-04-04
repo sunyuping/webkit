@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2006, 2008, 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,11 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef CanvasPattern_h
-#define CanvasPattern_h
+#pragma once
 
+#include "ExceptionOr.h"
 #include <wtf/Forward.h>
-#include <wtf/PassRefPtr.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
@@ -35,28 +34,27 @@ namespace WebCore {
 
 class Image;
 class Pattern;
-
-typedef int ExceptionCode;
+struct DOMMatrix2DInit;
 
 class CanvasPattern : public RefCounted<CanvasPattern> {
 public:
-    static Ref<CanvasPattern> create(PassRefPtr<Image>, bool repeatX, bool repeatY, bool originClean);
+    static Ref<CanvasPattern> create(Ref<Image>&&, bool repeatX, bool repeatY, bool originClean);
     ~CanvasPattern();
 
-    static void parseRepetitionType(const String&, bool& repeatX, bool& repeatY, ExceptionCode&);
+    static bool parseRepetitionType(const String&, bool& repeatX, bool& repeatY);
 
     Pattern& pattern() { return m_pattern; }
     const Pattern& pattern() const { return m_pattern; }
 
     bool originClean() const { return m_originClean; }
+    
+    ExceptionOr<void> setTransform(DOMMatrix2DInit&&);
 
 private:
-    CanvasPattern(PassRefPtr<Image>, bool repeatX, bool repeatY, bool originClean);
+    CanvasPattern(Ref<Image>&&, bool repeatX, bool repeatY, bool originClean);
 
     Ref<Pattern> m_pattern;
     bool m_originClean;
 };
 
 } // namespace WebCore
-
-#endif

@@ -27,8 +27,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AudioDestinationIOS_h
-#define AudioDestinationIOS_h
+#pragma once
+
+#if PLATFORM(IOS_FAMILY)
 
 #include "AudioBus.h"
 #include "AudioDestination.h"
@@ -48,10 +49,10 @@ private:
     void configure();
 
     // AudioDestination
-    virtual void start() override;
-    virtual void stop() override;
-    virtual bool isPlaying() override { return m_isPlaying; }
-    virtual float sampleRate() const override { return m_sampleRate; }
+    void start() override;
+    void stop() override;
+    bool isPlaying() override { return m_isPlaying; }
+    float sampleRate() const override { return m_sampleRate; }
 
     // DefaultOutputUnit callback
     static OSStatus inputProc(void* userData, AudioUnitRenderActionFlags*, const AudioTimeStamp*, UInt32 busNumber, UInt32 numberOfFrames, AudioBufferList* ioData);
@@ -65,6 +66,9 @@ private:
     AudioUnit m_outputUnit;
     AudioIOCallback& m_callback;
     RefPtr<AudioBus> m_renderBus;
+    RefPtr<AudioBus> m_spareBus;
+    unsigned m_startSpareFrame { 0 };
+    unsigned m_endSpareFrame { 0 };
 
     double m_sampleRate;
     bool m_isPlaying;
@@ -72,5 +76,4 @@ private:
 
 } // namespace WebCore
 
-#endif // AudioDestinationIOS_h
-
+#endif // PLATFORM(IOS_FAMILY)

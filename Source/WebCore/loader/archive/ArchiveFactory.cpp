@@ -46,52 +46,57 @@
 
 namespace WebCore {
 
-typedef PassRefPtr<Archive> RawDataCreationFunction(const URL&, SharedBuffer*);
+typedef RefPtr<Archive> RawDataCreationFunction(const URL&, SharedBuffer&);
 typedef HashMap<String, RawDataCreationFunction*, ASCIICaseInsensitiveHash> ArchiveMIMETypesMap;
 
-// The create functions in the archive classes return PassRefPtr to concrete subclasses
+// The create functions in the archive classes return RefPtr to concrete subclasses
 // of Archive. This adaptor makes the functions have a uniform return type.
-template <typename ArchiveClass> static PassRefPtr<Archive> archiveFactoryCreate(const URL& url, SharedBuffer* buffer)
+template<typename ArchiveClass> static RefPtr<Archive> archiveFactoryCreate(const URL& url, SharedBuffer& buffer)
 {
     return ArchiveClass::create(url, buffer);
 }
 
-static ArchiveMIMETypesMap& archiveMIMETypes()
+static ArchiveMIMETypesMap createArchiveMIMETypesMap()
 {
-    static NeverDestroyed<ArchiveMIMETypesMap> mimeTypes;
-    static bool initialized = false;
+    ArchiveMIMETypesMap map;
 
-    if (initialized)
-        return mimeTypes;
-
-    // FIXME: Remove unnecessary 'static_cast<RawDataCreationFunction*>' from the following 'mimeTypes.set' operations
-    // once we switch to a non-broken Visual Studio compiler.  https://bugs.webkit.org/show_bug.cgi?id=121235
 #if ENABLE(WEB_ARCHIVE) && USE(CF)
-    mimeTypes.get().set("application/x-webarchive", static_cast<RawDataCreationFunction*>(&archiveFactoryCreate<LegacyWebArchive>));
-#endif
-#if ENABLE(MHTML)
-    mimeTypes.get().set("multipart/related", static_cast<RawDataCreationFunction*>(&archiveFactoryCreate<MHTMLArchive>));
-    mimeTypes.get().set("application/x-mimearchive", static_cast<RawDataCreationFunction*>(&archiveFactoryCreate<MHTMLArchive>));
+    map.add("application/x-webarchive"_s, archiveFactoryCreate<LegacyWebArchive>);
 #endif
 
-    initialized = true;
-    return mimeTypes;
+#if ENABLE(MHTML)
+    map.add("multipart/related"_s, archiveFactoryCreate<MHTMLArchive>);
+    map.add("application/x-mimearchive"_s, archiveFactoryCreate<MHTMLArchive>);
+#endif
+
+    return map;
 }
 
-bool ArchiveFactory::isArchiveMimeType(const String& mimeType)
+static ArchiveMIMETypesMap& archiveMIMETypes()
+{
+    static NeverDestroyed<ArchiveMIMETypesMap> map = createArchiveMIMETypesMap();
+    return map;
+}
+
+bool ArchiveFactory::isArchiveMIMEType(const String& mimeType)
 {
     return !mimeType.isEmpty() && archiveMIMETypes().contains(mimeType);
 }
 
-PassRefPtr<Archive> ArchiveFactory::create(const URL& url, SharedBuffer* data, const String& mimeType)
+RefPtr<Archive> ArchiveFactory::create(const URL& url, SharedBuffer* data, const String& mimeType)
 {
-    RawDataCreationFunction* function = mimeType.isEmpty() ? 0 : archiveMIMETypes().get(mimeType);
-    return function ? function(url, data) : PassRefPtr<Archive>(nullptr);
+    if (!data)
+        return nullptr;
+    if (mimeType.isEmpty())
+        return nullptr;
+    auto* function = archiveMIMETypes().get(mimeType);
+    if (!function)
+        return nullptr;
+    return function(url, *data);
 }
 
-void ArchiveFactory::registerKnownArchiveMIMETypes()
+void ArchiveFactory::registerKnownArchiveMIMETypes(HashSet<String, ASCIICaseInsensitiveHash>& mimeTypes)
 {
-    auto& mimeTypes = MIMETypeRegistry::getSupportedNonImageMIMETypes();
     for (auto& mimeType : archiveMIMETypes().keys())
         mimeTypes.add(mimeType);
 }

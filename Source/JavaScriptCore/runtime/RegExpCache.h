@@ -25,18 +25,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+
 #include "RegExp.h"
 #include "RegExpKey.h"
 #include "Strong.h"
 #include "Weak.h"
-#include "WeakInlines.h"
 #include <array>
 #include <wtf/HashMap.h>
 
-#ifndef RegExpCache_h
-#define RegExpCache_h
-
 namespace JSC {
+
+namespace Yarr {
+enum class Flags : uint8_t;
+}
 
 class RegExpCache : private WeakHandleOwner {
     WTF_MAKE_FAST_ALLOCATED;
@@ -48,22 +50,30 @@ public:
     RegExpCache(VM* vm);
     void deleteAllCode();
 
+    RegExp* ensureEmptyRegExp(VM& vm)
+    {
+        if (LIKELY(m_emptyRegExp))
+            return m_emptyRegExp.get();
+        return ensureEmptyRegExpSlow(vm);
+    }
+
 private:
     
     static const unsigned maxStrongCacheablePatternLength = 256;
 
     static const int maxStrongCacheableEntries = 32;
 
-    virtual void finalize(Handle<Unknown>, void* context) override;
+    void finalize(Handle<Unknown>, void* context) override;
 
-    RegExp* lookupOrCreate(const WTF::String& patternString, RegExpFlags);
+    RegExp* ensureEmptyRegExpSlow(VM&);
+
+    RegExp* lookupOrCreate(const WTF::String& patternString, OptionSet<Yarr::Flags>);
     void addToStrongCache(RegExp*);
     RegExpCacheMap m_weakCache; // Holds all regular expressions currently live.
     int m_nextEntryInStrongCache;
     std::array<Strong<RegExp>, maxStrongCacheableEntries> m_strongCache; // Holds a select few regular expressions that have compiled and executed
+    Strong<RegExp> m_emptyRegExp;
     VM* m_vm;
 };
 
 } // namespace JSC
-
-#endif // RegExpCache_h

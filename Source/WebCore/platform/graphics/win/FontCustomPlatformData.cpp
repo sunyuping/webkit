@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2009, 2010, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2010, 2013, 2016 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,30 +25,35 @@
 #include "FontPlatformData.h"
 #include "OpenTypeUtilities.h"
 #include "SharedBuffer.h"
-#include <ApplicationServices/ApplicationServices.h>
-#include <WebKitSystemInterface/WebKitSystemInterface.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/text/Base64.h>
 #include <wtf/win/GDIObject.h>
 
-namespace WebCore {
+#if USE(CG)
+#include <pal/spi/cg/CoreGraphicsSPI.h>
+#endif
 
-using namespace std;
+#if USE(DIRECT2D)
+#include "Font.h"
+#include <dwrite.h>
+#endif
+
+namespace WebCore {
 
 FontCustomPlatformData::~FontCustomPlatformData()
 {
     if (m_fontReference)
-            RemoveFontMemResourceEx(m_fontReference);
+        RemoveFontMemResourceEx(m_fontReference);
 }
 
-FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& fontDescription, bool bold, bool italic)
+FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& fontDescription, bool bold, bool italic, const FontFeatureSettings&, const FontVariantSettings&, FontSelectionSpecifiedCapabilities)
 {
     int size = fontDescription.computedPixelSize();
     FontRenderingMode renderingMode = fontDescription.renderingMode();
 
     ASSERT(m_fontReference);
 
-    LOGFONT& logFont = *static_cast<LOGFONT*>(malloc(sizeof(LOGFONT)));
+    LOGFONT logFont { };
     memcpy(logFont.lfFaceName, m_name.charactersWithNullTermination().data(), sizeof(logFont.lfFaceName[0]) * std::min<size_t>(static_cast<size_t>(LF_FACESIZE), 1 + m_name.length()));
 
     logFont.lfHeight = -size;
@@ -60,7 +65,11 @@ FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription&
     logFont.lfUnderline = false;
     logFont.lfStrikeOut = false;
     logFont.lfCharSet = DEFAULT_CHARSET;
+#if USE(CG) || USE(CAIRO)
     logFont.lfOutPrecision = OUT_TT_ONLY_PRECIS;
+#else
+    logFont.lfOutPrecision = OUT_TT_PRECIS;
+#endif
     logFont.lfQuality = CLEARTYPE_QUALITY;
     logFont.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
     logFont.lfItalic = italic;
@@ -68,8 +77,21 @@ FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription&
 
     auto hfont = adoptGDIObject(::CreateFontIndirect(&logFont));
 
+#if USE(CG)
     RetainPtr<CGFontRef> cgFont = adoptCF(CGFontCreateWithPlatformFont(&logFont));
     return FontPlatformData(WTFMove(hfont), cgFont.get(), size, bold, italic, renderingMode == FontRenderingMode::Alternate);
+#else
+    COMPtr<IDWriteFont> dwFont;
+    HRESULT hr = Font::systemDWriteGdiInterop()->CreateFontFromLOGFONT(&logFont, &dwFont);
+    if (!SUCCEEDED(hr)) {
+        LOGFONT customFont;
+        hr = ::GetObject(hfont.get(), sizeof(LOGFONT), &customFont);
+        if (SUCCEEDED(hr))
+            hr = FontPlatformData::createFallbackFont(customFont, &dwFont);
+    }
+    RELEASE_ASSERT(SUCCEEDED(hr));
+    return FontPlatformData(WTFMove(hfont), dwFont.get(), size, bold, italic, renderingMode == FontRenderingMode::Alternate);
+#endif
 }
 
 // Creates a unique and unpredictable font name, in order to avoid collisions and to
@@ -84,7 +106,7 @@ static String createUniqueFontName()
     return fontName;
 }
 
-std::unique_ptr<FontCustomPlatformData> createFontCustomPlatformData(SharedBuffer& buffer)
+std::unique_ptr<FontCustomPlatformData> createFontCustomPlatformData(SharedBuffer& buffer, const String&)
 {
     String fontName = createUniqueFontName();
     HANDLE fontReference;

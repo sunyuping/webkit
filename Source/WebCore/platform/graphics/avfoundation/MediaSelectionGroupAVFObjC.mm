@@ -28,14 +28,12 @@
 
 #if ENABLE(VIDEO_TRACK)
 
-#import "Language.h"
-#import "SoftLinking.h"
 #import <AVFoundation/AVAsset.h>
 #import <AVFoundation/AVMediaSelectionGroup.h>
 #import <AVFoundation/AVPlayerItem.h>
 #import <objc/runtime.h>
-#import <wtf/HashMap.h>
-#import <wtf/HashSet.h>
+#import <wtf/Language.h>
+#import <wtf/SoftLinking.h>
 #import <wtf/text/WTFString.h>
 
 SOFT_LINK_FRAMEWORK_OPTIONAL(AVFoundation)
@@ -50,9 +48,9 @@ SOFT_LINK_CLASS(AVFoundation, AVMediaSelectionOption)
 
 namespace WebCore {
 
-PassRefPtr<MediaSelectionOptionAVFObjC> MediaSelectionOptionAVFObjC::create(MediaSelectionGroupAVFObjC& group, AVMediaSelectionOption *option)
+Ref<MediaSelectionOptionAVFObjC> MediaSelectionOptionAVFObjC::create(MediaSelectionGroupAVFObjC& group, AVMediaSelectionOption *option)
 {
-    return adoptRef(new MediaSelectionOptionAVFObjC(group, option));
+    return adoptRef(*new MediaSelectionOptionAVFObjC(group, option));
 }
 
 MediaSelectionOptionAVFObjC::MediaSelectionOptionAVFObjC(MediaSelectionGroupAVFObjC& group, AVMediaSelectionOption *option)
@@ -87,9 +85,9 @@ int MediaSelectionOptionAVFObjC::index() const
     return [[m_group->avMediaSelectionGroup() options] indexOfObject:m_mediaSelectionOption.get()];
 }
 
-PassRefPtr<MediaSelectionGroupAVFObjC> MediaSelectionGroupAVFObjC::create(AVPlayerItem *item, AVMediaSelectionGroup *group, const Vector<String>& characteristics)
+Ref<MediaSelectionGroupAVFObjC> MediaSelectionGroupAVFObjC::create(AVPlayerItem *item, AVMediaSelectionGroup *group, const Vector<String>& characteristics)
 {
-    return adoptRef(new MediaSelectionGroupAVFObjC(item, group, characteristics));
+    return adoptRef(*new MediaSelectionGroupAVFObjC(item, group, characteristics));
 }
 
 MediaSelectionGroupAVFObjC::MediaSelectionGroupAVFObjC(AVPlayerItem *item, AVMediaSelectionGroup *group, const Vector<String>& characteristics)
@@ -111,7 +109,7 @@ void MediaSelectionGroupAVFObjC::updateOptions(const Vector<String>& characteris
     RetainPtr<NSSet> newAVOptions = adoptNS([[NSSet alloc] initWithArray:[getAVMediaSelectionGroupClass() playableMediaSelectionOptionsFromArray:[m_mediaSelectionGroup options]]]);
     RetainPtr<NSMutableSet> oldAVOptions = adoptNS([[NSMutableSet alloc] initWithCapacity:m_options.size()]);
     for (auto& avOption : m_options.keys())
-        [oldAVOptions addObject:avOption];
+        [oldAVOptions addObject:(__bridge AVMediaSelectionOption *)avOption];
 
     RetainPtr<NSMutableSet> addedAVOptions = adoptNS([newAVOptions mutableCopy]);
     [addedAVOptions minusSet:oldAVOptions.get()];
@@ -123,16 +121,16 @@ void MediaSelectionGroupAVFObjC::updateOptions(const Vector<String>& characteris
         if (m_selectedOption && removedAVOption == m_selectedOption->avMediaSelectionOption())
             m_selectedOption = nullptr;
 
-        m_options.remove(removedAVOption);
+        m_options.remove((__bridge CFTypeRef)removedAVOption);
     }
-
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     AVMediaSelectionOption* selectedOption = [m_playerItem selectedMediaOptionInMediaSelectionGroup:m_mediaSelectionGroup.get()];
-
+    ALLOW_DEPRECATED_DECLARATIONS_END
     for (AVMediaSelectionOption* addedAVOption in addedAVOptions.get()) {
-        RefPtr<MediaSelectionOptionAVFObjC> addedOption = MediaSelectionOptionAVFObjC::create(*this, addedAVOption);
+        auto addedOption = MediaSelectionOptionAVFObjC::create(*this, addedAVOption);
         if (addedAVOption == selectedOption)
-            m_selectedOption = addedOption.get();
-        m_options.set(addedAVOption, addedOption.release());
+            m_selectedOption = addedOption.ptr();
+        m_options.set((__bridge CFTypeRef)addedAVOption, WTFMove(addedOption));
     }
 
     if (!m_shouldSelectOptionAutomatically)
@@ -165,9 +163,9 @@ void MediaSelectionGroupAVFObjC::updateOptions(const Vector<String>& characteris
     if (m_selectedOption && m_selectedOption->avMediaSelectionOption() == preferredOption)
         return;
 
-    ASSERT(m_options.contains(preferredOption));
-    m_selectedOption = m_options.get(preferredOption);
-    m_selectionTimer.startOneShot(0);
+    ASSERT(m_options.contains((__bridge CFTypeRef)preferredOption));
+    m_selectedOption = m_options.get((__bridge CFTypeRef)preferredOption);
+    m_selectionTimer.startOneShot(0_s);
 }
 
 void MediaSelectionGroupAVFObjC::setSelectedOption(MediaSelectionOptionAVFObjC* option)
@@ -179,7 +177,7 @@ void MediaSelectionGroupAVFObjC::setSelectedOption(MediaSelectionOptionAVFObjC* 
     m_selectedOption = option;
     if (m_selectionTimer.isActive())
         m_selectionTimer.stop();
-    m_selectionTimer.startOneShot(0);
+    m_selectionTimer.startOneShot(0_s);
 }
 
 void MediaSelectionGroupAVFObjC::selectionTimerFired()

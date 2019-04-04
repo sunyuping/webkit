@@ -4,6 +4,7 @@ var mediaElement = document; // If not set, an event from any element will trigg
 var consoleElement = null;
 var printFullTestDetails = true; // This is optionaly switched of by test whose tested values can differ. (see disableFullTestDetailsPrinting())
 var Failed = false;
+var Success = true;
 
 var track = null; // Current TextTrack being tested.
 var cues = null; // Current TextTrackCueList being tested.
@@ -61,17 +62,9 @@ function test(testFuncString, endit)
         endTest();
 }
 
-function testExpected(testFuncString, expected, comparison)
+function compare(testFuncString, expected, comparison)
 {
-    try {
-        var observed = eval(testFuncString);
-    } catch (ex) {
-        consoleWrite(ex);
-        return;
-    }
-
-    if (comparison === undefined)
-        comparison = '==';
+    var observed = eval(testFuncString);
 
     var success = false;
     switch (comparison)
@@ -86,7 +79,51 @@ function testExpected(testFuncString, expected, comparison)
         case 'instanceof': success = observed instanceof expected; break;
     }
 
-    reportExpected(success, testFuncString, comparison, expected, observed)
+    return {success:success, observed:observed};
+}
+
+function testExpected(testFuncString, expected, comparison)
+{
+    if (comparison === undefined)
+        comparison = '==';
+
+    try {
+        let {success, observed} = compare(testFuncString, expected, comparison);
+        reportExpected(success, testFuncString, comparison, expected, observed)
+    } catch (ex) {
+        consoleWrite(ex);
+    }
+}
+
+function sleepFor(duration) {
+    return new Promise(resolve => {
+        setTimeout(resolve, duration);
+    });
+}
+
+function testExpectedEventually(testFuncString, expected, comparison)
+{
+    return new Promise(async resolve => {
+        var success;
+        var observed;
+        if (comparison === undefined)
+            comparison = '==';
+        while (true) {
+            try {
+                let {success, observed} = compare(testFuncString, expected, comparison);
+                if (success) {
+                    reportExpected(success, testFuncString, comparison, expected, observed);
+                    resolve();
+                    return;
+                }
+                await sleepFor(1);
+            } catch (ex) {
+                consoleWrite(ex);
+                resolve();
+                return;
+            }
+        }
+    });
 }
 
 function testArraysEqual(testFuncString, expected)
@@ -147,6 +184,15 @@ function run(testFuncString)
     } catch (ex) {
         consoleWrite(ex);
     }
+}
+
+function waitFor(element, type) {
+    return new Promise(resolve => {
+        element.addEventListener(type, event => {
+            consoleWrite(`EVENT(${event.type})`);
+            resolve(event);
+        }, { once: true });
+    });
 }
 
 function waitForEventOnce(eventName, func, endit)
@@ -266,6 +312,11 @@ function failTest(text)
     endTest();
 }
 
+function passTest(text)
+{
+    logResult(Success, text);
+    endTest();
+}
 
 function logResult(success, text)
 {
@@ -326,7 +377,7 @@ function testCues(index, expected)
             var test = expected.tests[j];
             var propertyString = "cues[" + i + "]." + test.property;
             var propertyValue = eval(propertyString);
-            if (test["precision"])
+            if (test["precision"] && typeof(propertyValue) == 'number')
                 propertyValue = propertyValue.toFixed(test["precision"]);
             reportExpected(test.values[i] == propertyValue, propertyString, "==", test.values[i], propertyValue)
         }
@@ -388,22 +439,57 @@ function setCaptionDisplayMode(mode)
         consoleWrite("<br><b>** This test only works in DRT! **<" + "/b><br>");
 }
 
-function runWithKeyDown(fn) 
+function runWithKeyDown(fn, preventDefault) 
 {
-    // FIXME: WKTR does not yet support the keyDown() message.  Do a mouseDown here
-    // instead until keyDown support is added.
-    var eventName = !window.testRunner || eventSender.keyDown ? 'keypress' : 'mousedown'
+    var eventName = 'keypress'
+    function thunk(event) {
+        if (preventDefault && event !== undefined)
+            event.preventDefault();
 
-    function thunk() {
         document.removeEventListener(eventName, thunk, false);
-        fn();
+        if (typeof fn === 'function')
+            fn();
+        else
+            run(fn);
     }
     document.addEventListener(eventName, thunk, false);
 
-    if (window.testRunner) {
-        if (eventSender.keyDown)
-            eventSender.keyDown(" ", []);
-        else
-            eventSender.mouseDown();
-    }
+    if (window.internals)
+        internals.withUserGesture(thunk);
+}
+
+function shouldResolve(promise) {
+    return new Promise((resolve, reject) => {
+        promise.then(result => {
+            logResult(Success, 'Promise resolved');
+            resolve(result);
+        }).catch((error) => {
+            logResult(Failed, 'Promise rejected');
+            reject(error);
+        });
+    });
+}
+
+function shouldReject(promise) {
+    return new Promise((resolve, reject) => {
+        promise.then(result => {
+            logResult(Failed, 'Promise resolved incorrectly');
+            reject(result);
+        }).catch((error) => {
+            logResult(Success, 'Promise rejected correctly');
+            resolve(error);
+        });
+    });
+
+}
+
+function handlePromise(promise) {
+    function handle() { }
+    return promise.then(handle, handle);
+}
+
+function checkMediaCapabilitiesInfo(info, expectedSupported, expectedSmooth, expectedPowerEfficient) {
+    logResult(info.supported == expectedSupported, "info.supported == " + expectedSupported);
+    logResult(info.smooth == expectedSmooth, "info.smooth == " + expectedSmooth);
+    logResult(info.powerEfficient == expectedPowerEfficient, "info.powerEfficient == " + expectedPowerEfficient);
 }

@@ -30,12 +30,15 @@
 #include "StyleResolveForDocument.h"
 
 #include "CSSFontSelector.h"
+#include "ConstantPropertyMap.h"
 #include "Document.h"
+#include "FontCascade.h"
 #include "Frame.h"
 #include "FrameView.h"
 #include "HTMLIFrameElement.h"
 #include "LocaleToScriptMapping.h"
 #include "NodeRenderStyle.h"
+#include "Page.h"
 #include "RenderObject.h"
 #include "RenderStyle.h"
 #include "RenderView.h"
@@ -47,7 +50,7 @@ namespace WebCore {
 
 namespace Style {
 
-Ref<RenderStyle> resolveForDocument(const Document& document)
+RenderStyle resolveForDocument(const Document& document)
 {
     ASSERT(document.hasLivingRenderTree());
 
@@ -55,19 +58,19 @@ Ref<RenderStyle> resolveForDocument(const Document& document)
 
     auto documentStyle = RenderStyle::create();
 
-    documentStyle.get().setDisplay(BLOCK);
-    documentStyle.get().setRTLOrdering(document.visuallyOrdered() ? VisualOrder : LogicalOrder);
-    documentStyle.get().setZoom(!document.printing() ? renderView.frame().pageZoomFactor() : 1);
-    documentStyle.get().setPageScaleTransform(renderView.frame().frameScaleFactor());
-    FontCascadeDescription documentFontDescription = documentStyle.get().fontDescription();
+    documentStyle.setDisplay(DisplayType::Block);
+    documentStyle.setRTLOrdering(document.visuallyOrdered() ? Order::Visual : Order::Logical);
+    documentStyle.setZoom(!document.printing() ? renderView.frame().pageZoomFactor() : 1);
+    documentStyle.setPageScaleTransform(renderView.frame().frameScaleFactor());
+    FontCascadeDescription documentFontDescription = documentStyle.fontDescription();
     documentFontDescription.setLocale(document.contentLanguage());
-    documentStyle.get().setFontDescription(WTFMove(documentFontDescription));
+    documentStyle.setFontDescription(WTFMove(documentFontDescription));
 
     // This overrides any -webkit-user-modify inherited from the parent iframe.
-    documentStyle.get().setUserModify(document.inDesignMode() ? READ_WRITE : READ_ONLY);
-#if PLATFORM(IOS)
+    documentStyle.setUserModify(document.inDesignMode() ? UserModify::ReadWrite : UserModify::ReadOnly);
+#if PLATFORM(IOS_FAMILY)
     if (document.inDesignMode())
-        documentStyle.get().setTextSizeAdjust(TextSizeAdjustment(NoTextSizeAdjustment));
+        documentStyle.setTextSizeAdjust(TextSizeAdjustment(NoTextSizeAdjustment));
 #endif
 
     Element* docElement = document.documentElement();
@@ -79,24 +82,24 @@ Ref<RenderStyle> resolveForDocument(const Document& document)
         auto* body = document.bodyOrFrameset();
         RenderObject* bodyRenderer = body ? body->renderer() : nullptr;
         if (bodyRenderer && !docElementRenderer->style().hasExplicitlySetWritingMode())
-            documentStyle.get().setWritingMode(bodyRenderer->style().writingMode());
+            documentStyle.setWritingMode(bodyRenderer->style().writingMode());
         else
-            documentStyle.get().setWritingMode(docElementRenderer->style().writingMode());
+            documentStyle.setWritingMode(docElementRenderer->style().writingMode());
         if (bodyRenderer && !docElementRenderer->style().hasExplicitlySetDirection())
-            documentStyle.get().setDirection(bodyRenderer->style().direction());
+            documentStyle.setDirection(bodyRenderer->style().direction());
         else
-            documentStyle.get().setDirection(docElementRenderer->style().direction());
+            documentStyle.setDirection(docElementRenderer->style().direction());
     }
 
     const Pagination& pagination = renderView.frameView().pagination();
     if (pagination.mode != Pagination::Unpaginated) {
-        documentStyle.get().setColumnStylesFromPaginationMode(pagination.mode);
-        documentStyle.get().setColumnGap(pagination.gap);
-        if (renderView.multiColumnFlowThread())
-            renderView.updateColumnProgressionFromStyle(documentStyle.get());
-        if (renderView.frame().page()->paginationLineGridEnabled()) {
-            documentStyle.get().setLineGrid("-webkit-default-pagination-grid");
-            documentStyle.get().setLineSnap(LineSnapContain);
+        documentStyle.setColumnStylesFromPaginationMode(pagination.mode);
+        documentStyle.setColumnGap(GapLength(Length((int) pagination.gap, Fixed)));
+        if (renderView.multiColumnFlow())
+            renderView.updateColumnProgressionFromStyle(documentStyle);
+        if (renderView.page().paginationLineGridEnabled()) {
+            documentStyle.setLineGrid("-webkit-default-pagination-grid");
+            documentStyle.setLineSnap(LineSnap::Contain);
         }
     }
 
@@ -106,22 +109,26 @@ Ref<RenderStyle> resolveForDocument(const Document& document)
     fontDescription.setLocale(document.contentLanguage());
     fontDescription.setRenderingMode(settings.fontRenderingMode());
     fontDescription.setOneFamily(standardFamily);
+    fontDescription.setShouldAllowUserInstalledFonts(settings.shouldAllowUserInstalledFonts() ? AllowUserInstalledFonts::Yes : AllowUserInstalledFonts::No);
 
     fontDescription.setKeywordSizeFromIdentifier(CSSValueMedium);
     int size = fontSizeForKeyword(CSSValueMedium, false, document);
     fontDescription.setSpecifiedSize(size);
     bool useSVGZoomRules = document.isSVGDocument();
-    fontDescription.setComputedSize(computedFontSizeFromSpecifiedSize(size, fontDescription.isAbsoluteSize(), useSVGZoomRules, documentStyle.ptr(), document));
+    fontDescription.setComputedSize(computedFontSizeFromSpecifiedSize(size, fontDescription.isAbsoluteSize(), useSVGZoomRules, &documentStyle, document));
 
     FontOrientation fontOrientation;
     NonCJKGlyphOrientation glyphOrientation;
-    std::tie(fontOrientation, glyphOrientation) = documentStyle.get().fontAndGlyphOrientation();
+    std::tie(fontOrientation, glyphOrientation) = documentStyle.fontAndGlyphOrientation();
     fontDescription.setOrientation(fontOrientation);
     fontDescription.setNonCJKGlyphOrientation(glyphOrientation);
 
-    documentStyle.get().setFontDescription(fontDescription);
+    documentStyle.setFontDescription(WTFMove(fontDescription));
 
-    documentStyle.get().fontCascade().update(&const_cast<Document&>(document).fontSelector());
+    documentStyle.fontCascade().update(&const_cast<Document&>(document).fontSelector());
+
+    for (auto& it : document.constantProperties().values())
+        documentStyle.setInheritedCustomPropertyValue(it.key, makeRef(it.value.get()));
 
     return documentStyle;
 }

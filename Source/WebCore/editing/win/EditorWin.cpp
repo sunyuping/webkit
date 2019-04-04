@@ -35,34 +35,38 @@
 
 namespace WebCore {
 
-void Editor::pasteWithPasteboard(Pasteboard* pasteboard, bool allowPlainText, MailBlockquoteHandling mailBlockquoteHandling)
+void Editor::pasteWithPasteboard(Pasteboard* pasteboard, OptionSet<PasteOption> options)
 {
     RefPtr<Range> range = selectedRange();
     if (!range)
         return;
 
     bool chosePlainText;
-    RefPtr<DocumentFragment> fragment = pasteboard->documentFragment(m_frame, *range, allowPlainText, chosePlainText);
-    if (fragment && shouldInsertFragment(fragment, range, EditorInsertActionPasted))
-        pasteAsFragment(fragment.releaseNonNull(), canSmartReplaceWithPasteboard(*pasteboard), chosePlainText, mailBlockquoteHandling);
+    RefPtr<DocumentFragment> fragment = pasteboard->documentFragment(m_frame, *range, options.contains(PasteOption::AllowPlainText), chosePlainText);
+
+    if (fragment && options.contains(PasteOption::AsQuotation))
+        quoteFragmentForPasting(*fragment);
+
+    if (fragment && shouldInsertFragment(*fragment, range.get(), EditorInsertAction::Pasted))
+        pasteAsFragment(fragment.releaseNonNull(), canSmartReplaceWithPasteboard(*pasteboard), chosePlainText, options.contains(PasteOption::IgnoreMailBlockquote) ? MailBlockquoteHandling::IgnoreBlockquote : MailBlockquoteHandling::RespectBlockquote);
 }
 
 template <typename PlatformDragData>
-static PassRefPtr<DocumentFragment> createFragmentFromPlatformData(PlatformDragData& platformDragData, Frame& frame)
+static RefPtr<DocumentFragment> createFragmentFromPlatformData(PlatformDragData& platformDragData, Frame& frame)
 {
     if (containsFilenames(&platformDragData)) {
-        if (PassRefPtr<DocumentFragment> fragment = fragmentFromFilenames(frame.document(), &platformDragData))
+        if (auto fragment = fragmentFromFilenames(frame.document(), &platformDragData))
             return fragment;
     }
 
     if (containsHTML(&platformDragData)) {
-        if (PassRefPtr<DocumentFragment> fragment = fragmentFromHTML(frame.document(), &platformDragData))
+        if (RefPtr<DocumentFragment> fragment = fragmentFromHTML(frame.document(), &platformDragData))
             return fragment;
     }
     return nullptr;
 }
 
-PassRefPtr<DocumentFragment> Editor::webContentFromPasteboard(Pasteboard& pasteboard, Range&, bool /*allowPlainText*/, bool& /*chosePlainText*/)
+RefPtr<DocumentFragment> Editor::webContentFromPasteboard(Pasteboard& pasteboard, Range&, bool /*allowPlainText*/, bool& /*chosePlainText*/)
 {
     if (COMPtr<IDataObject> platformDragData = pasteboard.dataObject())
         return createFragmentFromPlatformData(*platformDragData, m_frame);

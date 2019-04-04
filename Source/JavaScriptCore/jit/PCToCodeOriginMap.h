@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,23 +23,18 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef PCToCodeOriginMap_h
-#define PCToCodeOriginMap_h
+#pragma once
 
 #if ENABLE(JIT)
 
 #include "CodeOrigin.h"
-#include "DFGCommon.h"
 #include "MacroAssembler.h"
 #include "VM.h"
-#include <wtf/Bag.h>
-#include <wtf/Optional.h>
-#include <wtf/RedBlackTree.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
 
-#if FTL_USES_B3
+#if ENABLE(FTL_JIT)
 namespace B3 {
 class PCToOriginMap;
 }
@@ -56,7 +51,7 @@ public:
     PCToCodeOriginMapBuilder(VM&);
     PCToCodeOriginMapBuilder(PCToCodeOriginMapBuilder&& other);
 
-#if FTL_USES_B3
+#if ENABLE(FTL_JIT)
     PCToCodeOriginMapBuilder(VM&, B3::PCToOriginMap&&);
 #endif
 
@@ -78,6 +73,7 @@ private:
     bool m_shouldBuildMapping;
 };
 
+// FIXME: <rdar://problem/39436658>
 class PCToCodeOriginMap {
     WTF_MAKE_NONCOPYABLE(PCToCodeOriginMap);
 public:
@@ -100,5 +96,3 @@ private:
 } // namespace JSC
 
 #endif // ENABLE(JIT)
-
-#endif // PCToCodeOriginMap_h 

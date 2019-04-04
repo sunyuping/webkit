@@ -18,14 +18,13 @@
  *
  */
 
-#ifndef FunctionPrototype_h
-#define FunctionPrototype_h
+#pragma once
 
 #include "InternalFunction.h"
 
 namespace JSC {
 
-class FunctionPrototype : public InternalFunction {
+class FunctionPrototype final : public InternalFunction {
 public:
     typedef InternalFunction Base;
 
@@ -36,11 +35,13 @@ public:
         return prototype;
     }
 
-    void addFunctionProperties(ExecState*, JSGlobalObject*, JSFunction** callFunction, JSFunction** applyFunction, JSFunction** hasInstanceSymbolFunction);
+    void addFunctionProperties(VM&, JSGlobalObject*, JSFunction** callFunction, JSFunction** applyFunction, JSFunction** hasInstanceSymbolFunction);
+
+    void initRestrictedProperties(VM&, JSGlobalObject*);
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
     {
-        return Structure::create(vm, globalObject, proto, TypeInfo(ObjectType, StructureFlags), info());
+        return Structure::create(vm, globalObject, proto, TypeInfo(InternalFunctionType, StructureFlags), info());
     }
 
     DECLARE_INFO;
@@ -50,9 +51,6 @@ protected:
 
 private:
     FunctionPrototype(VM&, Structure*);
-    static CallType getCallData(JSCell*, CallData&);
 };
 
 } // namespace JSC
-
-#endif // FunctionPrototype_h

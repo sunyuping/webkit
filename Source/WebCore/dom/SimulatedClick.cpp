@@ -26,59 +26,60 @@
 #include "config.h"
 #include "SimulatedClick.h"
 
+#include "DOMRect.h"
 #include "DataTransfer.h"
 #include "Element.h"
-#include "EventDispatcher.h"
+#include "EventNames.h"
 #include "MouseEvent.h"
-#include <wtf/CurrentTime.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
 class SimulatedMouseEvent final : public MouseEvent {
 public:
-    static Ref<SimulatedMouseEvent> create(const AtomicString& eventType, AbstractView* view, RefPtr<Event>&& underlyingEvent, Element& target)
+    static Ref<SimulatedMouseEvent> create(const AtomicString& eventType, RefPtr<WindowProxy>&& view, RefPtr<Event>&& underlyingEvent, Element& target, SimulatedClickSource source)
     {
-        return adoptRef(*new SimulatedMouseEvent(eventType, view, WTFMove(underlyingEvent), target));
+        return adoptRef(*new SimulatedMouseEvent(eventType, WTFMove(view), WTFMove(underlyingEvent), target, source));
     }
 
 private:
-    SimulatedMouseEvent(const AtomicString& eventType, AbstractView* view, RefPtr<Event>&& underlyingEvent, Element& target)
-        : MouseEvent(eventType, true, true, underlyingEvent ? underlyingEvent->timeStamp() : currentTime(), view, 0, 0, 0, 0, 0,
-#if ENABLE(POINTER_LOCK)
-                     0, 0,
-#endif
-                     false, false, false, false, 0, 0, 0, 0, true)
+    SimulatedMouseEvent(const AtomicString& eventType, RefPtr<WindowProxy>&& view, RefPtr<Event>&& underlyingEvent, Element& target, SimulatedClickSource source)
+        : MouseEvent(eventType, CanBubble::Yes, IsCancelable::Yes, IsComposed::Yes,
+            underlyingEvent ? underlyingEvent->timeStamp() : MonotonicTime::now(), WTFMove(view), /* detail */ 0,
+            { }, { }, { }, modifiersFromUnderlyingEvent(underlyingEvent), 0, 0, nullptr, 0, 0, nullptr, IsSimulated::Yes,
+            source == SimulatedClickSource::UserAgent ? IsTrusted::Yes : IsTrusted::No)
     {
-        if (UIEventWithKeyState* keyStateEvent = findEventWithKeyState(underlyingEvent.get())) {
-            m_ctrlKey = keyStateEvent->ctrlKey();
-            m_altKey = keyStateEvent->altKey();
-            m_shiftKey = keyStateEvent->shiftKey();
-            m_metaKey = keyStateEvent->metaKey();
-        }
         setUnderlyingEvent(underlyingEvent.get());
 
         if (is<MouseEvent>(this->underlyingEvent())) {
             MouseEvent& mouseEvent = downcast<MouseEvent>(*this->underlyingEvent());
             m_screenLocation = mouseEvent.screenLocation();
             initCoordinates(mouseEvent.clientLocation());
-        } else {
+        } else if (source == SimulatedClickSource::UserAgent) {
+            // If there is no underlying event, we only populate the coordinates for events coming
+            // from the user agent (e.g. accessibility). For those coming from JavaScript (e.g.
+            // (element.click()), the coordinates will be 0, similarly to Firefox and Chrome.
+            // Note that the call to screenRect() causes a synchronous IPC with the UI process.
             m_screenLocation = target.screenRect().center();
-            initCoordinates(LayoutPoint(target.clientRect().center()));
+            initCoordinates(LayoutPoint(target.boundingClientRect().center()));
         }
     }
 
+    static OptionSet<Modifier> modifiersFromUnderlyingEvent(const RefPtr<Event>& underlyingEvent)
+    {
+        UIEventWithKeyState* keyStateEvent = findEventWithKeyState(underlyingEvent.get());
+        if (!keyStateEvent)
+            return { };
+        return keyStateEvent->modifierKeys();
+    }
 };
 
-static void simulateMouseEvent(const AtomicString& eventType, Element& element, Event* underlyingEvent, SimulatedClickCreationOptions creationOptions)
+static void simulateMouseEvent(const AtomicString& eventType, Element& element, Event* underlyingEvent, SimulatedClickSource source)
 {
-    auto event = SimulatedMouseEvent::create(eventType, element.document().defaultView(), underlyingEvent, element);
-    if (creationOptions == SimulatedClickCreationOptions::FromBindings)
-        event.get().setUntrusted();
-    EventDispatcher::dispatchEvent(&element, event.get());
+    element.dispatchEvent(SimulatedMouseEvent::create(eventType, element.document().windowProxy(), underlyingEvent, element, source));
 }
 
-void simulateClick(Element& element, Event* underlyingEvent, SimulatedClickMouseEventOptions mouseEventOptions, SimulatedClickVisualOptions visualOptions, SimulatedClickCreationOptions creationOptions)
+void simulateClick(Element& element, Event* underlyingEvent, SimulatedClickMouseEventOptions mouseEventOptions, SimulatedClickVisualOptions visualOptions, SimulatedClickSource creationOptions)
 {
     if (element.isDisabledFormControl())
         return;

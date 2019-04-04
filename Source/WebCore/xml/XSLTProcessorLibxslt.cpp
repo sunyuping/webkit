@@ -29,46 +29,30 @@
 #include "CachedResourceLoader.h"
 #include "Document.h"
 #include "Frame.h"
+#include "FrameLoader.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
 #include "ResourceError.h"
 #include "ResourceRequest.h"
 #include "ResourceResponse.h"
 #include "SecurityOrigin.h"
+#include "SharedBuffer.h"
 #include "TransformSource.h"
 #include "XMLDocumentParser.h"
 #include "XSLTExtensions.h"
 #include "XSLTUnicodeSort.h"
 #include "markup.h"
-#include <JavaScriptCore/Profile.h>
 #include <libxslt/imports.h>
 #include <libxslt/security.h>
 #include <libxslt/variables.h>
+#include <libxslt/xslt.h>
 #include <libxslt/xsltutils.h>
 #include <wtf/Assertions.h>
-#include <wtf/Vector.h>
 #include <wtf/text/StringBuffer.h>
-#include <wtf/unicode/UTF8.h>
+#include <wtf/unicode/UTF8Conversion.h>
 
-#if OS(DARWIN) && !PLATFORM(EFL) && !PLATFORM(GTK)
-#include "SoftLinking.h"
-
-SOFT_LINK_LIBRARY(libxslt);
-SOFT_LINK(libxslt, xsltFreeStylesheet, void, (xsltStylesheetPtr sheet), (sheet))
-SOFT_LINK(libxslt, xsltFreeTransformContext, void, (xsltTransformContextPtr ctxt), (ctxt))
-SOFT_LINK(libxslt, xsltNewTransformContext, xsltTransformContextPtr, (xsltStylesheetPtr style, xmlDocPtr doc), (style, doc))
-SOFT_LINK(libxslt, xsltApplyStylesheetUser, xmlDocPtr, (xsltStylesheetPtr style, xmlDocPtr doc, const char** params, const char* output, FILE* profile, xsltTransformContextPtr userCtxt), (style, doc, params, output, profile, userCtxt))
-SOFT_LINK(libxslt, xsltQuoteUserParams, int, (xsltTransformContextPtr ctxt, const char** params), (ctxt, params))
-SOFT_LINK(libxslt, xsltSetCtxtSortFunc, void, (xsltTransformContextPtr ctxt, xsltSortFunc handler), (ctxt, handler))
-SOFT_LINK(libxslt, xsltSetLoaderFunc, void, (xsltDocLoaderFunc f), (f))
-SOFT_LINK(libxslt, xsltSaveResultTo, int, (xmlOutputBufferPtr buf, xmlDocPtr result, xsltStylesheetPtr style), (buf, result, style))
-SOFT_LINK(libxslt, xsltNextImport, xsltStylesheetPtr, (xsltStylesheetPtr style), (style))
-SOFT_LINK(libxslt, xsltNewSecurityPrefs, xsltSecurityPrefsPtr, (), ())
-SOFT_LINK(libxslt, xsltFreeSecurityPrefs, void, (xsltSecurityPrefsPtr sec), (sec))
-SOFT_LINK(libxslt, xsltSetSecurityPrefs, int, (xsltSecurityPrefsPtr sec, xsltSecurityOption option, xsltSecurityCheck func), (sec, option, func))
-SOFT_LINK(libxslt, xsltSetCtxtSecurityPrefs, int, (xsltSecurityPrefsPtr sec, xsltTransformContextPtr ctxt), (sec, ctxt))
-SOFT_LINK(libxslt, xsltSecurityForbid, int, (xsltSecurityPrefsPtr sec, xsltTransformContextPtr ctxt, const char* value), (sec, ctxt, value))
-
+#if OS(DARWIN) && !PLATFORM(GTK)
+#include "SoftLinkLibxslt.h"
 #endif
 
 namespace WebCore {
@@ -119,18 +103,21 @@ static xmlDocPtr docLoaderFunc(const xmlChar* uri,
     case XSLT_LOAD_DOCUMENT: {
         xsltTransformContextPtr context = (xsltTransformContextPtr)ctxt;
         xmlChar* base = xmlNodeGetBase(context->document->doc, context->node);
-        URL url(URL(ParsedURLString, reinterpret_cast<const char*>(base)), reinterpret_cast<const char*>(uri));
+        URL url(URL({ }, reinterpret_cast<const char*>(base)), reinterpret_cast<const char*>(uri));
         xmlFree(base);
         ResourceError error;
         ResourceResponse response;
 
         RefPtr<SharedBuffer> data;
 
-        bool requestAllowed = globalCachedResourceLoader->frame() && globalCachedResourceLoader->document()->securityOrigin()->canRequest(url);
+        bool requestAllowed = globalCachedResourceLoader->frame() && globalCachedResourceLoader->document()->securityOrigin().canRequest(url);
         if (requestAllowed) {
-            globalCachedResourceLoader->frame()->loader().loadResourceSynchronously(url, AllowStoredCredentials, DoNotAskClientForCrossOriginCredentials, error, response, data);
+            FetchOptions options;
+            options.mode = FetchOptions::Mode::SameOrigin;
+            options.credentials = FetchOptions::Credentials::Include;
+            globalCachedResourceLoader->frame()->loader().loadResourceSynchronously(url, ClientCredentialPolicy::MayAskClientForCredentials, options, { }, error, response, data);
             if (error.isNull())
-                requestAllowed = globalCachedResourceLoader->document()->securityOrigin()->canRequest(response.url());
+                requestAllowed = globalCachedResourceLoader->document()->securityOrigin().canRequest(response.url());
             else if (data)
                 data = nullptr;
         }
@@ -258,7 +245,7 @@ static xsltStylesheetPtr xsltStylesheetPointer(RefPtr<XSLStyleSheet>& cachedStyl
 
         // According to Mozilla documentation, the node must be a Document node, an xsl:stylesheet or xsl:transform element.
         // But we just use text content regardless of node type.
-        cachedStylesheet->parseString(createMarkup(*stylesheetRootNode));
+        cachedStylesheet->parseString(serializeFragment(*stylesheetRootNode, SerializedNodes::SubtreeIncludingNode));
     }
 
     if (!cachedStylesheet || !cachedStylesheet->document())
@@ -274,9 +261,9 @@ static inline xmlDocPtr xmlDocPtrFromNode(Node& sourceNode, bool& shouldDelete)
 
     xmlDocPtr sourceDoc = nullptr;
     if (sourceIsDocument && ownerDocument->transformSource())
-        sourceDoc = (xmlDocPtr)ownerDocument->transformSource()->platformSource();
+        sourceDoc = ownerDocument->transformSource()->platformSource();
     if (!sourceDoc) {
-        sourceDoc = (xmlDocPtr)xmlDocPtrForString(ownerDocument->cachedResourceLoader(), createMarkup(sourceNode),
+        sourceDoc = xmlDocPtrForString(ownerDocument->cachedResourceLoader(), serializeFragment(sourceNode, SerializedNodes::SubtreeIncludingNode),
             sourceIsDocument ? ownerDocument->url().string() : String());
         shouldDelete = sourceDoc;
     }
@@ -315,9 +302,17 @@ bool XSLTProcessor::transformToString(Node& sourceNode, String& mimeType, String
     }
     m_stylesheet->clearDocuments();
 
+#if OS(DARWIN) && !PLATFORM(GTK)
+    int origXsltMaxDepth = *xsltMaxDepth;
+    *xsltMaxDepth = 1000;
+#else
+    int origXsltMaxDepth = xsltMaxDepth;
+    xsltMaxDepth = 1000;
+#endif
+
     xmlChar* origMethod = sheet->method;
     if (!origMethod && mimeType == "text/html")
-        sheet->method = (xmlChar*)"html";
+        sheet->method = reinterpret_cast<xmlChar*>(const_cast<char*>("html"));
 
     bool success = false;
     bool shouldFreeSourceDoc = false;
@@ -361,12 +356,17 @@ bool XSLTProcessor::transformToString(Node& sourceNode, String& mimeType, String
 
         if ((success = saveResultToString(resultDoc, sheet, resultString))) {
             mimeType = resultMIMEType(resultDoc, sheet);
-            resultEncoding = (char*)resultDoc->encoding;
+            resultEncoding = reinterpret_cast<const char*>(resultDoc->encoding);
         }
         xmlFreeDoc(resultDoc);
     }
 
     sheet->method = origMethod;
+#if OS(DARWIN) && !PLATFORM(GTK)
+    *xsltMaxDepth = origXsltMaxDepth;
+#else
+    xsltMaxDepth = origXsltMaxDepth;
+#endif
     setXSLTLoadCallBack(0, 0, 0);
     xsltFreeStylesheet(sheet);
     m_stylesheet = nullptr;

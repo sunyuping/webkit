@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2006, 2008, 2009, 2010, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2019 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Holger Hans Peter Freyther
  * Copyright (C) Research In Motion Limited 2011. All rights reserved.
  *
@@ -23,15 +23,15 @@
 #include "config.h"
 #include "SurrogatePairAwareTextIterator.h"
 
-#include <unicode/unorm.h>
+#include <unicode/unorm2.h>
 
 namespace WebCore {
 
-SurrogatePairAwareTextIterator::SurrogatePairAwareTextIterator(const UChar* characters, int currentCharacter, int lastCharacter, int endCharacter)
+SurrogatePairAwareTextIterator::SurrogatePairAwareTextIterator(const UChar* characters, unsigned currentIndex, unsigned lastIndex, unsigned endIndex)
     : m_characters(characters)
-    , m_currentCharacter(currentCharacter)
-    , m_lastCharacter(lastCharacter)
-    , m_endCharacter(endCharacter)
+    , m_currentIndex(currentIndex)
+    , m_lastIndex(lastIndex)
+    , m_endIndex(endIndex)
 {
 }
 
@@ -57,7 +57,7 @@ bool SurrogatePairAwareTextIterator::consumeSlowCase(UChar32& character, unsigne
 
     // Do we have a surrogate pair? If so, determine the full Unicode (32 bit) code point before glyph lookup.
     // Make sure we have another character and it's a low surrogate.
-    if (m_currentCharacter + 1 >= m_endCharacter)
+    if (m_currentIndex + 1 >= m_endIndex)
         return false;
 
     UChar low = m_characters[1];
@@ -72,18 +72,18 @@ bool SurrogatePairAwareTextIterator::consumeSlowCase(UChar32& character, unsigne
 UChar32 SurrogatePairAwareTextIterator::normalizeVoicingMarks()
 {
     // According to http://www.unicode.org/Public/UNIDATA/UCD.html#Canonical_Combining_Class_Values
-    static const uint8_t hiraganaKatakanaVoicingMarksCombiningClass = 8;
+    static constexpr uint8_t hiraganaKatakanaVoicingMarksCombiningClass = 8;
 
-    if (m_currentCharacter + 1 >= m_endCharacter)
+    if (m_currentIndex + 1 >= m_endIndex)
         return 0;
 
     if (u_getCombiningClass(m_characters[1]) == hiraganaKatakanaVoicingMarksCombiningClass) {
-        // Normalize into composed form using 3.2 rules.
-        UChar normalizedCharacters[2] = { 0, 0 };
-        UErrorCode uStatus = U_ZERO_ERROR;  
-        int32_t resultLength = unorm_normalize(m_characters, 2, UNORM_NFC, UNORM_UNICODE_3_2, &normalizedCharacters[0], 2, &uStatus);
-        if (resultLength == 1 && !uStatus)
-            return normalizedCharacters[0];
+        UErrorCode status = U_ZERO_ERROR;
+        const UNormalizer2* normalizer = unorm2_getNFCInstance(&status);
+        ASSERT(U_SUCCESS(status));
+        auto composedCharacter = unorm2_composePair(normalizer, m_characters[0], m_characters[1]);
+        if (composedCharacter > 0)
+            return composedCharacter;
     }
 
     return 0;

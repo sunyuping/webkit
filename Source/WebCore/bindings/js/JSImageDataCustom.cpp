@@ -26,32 +26,35 @@
 #include "config.h"
 #include "JSImageData.h"
 
-#include "ImageData.h"
-#include "JSDOMBinding.h"
+#include "JSDOMConvertBufferSource.h"
+#include "JSDOMWrapperCache.h"
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/IdentifierInlines.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/WTFString.h>
 
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
-JSValue toJS(ExecState* exec, JSDOMGlobalObject* globalObject, ImageData* imageData)
+JSValue toJSNewlyCreated(ExecState* state, JSDOMGlobalObject* globalObject, Ref<ImageData>&& imageData)
 {
-    if (!imageData)
-        return jsNull();
-    
-    JSObject* wrapper = getCachedWrapper(globalObject->world(), imageData);
-    if (wrapper)
-        return wrapper;
-    
-    wrapper = CREATE_DOM_WRAPPER(globalObject, ImageData, imageData);
-    Identifier dataName = Identifier::fromString(exec, "data");
-    wrapper->putDirect(exec->vm(), dataName, toJS(exec, globalObject, imageData->data()), DontDelete | ReadOnly);
+    VM& vm = state->vm();
+    auto* data = imageData->data();
+    auto* wrapper = createWrapper<ImageData>(globalObject, WTFMove(imageData));
+    Identifier dataName = Identifier::fromString(state, "data");
+    wrapper->putDirect(vm, dataName, toJS(state, globalObject, data), PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
     // FIXME: Adopt reportExtraMemoryVisited, and switch to reportExtraMemoryAllocated.
     // https://bugs.webkit.org/show_bug.cgi?id=142595
-    exec->heap()->deprecatedReportExtraMemory(imageData->data()->length());
+    vm.heap.deprecatedReportExtraMemory(data->length());
     
     return wrapper;
+}
+
+JSValue toJS(ExecState* state, JSDOMGlobalObject* globalObject, ImageData& imageData)
+{
+    return wrap(state, globalObject, imageData);
 }
 
 }

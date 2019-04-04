@@ -23,29 +23,44 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.StackTrace = class StackTrace extends WebInspector.Object
+WI.StackTrace = class StackTrace
 {
-    constructor(callFrames)
+    constructor(callFrames, topCallFrameIsBoundary, truncated, parentStackTrace)
     {
-        super();
-
-        console.assert(callFrames && callFrames.every(function(callFrame) { return callFrame instanceof WebInspector.CallFrame; }));
+        console.assert(callFrames && callFrames.every((callFrame) => callFrame instanceof WI.CallFrame));
 
         this._callFrames = callFrames;
+        this._topCallFrameIsBoundary = topCallFrameIsBoundary || false;
+        this._truncated = truncated || false;
+        this._parentStackTrace = parentStackTrace || null;
     }
 
     // Static
 
-    static fromPayload(payload)
+    static fromPayload(target, payload)
     {
-        var callFrames = payload.map(WebInspector.CallFrame.fromPayload);
-        return new WebInspector.StackTrace(callFrames);
+        let result = null;
+        let previousStackTrace = null;
+
+        while (payload) {
+            let callFrames = payload.callFrames.map((x) => WI.CallFrame.fromPayload(target, x));
+            let stackTrace = new WI.StackTrace(callFrames, payload.topCallFrameIsBoundary, payload.truncated);
+            if (!result)
+                result = stackTrace;
+            if (previousStackTrace)
+                previousStackTrace._parentStackTrace = stackTrace;
+
+            previousStackTrace = stackTrace;
+            payload = payload.parentStackTrace;
+        }
+
+        return result;
     }
 
-    static fromString(stack)
+    static fromString(target, stack)
     {
-        var payload = WebInspector.StackTrace._parseStackTrace(stack);
-        return WebInspector.StackTrace.fromPayload(payload);
+        let callFrames = WI.StackTrace._parseStackTrace(stack);
+        return WI.StackTrace.fromPayload(target, {callFrames});
     }
 
     // May produce false negatives; must not produce any false positives.
@@ -65,12 +80,16 @@ WebInspector.StackTrace = class StackTrace extends WebInspector.Object
         if (/^[^a-z$_]/i.test(stack[0]))
             return false;
 
-        const reasonablyLongLineLength = 500;
-        const reasonablyLongNativeMethodLength = 120;
-        const stackTraceLine = `(.{1,${reasonablyLongLineLength}}:\\d+:\\d+|eval code|.{1,${reasonablyLongNativeMethodLength}}@\\[native code\\])`;
-        const stackTrace = new RegExp(`^${stackTraceLine}(\\n${stackTraceLine})*$`, "g");
+        if (!WI.StackTrace._likelyStackTraceRegex) {
+            const reasonablyLongProtocolLength = 10;
+            const reasonablyLongLineLength = 500;
+            const reasonablyLongNativeMethodLength = 120;
+            const stackTraceLine = `(global code|eval code|module code|\\w+)?([^:]{1,${reasonablyLongProtocolLength}}://[^:]{1,${reasonablyLongLineLength}}:\\d+:\\d+|[^@]{1,${reasonablyLongNativeMethodLength}}@\\[native code\\])`;
+            WI.StackTrace._likelyStackTraceRegex = new RegExp(`^${stackTraceLine}([\\n\\r]${stackTraceLine})+$`);
+        }
 
-        return stackTrace.test(stack);
+        WI.StackTrace._likelyStackTraceRegex.lastIndex = 0;
+        return WI.StackTrace._likelyStackTraceRegex.test(stack);
     }
 
     static _parseStackTrace(stack)
@@ -87,9 +106,9 @@ WebInspector.StackTrace = class StackTrace extends WebInspector.Object
 
             if (atIndex !== -1) {
                 functionName = line.slice(0, atIndex);
-                ({url, lineNumber, columnNumber} = WebInspector.StackTrace._parseLocation(line.slice(atIndex + 1)));
+                ({url, lineNumber, columnNumber} = WI.StackTrace._parseLocation(line.slice(atIndex + 1)));
             } else if (line.includes("/"))
-                ({url, lineNumber, columnNumber} = WebInspector.StackTrace._parseLocation(line));
+                ({url, lineNumber, columnNumber} = WI.StackTrace._parseLocation(line));
             else
                 functionName = line;
 
@@ -128,11 +147,31 @@ WebInspector.StackTrace = class StackTrace extends WebInspector.Object
 
     get firstNonNativeCallFrame()
     {
-        for (var frame of this._callFrames) {
+        for (let frame of this._callFrames) {
             if (!frame.nativeCode)
                 return frame;
         }
 
         return null;
     }
+
+    get firstNonNativeNonAnonymousCallFrame()
+    {
+        for (let frame of this._callFrames) {
+            if (frame.nativeCode)
+                continue;
+            if (frame.sourceCodeLocation) {
+                let sourceCode = frame.sourceCodeLocation.sourceCode;
+                if (sourceCode instanceof WI.Script && sourceCode.anonymous)
+                    continue;
+            }
+            return frame;
+        }
+
+        return null;
+    }
+
+    get topCallFrameIsBoundary() { return this._topCallFrameIsBoundary; }
+    get truncated() { return this._truncated; }
+    get parentStackTrace() { return this._parentStackTrace; }
 };

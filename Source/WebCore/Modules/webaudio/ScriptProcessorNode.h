@@ -22,16 +22,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ScriptProcessorNode_h
-#define ScriptProcessorNode_h
+#pragma once
 
-#include "ActiveDOMObject.h"
 #include "AudioBus.h"
 #include "AudioNode.h"
 #include "EventListener.h"
 #include "EventTarget.h"
 #include <wtf/Forward.h>
-#include <wtf/PassRefPtr.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
@@ -47,34 +44,34 @@ class AudioProcessingEvent;
 // The "onaudioprocess" attribute is an event listener which will get called periodically with an AudioProcessingEvent which has
 // AudioBuffers for each input and output.
 
-class ScriptProcessorNode : public AudioNode {
+class ScriptProcessorNode final : public AudioNode {
 public:
     // bufferSize must be one of the following values: 256, 512, 1024, 2048, 4096, 8192, 16384.
     // This value controls how frequently the onaudioprocess event handler is called and how many sample-frames need to be processed each call.
     // Lower numbers for bufferSize will result in a lower (better) latency. Higher numbers will be necessary to avoid audio breakup and glitches.
     // The value chosen must carefully balance between latency and audio quality.
-    static RefPtr<ScriptProcessorNode> create(AudioContext&, float sampleRate, size_t bufferSize, unsigned numberOfInputChannels, unsigned numberOfOutputChannels);
+    static Ref<ScriptProcessorNode> create(AudioContext&, float sampleRate, size_t bufferSize, unsigned numberOfInputChannels, unsigned numberOfOutputChannels);
 
     virtual ~ScriptProcessorNode();
 
     // AudioNode
-    virtual void process(size_t framesToProcess) override;
-    virtual void reset() override;
-    virtual void initialize() override;
-    virtual void uninitialize() override;
+    void process(size_t framesToProcess) override;
+    void reset() override;
+    void initialize() override;
+    void uninitialize() override;
 
     size_t bufferSize() const { return m_bufferSize; }
 
 private:
-    virtual double tailTime() const override;
-    virtual double latencyTime() const override;
+    double tailTime() const override;
+    double latencyTime() const override;
 
     ScriptProcessorNode(AudioContext&, float sampleRate, size_t bufferSize, unsigned numberOfInputChannels, unsigned numberOfOutputChannels);
 
     void fireProcessEvent();
 
-    bool addEventListener(const AtomicString& eventType, RefPtr<EventListener>&&, bool useCapture) override;
-    bool removeEventListener(const AtomicString& eventType, EventListener*, bool useCapture) override;
+    bool addEventListener(const AtomicString& eventType, Ref<EventListener>&&, const AddEventListenerOptions&) override;
+    bool removeEventListener(const AtomicString& eventType, EventListener&, const ListenerOptions&) override;
     void removeAllEventListeners() override;
 
     // Double buffering
@@ -97,5 +94,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ScriptProcessorNode_h

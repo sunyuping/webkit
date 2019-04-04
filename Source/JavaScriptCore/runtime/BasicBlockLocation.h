@@ -24,12 +24,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef BasicBlockLocation_h
-#define BasicBlockLocation_h
+#pragma once
 
+#include "CPU.h"
 #include "MacroAssembler.h"
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
@@ -65,10 +63,8 @@ private:
 
     int m_startOffset;
     int m_endOffset;
-    size_t m_executionCount;
     Vector<Gap> m_gaps;
+    UCPURegister m_executionCount;
 };
 
 } // namespace JSC
-
-#endif // BasicBlockLocation_h

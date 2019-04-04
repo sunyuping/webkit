@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGRegisterBank_h
-#define DFGRegisterBank_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -138,6 +137,16 @@ public:
         ASSERT(currentLowest != NUM_REGS && currentSpillOrder != SpillHintInvalid);
         // There were no available registers; currentLowest will need to be spilled.
         return allocateInternal(currentLowest, spillMe);
+    }
+
+    uint32_t lockedCount() const
+    {
+        uint32_t count = 0;
+        for (uint32_t i = 0 ; i < NUM_REGS; ++i) {
+            if (m_data[i].lockCount)
+                ++count;
+        }
+        return count;
     }
 
     // Allocates the given register, even if this will force a spill.
@@ -363,5 +372,4 @@ typedef RegisterBank<FPRInfo>::iterator fpr_iterator;
 
 } } // namespace JSC::DFG
 
-#endif
 #endif

@@ -22,17 +22,15 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WaveShaperNode_h
-#define WaveShaperNode_h
+#pragma once
 
 #include "AudioBasicProcessorNode.h"
-#include "BiquadProcessor.h"
 #include "WaveShaperProcessor.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {
-    
-class WaveShaperNode : public AudioBasicProcessorNode {
+
+class WaveShaperNode final : public AudioBasicProcessorNode {
 public:
     static Ref<WaveShaperNode> create(AudioContext& context)
     {
@@ -40,11 +38,12 @@ public:
     }
 
     // setCurve() is called on the main thread.
-    void setCurve(Float32Array*);
+    void setCurve(Float32Array&);
     Float32Array* curve();
 
-    void setOversample(const String& , ExceptionCode&);
-    String oversample() const;
+    enum class OverSampleType { None, _2x, _4x };
+    void setOversample(OverSampleType);
+    OverSampleType oversample() const;
 
     double latency() const { return latencyTime(); }
 
@@ -54,6 +53,14 @@ private:
     WaveShaperProcessor* waveShaperProcessor() { return static_cast<WaveShaperProcessor*>(processor()); }
 };
 
+String convertEnumerationToString(WebCore::WaveShaperNode::OverSampleType); // in JSWaveShaperNode.cpp
+
 } // namespace WebCore
 
-#endif // WaveShaperNode_h
+namespace WTF {
+    
+template<> struct LogArgument<WebCore::WaveShaperNode::OverSampleType> {
+    static String toString(WebCore::WaveShaperNode::OverSampleType type) { return convertEnumerationToString(type); }
+};
+    
+} // namespace WTF

@@ -26,19 +26,19 @@
 #ifndef CDMPrivateMediaSourceAVFObjC_h
 #define CDMPrivateMediaSourceAVFObjC_h
 
-#if ENABLE(ENCRYPTED_MEDIA_V2) && ENABLE(MEDIA_SOURCE)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
-#include "CDMPrivate.h"
+#include "LegacyCDMPrivate.h"
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-class CDM;
+class LegacyCDM;
 class CDMSessionMediaSourceAVFObjC;
 
 class CDMPrivateMediaSourceAVFObjC : public CDMPrivateInterface {
 public:
-    explicit CDMPrivateMediaSourceAVFObjC(CDM* cdm)
+    explicit CDMPrivateMediaSourceAVFObjC(LegacyCDM* cdm)
         : m_cdm(cdm)
     { }
     virtual ~CDMPrivateMediaSourceAVFObjC();
@@ -46,20 +46,25 @@ public:
     static bool supportsKeySystem(const String&);
     static bool supportsKeySystemAndMimeType(const String& keySystem, const String& mimeType);
 
-    virtual bool supportsMIMEType(const String& mimeType) override;
-    virtual std::unique_ptr<CDMSession> createSession(CDMSessionClient*) override;
+    bool supportsMIMEType(const String& mimeType) override;
+    std::unique_ptr<LegacyCDMSession> createSession(LegacyCDMSessionClient*) override;
 
-    CDM* cdm() const { return m_cdm; }
+    LegacyCDM* cdm() const { return m_cdm; }
 
     void invalidateSession(CDMSessionMediaSourceAVFObjC*);
-
 protected:
-    CDM* m_cdm;
+    struct KeySystemParameters {
+        int version;
+        Vector<int> protocols;
+    };
+    static Optional<KeySystemParameters> parseKeySystem(const String& keySystem);
+    
+    LegacyCDM* m_cdm;
     Vector<CDMSessionMediaSourceAVFObjC*> m_sessions;
 };
 
 }
 
-#endif // ENABLE(ENCRYPTED_MEDIA_V2) && ENABLE(MEDIA_SOURCE)
+#endif // ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
 #endif // CDMPrivateMediaSourceAVFObjC_h

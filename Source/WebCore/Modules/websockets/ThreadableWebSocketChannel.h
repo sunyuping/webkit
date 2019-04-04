@@ -28,37 +28,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ThreadableWebSocketChannel_h
-#define ThreadableWebSocketChannel_h
-
-#if ENABLE(WEB_SOCKETS)
+#pragma once
 
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/PassRefPtr.h>
 
 namespace JSC {
 class ArrayBuffer;
-class ArrayBufferView;
 }
 
 namespace WebCore {
 
 class Blob;
-class URL;
 class ScriptExecutionContext;
+class SocketProvider;
 class WebSocketChannelClient;
 
 class ThreadableWebSocketChannel {
     WTF_MAKE_NONCOPYABLE(ThreadableWebSocketChannel);
 public:
-    ThreadableWebSocketChannel() { }
-    static PassRefPtr<ThreadableWebSocketChannel> create(ScriptExecutionContext*, WebSocketChannelClient*);
+    static Ref<ThreadableWebSocketChannel> create(ScriptExecutionContext&, WebSocketChannelClient&, SocketProvider&);
+    ThreadableWebSocketChannel() = default;
+
+    virtual bool isWebSocketChannel() const { return false; }
 
     enum SendResult {
         SendSuccess,
-        SendFail,
-        InvalidMessage
+        SendFail
     };
 
     virtual void connect(const URL&, const String& protocol) = 0;
@@ -67,7 +63,7 @@ public:
     virtual SendResult send(const String& message) = 0;
     virtual SendResult send(const JSC::ArrayBuffer&, unsigned byteOffset, unsigned byteLength) = 0;
     virtual SendResult send(Blob&) = 0;
-    virtual unsigned long bufferedAmount() const = 0;
+    virtual unsigned bufferedAmount() const = 0;
     virtual void close(int code, const String& reason) = 0;
     // Log the reason text and close the connection. Will call didClose().
     virtual void fail(const String& reason) = 0;
@@ -80,13 +76,9 @@ public:
     void deref() { derefThreadableWebSocketChannel(); }
 
 protected:
-    virtual ~ThreadableWebSocketChannel() { }
+    virtual ~ThreadableWebSocketChannel() = default;
     virtual void refThreadableWebSocketChannel() = 0;
     virtual void derefThreadableWebSocketChannel() = 0;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_SOCKETS)
-
-#endif // ThreadableWebSocketChannel_h

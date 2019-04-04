@@ -30,13 +30,13 @@
 #define UIDelegate_h
 
 #include <WebCore/COMPtr.h>
-#include <WebKit/WebKit.h>
+#include <WebKitLegacy/WebKit.h>
 #include <windef.h>
 
 class DRTUndoManager;
 class DRTDesktopNotificationPresenter;
 
-class UIDelegate : public IWebUIDelegate2, IWebUIDelegatePrivate3 {
+class UIDelegate final : public IWebUIDelegate2, IWebUIDelegatePrivate3 {
 public:
     UIDelegate();
 
@@ -144,6 +144,7 @@ private:
     std::unique_ptr<DRTUndoManager> m_undoManager;
 
     COMPtr<IWebDesktopNotificationsDelegate> m_desktopNotifications;
+    HWND m_modalDialogParent { nullptr };
 };
 
 #endif

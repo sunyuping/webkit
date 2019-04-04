@@ -29,14 +29,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ScriptState_h
-#define ScriptState_h
+#pragma once
 
 namespace JSC {
 class ExecState;
 }
 
 namespace WebCore {
+
 class DOMWindow;
 class DOMWrapperWorld;
 class Frame;
@@ -44,12 +44,9 @@ class Node;
 class Page;
 class ScriptExecutionContext;
 class WorkerGlobalScope;
-
-// The idea is to expose "state-like" methods (hadException, and any other
-// methods where ExecState just dips into vm) of JSC::ExecState as a
-// separate abstraction.
-// For now, the separation is purely by convention.
-typedef JSC::ExecState ScriptState;
+#if ENABLE(CSS_PAINTING_API)
+class WorkletGlobalScope;
+#endif
 
 DOMWindow* domWindowFromExecState(JSC::ExecState*);
 Frame* frameFromExecState(JSC::ExecState*);
@@ -59,8 +56,9 @@ JSC::ExecState* mainWorldExecState(Frame*);
 
 JSC::ExecState* execStateFromNode(DOMWrapperWorld&, Node*);
 WEBCORE_EXPORT JSC::ExecState* execStateFromPage(DOMWrapperWorld&, Page*);
-JSC::ExecState* execStateFromWorkerGlobalScope(WorkerGlobalScope*);
+JSC::ExecState* execStateFromWorkerGlobalScope(WorkerGlobalScope&);
+#if ENABLE(CSS_PAINTING_API)
+JSC::ExecState* execStateFromWorkletGlobalScope(WorkletGlobalScope&);
+#endif
 
 } // namespace WebCore
-
-#endif // ScriptState_h

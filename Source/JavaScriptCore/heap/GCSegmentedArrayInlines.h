@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef GCSegmentedArrayInlines_h
-#define GCSegmentedArrayInlines_h
+#pragma once
 
 #include "GCSegmentedArray.h"
 
@@ -210,12 +209,11 @@ inline const T GCSegmentedArray<T>::removeLast()
 template <typename T>
 inline bool GCSegmentedArray<T>::isEmpty()
 {
+    // This happens to be safe to call concurrently. It's important to preserve that capability.
     if (m_top)
         return false;
-    if (m_segments.head()->next()) {
-        ASSERT(m_segments.head()->next()->m_top == s_segmentCapacity);
+    if (m_segments.head()->next())
         return false;
-    }
     return true;
 }
 
@@ -226,5 +224,3 @@ inline size_t GCSegmentedArray<T>::size()
 }
 
 } // namespace JSC
-
-#endif // GCSegmentedArrayInlines_h

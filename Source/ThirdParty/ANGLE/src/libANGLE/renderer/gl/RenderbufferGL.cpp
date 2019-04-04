@@ -13,41 +13,60 @@
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/gl/FunctionsGL.h"
 #include "libANGLE/renderer/gl/StateManagerGL.h"
+#include "libANGLE/renderer/gl/formatutilsgl.h"
 #include "libANGLE/renderer/gl/renderergl_utils.h"
 
 namespace rx
 {
-
-RenderbufferGL::RenderbufferGL(const FunctionsGL *functions, StateManagerGL *stateManager, const gl::TextureCapsMap &textureCaps)
+RenderbufferGL::RenderbufferGL(const FunctionsGL *functions,
+                               const WorkaroundsGL &workarounds,
+                               StateManagerGL *stateManager,
+                               const gl::TextureCapsMap &textureCaps)
     : RenderbufferImpl(),
       mFunctions(functions),
+      mWorkarounds(workarounds),
       mStateManager(stateManager),
       mTextureCaps(textureCaps),
       mRenderbufferID(0)
 {
     mFunctions->genRenderbuffers(1, &mRenderbufferID);
+    mStateManager->bindRenderbuffer(GL_RENDERBUFFER, mRenderbufferID);
 }
 
 RenderbufferGL::~RenderbufferGL()
 {
-    if (mRenderbufferID != 0)
-    {
-        mFunctions->deleteRenderbuffers(1, &mRenderbufferID);
-        mRenderbufferID = 0;
-    }
+    mStateManager->deleteRenderbuffer(mRenderbufferID);
+    mRenderbufferID = 0;
 }
 
-gl::Error RenderbufferGL::setStorage(GLenum internalformat, size_t width, size_t height)
+gl::Error RenderbufferGL::setStorage(const gl::Context *context,
+                                     GLenum internalformat,
+                                     size_t width,
+                                     size_t height)
 {
     mStateManager->bindRenderbuffer(GL_RENDERBUFFER, mRenderbufferID);
-    mFunctions->renderbufferStorage(GL_RENDERBUFFER, internalformat, width, height);
-    return gl::Error(GL_NO_ERROR);
+
+    nativegl::RenderbufferFormat renderbufferFormat =
+        nativegl::GetRenderbufferFormat(mFunctions, mWorkarounds, internalformat);
+    mFunctions->renderbufferStorage(GL_RENDERBUFFER, renderbufferFormat.internalFormat,
+                                    static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+
+    return gl::NoError();
 }
 
-gl::Error RenderbufferGL::setStorageMultisample(size_t samples, GLenum internalformat, size_t width, size_t height)
+gl::Error RenderbufferGL::setStorageMultisample(const gl::Context *context,
+                                                size_t samples,
+                                                GLenum internalformat,
+                                                size_t width,
+                                                size_t height)
 {
     mStateManager->bindRenderbuffer(GL_RENDERBUFFER, mRenderbufferID);
-    mFunctions->renderbufferStorageMultisample(GL_RENDERBUFFER, samples, internalformat, width, height);
+
+    nativegl::RenderbufferFormat renderbufferFormat =
+        nativegl::GetRenderbufferFormat(mFunctions, mWorkarounds, internalformat);
+    mFunctions->renderbufferStorageMultisample(
+        GL_RENDERBUFFER, static_cast<GLsizei>(samples), renderbufferFormat.internalFormat,
+        static_cast<GLsizei>(width), static_cast<GLsizei>(height));
 
     const gl::TextureCaps &formatCaps = mTextureCaps.get(internalformat);
     if (samples > formatCaps.getMaxSamples())
@@ -60,14 +79,20 @@ gl::Error RenderbufferGL::setStorageMultisample(size_t samples, GLenum internalf
             error = mFunctions->getError();
             if (error == GL_OUT_OF_MEMORY)
             {
-                return gl::Error(GL_OUT_OF_MEMORY);
+                return gl::OutOfMemory();
             }
 
             ASSERT(error == GL_NO_ERROR);
         } while (error != GL_NO_ERROR);
     }
 
-    return gl::Error(GL_NO_ERROR);
+    return gl::NoError();
+}
+
+gl::Error RenderbufferGL::setStorageEGLImageTarget(const gl::Context *context, egl::Image *image)
+{
+    UNIMPLEMENTED();
+    return gl::InternalError();
 }
 
 GLuint RenderbufferGL::getRenderbufferID() const
@@ -75,4 +100,11 @@ GLuint RenderbufferGL::getRenderbufferID() const
     return mRenderbufferID;
 }
 
+gl::Error RenderbufferGL::initializeContents(const gl::Context *context,
+                                             const gl::ImageIndex &imageIndex)
+{
+    // TODO(jmadill):
+    return gl::NoError();
 }
+
+}  // namespace rx

@@ -29,14 +29,19 @@
 #if ENABLE(VIDEO_TRACK)
 #include "RenderVTTCue.h"
 
+#include "RenderInline.h"
+#include "RenderLayoutState.h"
 #include "RenderView.h"
 #include "TextTrackCueGeneric.h"
 #include "VTTCue.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
 
 namespace WebCore {
 
-RenderVTTCue::RenderVTTCue(VTTCueBox& element, Ref<RenderStyle>&& style)
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderVTTCue);
+
+RenderVTTCue::RenderVTTCue(VTTCueBox& element, RenderStyle&& style)
     : RenderBlockFlow(element, WTFMove(style))
     , m_cue(element.getCue())
 {
@@ -54,7 +59,7 @@ void RenderVTTCue::layout()
     if (!m_cue->regionId().isEmpty())
         return;
 
-    LayoutStateMaintainer statePusher(view(), *this, locationOffset(), hasTransform() || hasReflection() || style().isFlippedBlocksWritingMode());
+    LayoutStateMaintainer statePusher(*this, locationOffset(), hasTransform() || hasReflection() || style().isFlippedBlocksWritingMode());
     
     if (m_cue->cueType()== TextTrackCue::WebVTT) {
         if (toVTTCue(m_cue)->snapToLines())
@@ -63,13 +68,13 @@ void RenderVTTCue::layout()
             repositionCueSnapToLinesNotSet();
     } else
         repositionGenericCue();
-
-    statePusher.pop();
 }
 
 bool RenderVTTCue::initializeLayoutParameters(InlineFlowBox*& firstLineBox, LayoutUnit& step, LayoutUnit& position)
 {
     ASSERT(firstChild());
+    if (!firstChild())
+        return false;
 
     RenderBlock* parentBlock = containingBlock();
 

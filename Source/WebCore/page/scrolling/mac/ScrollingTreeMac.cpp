@@ -27,37 +27,46 @@
 #include "ScrollingTreeMac.h"
 
 #include "ScrollingTreeFixedNode.h"
+#include "ScrollingTreeFrameHostingNode.h"
 #include "ScrollingTreeFrameScrollingNodeMac.h"
+#include "ScrollingTreeOverflowScrollingNodeMac.h"
+#include "ScrollingTreePositionedNode.h"
 #include "ScrollingTreeStickyNode.h"
 
 #if ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)
 
 using namespace WebCore;
 
-Ref<ScrollingTreeMac> ScrollingTreeMac::create(AsyncScrollingCoordinator* scrollingCoordinator)
+Ref<ScrollingTreeMac> ScrollingTreeMac::create(AsyncScrollingCoordinator& scrollingCoordinator)
 {
     return adoptRef(*new ScrollingTreeMac(scrollingCoordinator));
 }
 
-ScrollingTreeMac::ScrollingTreeMac(AsyncScrollingCoordinator* scrollingCoordinator)
+ScrollingTreeMac::ScrollingTreeMac(AsyncScrollingCoordinator& scrollingCoordinator)
     : ThreadedScrollingTree(scrollingCoordinator)
 {
 }
 
-PassRefPtr<ScrollingTreeNode> ScrollingTreeMac::createScrollingTreeNode(ScrollingNodeType nodeType, ScrollingNodeID nodeID)
+Ref<ScrollingTreeNode> ScrollingTreeMac::createScrollingTreeNode(ScrollingNodeType nodeType, ScrollingNodeID nodeID)
 {
     switch (nodeType) {
-    case FrameScrollingNode:
-        return ScrollingTreeFrameScrollingNodeMac::create(*this, nodeID);
-    case OverflowScrollingNode:
-        ASSERT_NOT_REACHED();
-        return nullptr;
-    case FixedNode:
+    case ScrollingNodeType::MainFrame:
+    case ScrollingNodeType::Subframe:
+        return ScrollingTreeFrameScrollingNodeMac::create(*this, nodeType, nodeID);
+    case ScrollingNodeType::FrameHosting:
+        return ScrollingTreeFrameHostingNode::create(*this, nodeID);
+    case ScrollingNodeType::Overflow:
+        return ScrollingTreeOverflowScrollingNodeMac::create(*this, nodeID);
+        break;
+    case ScrollingNodeType::Fixed:
         return ScrollingTreeFixedNode::create(*this, nodeID);
-    case StickyNode:
+    case ScrollingNodeType::Sticky:
         return ScrollingTreeStickyNode::create(*this, nodeID);
+    case ScrollingNodeType::Positioned:
+        return ScrollingTreePositionedNode::create(*this, nodeID);
     }
-    return nullptr;
+    ASSERT_NOT_REACHED();
+    return ScrollingTreeFixedNode::create(*this, nodeID);
 }
 
 #endif // ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)

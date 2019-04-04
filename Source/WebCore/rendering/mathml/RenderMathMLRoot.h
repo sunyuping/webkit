@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 Alex Milowski (alex@milowski.com). All rights reserved.
+ * Copyright (C) 2016 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,78 +24,63 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RenderMathMLRoot_h
-#define RenderMathMLRoot_h
+#pragma once
 
 #if ENABLE(MATHML)
 
-#include "RenderMathMLBlock.h"
+#include "MathOperator.h"
 #include "RenderMathMLRow.h"
 
 namespace WebCore {
 
-class RenderMathMLRadicalOperator;
-class RenderMathMLRootWrapper;
-    
-// Render base^(1/index), or sqrt(base) via the derived class RenderMathMLSquareRoot, using radical notation.
-class RenderMathMLRoot : public RenderMathMLBlock {
+class MathMLRootElement;
 
-friend class RenderMathMLRootWrapper;
+enum class RootType { SquareRoot, RootWithIndex };
 
+// Render base^(1/index), or sqrt(base) using radical notation.
+class RenderMathMLRoot final : public RenderMathMLRow {
+    WTF_MAKE_ISO_ALLOCATED(RenderMathMLRoot);
 public:
-    RenderMathMLRoot(Element&, Ref<RenderStyle>&&);
-    RenderMathMLRoot(Document&, Ref<RenderStyle>&&);
-
-    virtual void addChild(RenderObject* newChild, RenderObject* beforeChild = 0) override;
-    virtual void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
-    virtual void updateFromElement() override;
-    
-    RenderMathMLRootWrapper* baseWrapper() const;
-    RenderMathMLRootWrapper* indexWrapper() const;
-
-protected:
-    virtual void layout() override;
-    
-    virtual void paint(PaintInfo&, const LayoutPoint&) override;
-
-private:
-    virtual bool isRenderMathMLRoot() const override final { return true; }
-    virtual const char* renderName() const override { return "RenderMathMLRoot"; }
-    virtual Optional<int> firstLineBaseline() const override;
+    RenderMathMLRoot(MathMLRootElement&, RenderStyle&&);
     void updateStyle();
-    void restructureWrappers();
-
-    RenderMathMLBlock* radicalWrapper() const;
-    RenderMathMLRadicalOperator* radicalOperator() const;
-
-    LayoutUnit m_verticalGap;
-    LayoutUnit m_ruleThickness;
-    LayoutUnit m_extraAscender;
-    float m_degreeBottomRaisePercent;
-};
-
-// These are specific wrappers for the index and base, that ask the parent to restructure the renderers after child removal.
-class RenderMathMLRootWrapper final : public RenderMathMLRow {
-
-friend class RenderMathMLRoot;
-
-public:
-    RenderMathMLRootWrapper(Document& document, Ref<RenderStyle>&& style)
-        : RenderMathMLRow(document, WTFMove(style)) { }
 
 private:
-    void removeChildWithoutRestructuring(RenderObject&);
-    virtual void removeChild(RenderObject&) override;
-    static RenderPtr<RenderMathMLRootWrapper> createAnonymousWrapper(RenderMathMLRoot* renderObject);
-    virtual bool isRenderMathMLRootWrapper() const override { return true; }
-    virtual const char* renderName() const override { return "RenderMathMLRootWrapper"; }
+    bool isValid() const;
+    RenderBox& getBase() const;
+    RenderBox& getIndex() const;
+    bool isRenderMathMLRoot() const final { return true; }
+    const char* renderName() const final { return "RenderMathMLRoot"; }
+    MathMLRootElement& element() const;
+    RootType rootType() const;
+
+    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) final;
+
+    void computePreferredLogicalWidths() final;
+    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
+    void paint(PaintInfo&, const LayoutPoint&) final;
+
+    struct HorizontalParameters {
+        LayoutUnit kernBeforeDegree;
+        LayoutUnit kernAfterDegree;
+    };
+    HorizontalParameters horizontalParameters();
+    struct VerticalParameters {
+        LayoutUnit verticalGap;
+        LayoutUnit ruleThickness;
+        LayoutUnit extraAscender;
+        float degreeBottomRaisePercent;
+    };
+    VerticalParameters verticalParameters();
+
+    MathOperator m_radicalOperator;
+    LayoutUnit m_radicalOperatorTop;
+    LayoutUnit m_baseWidth;
+
+    bool isRenderMathMLSquareRoot() const final { return rootType() == RootType::SquareRoot; }
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderMathMLRoot, isRenderMathMLRoot())
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderMathMLRootWrapper, isRenderMathMLRootWrapper())
 
 #endif // ENABLE(MATHML)
-
-#endif // RenderMathMLRoot_h

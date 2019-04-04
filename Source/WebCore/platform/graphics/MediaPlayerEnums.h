@@ -23,8 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef MediaPlayerEnums_h
-#define MediaPlayerEnums_h
+#pragma once
+
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -35,6 +36,7 @@ public:
     enum MovieLoadType { Unknown, Download, StoredStream, LiveStream };
     enum Preload { None, MetaData, Auto };
     enum VideoGravity { VideoGravityResize, VideoGravityResizeAspect, VideoGravityResizeAspectFill };
+    enum SupportsType { IsNotSupported, IsSupported, MayBeSupported };
     enum {
         VideoFullscreenModeNone = 0,
         VideoFullscreenModeStandard = 1 << 0,
@@ -43,6 +45,33 @@ public:
     typedef uint32_t VideoFullscreenMode;
 };
 
-}
+WTF::String convertEnumerationToString(MediaPlayerEnums::ReadyState);
+WTF::String convertEnumerationToString(MediaPlayerEnums::NetworkState);
+WTF::String convertEnumerationToString(MediaPlayerEnums::Preload);
+WTF::String convertEnumerationToString(MediaPlayerEnums::SupportsType);
 
-#endif
+} // namespace WebCore
+
+
+namespace WTF {
+
+template<typename Type>
+struct LogArgument;
+
+template <>
+struct LogArgument<WebCore::MediaPlayerEnums::ReadyState> {
+    static WTF::String toString(const WebCore::MediaPlayerEnums::ReadyState state)
+    {
+        return convertEnumerationToString(state);
+    }
+};
+
+template <>
+struct LogArgument<WebCore::MediaPlayerEnums::NetworkState> {
+    static WTF::String toString(const WebCore::MediaPlayerEnums::NetworkState state)
+    {
+        return convertEnumerationToString(state);
+    }
+};
+
+}; // namespace WTF

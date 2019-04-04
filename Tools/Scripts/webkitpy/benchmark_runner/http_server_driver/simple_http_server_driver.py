@@ -19,17 +19,18 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
     """This class depends on unix environment, need to be modified to achieve crossplatform compability
     """
 
-    platforms = ['osx']
+    platforms = ['osx', 'linux']
 
     def __init__(self):
         self._server_process = None
         self._server_port = 0
         self._ip = '127.0.0.1'
+        self._ensure_http_server_dependencies()
 
     def serve(self, web_root):
         _log.info('Launching an http server')
         http_server_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "http_server/twisted_http_server.py")
-        self._server_process = subprocess.Popen(["/usr/bin/python", http_server_path, web_root], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self._server_process = subprocess.Popen(["python", http_server_path, web_root], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         max_attempt = 5
         interval = 0.5
@@ -37,18 +38,16 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
         try:
             import psutil
             for attempt in xrange(max_attempt):
-                try:
-                    self._server_port = psutil.Process(self._server_process.pid).connections()[0][3][1]
-                    if self._server_port:
-                        _log.info('HTTP Server is serving at port: %d', self._server_port)
-                        break
-                except IndexError:
-                    pass
+                connections = psutil.Process(self._server_process.pid).connections()
+                if connections and connections[0].laddr and connections[0].laddr[1] and connections[0].status == 'LISTEN':
+                    self._server_port = connections[0].laddr[1]
+                    _log.info('HTTP Server is serving at port: %d', self._server_port)
+                    break
                 _log.info('Server port is not found this time, retry after %f seconds' % interval)
                 time.sleep(interval)
                 interval *= 2
             else:
-                raise Exception("Cannot listen to server, max tries exceeded")
+                raise Exception("Server is not listening on port, max tries exceeded. HTTP server may be installing dependent modules.")
         except ImportError:
             for attempt in xrange(max_attempt):
                 try:
@@ -58,7 +57,7 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
                         _log.info('HTTP Server is serving at port: %d', self._server_port)
                         break
                 except Exception as error:
-                     _log.info('Error: %s' % error)
+                    _log.info('Error: %s' % error)
                 _log.info('Server port is not found this time, retry after %f seconds' % interval)
                 time.sleep(interval)
                 interval *= 2
@@ -80,12 +79,13 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
 
     def fetch_result(self):
         (stdout, stderr) = self._server_process.communicate()
-        print stderr
+        print(stderr)
         return stdout
 
     def kill_server(self):
         try:
-            self._server_process.terminate()
+            if self._server_process.poll() is None:
+                self._server_process.terminate()
         except OSError as error:
             _log.info('Error terminating server process: %s' % (error))
 
@@ -94,3 +94,14 @@ class SimpleHTTPServerDriver(HTTPServerDriver):
 
     def set_device_id(self, device_id):
         pass
+
+    def _ensure_http_server_dependencies(self):
+        _log.info('Ensure dependencies of http server is satisfied')
+        from pkg_resources import require, VersionConflict, DistributionNotFound
+        try:
+            require("Twisted>=15.5.0")
+            import twisted
+        except (ImportError, VersionConflict, DistributionNotFound):
+            _log.info("Will install twisted in webkitpy, and twisted will be used by webkitpy only")
+            sys.path.append(os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../..')))
+            from webkitpy.thirdparty.autoinstalled.twisted_15_5_0 import twisted

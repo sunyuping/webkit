@@ -28,12 +28,11 @@
 
 #include <windows.h>
 #include <wtf/ASCIICType.h>
+#include <wtf/HexNumber.h>
 
 #ifndef MAPVK_VSC_TO_VK_EX
 #define MAPVK_VSC_TO_VK_EX 3
 #endif
-
-using namespace WTF;
 
 namespace WebCore {
 
@@ -142,7 +141,7 @@ static String keyIdentifierForWindowsKeyCode(unsigned short keyCode)
         case VK_DELETE:
             return "U+007F";
         default:
-            return String::format("U+%04X", toASCIIUpper(keyCode));
+            return makeString("U+", hex(toASCIIUpper(keyCode), 4));
     }
 }
 
@@ -220,13 +219,11 @@ static inline String singleCharacterString(UChar c)
 }
 
 PlatformKeyboardEvent::PlatformKeyboardEvent(HWND, WPARAM code, LPARAM keyData, Type type, bool systemKey)
-    : PlatformEvent(type, GetKeyState(VK_SHIFT) & HIGH_BIT_MASK_SHORT, GetKeyState(VK_CONTROL) & HIGH_BIT_MASK_SHORT, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, false, ::GetTickCount() * 0.001)
+    : PlatformEvent(type, GetKeyState(VK_SHIFT) & HIGH_BIT_MASK_SHORT, GetKeyState(VK_CONTROL) & HIGH_BIT_MASK_SHORT, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, false, WallTime::fromRawSeconds(::GetTickCount() * 0.001))
     , m_text((type == PlatformEvent::Char) ? singleCharacterString(code) : String())
     , m_unmodifiedText((type == PlatformEvent::Char) ? singleCharacterString(code) : String())
     , m_keyIdentifier((type == PlatformEvent::Char) ? String() : keyIdentifierForWindowsKeyCode(code))
     , m_windowsVirtualKeyCode((type == RawKeyDown || type == KeyUp) ? windowsKeycodeWithLocation(code, keyData) : 0)
-    , m_nativeVirtualKeyCode(m_windowsVirtualKeyCode)
-    , m_macCharCode(0)
     , m_autoRepeat(HIWORD(keyData) & KF_REPEAT)
     , m_isKeypad(isKeypadEvent(code, keyData, type))
     , m_isSystemKey(systemKey)

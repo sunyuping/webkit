@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2010, Google Inc. All rights reserved.
- * Copyright (C) 2008, 2011, 2014-2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008, 2011, 2014-2016 Apple Inc. All Rights Reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,15 +32,16 @@
 #include "config.h"
 #include "ScrollableArea.h"
 
+#include "FloatPoint.h"
 #include "GraphicsContext.h"
 #include "GraphicsLayer.h"
-#include "FloatPoint.h"
 #include "LayoutRect.h"
 #include "Logging.h"
 #include "PlatformWheelEvent.h"
 #include "ScrollAnimator.h"
+#include "ScrollAnimatorMock.h"
 #include "ScrollbarTheme.h"
-#include "TextStream.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -50,7 +51,7 @@ struct SameSizeAsScrollableArea {
     void* pointers[3];
     unsigned currentIndices[2];
 #else
-    void* pointer;
+    void* pointer[2];
 #endif
     IntPoint origin;
     unsigned bitfields : 16;
@@ -69,14 +70,18 @@ ScrollableArea::ScrollableArea()
 {
 }
 
-ScrollableArea::~ScrollableArea()
-{
-}
+ScrollableArea::~ScrollableArea() = default;
 
 ScrollAnimator& ScrollableArea::scrollAnimator() const
 {
-    if (!m_scrollAnimator)
-        m_scrollAnimator = ScrollAnimator::create(const_cast<ScrollableArea&>(*this));
+    if (!m_scrollAnimator) {
+        if (usesMockScrollAnimator()) {
+            m_scrollAnimator = std::make_unique<ScrollAnimatorMock>(const_cast<ScrollableArea&>(*this), [this](const String& message) {
+                logMockScrollAnimatorMessage(message);
+            });
+        } else
+            m_scrollAnimator = ScrollAnimator::create(const_cast<ScrollableArea&>(*this));
+    }
 
     ASSERT(m_scrollAnimator);
     return *m_scrollAnimator.get();
@@ -122,7 +127,6 @@ bool ScrollableArea::scroll(ScrollDirection direction, ScrollGranularity granula
         step = scrollbar->totalSize();
         break;
     case ScrollByPixel:
-    case ScrollByPrecisePixel:
         step = scrollbar->pixelStep();
         break;
     }
@@ -134,18 +138,19 @@ bool ScrollableArea::scroll(ScrollDirection direction, ScrollGranularity granula
     return scrollAnimator().scroll(orientation, granularity, step, multiplier);
 }
 
-void ScrollableArea::scrollToOffsetWithoutAnimation(const FloatPoint& offset)
+void ScrollableArea::scrollToOffsetWithoutAnimation(const FloatPoint& offset, ScrollClamping clamping)
 {
     LOG_WITH_STREAM(Scrolling, stream << "ScrollableArea " << this << " scrollToOffsetWithoutAnimation " << offset);
-    scrollAnimator().scrollToOffsetWithoutAnimation(offset);
+    scrollAnimator().scrollToOffsetWithoutAnimation(offset, clamping);
 }
 
 void ScrollableArea::scrollToOffsetWithoutAnimation(ScrollbarOrientation orientation, float offset)
 {
+    auto currentOffset = scrollOffsetFromPosition(IntPoint(scrollAnimator().currentPosition()));
     if (orientation == HorizontalScrollbar)
-        scrollToOffsetWithoutAnimation(FloatPoint(offset, scrollAnimator().currentPosition().y()));
+        scrollToOffsetWithoutAnimation(FloatPoint(offset, currentOffset.y()));
     else
-        scrollToOffsetWithoutAnimation(FloatPoint(scrollAnimator().currentPosition().x(), offset));
+        scrollToOffsetWithoutAnimation(FloatPoint(currentOffset.x(), offset));
 }
 
 void ScrollableArea::notifyScrollPositionChanged(const ScrollPosition& position)
@@ -362,15 +367,21 @@ void ScrollableArea::setScrollbarOverlayStyle(ScrollbarOverlayStyle overlayStyle
     }
 }
 
-void ScrollableArea::invalidateScrollbar(Scrollbar* scrollbar, const IntRect& rect)
+bool ScrollableArea::useDarkAppearanceForScrollbars() const
 {
-    if (scrollbar == horizontalScrollbar()) {
+    // If dark appearance is used or the overlay style is light (because of a dark page background), set the dark appearance.
+    return useDarkAppearance() || scrollbarOverlayStyle() == WebCore::ScrollbarOverlayStyleLight;
+}
+
+void ScrollableArea::invalidateScrollbar(Scrollbar& scrollbar, const IntRect& rect)
+{
+    if (&scrollbar == horizontalScrollbar()) {
         if (GraphicsLayer* graphicsLayer = layerForHorizontalScrollbar()) {
             graphicsLayer->setNeedsDisplay();
             graphicsLayer->setContentsNeedsDisplay();
             return;
         }
-    } else if (scrollbar == verticalScrollbar()) {
+    } else if (&scrollbar == verticalScrollbar()) {
         if (GraphicsLayer* graphicsLayer = layerForVerticalScrollbar()) {
             graphicsLayer->setNeedsDisplay();
             graphicsLayer->setContentsNeedsDisplay();
@@ -417,25 +428,90 @@ bool ScrollableArea::hasLayerForScrollCorner() const
 }
 
 #if ENABLE(CSS_SCROLL_SNAP)
-void ScrollableArea::setHorizontalSnapOffsets(std::unique_ptr<Vector<LayoutUnit>> horizontalSnapOffsets)
+ScrollSnapOffsetsInfo<LayoutUnit>& ScrollableArea::ensureSnapOffsetsInfo()
 {
-    m_horizontalSnapOffsets = WTFMove(horizontalSnapOffsets);
+    if (!m_snapOffsetsInfo)
+        m_snapOffsetsInfo = std::make_unique<ScrollSnapOffsetsInfo<LayoutUnit>>();
+    return *m_snapOffsetsInfo;
 }
 
-void ScrollableArea::setVerticalSnapOffsets(std::unique_ptr<Vector<LayoutUnit>> verticalSnapOffsets)
+const Vector<LayoutUnit>* ScrollableArea::horizontalSnapOffsets() const
 {
-    m_verticalSnapOffsets = WTFMove(verticalSnapOffsets);
+    if (!m_snapOffsetsInfo)
+        return nullptr;
+
+    return &m_snapOffsetsInfo->horizontalSnapOffsets;
+}
+
+const Vector<ScrollOffsetRange<LayoutUnit>>* ScrollableArea::horizontalSnapOffsetRanges() const
+{
+    if (!m_snapOffsetsInfo)
+        return nullptr;
+
+    return &m_snapOffsetsInfo->horizontalSnapOffsetRanges;
+}
+
+const Vector<ScrollOffsetRange<LayoutUnit>>* ScrollableArea::verticalSnapOffsetRanges() const
+{
+    if (!m_snapOffsetsInfo)
+        return nullptr;
+
+    return &m_snapOffsetsInfo->verticalSnapOffsetRanges;
+}
+
+const Vector<LayoutUnit>* ScrollableArea::verticalSnapOffsets() const
+{
+    if (!m_snapOffsetsInfo)
+        return nullptr;
+
+    return &m_snapOffsetsInfo->verticalSnapOffsets;
+}
+
+void ScrollableArea::setHorizontalSnapOffsets(const Vector<LayoutUnit>& horizontalSnapOffsets)
+{
+    // Consider having a non-empty set of snap offsets as a cue to initialize the ScrollAnimator.
+    if (horizontalSnapOffsets.size())
+        scrollAnimator();
+
+    ensureSnapOffsetsInfo().horizontalSnapOffsets = horizontalSnapOffsets;
+}
+
+void ScrollableArea::setVerticalSnapOffsets(const Vector<LayoutUnit>& verticalSnapOffsets)
+{
+    // Consider having a non-empty set of snap offsets as a cue to initialize the ScrollAnimator.
+    if (verticalSnapOffsets.size())
+        scrollAnimator();
+
+    ensureSnapOffsetsInfo().verticalSnapOffsets = verticalSnapOffsets;
+}
+
+void ScrollableArea::setHorizontalSnapOffsetRanges(const Vector<ScrollOffsetRange<LayoutUnit>>& horizontalRanges)
+{
+    ensureSnapOffsetsInfo().horizontalSnapOffsetRanges = horizontalRanges;
+}
+
+void ScrollableArea::setVerticalSnapOffsetRanges(const Vector<ScrollOffsetRange<LayoutUnit>>& verticalRanges)
+{
+    ensureSnapOffsetsInfo().verticalSnapOffsetRanges = verticalRanges;
 }
 
 void ScrollableArea::clearHorizontalSnapOffsets()
 {
-    m_horizontalSnapOffsets = nullptr;
+    if (!m_snapOffsetsInfo)
+        return;
+
+    m_snapOffsetsInfo->horizontalSnapOffsets = { };
+    m_snapOffsetsInfo->horizontalSnapOffsetRanges = { };
     m_currentHorizontalSnapPointIndex = 0;
 }
 
 void ScrollableArea::clearVerticalSnapOffsets()
 {
-    m_verticalSnapOffsets = nullptr;
+    if (!m_snapOffsetsInfo)
+        return;
+
+    m_snapOffsetsInfo->verticalSnapOffsets = { };
+    m_snapOffsetsInfo->verticalSnapOffsetRanges = { };
     m_currentVerticalSnapPointIndex = 0;
 }
 
@@ -495,7 +571,7 @@ void ScrollableArea::serviceScrollAnimations()
         scrollAnimator->serviceScrollAnimations();
 }
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 bool ScrollableArea::isPinnedInBothDirections(const IntSize& scrollDelta) const
 {
     return isPinnedHorizontallyInDirection(scrollDelta.width()) && isPinnedVerticallyInDirection(scrollDelta.height());
@@ -518,14 +594,21 @@ bool ScrollableArea::isPinnedVerticallyInDirection(int verticalScrollDelta) cons
         return true;
     return false;
 }
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)
+
+int ScrollableArea::horizontalScrollbarIntrusion() const
+{
+    return verticalScrollbar() ? verticalScrollbar()->occupiedWidth() : 0;
+}
+
+int ScrollableArea::verticalScrollbarIntrusion() const
+{
+    return horizontalScrollbar() ? horizontalScrollbar()->occupiedHeight() : 0;
+}
 
 IntSize ScrollableArea::scrollbarIntrusion() const
 {
-    return {
-        verticalScrollbar() ? verticalScrollbar()->occupiedWidth() : 0,
-        horizontalScrollbar() ? horizontalScrollbar()->occupiedHeight() : 0
-    };
+    return { horizontalScrollbarIntrusion(), verticalScrollbarIntrusion() };
 }
 
 ScrollPosition ScrollableArea::scrollPosition() const
@@ -586,6 +669,11 @@ void ScrollableArea::scrollbarStyleChanged(ScrollbarStyle, bool)
     availableContentSizeChanged(AvailableSizeChangeReason::ScrollbarsChanged);
 }
 
+IntSize ScrollableArea::reachableTotalContentsSize() const
+{
+    return totalContentsSize();
+}
+
 IntSize ScrollableArea::totalContentsSize() const
 {
     IntSize totalContentsSize = contentsSize();
@@ -639,9 +727,9 @@ LayoutPoint ScrollableArea::constrainScrollPositionForOverhang(const LayoutRect&
         // If we still clip, push our rect "up" from the bottom right.
         scrollRect.intersect(documentRect);
         if (scrollRect.width() < idealScrollRectSize.width())
-            scrollRect.move(-(idealScrollRectSize.width() - scrollRect.width()), 0);
+            scrollRect.move(-(idealScrollRectSize.width() - scrollRect.width()), 0_lu);
         if (scrollRect.height() < idealScrollRectSize.height())
-            scrollRect.move(0, -(idealScrollRectSize.height() - scrollRect.height()));
+            scrollRect.move(0_lu, -(idealScrollRectSize.height() - scrollRect.height()));
     }
 
     return scrollRect.location() - toLayoutSize(scrollOrigin);

@@ -20,6 +20,8 @@
 #include "config.h"
 #include "LocalCurrentGraphicsContext.h"
 
+#if USE(APPKIT)
+
 #include <AppKit/NSGraphicsContext.h>
 
 namespace WebCore {
@@ -30,6 +32,7 @@ LocalCurrentGraphicsContext::LocalCurrentGraphicsContext(GraphicsContext& graphi
 {
     graphicsContext.save();
 
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     CGContextRef cgContext = this->cgContext();
     if (cgContext == [[NSGraphicsContext currentContext] graphicsPort]) {
         m_savedNSGraphicsContext = 0;
@@ -38,6 +41,7 @@ LocalCurrentGraphicsContext::LocalCurrentGraphicsContext(GraphicsContext& graphi
 
     m_savedNSGraphicsContext = [[NSGraphicsContext currentContext] retain];
     NSGraphicsContext* newContext = [NSGraphicsContext graphicsContextWithGraphicsPort:cgContext flipped:YES];
+    ALLOW_DEPRECATED_DECLARATIONS_END
     [NSGraphicsContext setCurrentContext:newContext];
     m_didSetGraphicsContext = true;
 }
@@ -59,3 +63,5 @@ CGContextRef LocalCurrentGraphicsContext::cgContext()
 }
 
 }
+
+#endif // USE(APPKIT)

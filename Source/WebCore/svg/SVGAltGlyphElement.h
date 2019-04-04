@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -19,43 +19,41 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGAltGlyphElement_h
-#define SVGAltGlyphElement_h
+#pragma once
 
 #if ENABLE(SVG_FONTS)
 
 #include "SVGTextPositioningElement.h"
 #include "SVGURIReference.h"
-#include <wtf/Vector.h>
 
 namespace WebCore {
 
 class SVGGlyphElement;
 
-class SVGAltGlyphElement final : public SVGTextPositioningElement,
-                                 public SVGURIReference {
+class SVGAltGlyphElement final : public SVGTextPositioningElement, public SVGURIReference {
+    WTF_MAKE_ISO_ALLOCATED(SVGAltGlyphElement);
 public:
     static Ref<SVGAltGlyphElement> create(const QualifiedName&, Document&);
 
     const AtomicString& glyphRef() const;
-    void setGlyphRef(const AtomicString&, ExceptionCode&);
+    ExceptionOr<void> setGlyphRef(const AtomicString&);
     const AtomicString& format() const;
-    void setFormat(const AtomicString&, ExceptionCode&);
+    ExceptionOr<void> setFormat(const AtomicString&);
 
     bool hasValidGlyphElements(Vector<String>& glyphNames) const;
 
 private:
     SVGAltGlyphElement(const QualifiedName&, Document&);
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual bool childShouldCreateRenderer(const Node&) const override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGAltGlyphElement, SVGTextPositioningElement, SVGURIReference>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGAltGlyphElement)
-        DECLARE_ANIMATED_STRING_OVERRIDE(Href, href)
-    END_DECLARE_ANIMATED_PROPERTIES
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    bool childShouldCreateRenderer(const Node&) const override;
+
+    PropertyRegistry m_propertyRegistry { *this };
 };
 
 } // namespace WebCore
 
-#endif
 #endif

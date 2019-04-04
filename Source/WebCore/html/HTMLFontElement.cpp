@@ -31,11 +31,12 @@
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
 #include "StyleProperties.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
-using namespace WTF;
-
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLFontElement);
 
 using namespace HTMLNames;
 
@@ -194,8 +195,8 @@ void HTMLFontElement::collectStyleForPresentationAttribute(const QualifiedName& 
     } else if (name == colorAttr)
         addHTMLColorToStyle(style, CSSPropertyColor, value);
     else if (name == faceAttr) {
-        if (RefPtr<CSSValueList> fontFaceValue = CSSValuePool::singleton().createFontFaceValue(value))
-            style.setProperty(CSSProperty(CSSPropertyFontFamily, fontFaceValue.release()));
+        if (auto fontFaceValue = CSSValuePool::singleton().createFontFaceValue(value))
+            style.setProperty(CSSProperty(CSSPropertyFontFamily, WTFMove(fontFaceValue)));
     } else
         HTMLElement::collectStyleForPresentationAttribute(name, value, style);
 }

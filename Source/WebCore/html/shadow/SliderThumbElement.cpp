@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2018 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,7 @@
 #include "CSSValueKeywords.h"
 #include "Event.h"
 #include "EventHandler.h"
+#include "EventNames.h"
 #include "Frame.h"
 #include "HTMLInputElement.h"
 #include "HTMLParserIdioms.h"
@@ -44,6 +45,8 @@
 #include "RenderSlider.h"
 #include "RenderTheme.h"
 #include "ShadowRoot.h"
+#include "StyleResolver.h"
+#include <wtf/IsoMallocInlines.h>
 
 #if ENABLE(IOS_TOUCH_EVENTS)
 #include "Document.h"
@@ -54,6 +57,10 @@
 namespace WebCore {
 
 using namespace HTMLNames;
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(SliderThumbElement);
+WTF_MAKE_ISO_ALLOCATED_IMPL(SliderContainerElement);
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSliderThumb);
 
 inline static Decimal sliderPosition(HTMLInputElement& element)
 {
@@ -77,26 +84,26 @@ inline static bool hasVerticalAppearance(HTMLInputElement& input)
 
 // --------------------------------
 
-RenderSliderThumb::RenderSliderThumb(SliderThumbElement& element, Ref<RenderStyle>&& style)
+RenderSliderThumb::RenderSliderThumb(SliderThumbElement& element, RenderStyle&& style)
     : RenderBlockFlow(element, WTFMove(style))
 {
 }
 
-void RenderSliderThumb::updateAppearance(RenderStyle* parentStyle)
+void RenderSliderThumb::updateAppearance(const RenderStyle* parentStyle)
 {
     if (parentStyle->appearance() == SliderVerticalPart)
-        style().setAppearance(SliderThumbVerticalPart);
+        mutableStyle().setAppearance(SliderThumbVerticalPart);
     else if (parentStyle->appearance() == SliderHorizontalPart)
-        style().setAppearance(SliderThumbHorizontalPart);
+        mutableStyle().setAppearance(SliderThumbHorizontalPart);
     else if (parentStyle->appearance() == MediaSliderPart)
-        style().setAppearance(MediaSliderThumbPart);
+        mutableStyle().setAppearance(MediaSliderThumbPart);
     else if (parentStyle->appearance() == MediaVolumeSliderPart)
-        style().setAppearance(MediaVolumeSliderThumbPart);
+        mutableStyle().setAppearance(MediaVolumeSliderThumbPart);
     else if (parentStyle->appearance() == MediaFullScreenVolumeSliderPart)
-        style().setAppearance(MediaFullScreenVolumeSliderThumbPart);
+        mutableStyle().setAppearance(MediaFullScreenVolumeSliderThumbPart);
     if (style().hasAppearance()) {
         ASSERT(element());
-        theme().adjustSliderThumbSize(style(), element());
+        theme().adjustSliderThumbSize(mutableStyle(), element());
     }
 }
 
@@ -110,21 +117,22 @@ bool RenderSliderThumb::isSliderThumb() const
 // FIXME: Find a way to cascade appearance and adjust heights, and get rid of this class.
 // http://webkit.org/b/62535
 class RenderSliderContainer final : public RenderFlexibleBox {
+    WTF_MAKE_ISO_ALLOCATED_INLINE(RenderSliderContainer);
 public:
-    RenderSliderContainer(SliderContainerElement& element, Ref<RenderStyle>&& style)
+    RenderSliderContainer(SliderContainerElement& element, RenderStyle&& style)
         : RenderFlexibleBox(element, WTFMove(style))
     {
     }
 
 public:
-    virtual void computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop, LogicalExtentComputedValues&) const override;
+    RenderBox::LogicalExtentComputedValues computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const override;
 
 private:
-    virtual void layout() override;
+    void layout() override;
     bool isFlexibleBoxImpl() const override { return true; }
 };
 
-void RenderSliderContainer::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop, LogicalExtentComputedValues& computedValues) const
+RenderBox::LogicalExtentComputedValues RenderSliderContainer::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const
 {
     ASSERT(element()->shadowHost());
     auto& input = downcast<HTMLInputElement>(*element()->shadowHost());
@@ -133,7 +141,7 @@ void RenderSliderContainer::computeLogicalHeight(LayoutUnit logicalHeight, Layou
 #if ENABLE(DATALIST_ELEMENT)
     if (input.renderer()->isSlider() && !isVertical && input.list()) {
         int offsetFromCenter = theme().sliderTickOffsetFromTrackCenter();
-        LayoutUnit trackHeight = 0;
+        LayoutUnit trackHeight;
         if (offsetFromCenter < 0)
             trackHeight = -2 * offsetFromCenter;
         else {
@@ -144,13 +152,12 @@ void RenderSliderContainer::computeLogicalHeight(LayoutUnit logicalHeight, Layou
         if (zoomFactor != 1.0)
             trackHeight *= zoomFactor;
 
-        RenderBox::computeLogicalHeight(trackHeight, logicalTop, computedValues);
-        return;
+        return RenderBox::computeLogicalHeight(trackHeight, logicalTop);
     }
 #endif
     if (isVertical)
         logicalHeight = RenderSlider::defaultTrackLength;
-    RenderBox::computeLogicalHeight(logicalHeight, logicalTop, computedValues);
+    return RenderBox::computeLogicalHeight(logicalHeight, logicalTop);
 }
 
 void RenderSliderContainer::layout()
@@ -158,13 +165,13 @@ void RenderSliderContainer::layout()
     ASSERT(element()->shadowHost());
     auto& input = downcast<HTMLInputElement>(*element()->shadowHost());
     bool isVertical = hasVerticalAppearance(input);
-    style().setFlexDirection(isVertical ? FlowColumn : FlowRow);
+    mutableStyle().setFlexDirection(isVertical ? FlexDirection::Column : FlexDirection::Row);
     TextDirection oldTextDirection = style().direction();
     if (isVertical) {
         // FIXME: Work around rounding issues in RTL vertical sliders. We want them to
         // render identically to LTR vertical sliders. We can remove this work around when
         // subpixel rendering is enabled on all ports.
-        style().setDirection(LTR);
+        mutableStyle().setDirection(TextDirection::LTR);
     }
 
     RenderBox* thumb = input.sliderThumbElement() ? input.sliderThumbElement()->renderBox() : nullptr;
@@ -176,7 +183,7 @@ void RenderSliderContainer::layout()
 
     RenderFlexibleBox::layout();
 
-    style().setDirection(oldTextDirection);
+    mutableStyle().setDirection(oldTextDirection);
     // These should always exist, unless someone mutates the shadow DOM (e.g., in the inspector).
     if (!thumb || !track)
         return;
@@ -200,11 +207,6 @@ void RenderSliderContainer::layout()
 
 SliderThumbElement::SliderThumbElement(Document& document)
     : HTMLDivElement(HTMLNames::divTag, document)
-    , m_inDragMode(false)
-#if ENABLE(IOS_TOUCH_EVENTS)
-    , m_exclusiveTouchIdentifier(NoIdentifier)
-    , m_isRegisteredAsTouchEventListener(false)
-#endif
 {
     setHasCustomStyleResolveCallbacks();
 }
@@ -218,73 +220,80 @@ void SliderThumbElement::setPositionFromValue()
         renderer()->setNeedsLayout();
 }
 
-RenderPtr<RenderElement> SliderThumbElement::createElementRenderer(Ref<RenderStyle>&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SliderThumbElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderSliderThumb>(*this, WTFMove(style));
 }
 
 bool SliderThumbElement::isDisabledFormControl() const
 {
-    HTMLInputElement* input = hostInput();
+    auto input = hostInput();
     return !input || input->isDisabledFormControl();
 }
 
 bool SliderThumbElement::matchesReadWritePseudoClass() const
 {
-    HTMLInputElement* input = hostInput();
+    auto input = hostInput();
     return input && input->matchesReadWritePseudoClass();
 }
 
-Element* SliderThumbElement::focusDelegate()
+RefPtr<Element> SliderThumbElement::focusDelegate()
 {
     return hostInput();
 }
 
 void SliderThumbElement::dragFrom(const LayoutPoint& point)
 {
-    Ref<SliderThumbElement> protect(*this);
+    Ref<SliderThumbElement> protectedThis(*this);
     setPositionFromPoint(point);
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     startDragging();
 #endif
 }
 
 void SliderThumbElement::setPositionFromPoint(const LayoutPoint& absolutePoint)
 {
-    RefPtr<HTMLInputElement> input = hostInput();
-    if (!input || !input->renderer() || !renderBox())
+    auto input = hostInput();
+    if (!input)
         return;
 
-    HTMLElement* trackElement = input->sliderTrackElement();
-    if (!trackElement->renderBox())
+    auto* inputRenderer = input->renderBox();
+    if (!inputRenderer)
+        return;
+
+    auto* thumbRenderer = renderBox();
+    if (!thumbRenderer)
+        return;
+
+    ASSERT(input->sliderTrackElement());
+    auto* trackRenderer = input->sliderTrackElement()->renderBox();
+    if (!trackRenderer)
         return;
 
     // Do all the tracking math relative to the input's renderer's box.
-    RenderBox& inputRenderer = downcast<RenderBox>(*input->renderer());
-    RenderBox& trackRenderer = *trackElement->renderBox();
 
     bool isVertical = hasVerticalAppearance(*input);
-    bool isLeftToRightDirection = renderBox()->style().isLeftToRightDirection();
+    bool isLeftToRightDirection = thumbRenderer->style().isLeftToRightDirection();
     
-    LayoutPoint offset(inputRenderer.absoluteToLocal(absolutePoint, UseTransforms));
-    FloatRect trackBoundingBox = trackRenderer.localToContainerQuad(FloatRect(0, 0, trackRenderer.width(), trackRenderer.height()), &inputRenderer).enclosingBoundingBox();
+    auto offset = inputRenderer->absoluteToLocal(absolutePoint, UseTransforms);
+    auto trackBoundingBox = trackRenderer->localToContainerQuad(FloatRect { { }, trackRenderer->size() }, inputRenderer).enclosingBoundingBox();
 
     LayoutUnit trackLength;
     LayoutUnit position;
     if (isVertical) {
-        trackLength = trackRenderer.contentHeight() - renderBox()->height();
-        position = offset.y() - renderBox()->height() / 2 - trackBoundingBox.y() - renderBox()->marginBottom();
+        trackLength = trackRenderer->contentHeight() - thumbRenderer->height();
+        position = offset.y() - thumbRenderer->height() / 2 - trackBoundingBox.y() - thumbRenderer->marginBottom();
     } else {
-        trackLength = trackRenderer.contentWidth() - renderBox()->width();
-        position = offset.x() - renderBox()->width() / 2 - trackBoundingBox.x();
-        position -= isLeftToRightDirection ? renderBox()->marginLeft() : renderBox()->marginRight();
+        trackLength = trackRenderer->contentWidth() - thumbRenderer->width();
+        position = offset.x() - thumbRenderer->width() / 2 - trackBoundingBox.x();
+        position -= isLeftToRightDirection ? thumbRenderer->marginLeft() : thumbRenderer->marginRight();
     }
 
     position = std::max<LayoutUnit>(0, std::min(position, trackLength));
-    const Decimal ratio = Decimal::fromDouble(static_cast<double>(position) / trackLength);
-    const Decimal fraction = isVertical || !isLeftToRightDirection ? Decimal(1) - ratio : ratio;
-    StepRange stepRange(input->createStepRange(RejectAny));
-    Decimal value = stepRange.clampValue(stepRange.valueFromProportion(fraction));
+    auto ratio = Decimal::fromDouble(static_cast<double>(position) / trackLength);
+    auto fraction = isVertical || !isLeftToRightDirection ? Decimal(1) - ratio : ratio;
+    auto stepRange = input->createStepRange(RejectAny);
+    auto value = stepRange.clampValue(stepRange.valueFromProportion(fraction));
 
 #if ENABLE(DATALIST_ELEMENT)
     const LayoutUnit snappingThreshold = renderer()->theme().sliderTickSnappingThreshold();
@@ -311,7 +320,7 @@ void SliderThumbElement::setPositionFromPoint(const LayoutPoint& absolutePoint)
 
 void SliderThumbElement::startDragging()
 {
-    if (Frame* frame = document().frame()) {
+    if (RefPtr<Frame> frame = document().frame()) {
         frame->eventHandler().setCapturingMouseEventsElement(this);
         m_inDragMode = true;
     }
@@ -322,35 +331,30 @@ void SliderThumbElement::stopDragging()
     if (!m_inDragMode)
         return;
 
-    if (Frame* frame = document().frame())
+    if (RefPtr<Frame> frame = document().frame())
         frame->eventHandler().setCapturingMouseEventsElement(nullptr);
     m_inDragMode = false;
     if (renderer())
         renderer()->setNeedsLayout();
-
-    RefPtr<HTMLInputElement> input = hostInput();
-    if (input)
-        input->dispatchFormControlChangeEvent();
 }
 
-#if !PLATFORM(IOS)
-void SliderThumbElement::defaultEventHandler(Event* event)
+#if !PLATFORM(IOS_FAMILY)
+void SliderThumbElement::defaultEventHandler(Event& event)
 {
-    if (!is<MouseEvent>(*event)) {
+    if (!is<MouseEvent>(event)) {
         HTMLDivElement::defaultEventHandler(event);
         return;
     }
 
     // FIXME: Should handle this readonly/disabled check in more general way.
     // Missing this kind of check is likely to occur elsewhere if adding it in each shadow element.
-    HTMLInputElement* input = hostInput();
-    if (!input || input->isDisabledOrReadOnly()) {
-        stopDragging();
+    auto input = hostInput();
+    if (!input || input->isDisabledFormControl()) {
         HTMLDivElement::defaultEventHandler(event);
         return;
     }
 
-    MouseEvent& mouseEvent = downcast<MouseEvent>(*event);
+    MouseEvent& mouseEvent = downcast<MouseEvent>(event);
     bool isLeftButton = mouseEvent.button() == LeftButton;
     const AtomicString& eventType = mouseEvent.type();
 
@@ -361,6 +365,7 @@ void SliderThumbElement::defaultEventHandler(Event* event)
         startDragging();
         return;
     } else if (eventType == eventNames().mouseupEvent && isLeftButton) {
+        input->dispatchFormControlChangeEvent();
         stopDragging();
         return;
     } else if (eventType == eventNames().mousemoveEvent) {
@@ -369,15 +374,16 @@ void SliderThumbElement::defaultEventHandler(Event* event)
         return;
     }
 
-    HTMLDivElement::defaultEventHandler(&mouseEvent);
+    HTMLDivElement::defaultEventHandler(mouseEvent);
 }
 #endif
 
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
+
 bool SliderThumbElement::willRespondToMouseMoveEvents()
 {
-    const HTMLInputElement* input = hostInput();
-    if (input && !input->isDisabledOrReadOnly() && m_inDragMode)
+    const auto input = hostInput();
+    if (input && !input->isDisabledFormControl() && m_inDragMode)
         return true;
 
     return HTMLDivElement::willRespondToMouseMoveEvents();
@@ -385,18 +391,19 @@ bool SliderThumbElement::willRespondToMouseMoveEvents()
 
 bool SliderThumbElement::willRespondToMouseClickEvents()
 {
-    const HTMLInputElement* input = hostInput();
-    if (input && !input->isDisabledOrReadOnly())
+    const auto input = hostInput();
+    if (input && !input->isDisabledFormControl())
         return true;
 
     return HTMLDivElement::willRespondToMouseClickEvents();
 }
-#endif // !PLATFORM(IOS)
+
+#endif // !PLATFORM(IOS_FAMILY)
 
 void SliderThumbElement::willDetachRenderers()
 {
     if (m_inDragMode) {
-        if (Frame* frame = document().frame())
+        if (RefPtr<Frame> frame = document().frame())
             frame->eventHandler().setCapturingMouseEventsElement(nullptr);
     }
 #if ENABLE(IOS_TOUCH_EVENTS)
@@ -405,6 +412,7 @@ void SliderThumbElement::willDetachRenderers()
 }
 
 #if ENABLE(IOS_TOUCH_EVENTS)
+
 unsigned SliderThumbElement::exclusiveTouchIdentifier() const
 {
     return m_exclusiveTouchIdentifier;
@@ -425,23 +433,23 @@ static Touch* findTouchWithIdentifier(TouchList& list, unsigned identifier)
 {
     unsigned length = list.length();
     for (unsigned i = 0; i < length; ++i) {
-        Touch* touch = list.item(i);
+        RefPtr<Touch> touch = list.item(i);
         if (touch->identifier() == identifier)
-            return touch;
+            return touch.get();
     }
     return nullptr;
 }
 
-void SliderThumbElement::handleTouchStart(TouchEvent* touchEvent)
+void SliderThumbElement::handleTouchStart(TouchEvent& touchEvent)
 {
-    TouchList* targetTouches = touchEvent->targetTouches();
+    RefPtr<TouchList> targetTouches = touchEvent.targetTouches();
     if (!targetTouches)
         return;
 
     if (targetTouches->length() != 1)
         return;
 
-    Touch* touch = targetTouches->item(0);
+    RefPtr<Touch> touch = targetTouches->item(0);
     if (!renderer())
         return;
     IntRect boundingBox = renderer()->absoluteBoundingBoxRect();
@@ -452,45 +460,48 @@ void SliderThumbElement::handleTouchStart(TouchEvent* touchEvent)
     setExclusiveTouchIdentifier(touch->identifier());
 
     startDragging();
-    touchEvent->setDefaultHandled();
+    touchEvent.setDefaultHandled();
 }
 
-void SliderThumbElement::handleTouchMove(TouchEvent* touchEvent)
+void SliderThumbElement::handleTouchMove(TouchEvent& touchEvent)
 {
     unsigned identifier = exclusiveTouchIdentifier();
     if (identifier == NoIdentifier)
         return;
 
-    TouchList* targetTouches = touchEvent->targetTouches();
+    RefPtr<TouchList> targetTouches = touchEvent.targetTouches();
     if (!targetTouches)
         return;
 
-    Touch* touch = findTouchWithIdentifier(*targetTouches, identifier);
+    RefPtr<Touch> touch = findTouchWithIdentifier(*targetTouches, identifier);
     if (!touch)
         return;
 
     if (m_inDragMode)
         setPositionFromPoint(IntPoint(touch->pageX(), touch->pageY()));
-    touchEvent->setDefaultHandled();
+    touchEvent.setDefaultHandled();
 }
 
-void SliderThumbElement::handleTouchEndAndCancel(TouchEvent* touchEvent)
+void SliderThumbElement::handleTouchEndAndCancel(TouchEvent& touchEvent)
 {
     unsigned identifier = exclusiveTouchIdentifier();
     if (identifier == NoIdentifier)
         return;
 
-    TouchList* targetTouches = touchEvent->targetTouches();
+    RefPtr<TouchList> targetTouches = touchEvent.targetTouches();
     if (!targetTouches)
         return;
     // If our exclusive touch still exists, it was not the touch
     // that ended, so we should not stop dragging.
-    Touch* exclusiveTouch = findTouchWithIdentifier(*targetTouches, identifier);
+    RefPtr<Touch> exclusiveTouch = findTouchWithIdentifier(*targetTouches, identifier);
     if (exclusiveTouch)
         return;
 
     clearExclusiveTouchIdentifier();
 
+    auto input = hostInput();
+    if (input)
+        input->dispatchFormControlChangeEvent();
     stopDragging();
 }
 
@@ -500,19 +511,19 @@ void SliderThumbElement::didAttachRenderers()
         registerForTouchEvents();
 }
 
-void SliderThumbElement::handleTouchEvent(TouchEvent* touchEvent)
+void SliderThumbElement::handleTouchEvent(TouchEvent& touchEvent)
 {
-    HTMLInputElement* input = hostInput();
+    auto input = hostInput();
     ASSERT(input);
     if (input->isReadOnly() || input->isDisabledFormControl()) {
         clearExclusiveTouchIdentifier();
         stopDragging();
-        touchEvent->setDefaultHandled();
+        touchEvent.setDefaultHandled();
         HTMLDivElement::defaultEventHandler(touchEvent);
         return;
     }
 
-    const AtomicString& eventType = touchEvent->type();
+    const AtomicString& eventType = touchEvent.type();
     if (eventType == eventNames().touchstartEvent) {
         handleTouchStart(touchEvent);
         return;
@@ -541,7 +552,7 @@ void SliderThumbElement::registerForTouchEvents()
 
     ASSERT(shouldAcceptTouchEvents());
 
-    document().addTouchEventListener(this);
+    document().addTouchEventHandler(*this);
     m_isRegisteredAsTouchEventListener = true;
 }
 
@@ -553,63 +564,61 @@ void SliderThumbElement::unregisterForTouchEvents()
     clearExclusiveTouchIdentifier();
     stopDragging();
 
-    document().removeTouchEventListener(this);
+    document().removeTouchEventHandler(*this);
     m_isRegisteredAsTouchEventListener = false;
 }
 
-void SliderThumbElement::disabledAttributeChanged()
+#endif // ENABLE(IOS_TOUCH_EVENTS)
+
+void SliderThumbElement::hostDisabledStateChanged()
 {
+    if (isDisabledFormControl())
+        stopDragging();
+
+#if ENABLE(IOS_TOUCH_EVENTS)
     if (shouldAcceptTouchEvents())
         registerForTouchEvents();
     else
         unregisterForTouchEvents();
+#endif
 }
-#endif // ENABLE(IOS_TOUCH_EVENTS)
 
-HTMLInputElement* SliderThumbElement::hostInput() const
+RefPtr<HTMLInputElement> SliderThumbElement::hostInput() const
 {
     // Only HTMLInputElement creates SliderThumbElement instances as its shadow nodes.
     // So, shadowHost() must be an HTMLInputElement.
     return downcast<HTMLInputElement>(shadowHost());
 }
 
-static const AtomicString& sliderThumbShadowPseudoId()
+Optional<ElementStyle> SliderThumbElement::resolveCustomStyle(const RenderStyle&, const RenderStyle* hostStyle)
 {
-    static NeverDestroyed<const AtomicString> sliderThumb("-webkit-slider-thumb", AtomicString::ConstructFromLiteral);
-    return sliderThumb;
-}
+    // This doesn't actually compute style. This is just a hack to pick shadow pseudo id when host style is known.
 
-static const AtomicString& mediaSliderThumbShadowPseudoId()
-{
-    static NeverDestroyed<const AtomicString> mediaSliderThumb("-webkit-media-slider-thumb", AtomicString::ConstructFromLiteral);
-    return mediaSliderThumb;
-}
+    static NeverDestroyed<const AtomicString> sliderThumbShadowPseudoId("-webkit-slider-thumb", AtomicString::ConstructFromLiteral);
+    static NeverDestroyed<const AtomicString> mediaSliderThumbShadowPseudoId("-webkit-media-slider-thumb", AtomicString::ConstructFromLiteral);
 
-const AtomicString& SliderThumbElement::shadowPseudoId() const
-{
-    // FIXME: this code needs to go away, it is very very wrong.
-    // The value of shadowPseudoId() is needed to resolve the style of the shadow tree. In this case,
-    // that value depends on the style, which means the style needs to be computed twice to get
-    // a correct value: once to get the Input's appearance, then a second time to style the shadow tree correctly.
+    if (!hostStyle)
+        return WTF::nullopt;
 
-    HTMLInputElement* input = hostInput();
-    if (!input)
-        return sliderThumbShadowPseudoId();
-    if (!input->renderer())
-        return emptyAtom;
-
-    const RenderStyle& sliderStyle = input->renderer()->style();
-    switch (sliderStyle.appearance()) {
+    switch (hostStyle->appearance()) {
     case MediaSliderPart:
     case MediaSliderThumbPart:
     case MediaVolumeSliderPart:
     case MediaVolumeSliderThumbPart:
     case MediaFullScreenVolumeSliderPart:
     case MediaFullScreenVolumeSliderThumbPart:
-        return mediaSliderThumbShadowPseudoId();
+        m_shadowPseudoId = mediaSliderThumbShadowPseudoId;
+        break;
     default:
-        return sliderThumbShadowPseudoId();
+        m_shadowPseudoId = sliderThumbShadowPseudoId;
     }
+
+    return WTF::nullopt;
+}
+
+const AtomicString& SliderThumbElement::shadowPseudoId() const
+{
+    return m_shadowPseudoId;
 }
 
 Ref<Element> SliderThumbElement::cloneElementWithoutAttributesAndChildren(Document& targetDocument)
@@ -622,6 +631,7 @@ Ref<Element> SliderThumbElement::cloneElementWithoutAttributesAndChildren(Docume
 inline SliderContainerElement::SliderContainerElement(Document& document)
     : HTMLDivElement(HTMLNames::divTag, document)
 {
+    setHasCustomStyleResolveCallbacks();
 }
 
 Ref<SliderContainerElement> SliderContainerElement::create(Document& document)
@@ -629,40 +639,40 @@ Ref<SliderContainerElement> SliderContainerElement::create(Document& document)
     return adoptRef(*new SliderContainerElement(document));
 }
 
-RenderPtr<RenderElement> SliderContainerElement::createElementRenderer(Ref<RenderStyle>&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SliderContainerElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderSliderContainer>(*this, WTFMove(style));
 }
 
-const AtomicString& SliderContainerElement::shadowPseudoId() const
+Optional<ElementStyle> SliderContainerElement::resolveCustomStyle(const RenderStyle&, const RenderStyle* hostStyle)
 {
-    // FIXME: this code needs to go away, it is very very wrong.
-    // The value of shadowPseudoId() is needed to resolve the style of the shadow tree. In this case,
-    // that value depends on the style, which means the style needs to be computed twice to get
-    // a correct value: once to get the Input's appearance, then a second time to style the shadow tree correctly.
+    // This doesn't actually compute style. This is just a hack to pick shadow pseudo id when host style is known.
 
     static NeverDestroyed<const AtomicString> mediaSliderContainer("-webkit-media-slider-container", AtomicString::ConstructFromLiteral);
     static NeverDestroyed<const AtomicString> sliderContainer("-webkit-slider-container", AtomicString::ConstructFromLiteral);
 
-    if (!is<HTMLInputElement>(*shadowHost()))
-        return sliderContainer;
+    if (!hostStyle)
+        return WTF::nullopt;
 
-    auto& input = downcast<HTMLInputElement>(*shadowHost());
-    if (!input.renderer())
-        return emptyAtom;
-
-    const RenderStyle& sliderStyle = input.renderer()->style();
-    switch (sliderStyle.appearance()) {
+    switch (hostStyle->appearance()) {
     case MediaSliderPart:
     case MediaSliderThumbPart:
     case MediaVolumeSliderPart:
     case MediaVolumeSliderThumbPart:
     case MediaFullScreenVolumeSliderPart:
     case MediaFullScreenVolumeSliderThumbPart:
-        return mediaSliderContainer;
+        m_shadowPseudoId = mediaSliderContainer;
+        break;
     default:
-        return sliderContainer;
+        m_shadowPseudoId = sliderContainer;
     }
+
+    return WTF::nullopt;
+}
+
+const AtomicString& SliderContainerElement::shadowPseudoId() const
+{
+    return m_shadowPseudoId;
 }
 
 }

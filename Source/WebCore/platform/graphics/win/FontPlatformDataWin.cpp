@@ -2,7 +2,7 @@
  * This file is part of the internal font implementation.  It should not be included by anyone other than
  * FontMac.cpp, FontWin.cpp and Font.cpp.
  *
- * Copyright (C) 2006, 2007, 2008 Apple Inc.
+ * Copyright (C) 2006-2008, 2016 Apple Inc.
  * Copyright (C) 2008 Brent Fulgham
  *
  * This library is free software; you can redistribute it and/or
@@ -33,6 +33,10 @@
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
+#if USE(DIRECT2D)
+#include <dwrite.h>
+#endif
+
 using std::min;
 
 namespace WebCore {
@@ -40,14 +44,6 @@ namespace WebCore {
 FontPlatformData::FontPlatformData(GDIObject<HFONT> font, float size, bool bold, bool oblique, bool useGDI)
     : m_font(SharedGDIObject<HFONT>::create(WTFMove(font)))
     , m_size(size)
-    , m_orientation(Horizontal)
-    , m_widthVariant(RegularWidth)
-#if USE(CG)
-    , m_cgFont(0)
-#elif USE(CAIRO)
-    , m_scaledFont(0)
-#endif
-    , m_isColorBitmapFont(false)
     , m_syntheticBold(bold)
     , m_syntheticOblique(oblique)
     , m_useGDI(useGDI)
@@ -61,20 +57,20 @@ FontPlatformData::FontPlatformData(GDIObject<HFONT> font, float size, bool bold,
     ASSERT_WITH_MESSAGE(bufferSize, "Bitmap fonts not supported with CoreGraphics.");
 
     if (bufferSize) {
-        OUTLINETEXTMETRICW* metrics = (OUTLINETEXTMETRICW*)malloc(bufferSize);
+        static const constexpr unsigned InitialBufferSize { 256 };
+        Vector<char, InitialBufferSize> buffer(bufferSize);
+        auto* metrics = reinterpret_cast<OUTLINETEXTMETRICW*>(buffer.data());
 
         GetOutlineTextMetricsW(hdc, bufferSize, metrics);
         WCHAR* faceName = (WCHAR*)((uintptr_t)metrics + (uintptr_t)metrics->otmpFaceName);
 
         platformDataInit(m_font->get(), size, hdc, faceName);
-
-        free(metrics);
     }
 
     RestoreDC(hdc, -1);
 }
 
-PassRefPtr<SharedBuffer> FontPlatformData::openTypeTable(uint32_t table) const
+RefPtr<SharedBuffer> FontPlatformData::openTypeTable(uint32_t table) const
 {
     HWndDC hdc(0);
     HGDIOBJ oldFont = SelectObject(hdc, hfont());
@@ -82,16 +78,17 @@ PassRefPtr<SharedBuffer> FontPlatformData::openTypeTable(uint32_t table) const
     DWORD size = GetFontData(hdc, table, 0, 0, 0);
     RefPtr<SharedBuffer> buffer;
     if (size != GDI_ERROR) {
-        buffer = SharedBuffer::create(size);
-        DWORD result = GetFontData(hdc, table, 0, (PVOID)buffer->data(), size);
-        ASSERT(result == size);
+        Vector<char> data(size);
+        DWORD result = GetFontData(hdc, table, 0, (PVOID)data.data(), size);
+        ASSERT_UNUSED(result, result == size);
+        buffer = SharedBuffer::create(WTFMove(data));
     }
 
     SelectObject(hdc, oldFont);
-    return buffer.release();
+    return buffer;
 }
 
-#ifndef NDEBUG
+#if !LOG_DISABLED
 String FontPlatformData::description() const
 {
     return String();

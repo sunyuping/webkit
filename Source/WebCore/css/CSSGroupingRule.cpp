@@ -35,7 +35,6 @@
 #include "CSSParser.h"
 #include "CSSRuleList.h"
 #include "CSSStyleSheet.h"
-#include "ExceptionCode.h"
 #include "StyleRule.h"
 #include <wtf/text/StringBuilder.h>
 
@@ -57,35 +56,31 @@ CSSGroupingRule::~CSSGroupingRule()
     }
 }
 
-unsigned CSSGroupingRule::insertRule(const String& ruleString, unsigned index, ExceptionCode& ec)
+ExceptionOr<unsigned> CSSGroupingRule::insertRule(const String& ruleString, unsigned index)
 {
     ASSERT(m_childRuleCSSOMWrappers.size() == m_groupRule->childRules().size());
 
     if (index > m_groupRule->childRules().size()) {
-        // INDEX_SIZE_ERR: Raised if the specified index is not a valid insertion point.
-        ec = INDEX_SIZE_ERR;
-        return 0;
+        // IndexSizeError: Raised if the specified index is not a valid insertion point.
+        return Exception { IndexSizeError };
     }
 
-    CSSParser parser(parserContext());
     CSSStyleSheet* styleSheet = parentStyleSheet();
-    RefPtr<StyleRuleBase> newRule = parser.parseRule(styleSheet ? &styleSheet->contents() : nullptr, ruleString);
+    RefPtr<StyleRuleBase> newRule = CSSParser::parseRule(parserContext(), styleSheet ? &styleSheet->contents() : nullptr, ruleString);
     if (!newRule) {
-        // SYNTAX_ERR: Raised if the specified rule has a syntax error and is unparsable.
-        ec = SYNTAX_ERR;
-        return 0;
+        // SyntaxError: Raised if the specified rule has a syntax error and is unparsable.
+        return Exception { SyntaxError };
     }
 
-    if (newRule->isImportRule()) {
-        // FIXME: an HIERARCHY_REQUEST_ERR should also be thrown for a @charset or a nested
-        // @media rule. They are currently not getting parsed, resulting in a SYNTAX_ERR
+    if (newRule->isImportRule() || newRule->isNamespaceRule()) {
+        // FIXME: an HierarchyRequestError should also be thrown for a @charset or a nested
+        // @media rule. They are currently not getting parsed, resulting in a SyntaxError
         // to get raised above.
 
-        // HIERARCHY_REQUEST_ERR: Raised if the rule cannot be inserted at the specified
+        // HierarchyRequestError: Raised if the rule cannot be inserted at the specified
         // index, e.g., if an @import rule is inserted after a standard rule set or other
         // at-rule.
-        ec = HIERARCHY_REQUEST_ERR;
-        return 0;
+        return Exception { HierarchyRequestError };
     }
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
@@ -95,15 +90,14 @@ unsigned CSSGroupingRule::insertRule(const String& ruleString, unsigned index, E
     return index;
 }
 
-void CSSGroupingRule::deleteRule(unsigned index, ExceptionCode& ec)
+ExceptionOr<void> CSSGroupingRule::deleteRule(unsigned index)
 {
     ASSERT(m_childRuleCSSOMWrappers.size() == m_groupRule->childRules().size());
 
     if (index >= m_groupRule->childRules().size()) {
-        // INDEX_SIZE_ERR: Raised if the specified index does not correspond to a
+        // IndexSizeError: Raised if the specified index does not correspond to a
         // rule in the media rule list.
-        ec = INDEX_SIZE_ERR;
-        return;
+        return Exception { IndexSizeError };
     }
 
     CSSStyleSheet::RuleMutationScope mutationScope(this);
@@ -113,6 +107,8 @@ void CSSGroupingRule::deleteRule(unsigned index, ExceptionCode& ec)
     if (m_childRuleCSSOMWrappers[index])
         m_childRuleCSSOMWrappers[index]->setParentRule(0);
     m_childRuleCSSOMWrappers.remove(index);
+
+    return { };
 }
 
 void CSSGroupingRule::appendCssTextForItems(StringBuilder& result) const
@@ -133,7 +129,7 @@ unsigned CSSGroupingRule::length() const
 CSSRule* CSSGroupingRule::item(unsigned index) const
 { 
     if (index >= length())
-        return 0;
+        return nullptr;
     ASSERT(m_childRuleCSSOMWrappers.size() == m_groupRule->childRules().size());
     RefPtr<CSSRule>& rule = m_childRuleCSSOMWrappers[index];
     if (!rule)
@@ -144,7 +140,7 @@ CSSRule* CSSGroupingRule::item(unsigned index) const
 CSSRuleList& CSSGroupingRule::cssRules() const
 {
     if (!m_ruleListCSSOMWrapper)
-        m_ruleListCSSOMWrapper = std::make_unique<LiveCSSRuleList<CSSGroupingRule>>(const_cast<CSSGroupingRule*>(this));
+        m_ruleListCSSOMWrapper = std::make_unique<LiveCSSRuleList<CSSGroupingRule>>(const_cast<CSSGroupingRule&>(*this));
     return *m_ruleListCSSOMWrapper;
 }
 

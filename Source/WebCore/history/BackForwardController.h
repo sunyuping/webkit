@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BackForwardController_h
-#define BackForwardController_h
+#pragma once
 
 #include <wtf/Noncopyable.h>
 #include <wtf/Forward.h>
@@ -39,10 +38,11 @@ class Page;
 class BackForwardController {
     WTF_MAKE_NONCOPYABLE(BackForwardController); WTF_MAKE_FAST_ALLOCATED;
 public:
-    BackForwardController(Page&, RefPtr<BackForwardClient>&&);
+    BackForwardController(Page&, Ref<BackForwardClient>&&);
     ~BackForwardController();
 
-    BackForwardClient* client() const { return m_client.get(); }
+    BackForwardClient& client() { return m_client.get(); }
+    const BackForwardClient& client() const { return m_client.get(); }
 
     WEBCORE_EXPORT bool canGoBackOrForward(int distance) const;
     void goBackOrForward(int distance);
@@ -51,25 +51,23 @@ public:
     WEBCORE_EXPORT bool goForward();
 
     void addItem(Ref<HistoryItem>&&);
-    void setCurrentItem(HistoryItem*);
+    void setCurrentItem(HistoryItem&);
         
-    int count() const;
-    WEBCORE_EXPORT int backCount() const;
-    WEBCORE_EXPORT int forwardCount() const;
+    unsigned count() const;
+    WEBCORE_EXPORT unsigned backCount() const;
+    WEBCORE_EXPORT unsigned forwardCount() const;
 
-    WEBCORE_EXPORT HistoryItem* itemAtIndex(int);
+    WEBCORE_EXPORT RefPtr<HistoryItem> itemAtIndex(int);
 
     void close();
 
-    HistoryItem* backItem() { return itemAtIndex(-1); }
-    HistoryItem* currentItem() { return itemAtIndex(0); }
-    HistoryItem* forwardItem() { return itemAtIndex(1); }
+    WEBCORE_EXPORT RefPtr<HistoryItem> backItem();
+    WEBCORE_EXPORT RefPtr<HistoryItem> currentItem();
+    WEBCORE_EXPORT RefPtr<HistoryItem> forwardItem();
 
 private:
     Page& m_page;
-    RefPtr<BackForwardClient> m_client;
+    Ref<BackForwardClient> m_client;
 };
 
 } // namespace WebCore
-
-#endif // BackForwardController_h

@@ -27,16 +27,16 @@
 
 #include "PlatformCALayerWinInternal.h"
 
+#if USE(CA)
+
 #include "FontCascade.h"
 #include "GraphicsContext.h"
 #include "PlatformCALayer.h"
 #include "TileController.h"
 #include "TiledBacking.h"
-#include "WebCoreHeaderDetection.h"
 #include <QuartzCore/CACFLayer.h>
 #include <wtf/MainThread.h>
 
-using namespace std;
 using namespace WebCore;
 
 PlatformCALayerWinInternal::PlatformCALayerWinInternal(PlatformCALayer* owner)
@@ -44,9 +44,7 @@ PlatformCALayerWinInternal::PlatformCALayerWinInternal(PlatformCALayer* owner)
 {
 }
 
-PlatformCALayerWinInternal::~PlatformCALayerWinInternal()
-{
-}
+PlatformCALayerWinInternal::~PlatformCALayerWinInternal() = default;
 
 struct DisplayOnMainThreadContext {
     RetainPtr<CACFLayerRef> layer;
@@ -102,7 +100,7 @@ void PlatformCALayerWinInternal::displayCallback(CACFLayerRef caLayer, CGContext
     // smaller than the layer bounds (e.g. tiled layers)
     CGRect clipBounds = CGContextGetClipBoundingBox(context);
     IntRect clip(enclosingIntRect(clipBounds));
-    client->platformCALayerPaintContents(owner(), graphicsContext, clip);
+    client->platformCALayerPaintContents(owner(), graphicsContext, clip, GraphicsLayerPaintNormal);
 
     if (client->platformCALayerShowRepaintCounter(owner())
         && !repaintCountersAreDrawnByGridController(layerType)) {
@@ -163,11 +161,11 @@ void PlatformCALayerWinInternal::setNeedsDisplayInRect(const FloatRect& dirtyRec
             // We assume a maximum of 4 digits and a font size of 18.
             repaintCounterRect.setWidth(80);
             repaintCounterRect.setHeight(22);
-            if (owner()->owner()->platformCALayerContentsOrientation() == WebCore::GraphicsLayer::CompositingCoordinatesTopDown)
+            if (owner()->owner()->platformCALayerContentsOrientation() == WebCore::GraphicsLayer::CompositingCoordinatesOrientation::TopDown)
                 repaintCounterRect.setY(layerBounds.height() - (layerBounds.y() + repaintCounterRect.height()));
             internalSetNeedsDisplay(&repaintCounterRect);
         }
-        if (owner()->owner()->platformCALayerContentsOrientation() == WebCore::GraphicsLayer::CompositingCoordinatesTopDown) {
+        if (owner()->owner()->platformCALayerContentsOrientation() == WebCore::GraphicsLayer::CompositingCoordinatesOrientation::TopDown) {
             FloatRect flippedDirtyRect = dirtyRect;
             flippedDirtyRect.setY(owner()->bounds().height() - (flippedDirtyRect.y() + flippedDirtyRect.height()));
             internalSetNeedsDisplay(&flippedDirtyRect);
@@ -219,7 +217,7 @@ void PlatformCALayerWinInternal::removeAllSublayers()
 
 void PlatformCALayerWinInternal::insertSublayer(PlatformCALayer& layer, size_t index)
 {
-    index = min(index, sublayerCount());
+    index = std::min(index, sublayerCount());
 
     layer.removeFromSuperlayer();
     CACFLayerInsertSublayer(owner()->platformLayer(), layer.platformLayer(), index);
@@ -323,3 +321,5 @@ void PlatformCALayerWinInternal::setBorderColor(const Color& value)
 
     CACFLayerSetBorderColor(owner()->platformLayer(), color.get());
 }
+
+#endif

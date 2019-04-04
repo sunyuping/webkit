@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,8 +41,20 @@ void OSRExitBase::considerAddingAsFrequentExitSiteSlow(CodeBlock* profiledCodeBl
     CodeBlock* sourceProfiledCodeBlock =
         baselineCodeBlockForOriginAndBaselineCodeBlock(
             m_codeOriginForExitProfile, profiledCodeBlock);
-    if (sourceProfiledCodeBlock)
-        sourceProfiledCodeBlock->addFrequentExitSite(FrequentExitSite(m_codeOriginForExitProfile.bytecodeIndex, m_kind, jitType));
+    if (sourceProfiledCodeBlock) {
+        ExitingInlineKind inlineKind;
+        if (m_codeOriginForExitProfile.inlineCallFrame())
+            inlineKind = ExitFromInlined;
+        else
+            inlineKind = ExitFromNotInlined;
+        
+        FrequentExitSite site;
+        if (m_wasHoisted)
+            site = FrequentExitSite(HoistingFailed, jitType, inlineKind);
+        else
+            site = FrequentExitSite(m_codeOriginForExitProfile.bytecodeIndex(), m_kind, jitType, inlineKind);
+        ExitProfile::add(sourceProfiledCodeBlock, site);
+    }
 }
 
 } } // namespace JSC::DFG

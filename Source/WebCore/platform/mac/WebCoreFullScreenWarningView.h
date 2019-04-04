@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
 
 #ifndef WebCoreFullScreenWarningView_h
 #define WebCoreFullScreenWarningView_h
@@ -33,6 +33,7 @@
 #include <wtf/RetainPtr.h>
 
 WEBCORE_EXPORT @interface  WebCoreFullScreenWarningView : NSBox {
+@private
     RetainPtr<NSTextField> _textField;
 }
 - (id)initWithTitle:(NSString*)title;
@@ -42,4 +43,4 @@ WEBCORE_EXPORT @interface  WebCoreFullScreenWarningView : NSBox {
 
 #endif // WebCoreFullScreenWarningView_h
 
-#endif // !PLATFORM(IOS)
+#endif // !PLATFORM(IOS_FAMILY)

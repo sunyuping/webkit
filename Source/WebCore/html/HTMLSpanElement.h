@@ -23,21 +23,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLSpanElement_h
-#define HTMLSpanElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLSpanElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLSpanElement);
 public:
+    static Ref<HTMLSpanElement> create(Document&);
     static Ref<HTMLSpanElement> create(const QualifiedName&, Document&);
 
 private:
     HTMLSpanElement(const QualifiedName&, Document&);
 };
 
-}
-
-#endif
+} // namespace WebCore

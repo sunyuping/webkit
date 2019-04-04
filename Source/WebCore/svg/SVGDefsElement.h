@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,33 +19,30 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGDefsElement_h
-#define SVGDefsElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGGraphicsElement.h"
 
 namespace WebCore {
 
-class SVGDefsElement final : public SVGGraphicsElement,
-                             public SVGExternalResourcesRequired {
+class SVGDefsElement final : public SVGGraphicsElement, public SVGExternalResourcesRequired {
+    WTF_MAKE_ISO_ALLOCATED(SVGDefsElement);
 public:
     static Ref<SVGDefsElement> create(const QualifiedName&, Document&);
 
 private:
     SVGDefsElement(const QualifiedName&, Document&);
 
-    virtual bool isValid() const override;
-    virtual bool supportsFocus() const override { return false; }
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGDefsElement, SVGGraphicsElement, SVGExternalResourcesRequired>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    bool isValid() const final;
+    bool supportsFocus() const final { return false; }
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGDefsElement)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+
+    PropertyRegistry m_propertyRegistry { *this };
 };
 
 } // namespace WebCore
-
-#endif

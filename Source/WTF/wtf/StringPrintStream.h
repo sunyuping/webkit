@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef StringPrintStream_h
-#define StringPrintStream_h
+#pragma once
 
 #include <wtf/PrintStream.h>
 #include <wtf/text/CString.h>
@@ -37,12 +36,13 @@ public:
     WTF_EXPORT_PRIVATE StringPrintStream();
     WTF_EXPORT_PRIVATE virtual ~StringPrintStream();
     
-    WTF_EXPORT_PRIVATE virtual void vprintf(const char* format, va_list) override WTF_ATTRIBUTE_PRINTF(2, 0);
+    WTF_EXPORT_PRIVATE void vprintf(const char* format, va_list) override WTF_ATTRIBUTE_PRINTF(2, 0);
 
     size_t length() const { return m_next; }
     
     WTF_EXPORT_PRIVATE CString toCString();
     WTF_EXPORT_PRIVATE String toString();
+    WTF_EXPORT_PRIVATE String toStringWithLatin1Fallback();
     WTF_EXPORT_PRIVATE void reset();
     
 private:
@@ -77,6 +77,3 @@ String toString(const Types&... values)
 using WTF::StringPrintStream;
 using WTF::toCString;
 using WTF::toString;
-
-#endif // StringPrintStream_h
-

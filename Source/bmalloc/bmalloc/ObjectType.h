@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,33 +27,20 @@
 #define ObjectType_h
 
 #include "BAssert.h"
+#include "HeapKind.h"
 #include "Sizes.h"
 
 namespace bmalloc {
 
-enum ObjectType { Small, Medium, Large, XLarge };
+class Heap;
 
-ObjectType objectType(void*);
+enum class ObjectType : unsigned char { Small, Large };
 
-inline bool isSmallOrMedium(void* object)
+ObjectType objectType(Heap&, void*);
+
+inline bool mightBeLarge(void* object)
 {
-    return test(object, smallOrMediumTypeMask);
-}
-
-inline bool isSmall(void* smallOrMedium)
-{
-    BASSERT(isSmallOrMedium(smallOrMedium));
-    return test(smallOrMedium, smallOrMediumSmallTypeMask);
-}
-
-inline bool isMedium(void* smallOrMedium)
-{
-    return !isSmall(smallOrMedium);
-}
-
-inline bool isXLarge(void* object)
-{
-    return !test(object, superChunkSize - 1);
+    return !test(object, largeAlignmentMask);
 }
 
 } // namespace bmalloc

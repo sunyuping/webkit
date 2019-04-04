@@ -28,16 +28,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef LayoutUnit_h
-#define LayoutUnit_h
+#pragma once
 
-#include "ValueToString.h"
 #include <limits.h>
 #include <limits>
 #include <math.h>
 #include <stdlib.h>
 #include <wtf/MathExtras.h>
 #include <wtf/SaturatedArithmetic.h>
+#include <wtf/text/ValueToString.h>
+
+namespace WTF {
+class TextStream;
+}
 
 namespace WebCore {
 
@@ -82,11 +85,6 @@ public:
         m_value = clampToInteger(value * kFixedPointDenominator);
     }
 
-    static LayoutUnit fromPixel(int value)
-    {
-        return LayoutUnit(value);
-    }
-
     static LayoutUnit fromFloatCeil(float value)
     {
         LayoutUnit v;
@@ -114,10 +112,9 @@ public:
     unsigned toUnsigned() const { REPORT_OVERFLOW(m_value >= 0); return toInt(); }
 
     operator int() const { return toInt(); }
-    operator unsigned() const { return toUnsigned(); }
     operator float() const { return toFloat(); }
     operator double() const { return toDouble(); }
-    operator bool() const { return m_value; }
+    explicit operator bool() const { return m_value; }
 
     LayoutUnit& operator++()
     {
@@ -776,6 +773,8 @@ inline float& operator/=(float& a, const LayoutUnit& b)
     return a;
 }
 
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const LayoutUnit&);
+
 inline int roundToInt(LayoutUnit value)
 {
     return value.round();
@@ -822,14 +821,26 @@ inline bool isIntegerValue(const LayoutUnit value)
     return value.toInt() == value;
 }
 
-#ifndef NDEBUG
-// This structure is used by PODIntervalTree for debugging.
-template <>
-struct ValueToString<LayoutUnit> {
-    static String string(const LayoutUnit value) { return String::number(value.toFloat()); }
-};
-#endif
+inline namespace StringLiterals {
+
+inline LayoutUnit operator"" _lu(unsigned long long value)
+{
+    return LayoutUnit(value);
+}
+
+}
 
 } // namespace WebCore
 
-#endif // LayoutUnit_h
+#ifndef NDEBUG
+
+namespace WTF {
+
+// This structure is used by PODIntervalTree for debugging.
+template<> struct ValueToString<WebCore::LayoutUnit> {
+    static String string(WebCore::LayoutUnit value) { return String::numberToStringFixedPrecision(value.toFloat()); }
+};
+
+} // namespace WTF
+
+#endif

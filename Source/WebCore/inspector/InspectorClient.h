@@ -24,12 +24,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef InspectorClient_h
-#define InspectorClient_h
+#pragma once
 
 #include <wtf/Forward.h>
-#include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
 
 namespace Inspector {
 class FrontendChannel;
@@ -44,9 +41,10 @@ class Page;
 
 class InspectorClient {
 public:
-    virtual ~InspectorClient() { }
+    virtual ~InspectorClient() = default;
 
     virtual void inspectedPageDestroyed() = 0;
+    virtual void frontendCountChanged(unsigned) { }
 
     virtual Inspector::FrontendChannel* openLocalFrontend(InspectorController*) = 0;
     virtual void bringFrontendToFront() = 0;
@@ -62,12 +60,13 @@ public:
     virtual void setShowPaintRects(bool) { }
     virtual void showPaintRect(const FloatRect&) { }
     virtual void didSetSearchingForNode(bool) { }
+    virtual void elementSelectionChanged(bool) { }
 
-    virtual bool handleJavaScriptDialog(bool, const String*) { return false; }
+#if ENABLE(REMOTE_INSPECTOR)
+    virtual bool allowRemoteInspectionToPageDirectly() const { return false; }
+#endif
 
-    WEBCORE_EXPORT static bool doDispatchMessageOnFrontendPage(Page* frontendPage, const String& message);
+    WEBCORE_EXPORT static void doDispatchMessageOnFrontendPage(Page* frontendPage, const String& message);
 };
 
 } // namespace WebCore
-
-#endif // !defined(InspectorClient_h)

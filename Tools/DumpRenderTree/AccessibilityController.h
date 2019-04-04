@@ -35,7 +35,7 @@
 #if PLATFORM(WIN)
 #include <windows.h>
 #endif
-#if HAVE(ACCESSIBILITY) && (PLATFORM(GTK) || PLATFORM(EFL))
+#if HAVE(ACCESSIBILITY) && PLATFORM(GTK)
 #include "AccessibilityNotificationHandlerAtk.h"
 #include <atk/atk.h>
 #endif
@@ -76,7 +76,7 @@ public:
     void winNotificationReceived(PlatformUIElement, const std::string& eventName);
 #endif
 
-#if HAVE(ACCESSIBILITY) && (PLATFORM(GTK) || PLATFORM(EFL))
+#if HAVE(ACCESSIBILITY) && PLATFORM(GTK)
     AtkObject* childElementById(AtkObject* parent, const char* id);
 #endif
 
@@ -84,20 +84,20 @@ private:
     static JSClassRef getJSClass();
 
 #if PLATFORM(WIN)
-    HWINEVENTHOOK m_focusEventHook;
-    HWINEVENTHOOK m_valueChangeEventHook;
-    HWINEVENTHOOK m_scrollingStartEventHook;
+    HWINEVENTHOOK m_focusEventHook { nullptr };
+    HWINEVENTHOOK m_valueChangeEventHook { nullptr };
+    HWINEVENTHOOK m_scrollingStartEventHook { nullptr };
 
-    HWINEVENTHOOK m_allEventsHook;
-    HWINEVENTHOOK m_notificationsEventHook;
+    HWINEVENTHOOK m_allEventsHook { nullptr };
+    HWINEVENTHOOK m_notificationsEventHook { nullptr };
     HashMap<PlatformUIElement, JSObjectRef> m_notificationListeners;
 #endif
 
-#if PLATFORM(COCOA) || PLATFORM(IOS)
+#if PLATFORM(COCOA) || PLATFORM(IOS_FAMILY)
     RetainPtr<NotificationHandler> m_globalNotificationHandler;
 #endif
 
-#if HAVE(ACCESSIBILITY) && (PLATFORM(GTK) || PLATFORM(EFL))
+#if HAVE(ACCESSIBILITY) && PLATFORM(GTK)
     RefPtr<AccessibilityNotificationHandler> m_globalNotificationHandler;
 #endif
     

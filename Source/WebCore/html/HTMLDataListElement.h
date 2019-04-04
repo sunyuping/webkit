@@ -29,16 +29,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLDataListElement_h
-#define HTMLDataListElement_h
+#pragma once
 
 #if ENABLE(DATALIST_ELEMENT)
+
 #include "HTMLCollection.h"
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLDataListElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLDataListElement);
 public:
     static Ref<HTMLDataListElement> create(const QualifiedName&, Document&);
 
@@ -51,6 +52,5 @@ private:
 };
 
 } // namespace WebCore
-#endif // ENABLE(DATALIST_ELEMENT)
 
-#endif // HTMLDataListElement_h
+#endif // ENABLE(DATALIST_ELEMENT)

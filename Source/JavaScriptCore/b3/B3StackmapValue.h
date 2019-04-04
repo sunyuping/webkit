@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef B3StackmapValue_h
-#define B3StackmapValue_h
+#pragma once
 
 #if ENABLE(B3_JIT)
 
@@ -44,10 +43,10 @@ typedef SharedTask<StackmapGeneratorFunction> StackmapGenerator;
 
 class JS_EXPORT_PRIVATE StackmapValue : public Value {
 public:
-    static bool accepts(Opcode opcode)
+    static bool accepts(Kind kind)
     {
         // This needs to include opcodes of all subclasses.
-        switch (opcode) {
+        switch (kind.opcode()) {
         case CheckAdd:
         case CheckSub:
         case CheckMul:
@@ -100,7 +99,8 @@ public:
     // This is a helper for something you might do a lot of: append a value that should be constrained
     // to SomeRegister.
     void appendSomeRegister(Value*);
-
+    void appendSomeRegisterWithClobber(Value*);
+    
     const Vector<ValueRep>& reps() const { return m_reps; }
 
     // Stackmaps allow you to specify that the operation may clobber some registers. Clobbering a register
@@ -289,7 +289,7 @@ protected:
     void dumpChildren(CommaPrinter&, PrintStream&) const override;
     void dumpMeta(CommaPrinter&, PrintStream&) const override;
 
-    StackmapValue(CheckedOpcodeTag, Opcode, Type, Origin);
+    StackmapValue(CheckedOpcodeTag, Kind, Type, Origin);
 
 private:
     friend class CheckSpecial;
@@ -307,6 +307,3 @@ private:
 } } // namespace JSC::B3
 
 #endif // ENABLE(B3_JIT)
-
-#endif // B3StackmapValue_h
-

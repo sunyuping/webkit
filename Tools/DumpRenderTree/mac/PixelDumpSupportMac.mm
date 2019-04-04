@@ -49,28 +49,9 @@
 + (void)synchronize;
 @end
 
-static PassRefPtr<BitmapContext> createBitmapContext(size_t pixelsWide, size_t pixelsHigh, size_t& rowBytes, void*& buffer)
-{
-    rowBytes = (4 * pixelsWide + 63) & ~63; // Use a multiple of 64 bytes to improve CG performance
-
-    buffer = calloc(pixelsHigh, rowBytes);
-    if (!buffer) {
-        WTFLogAlways("DumpRenderTree: calloc(%llu, %llu) failed\n", pixelsHigh, rowBytes);
-        return nullptr;
-    }
-    
-    // Creating this bitmap in the device color space prevents any color conversion when the image of the web view is drawn into it.
-    RetainPtr<CGColorSpaceRef> colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
-    CGContextRef context = CGBitmapContextCreate(buffer, pixelsWide, pixelsHigh, 8, rowBytes, colorSpace.get(), kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host); // Use ARGB8 on PPC or BGRA8 on X86 to improve CG performance
-    if (!context) {
-        WTFLogAlways("DumpRenderTree: CGBitmapContextCreate(%p, %llu, %llu, 8, %llu, %p, 0x%x) failed\n", buffer, pixelsHigh, pixelsWide, rowBytes, colorSpace.get(), kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host);
-        free(buffer);
-        buffer = nullptr;
-        return nullptr;
-    }
-
-    return BitmapContext::createByAdoptingBitmapAndContext(buffer, context);
-}
+@interface WebView ()
+- (BOOL)_flushCompositingChanges;
+@end
 
 static void paintRepaintRectOverlay(WebView* webView, CGContextRef context)
 {
@@ -101,7 +82,7 @@ static void paintRepaintRectOverlay(WebView* webView, CGContextRef context)
     CGContextRestoreGState(context);
 }
 
-PassRefPtr<BitmapContext> createBitmapContextFromWebView(bool onscreen, bool incrementalRepaint, bool sweepHorizontally, bool drawSelectionRect)
+RefPtr<BitmapContext> createBitmapContextFromWebView(bool onscreen, bool incrementalRepaint, bool sweepHorizontally, bool drawSelectionRect)
 {
     WebView* view = [mainFrame webView];
 
@@ -110,17 +91,13 @@ PassRefPtr<BitmapContext> createBitmapContextFromWebView(bool onscreen, bool inc
     if ([view _isUsingAcceleratedCompositing])
         onscreen = YES;
 
-    // If the window is layer-backed, its backing store will be empty, so we have to use a window server snapshot.
-    if ([view.window.contentView layer])
-        onscreen = YES;
-
     float deviceScaleFactor = [view _backingScaleFactor];
     NSSize webViewSize = [view frame].size;
     size_t pixelsWide = static_cast<size_t>(webViewSize.width * deviceScaleFactor);
     size_t pixelsHigh = static_cast<size_t>(webViewSize.height * deviceScaleFactor);
     size_t rowBytes = 0;
     void* buffer = nullptr;
-    RefPtr<BitmapContext> bitmapContext = createBitmapContext(pixelsWide, pixelsHigh, rowBytes, buffer);
+    auto bitmapContext = createBitmapContext(pixelsWide, pixelsHigh, rowBytes, buffer);
     if (!bitmapContext)
         return nullptr;
     CGContextRef context = bitmapContext->cgContext();
@@ -145,6 +122,7 @@ PassRefPtr<BitmapContext> createBitmapContextFromWebView(bool onscreen, bool inc
             // FIXME: This will break repaint testing if we have compositing in repaint tests.
             // (displayWebView() painted gray over the webview, but we'll be making everything repaint again).
             [view display];
+            [view _flushCompositingChanges];
             [CATransaction flush];
             [CATransaction synchronize];
 
@@ -156,30 +134,12 @@ PassRefPtr<BitmapContext> createBitmapContextFromWebView(bool onscreen, bool inc
 
             if ([view isTrackingRepaints])
                 paintRepaintRectOverlay(view, context);
-        } else if (deviceScaleFactor != 1) {
+        } else {
             // Call displayRectIgnoringOpacity for HiDPI tests since it ensures we paint directly into the context
             // that we have appropriately sized and scaled.
             [view displayRectIgnoringOpacity:[view bounds] inContext:nsContext];
             if ([view isTrackingRepaints])
                 paintRepaintRectOverlay(view, context);
-        } else {
-            // Make sure the view has been painted.
-            [view displayIfNeeded];
-
-            // Grab directly the contents of the window backing buffer (this ignores any surfaces on the window)
-            // FIXME: This path is suboptimal: data is read from window backing store, converted to RGB8 then drawn again into an RGBA8 bitmap
-            [view lockFocus];
-            NSBitmapImageRep *imageRep = [[[NSBitmapImageRep alloc] initWithFocusedViewRect:[view frame]] autorelease];
-            [view unlockFocus];
-
-            RetainPtr<NSGraphicsContext> savedContext = [NSGraphicsContext currentContext];
-            [NSGraphicsContext setCurrentContext:nsContext];
-            [imageRep draw];
-            
-            if ([view isTrackingRepaints])
-                paintRepaintRectOverlay(view, context);
-            
-            [NSGraphicsContext setCurrentContext:savedContext.get()];
         }
     }
 
@@ -194,18 +154,23 @@ PassRefPtr<BitmapContext> createBitmapContextFromWebView(bool onscreen, bool inc
         CGContextRestoreGState(context);
     }
     
-    return bitmapContext.release();
+    return bitmapContext;
 }
 
-PassRefPtr<BitmapContext> createPagedBitmapContext()
+RefPtr<BitmapContext> createPagedBitmapContext()
 {
     int pageWidthInPixels = TestRunner::viewWidth;
     int pageHeightInPixels = TestRunner::viewHeight;
     int numberOfPages = [mainFrame numberOfPagesWithPageWidth:pageWidthInPixels pageHeight:pageHeightInPixels];
     size_t rowBytes = 0;
-    void* buffer = 0;
+    void* buffer = nullptr;
 
-    RefPtr<BitmapContext> bitmapContext = createBitmapContext(pageWidthInPixels, numberOfPages * (pageHeightInPixels + 1) - 1, rowBytes, buffer);
-    [mainFrame printToCGContext:bitmapContext->cgContext() pageWidth:pageWidthInPixels pageHeight:pageHeightInPixels];
-    return bitmapContext.release();
+    int totalHeight = numberOfPages * (pageHeightInPixels + 1) - 1;
+
+    auto bitmapContext = createBitmapContext(pageWidthInPixels, totalHeight, rowBytes, buffer);
+    CGContextRef context = bitmapContext->cgContext();
+    CGContextTranslateCTM(context, 0, totalHeight);
+    CGContextScaleCTM(context, 1, -1);
+    [mainFrame printToCGContext:context pageWidth:pageWidthInPixels pageHeight:pageHeightInPixels];
+    return bitmapContext;
 }

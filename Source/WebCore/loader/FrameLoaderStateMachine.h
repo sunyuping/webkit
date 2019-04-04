@@ -26,10 +26,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef FrameLoaderStateMachine_h
-#define FrameLoaderStateMachine_h
+#pragma once
 
-#include "PlatformExportMacros.h"
 #include <wtf/Noncopyable.h>
 
 namespace WebCore {
@@ -55,7 +53,7 @@ public:
     WEBCORE_EXPORT bool committingFirstRealLoad() const;
     bool committedFirstRealDocumentLoad() const;
     bool creatingInitialEmptyDocument() const;
-    bool isDisplayingInitialEmptyDocument() const;
+    WEBCORE_EXPORT bool isDisplayingInitialEmptyDocument() const;
     WEBCORE_EXPORT bool firstLayoutDone() const;
     void advanceTo(State);
 
@@ -64,5 +62,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // FrameLoaderStateMachine_h

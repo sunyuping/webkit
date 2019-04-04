@@ -24,18 +24,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef WebGLUniformLocation_h
-#define WebGLUniformLocation_h
+#pragma once
 
 #include "WebGLProgram.h"
-
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
 class WebGLUniformLocation final : public RefCounted<WebGLUniformLocation> {
 public:
-    ~WebGLUniformLocation() { }
+    ~WebGLUniformLocation() = default;
 
     static Ref<WebGLUniformLocation> create(WebGLProgram*, GC3Dint location, GC3Denum type);
 
@@ -56,5 +54,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // WebGLUniformLocation_h

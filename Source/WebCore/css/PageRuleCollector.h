@@ -19,13 +19,11 @@
  *
  */
 
-#ifndef PageRuleCollector_h
-#define PageRuleCollector_h
+#pragma once
 
 #include "DocumentRuleSets.h"
 #include "StyleResolver.h"
-#include <wtf/RefPtr.h>
-#include <wtf/Vector.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
@@ -56,5 +54,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // PageRuleCollector_h

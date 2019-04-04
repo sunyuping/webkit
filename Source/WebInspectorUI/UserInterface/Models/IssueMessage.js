@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,69 +23,42 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.IssueMessage = class IssueMessage extends WebInspector.Object
+WI.IssueMessage = class IssueMessage extends WI.Object
 {
-    constructor(source, level, text, url, lineNumber, columnNumber, parameters)
+    constructor(consoleMessage)
     {
         super();
 
-        this._level = level;
-        this._text = text;
-        this._source = source;
+        console.assert(consoleMessage instanceof WI.ConsoleMessage);
 
-        // FIXME <http://webkit.org/b/76404>: Remove the string equality checks for undefined
-        // once we don't get that value anymore from WebCore.
+        this._consoleMessage = consoleMessage;
 
-        // FIXME: If the URL is undefined, get the URL from the stacktrace.
-        if (url && url !== "undefined")
-            this._url = url;
+        this._text = this._issueText();
 
-        if (typeof lineNumber === "number" && lineNumber >= 0 && this._url)
-            this._sourceCodeLocation = new WebInspector.SourceCodeLocation(WebInspector.frameResourceManager.resourceForURL(url), lineNumber, columnNumber);
-
-        // FIXME: <https://webkit.org/b/142553> Web Inspector: Merge IssueMessage/ConsoleMessage - both attempt to modify the Console Messages parameter independently
-
-        if (parameters && parameters !== "undefined") {
-            this._parameters = [];
-            for (var i = 0; i < parameters.length; ++i) {
-                if (parameters[i] instanceof WebInspector.RemoteObject) {
-                    this._parameters.push(parameters[i]);
-                    continue;
-                }
-
-                if (typeof parameters[i] === "object")
-                    this._parameters.push(WebInspector.RemoteObject.fromPayload(parameters[i]));
-                else
-                    this._parameters.push(WebInspector.RemoteObject.fromPrimitiveValue(parameters[i]));
-            }
-        }
-
-        this._formatTextIfNecessary();
-
-        switch (source) {
+        switch (this._consoleMessage.source) {
         case "javascript":
             // FIXME: It would be nice if we had this information (the specific type of JavaScript error)
             // as part of the data passed from WebCore, instead of having to determine it ourselves.
             var prefixRegex = /^([^:]+): (?:DOM Exception \d+: )?/;
             var match = prefixRegex.exec(this._text);
-            if (match && match[1] in WebInspector.IssueMessage.Type._prefixTypeMap) {
-                this._type = WebInspector.IssueMessage.Type._prefixTypeMap[match[1]];
+            if (match && match[1] in WI.IssueMessage.Type._prefixTypeMap) {
+                this._type = WI.IssueMessage.Type._prefixTypeMap[match[1]];
                 this._text = this._text.substring(match[0].length);
             } else
-                this._type = WebInspector.IssueMessage.Type.OtherIssue;
+                this._type = WI.IssueMessage.Type.OtherIssue;
             break;
 
         case "css":
         case "xml":
-            this._type = WebInspector.IssueMessage.Type.PageIssue;
+            this._type = WI.IssueMessage.Type.PageIssue;
             break;
 
         case "network":
-            this._type = WebInspector.IssueMessage.Type.NetworkIssue;
+            this._type = WI.IssueMessage.Type.NetworkIssue;
             break;
 
         case "security":
-            this._type = WebInspector.IssueMessage.Type.SecurityIssue;
+            this._type = WI.IssueMessage.Type.SecurityIssue;
             break;
 
         case "console-api":
@@ -93,124 +66,84 @@ WebInspector.IssueMessage = class IssueMessage extends WebInspector.Object
         case "appcache":
         case "rendering":
         case "other":
-            this._type = WebInspector.IssueMessage.Type.OtherIssue;
+        case "media":
+        case "mediasource":
+        case "webrtc":
+            this._type = WI.IssueMessage.Type.OtherIssue;
             break;
 
         default:
-            console.error("Unknown issue source:", source);
-            this._type = WebInspector.IssueMessage.Type.OtherIssue;
+            console.error("Unknown issue source:", this._consoleMessage.source);
+            this._type = WI.IssueMessage.Type.OtherIssue;
         }
 
+        this._sourceCodeLocation = consoleMessage.sourceCodeLocation;
         if (this._sourceCodeLocation)
-            this._sourceCodeLocation.addEventListener(WebInspector.SourceCodeLocation.Event.DisplayLocationChanged, this._sourceCodeLocationDisplayLocationChanged, this);
+            this._sourceCodeLocation.addEventListener(WI.SourceCodeLocation.Event.DisplayLocationChanged, this._sourceCodeLocationDisplayLocationChanged, this);
     }
 
     // Static
 
     static displayName(type)
     {
-        switch(type) {
-        case WebInspector.IssueMessage.Type.SemanticIssue:
-            return WebInspector.UIString("Semantic Issue");
-        case WebInspector.IssueMessage.Type.RangeIssue:
-            return WebInspector.UIString("Range Issue");
-        case WebInspector.IssueMessage.Type.ReferenceIssue:
-            return WebInspector.UIString("Reference Issue");
-        case WebInspector.IssueMessage.Type.TypeIssue:
-            return WebInspector.UIString("Type Issue");
-        case WebInspector.IssueMessage.Type.PageIssue:
-            return WebInspector.UIString("Page Issue");
-        case WebInspector.IssueMessage.Type.NetworkIssue:
-            return WebInspector.UIString("Network Issue");
-        case WebInspector.IssueMessage.Type.SecurityIssue:
-            return WebInspector.UIString("Security Issue");
-        case WebInspector.IssueMessage.Type.OtherIssue:
-            return WebInspector.UIString("Other Issue");
+        switch (type) {
+        case WI.IssueMessage.Type.SemanticIssue:
+            return WI.UIString("Semantic Issue");
+        case WI.IssueMessage.Type.RangeIssue:
+            return WI.UIString("Range Issue");
+        case WI.IssueMessage.Type.ReferenceIssue:
+            return WI.UIString("Reference Issue");
+        case WI.IssueMessage.Type.TypeIssue:
+            return WI.UIString("Type Issue");
+        case WI.IssueMessage.Type.PageIssue:
+            return WI.UIString("Page Issue");
+        case WI.IssueMessage.Type.NetworkIssue:
+            return WI.UIString("Network Issue");
+        case WI.IssueMessage.Type.SecurityIssue:
+            return WI.UIString("Security Issue");
+        case WI.IssueMessage.Type.OtherIssue:
+            return WI.UIString("Other Issue");
         default:
             console.error("Unknown issue message type:", type);
-            return WebInspector.UIString("Other Issue");
+            return WI.UIString("Other Issue");
         }
     }
 
     // Public
 
-    get type()
-    {
-        return this._type;
-    }
+    get text() { return this._text; }
+    get type() { return this._type; }
+    get level() { return this._consoleMessage.level; }
+    get source() { return this._consoleMessage.source; }
+    get url() { return this._consoleMessage.url; }
+    get sourceCodeLocation() { return this._sourceCodeLocation; }
 
-    get level()
-    {
-        return this._level;
-    }
-
-    get text()
-    {
-        return this._text;
-    }
-
-    get source()
-    {
-        return this._source;
-    }
-
-    get url()
-    {
-        return this._url;
-    }
-
-    get lineNumber()
-    {
-        if (this._sourceCodeLocation)
-            return this._sourceCodeLocation.lineNumber;
-    }
-
-    get columnNumber()
-    {
-        if (this._sourceCodeLocation)
-            return this._sourceCodeLocation.columnNumber;
-    }
-
-    get displayLineNumber()
-    {
-        if (this._sourceCodeLocation)
-            return this._sourceCodeLocation.displayLineNumber;
-    }
-
-    get displayColumnNumber()
-    {
-        if (this._sourceCodeLocation)
-            return this._sourceCodeLocation.displayColumnNumber;
-    }
-
-    get sourceCodeLocation()
-    {
-        return this._sourceCodeLocation;
-    }
+    // Protected
 
     saveIdentityToCookie(cookie)
     {
-        cookie[WebInspector.IssueMessage.URLCookieKey] = this.url;
-        cookie[WebInspector.IssueMessage.LineNumberCookieKey] = this.sourceCodeLocation.lineNumber;
-        cookie[WebInspector.IssueMessage.ColumnNumberCookieKey] = this.sourceCodeLocation.columnNumber;
+        cookie[WI.IssueMessage.URLCookieKey] = this.url;
+        cookie[WI.IssueMessage.LineNumberCookieKey] = this._sourceCodeLocation ? this._sourceCodeLocation.lineNumber : 0;
+        cookie[WI.IssueMessage.ColumnNumberCookieKey] = this._sourceCodeLocation ? this._sourceCodeLocation.columnNumber : 0;
     }
 
     // Private
 
-    _formatTextIfNecessary()
+    _issueText()
     {
-        if (!this._parameters)
-            return;
+        let parameters = this._consoleMessage.parameters;
+        if (!parameters)
+            return this._consoleMessage.messageText;
 
-        if (WebInspector.RemoteObject.type(this._parameters[0]) !== "string")
-            return;
+        if (parameters[0].type !== "string")
+            return this._consoleMessage.messageText;
 
         function valueFormatter(obj)
         {
             return obj.description;
         }
 
-        var formatters = {};
+        let formatters = {};
         formatters.o = valueFormatter;
         formatters.s = valueFormatter;
         formatters.f = valueFormatter;
@@ -223,27 +156,27 @@ WebInspector.IssueMessage = class IssueMessage extends WebInspector.Object
             return a;
         }
 
-        var result = String.format(this._parameters[0].description, this._parameters.slice(1), formatters, "", append);
-        var resultText = result.formattedResult;
+        let result = String.format(parameters[0].description, parameters.slice(1), formatters, "", append);
+        let resultText = result.formattedResult;
 
-        for (var i = 0; i < result.unusedSubstitutions.length; ++i)
+        for (let i = 0; i < result.unusedSubstitutions.length; ++i)
             resultText += " " + result.unusedSubstitutions[i].description;
 
-        this._text = resultText;
+        return resultText;
     }
 
     _sourceCodeLocationDisplayLocationChanged(event)
     {
-        this.dispatchEventToListeners(WebInspector.IssueMessage.Event.DisplayLocationDidChange, event.data);
+        this.dispatchEventToListeners(WI.IssueMessage.Event.DisplayLocationDidChange, event.data);
     }
 };
 
-WebInspector.IssueMessage.Level = {
+WI.IssueMessage.Level = {
     Error: "error",
     Warning: "warning"
 };
 
-WebInspector.IssueMessage.Type = {
+WI.IssueMessage.Type = {
     SemanticIssue: "issue-message-type-semantic-issue",
     RangeIssue: "issue-message-type-range-issue",
     ReferenceIssue: "issue-message-type-reference-issue",
@@ -254,52 +187,52 @@ WebInspector.IssueMessage.Type = {
     OtherIssue: "issue-message-type-other-issue"
 };
 
-WebInspector.IssueMessage.TypeIdentifier = "issue-message";
-WebInspector.IssueMessage.URLCookieKey = "issue-message-url";
-WebInspector.IssueMessage.LineNumberCookieKey = "issue-message-line-number";
-WebInspector.IssueMessage.ColumnNumberCookieKey = "issue-message-column-number";
+WI.IssueMessage.TypeIdentifier = "issue-message";
+WI.IssueMessage.URLCookieKey = "issue-message-url";
+WI.IssueMessage.LineNumberCookieKey = "issue-message-line-number";
+WI.IssueMessage.ColumnNumberCookieKey = "issue-message-column-number";
 
-WebInspector.IssueMessage.Event = {
+WI.IssueMessage.Event = {
     LocationDidChange: "issue-message-location-did-change",
     DisplayLocationDidChange: "issue-message-display-location-did-change"
 };
 
-WebInspector.IssueMessage.Type._prefixTypeMap = {
-    "SyntaxError": WebInspector.IssueMessage.Type.SemanticIssue,
-    "URIError": WebInspector.IssueMessage.Type.SemanticIssue,
-    "EvalError": WebInspector.IssueMessage.Type.SemanticIssue,
-    "INVALID_CHARACTER_ERR": WebInspector.IssueMessage.Type.SemanticIssue,
-    "SYNTAX_ERR": WebInspector.IssueMessage.Type.SemanticIssue,
+WI.IssueMessage.Type._prefixTypeMap = {
+    "SyntaxError": WI.IssueMessage.Type.SemanticIssue,
+    "URIError": WI.IssueMessage.Type.SemanticIssue,
+    "EvalError": WI.IssueMessage.Type.SemanticIssue,
+    "INVALID_CHARACTER_ERR": WI.IssueMessage.Type.SemanticIssue,
+    "SYNTAX_ERR": WI.IssueMessage.Type.SemanticIssue,
 
-    "RangeError": WebInspector.IssueMessage.Type.RangeIssue,
-    "INDEX_SIZE_ERR": WebInspector.IssueMessage.Type.RangeIssue,
-    "DOMSTRING_SIZE_ERR": WebInspector.IssueMessage.Type.RangeIssue,
+    "RangeError": WI.IssueMessage.Type.RangeIssue,
+    "INDEX_SIZE_ERR": WI.IssueMessage.Type.RangeIssue,
+    "DOMSTRING_SIZE_ERR": WI.IssueMessage.Type.RangeIssue,
 
-    "ReferenceError": WebInspector.IssueMessage.Type.ReferenceIssue,
-    "HIERARCHY_REQUEST_ERR": WebInspector.IssueMessage.Type.ReferenceIssue,
-    "INVALID_STATE_ERR": WebInspector.IssueMessage.Type.ReferenceIssue,
-    "NOT_FOUND_ERR": WebInspector.IssueMessage.Type.ReferenceIssue,
-    "WRONG_DOCUMENT_ERR": WebInspector.IssueMessage.Type.ReferenceIssue,
+    "ReferenceError": WI.IssueMessage.Type.ReferenceIssue,
+    "HIERARCHY_REQUEST_ERR": WI.IssueMessage.Type.ReferenceIssue,
+    "INVALID_STATE_ERR": WI.IssueMessage.Type.ReferenceIssue,
+    "NOT_FOUND_ERR": WI.IssueMessage.Type.ReferenceIssue,
+    "WRONG_DOCUMENT_ERR": WI.IssueMessage.Type.ReferenceIssue,
 
-    "TypeError": WebInspector.IssueMessage.Type.TypeIssue,
-    "INVALID_NODE_TYPE_ERR": WebInspector.IssueMessage.Type.TypeIssue,
-    "TYPE_MISMATCH_ERR": WebInspector.IssueMessage.Type.TypeIssue,
+    "TypeError": WI.IssueMessage.Type.TypeIssue,
+    "INVALID_NODE_TYPE_ERR": WI.IssueMessage.Type.TypeIssue,
+    "TYPE_MISMATCH_ERR": WI.IssueMessage.Type.TypeIssue,
 
-    "SECURITY_ERR": WebInspector.IssueMessage.Type.SecurityIssue,
+    "SECURITY_ERR": WI.IssueMessage.Type.SecurityIssue,
 
-    "NETWORK_ERR": WebInspector.IssueMessage.Type.NetworkIssue,
+    "NETWORK_ERR": WI.IssueMessage.Type.NetworkIssue,
 
-    "ABORT_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "DATA_CLONE_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "INUSE_ATTRIBUTE_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "INVALID_ACCESS_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "INVALID_MODIFICATION_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "NAMESPACE_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "NOT_SUPPORTED_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "NO_DATA_ALLOWED_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "NO_MODIFICATION_ALLOWED_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "QUOTA_EXCEEDED_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "TIMEOUT_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "URL_MISMATCH_ERR": WebInspector.IssueMessage.Type.OtherIssue,
-    "VALIDATION_ERR": WebInspector.IssueMessage.Type.OtherIssue
+    "ABORT_ERR": WI.IssueMessage.Type.OtherIssue,
+    "DATA_CLONE_ERR": WI.IssueMessage.Type.OtherIssue,
+    "INUSE_ATTRIBUTE_ERR": WI.IssueMessage.Type.OtherIssue,
+    "INVALID_ACCESS_ERR": WI.IssueMessage.Type.OtherIssue,
+    "INVALID_MODIFICATION_ERR": WI.IssueMessage.Type.OtherIssue,
+    "NAMESPACE_ERR": WI.IssueMessage.Type.OtherIssue,
+    "NOT_SUPPORTED_ERR": WI.IssueMessage.Type.OtherIssue,
+    "NO_DATA_ALLOWED_ERR": WI.IssueMessage.Type.OtherIssue,
+    "NO_MODIFICATION_ALLOWED_ERR": WI.IssueMessage.Type.OtherIssue,
+    "QUOTA_EXCEEDED_ERR": WI.IssueMessage.Type.OtherIssue,
+    "TIMEOUT_ERR": WI.IssueMessage.Type.OtherIssue,
+    "URL_MISMATCH_ERR": WI.IssueMessage.Type.OtherIssue,
+    "VALIDATION_ERR": WI.IssueMessage.Type.OtherIssue
 };

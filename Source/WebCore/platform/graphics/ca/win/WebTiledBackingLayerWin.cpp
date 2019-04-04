@@ -26,6 +26,8 @@
 #include "config.h"
 #include "WebTiledBackingLayerWin.h"
 
+#if USE(CA)
+
 #include "GraphicsContext.h"
 #include "PlatformCALayer.h"
 #include "TileController.h"
@@ -33,7 +35,6 @@
 #include <QuartzCore/CACFLayer.h>
 #include <wtf/MainThread.h>
 
-using namespace std;
 using namespace WebCore;
 
 WebTiledBackingLayerWin::WebTiledBackingLayerWin(PlatformCALayer* owner)
@@ -41,9 +42,7 @@ WebTiledBackingLayerWin::WebTiledBackingLayerWin(PlatformCALayer* owner)
 {
 }
 
-WebTiledBackingLayerWin::~WebTiledBackingLayerWin()
-{
-}
+WebTiledBackingLayerWin::~WebTiledBackingLayerWin() = default;
 
 struct DisplayOnMainThreadContext {
     RetainPtr<CACFLayerRef> layer;
@@ -93,7 +92,7 @@ void WebTiledBackingLayerWin::displayCallback(CACFLayerRef caLayer, CGContextRef
     // smaller than the layer bounds (e.g. tiled layers)
     CGRect clipBounds = CGContextGetClipBoundingBox(context);
     IntRect clip(enclosingIntRect(clipBounds));
-    client->platformCALayerPaintContents(owner(), graphicsContext, clip);
+    client->platformCALayerPaintContents(owner(), graphicsContext, clip, GraphicsLayerPaintNormal);
 
     if (client->platformCALayerShowRepaintCounter(owner())) {
         int drawCount = client->platformCALayerIncrementRepaintCount(owner());
@@ -180,3 +179,5 @@ void WebTiledBackingLayerWin::invalidate()
     ASSERT(m_tileController);
     m_tileController = nullptr;
 }
+
+#endif

@@ -31,9 +31,12 @@
 #include "config.h"
 #include "Blob.h"
 
+#include "BlobBuilder.h"
+#include "BlobPart.h"
 #include "BlobURL.h"
 #include "File.h"
 #include "ScriptExecutionContext.h"
+#include "SharedBuffer.h"
 #include "ThreadableBlobRegistry.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/CString.h>
@@ -42,17 +45,17 @@ namespace WebCore {
 
 class BlobURLRegistry final : public URLRegistry {
 public:
-    virtual void registerURL(SecurityOrigin*, const URL&, URLRegistrable*) override;
-    virtual void unregisterURL(const URL&) override;
+    void registerURL(SecurityOrigin*, const URL&, URLRegistrable&) override;
+    void unregisterURL(const URL&) override;
 
     static URLRegistry& registry();
 };
 
 
-void BlobURLRegistry::registerURL(SecurityOrigin* origin, const URL& publicURL, URLRegistrable* blob)
+void BlobURLRegistry::registerURL(SecurityOrigin* origin, const URL& publicURL, URLRegistrable& blob)
 {
-    ASSERT(&blob->registry() == this);
-    ThreadableBlobRegistry::registerBlobURL(origin, publicURL, static_cast<Blob*>(blob)->url());
+    ASSERT(&blob.registry() == this);
+    ThreadableBlobRegistry::registerBlobURL(origin, publicURL, static_cast<Blob&>(blob).url());
 }
 
 void BlobURLRegistry::unregisterURL(const URL& url)
@@ -74,10 +77,40 @@ Blob::Blob()
     : m_size(0)
 {
     m_internalURL = BlobURL::createInternalURL();
-    ThreadableBlobRegistry::registerBlobURL(m_internalURL, Vector<BlobPart>(), String());
+    ThreadableBlobRegistry::registerBlobURL(m_internalURL, { },  { });
 }
 
-Blob::Blob(Vector<char> data, const String& contentType)
+Blob::Blob(Vector<BlobPartVariant>&& blobPartVariants, const BlobPropertyBag& propertyBag)
+    : m_internalURL(BlobURL::createInternalURL())
+    , m_type(normalizedContentType(propertyBag.type))
+    , m_size(-1)
+{
+    BlobBuilder builder(propertyBag.endings);
+    for (auto& blobPartVariant : blobPartVariants) {
+        WTF::switchOn(blobPartVariant,
+            [&] (auto& part) {
+                builder.append(WTFMove(part));
+            }
+        );
+    }
+
+    ThreadableBlobRegistry::registerBlobURL(m_internalURL, builder.finalize(), m_type);
+}
+
+Blob::Blob(const SharedBuffer& buffer, const String& contentType)
+    : m_type(contentType)
+    , m_size(buffer.size())
+{
+    Vector<uint8_t> data;
+    data.append(buffer.data(), buffer.size());
+
+    Vector<BlobPart> blobParts;
+    blobParts.append(BlobPart(WTFMove(data)));
+    m_internalURL = BlobURL::createInternalURL();
+    ThreadableBlobRegistry::registerBlobURL(m_internalURL, WTFMove(blobParts), contentType);
+}
+
+Blob::Blob(Vector<uint8_t>&& data, const String& contentType)
     : m_type(contentType)
     , m_size(data.size())
 {
@@ -87,20 +120,23 @@ Blob::Blob(Vector<char> data, const String& contentType)
     ThreadableBlobRegistry::registerBlobURL(m_internalURL, WTFMove(blobParts), contentType);
 }
 
-Blob::Blob(Vector<BlobPart> blobParts, const String& contentType)
-    : m_type(contentType)
-    , m_size(-1)
+Blob::Blob(ReferencingExistingBlobConstructor, const Blob& blob)
+    : m_internalURL(BlobURL::createInternalURL())
+    , m_type(blob.type())
+    , m_size(blob.size())
 {
-    m_internalURL = BlobURL::createInternalURL();
-    ThreadableBlobRegistry::registerBlobURL(m_internalURL, WTFMove(blobParts), contentType);
+    ThreadableBlobRegistry::registerBlobURL(m_internalURL, { BlobPart(blob.url()) } , m_type);
 }
 
-Blob::Blob(DeserializationContructor, const URL& srcURL, const String& type, long long size)
+Blob::Blob(DeserializationContructor, const URL& srcURL, const String& type, long long size, const String& fileBackedPath)
     : m_type(normalizedContentType(type))
     , m_size(size)
 {
     m_internalURL = BlobURL::createInternalURL();
-    ThreadableBlobRegistry::registerBlobURL(nullptr, m_internalURL, srcURL);
+    if (fileBackedPath.isEmpty())
+        ThreadableBlobRegistry::registerBlobURL(nullptr, m_internalURL, srcURL);
+    else
+        ThreadableBlobRegistry::registerBlobURLOptionallyFileBacked(m_internalURL, srcURL, fileBackedPath, m_type);
 }
 
 Blob::Blob(const URL& srcURL, long long start, long long end, const String& type)

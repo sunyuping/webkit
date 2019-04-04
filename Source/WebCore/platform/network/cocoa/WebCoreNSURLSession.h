@@ -23,13 +23,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef WebCoreNSURLSession_h
-#define WebCoreNSURLSession_h
+#pragma once
 
-#if PLATFORM(IOS) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
-
+#import "SecurityOrigin.h"
 #import <Foundation/NSURLSession.h>
 #import <wtf/HashSet.h>
+#import <wtf/Lock.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RefPtr.h>
 #import <wtf/RetainPtr.h>
@@ -48,25 +47,37 @@ class PlatformMediaResourceLoader;
 class WebCoreNSURLSessionDataTaskClient;
 }
 
+enum class WebCoreNSURLSessionCORSAccessCheckResults {
+    Unknown,
+    Pass,
+    Fail,
+};
+
 NS_ASSUME_NONNULL_BEGIN
 
 WEBCORE_EXPORT @interface WebCoreNSURLSession : NSObject {
+@private
     RefPtr<WebCore::PlatformMediaResourceLoader> _loader;
     RetainPtr<id<NSURLSessionDelegate>> _delegate;
     RetainPtr<NSOperationQueue> _queue;
-    NSString *_sessionDescription;
-    HashSet<RetainPtr<WebCoreNSURLSessionDataTask>> _dataTasks;
+    RetainPtr<NSString> _sessionDescription;
+    HashSet<RetainPtr<CFTypeRef>> _dataTasks;
+    HashSet<RefPtr<WebCore::SecurityOrigin>> _origins;
+    Lock _dataTasksLock;
     BOOL _invalidated;
     NSUInteger _nextTaskIdentifier;
     OSObjectPtr<dispatch_queue_t> _internalQueue;
+    WebCoreNSURLSessionCORSAccessCheckResults _corsResults;
 }
 - (id)initWithResourceLoader:(WebCore::PlatformMediaResourceLoader&)loader delegate:(id<NSURLSessionTaskDelegate>)delegate delegateQueue:(NSOperationQueue*)queue;
 @property (readonly, retain) NSOperationQueue *delegateQueue;
 @property (nullable, readonly, retain) id <NSURLSessionDelegate> delegate;
 @property (readonly, copy) NSURLSessionConfiguration *configuration;
 @property (copy) NSString *sessionDescription;
+@property (readonly) BOOL didPassCORSAccessChecks;
 - (void)finishTasksAndInvalidate;
 - (void)invalidateAndCancel;
+- (BOOL)wouldTaintOrigin:(const WebCore::SecurityOrigin&)origin;
 
 - (void)resetWithCompletionHandler:(void (^)(void))completionHandler;
 - (void)flushWithCompletionHandler:(void (^)(void))completionHandler;
@@ -96,8 +107,7 @@ WEBCORE_EXPORT @interface WebCoreNSURLSession : NSObject {
 @end
 
 @interface WebCoreNSURLSessionDataTask : NSObject {
-    WebCoreNSURLSession *_session;
-    std::unique_ptr<WebCore::WebCoreNSURLSessionDataTaskClient> _client;
+    __unsafe_unretained WebCoreNSURLSession *_session;
     RefPtr<WebCore::PlatformMediaResource> _resource;
     RetainPtr<NSURLResponse> _response;
     NSUInteger _taskIdentifier;
@@ -112,16 +122,17 @@ WEBCORE_EXPORT @interface WebCoreNSURLSession : NSObject {
     NSString *_taskDescription;
     float _priority;
 }
-@property (readwrite) NSUInteger taskIdentifier;
-@property (readwrite, copy) NSURLRequest *originalRequest;
-@property (readwrite, copy) NSURLRequest *currentRequest;
+
+@property NSUInteger taskIdentifier;
+@property (copy) NSURLRequest *originalRequest;
+@property (copy) NSURLRequest *currentRequest;
 @property (readonly, copy) NSURLResponse *response;
-@property (readwrite) int64_t countOfBytesReceived;
-@property (readwrite) int64_t countOfBytesSent;
-@property (readwrite) int64_t countOfBytesExpectedToSend;
-@property (readwrite) int64_t countOfBytesExpectedToReceive;
-@property (readwrite) NSURLSessionTaskState state;
-@property (readwrite, copy) NSError *error;
+@property int64_t countOfBytesReceived;
+@property int64_t countOfBytesSent;
+@property int64_t countOfBytesExpectedToSend;
+@property int64_t countOfBytesExpectedToReceive;
+@property NSURLSessionTaskState state;
+@property (copy) NSError *error;
 @property (copy) NSString *taskDescription;
 @property float priority;
 - (void)cancel;
@@ -130,7 +141,3 @@ WEBCORE_EXPORT @interface WebCoreNSURLSession : NSObject {
 @end
 
 NS_ASSUME_NONNULL_END
-
-#endif // PLATFORM(IOS) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
-
-#endif

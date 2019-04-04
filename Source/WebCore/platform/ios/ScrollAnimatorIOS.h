@@ -23,8 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ScrollAnimatorIOS_h
-#define ScrollAnimatorIOS_h
+#pragma once
+
+#if PLATFORM(IOS_FAMILY)
 
 #include "ScrollAnimator.h"
 
@@ -40,7 +41,7 @@ public:
     virtual ~ScrollAnimatorIOS();
 
 #if ENABLE(TOUCH_EVENTS)
-    virtual bool handleTouchEvent(const PlatformTouchEvent&) override;
+    bool handleTouchEvent(const PlatformTouchEvent&) override;
 #endif
 
 private:
@@ -69,4 +70,4 @@ private:
 
 } // namespace WebCore
 
-#endif // ScrollAnimatorIOS_h
+#endif // PLATFORM(IOS_FAMILY)

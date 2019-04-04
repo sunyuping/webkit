@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,7 @@
 #include "config.h"
 #include "RegisterAtOffsetList.h"
 
-#if ENABLE(JIT)
+#if ENABLE(ASSEMBLER)
 
 #include <wtf/ListDump.h>
 
@@ -40,21 +40,13 @@ RegisterAtOffsetList::RegisterAtOffsetList(RegisterSet registerSet, OffsetBaseTy
     ptrdiff_t offset = 0;
     
     if (offsetBaseType == FramePointerBased)
-        offset = -(static_cast<ptrdiff_t>(numberOfRegisters) * sizeof(void*));
+        offset = -(static_cast<ptrdiff_t>(numberOfRegisters) * sizeof(CPURegister));
 
-    for (Reg reg = Reg::first(); reg <= Reg::last(); reg = reg.next()) {
-        if (registerSet.get(reg)) {
-            append(RegisterAtOffset(reg, offset));
-            offset += sizeof(void*);
-        }
-    }
-
-    sort();
-}
-
-void RegisterAtOffsetList::sort()
-{
-    std::sort(m_registers.begin(), m_registers.end());
+    m_registers.reserveInitialCapacity(numberOfRegisters);
+    registerSet.forEach([&] (Reg reg) {
+        m_registers.append(RegisterAtOffset(reg, offset));
+        offset += sizeof(CPURegister);
+    });
 }
 
 void RegisterAtOffsetList::dump(PrintStream& out) const
@@ -74,7 +66,17 @@ unsigned RegisterAtOffsetList::indexOf(Reg reg) const
     return UINT_MAX;
 }
 
+const RegisterAtOffsetList& RegisterAtOffsetList::llintBaselineCalleeSaveRegisters()
+{
+    static std::once_flag onceKey;
+    static LazyNeverDestroyed<RegisterAtOffsetList> result;
+    std::call_once(onceKey, [] {
+        result.construct(RegisterSet::llintBaselineCalleeSaveRegisters());
+    });
+    return result.get();
+}
+
 } // namespace JSC
 
-#endif // ENABLE(JIT)
+#endif // ENABLE(ASSEMBLER)
 

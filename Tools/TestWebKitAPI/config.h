@@ -27,43 +27,25 @@
 #include "cmakeconfig.h"
 #endif
 
+#include <JavaScriptCore/JSExportMacros.h>
+#ifndef BUILDING_JSCONLY__
 #include <WebCore/PlatformExportMacros.h>
-#include <runtime/JSExportMacros.h>
+#include <pal/ExportMacros.h>
+#endif
 
 #if defined(__APPLE__) && __APPLE__
-
 #ifdef __OBJC__
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #import <Foundation/Foundation.h>
 #else
 #import <Cocoa/Cocoa.h>
 #endif
 #endif
-
-#elif PLATFORM(WIN)
-
-#ifndef NOMINMAX
-#define NOMINMAX
 #endif
-
-#if PLATFORM(WIN_CAIRO)
-#undef USE_CG
-#define USE_CAIRO 1
-#define USE_CURL 1
-#ifndef _WINSOCKAPI_
-#define _WINSOCKAPI_ // Prevent inclusion of winsock.h in windows.h
-#endif
-#else
-#define USE_CG 1
-#undef USE_CAIRO
-#undef USE_CURL
-#endif
-
-#endif // PLATFORM(WIN)
 
 #include <stdint.h>
 
-#if !PLATFORM(IOS) && !PLATFORM(WIN) && !(PLATFORM(GTK) && !defined(BUILDING_WEBKIT2__))
+#if !PLATFORM(IOS_FAMILY) && !defined(BUILDING_JSCONLY__) && (!PLATFORM(WIN) || PLATFORM(WIN_CAIRO))
 #include <WebKit/WebKit2_C.h>
 #endif
 
@@ -75,7 +57,13 @@
 
 #ifdef __cplusplus
 #include <gtest/gtest.h>
+#include <wtf/Assertions.h>
+#undef new
+#undef delete
+#include <wtf/FastMalloc.h>
 #endif
+
+#include <wtf/DisallowCType.h>
 
 #ifdef __clang__
 // Finish working around the less strict coding standards of the gtest framework.
@@ -89,6 +77,6 @@
 #endif
 #endif
 
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY) && !defined(BUILDING_JSCONLY__)
 #define WK_HAVE_C_SPI 1
 #endif

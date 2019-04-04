@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,18 +23,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef B3Type_h
-#define B3Type_h
+#pragma once
 
 #if ENABLE(B3_JIT)
 
 #include "B3Common.h"
 #include <wtf/StdLibExtras.h>
 
-#if COMPILER(GCC) && ASSERT_DISABLED
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wreturn-type"
-#endif // COMPILER(GCC) && ASSERT_DISABLED
+#if ASSERT_DISABLED
+IGNORE_RETURN_TYPE_WARNINGS_BEGIN
+#endif
 
 namespace JSC { namespace B3 {
 
@@ -43,7 +41,7 @@ enum Type : int8_t {
     Int32,
     Int64,
     Float,
-    Double
+    Double,
 };
 
 inline bool isInt(Type type)
@@ -88,10 +86,8 @@ void printInternal(PrintStream&, JSC::B3::Type);
 
 } // namespace WTF
 
-#if COMPILER(GCC) && ASSERT_DISABLED
-#pragma GCC diagnostic pop
-#endif // COMPILER(GCC) && ASSERT_DISABLED
+#if ASSERT_DISABLED
+IGNORE_RETURN_TYPE_WARNINGS_END
+#endif
 
 #endif // ENABLE(B3_JIT)
-
-#endif // B3Type_h

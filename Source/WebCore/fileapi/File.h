@@ -23,28 +23,36 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef File_h
-#define File_h
+#pragma once
 
 #include "Blob.h"
+#include <wtf/Optional.h>
 #include <wtf/Ref.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class URL;
-
 class File final : public Blob {
 public:
+    struct PropertyBag : BlobPropertyBag {
+        Optional<int64_t> lastModified;
+    };
+
     static Ref<File> create(const String& path)
     {
         return adoptRef(*new File(path));
     }
 
-    static Ref<File> deserialize(const String& path, const URL& srcURL, const String& type, const String& name)
+    // Create a File using the 'new File' constructor.
+    static Ref<File> create(Vector<BlobPartVariant>&& blobPartVariants, const String& filename, const PropertyBag& propertyBag)
     {
-        return adoptRef(*new File(deserializationContructor, path, srcURL, type, name));
+        return adoptRef(*new File(WTFMove(blobPartVariants), filename, propertyBag));
+    }
+
+    static Ref<File> deserialize(const String& path, const URL& srcURL, const String& type, const String& name, const Optional<int64_t>& lastModified = WTF::nullopt)
+    {
+        return adoptRef(*new File(deserializationContructor, path, srcURL, type, name, lastModified));
     }
 
     // Create a file with a name exposed to the author (via File.name and associated DOM properties) that differs from the one provided in the path.
@@ -55,13 +63,26 @@ public:
         return adoptRef(*new File(path, nameOverride));
     }
 
-    virtual bool isFile() const override { return true; }
+    static Ref<File> create(const Blob& blob, const String& name)
+    {
+        return adoptRef(*new File(blob, name));
+    }
+
+    static Ref<File> create(const File& file, const String& name)
+    {
+        return adoptRef(*new File(file, name));
+    }
+
+    static Ref<File> createWithRelativePath(const String& path, const String& relativePath);
+
+    bool isFile() const override { return true; }
 
     const String& path() const { return m_path; }
+    const String& relativePath() const { return m_relativePath; }
+    void setRelativePath(const String& relativePath) { m_relativePath = relativePath; }
     const String& name() const { return m_name; }
-
-    // This returns the current date and time if the file's last modification date is not known (per spec: http://www.w3.org/TR/FileAPI/#dfn-lastModifiedDate).
-    double lastModifiedDate() const;
+    WEBCORE_EXPORT int64_t lastModified() const; // Number of milliseconds since Epoch.
+    const Optional<int64_t>& lastModifiedOverride() const { return m_lastModifiedDateOverride; } // Number of milliseconds since Epoch.
 
     static String contentTypeForFile(const String& path);
 
@@ -69,11 +90,16 @@ public:
     static bool shouldReplaceFile(const String& path);
 #endif
 
+    bool isDirectory() const;
+
 private:
     WEBCORE_EXPORT explicit File(const String& path);
     File(const String& path, const String& nameOverride);
+    File(Vector<BlobPartVariant>&& blobPartVariants, const String& filename, const PropertyBag&);
+    File(const Blob&, const String& name);
+    File(const File&, const String& name);
 
-    File(DeserializationContructor, const String& path, const URL& srcURL, const String& type, const String& name);
+    File(DeserializationContructor, const String& path, const URL& srcURL, const String& type, const String& name, const Optional<int64_t>& lastModified);
 
     static void computeNameAndContentType(const String& path, const String& nameOverride, String& effectiveName, String& effectiveContentType);
 #if ENABLE(FILE_REPLACEMENT)
@@ -81,7 +107,11 @@ private:
 #endif
 
     String m_path;
+    String m_relativePath;
     String m_name;
+
+    Optional<int64_t> m_lastModifiedDateOverride;
+    mutable Optional<bool> m_isDirectory;
 };
 
 } // namespace WebCore
@@ -89,5 +119,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::File)
     static bool isType(const WebCore::Blob& blob) { return blob.isFile(); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // File_h

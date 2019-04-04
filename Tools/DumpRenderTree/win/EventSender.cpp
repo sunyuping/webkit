@@ -34,10 +34,13 @@
 #include "DRTDropSource.h"
 #include "DraggingInfo.h"
 #include "DumpRenderTree.h"
+#include "WebCoreTestSupport.h"
+#include "WebFrame.h"
 
 #include <JavaScriptCore/JavaScriptCore.h>
 #include <WebCore/COMPtr.h>
-#include <WebKit/WebKit.h>
+#include <WebCore/PlatformWheelEvent.h>
+#include <WebKitLegacy/WebKit.h>
 #include <windows.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/Assertions.h>
@@ -117,7 +120,7 @@ static DWORD currentEventTime()
 
 static MSG makeMsg(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    MSG result = {0};
+    MSG result { };
     result.hwnd = hwnd;
     result.message = message;
     result.wParam = wParam;
@@ -359,7 +362,7 @@ void replaySavedEvents(HRESULT* oleDragAndDropReturnValue)
 {
     replayingSavedEvents = true;
   
-    MSG msg = { 0 };
+    MSG msg { };
 
     while (startOfQueue < endOfQueue && !msgQueue[startOfQueue].delay) {
         msg = msgQueue[startOfQueue++].msg;
@@ -693,7 +696,7 @@ static JSValueRef beginDragWithFilesCallback(JSContextRef context, JSObjectRef f
     // We should append "0" in the end of |files| so that |DragQueryFileW| retrieved the number of files correctly from Ole Clipboard.
     files.append(0);
 
-    STGMEDIUM hDropMedium = {0};
+    STGMEDIUM hDropMedium { };
     hDropMedium.tymed = TYMED_HGLOBAL;
     SIZE_T dropFilesSize = sizeof(DROPFILES) + (sizeof(WCHAR) * files.size());
     hDropMedium.hGlobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, dropFilesSize);
@@ -710,7 +713,7 @@ static JSValueRef beginDragWithFilesCallback(JSContextRef context, JSObjectRef f
         data[i] = files[i];
     GlobalUnlock(hDropMedium.hGlobal); 
 
-    STGMEDIUM hFileNameMedium = {0};
+    STGMEDIUM hFileNameMedium { };
     hFileNameMedium.tymed = TYMED_HGLOBAL;
     SIZE_T hFileNameSize = sizeof(WCHAR) * files.size();
     hFileNameMedium.hGlobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, hFileNameSize);
@@ -781,6 +784,107 @@ static JSValueRef scalePageByCallback(JSContextRef context, JSObjectRef function
     return JSValueMakeUndefined(context);
 }
 
+void mouseScrollBy(double x, double y, bool continuous)
+{
+    RECT rect;
+    ::GetWindowRect(webViewWindow, &rect);
+
+    if (x) {
+        UINT scrollChars = 1;
+        ::SystemParametersInfo(SPI_GETWHEELSCROLLCHARS, 0, &scrollChars, 0);
+        x *= WHEEL_DELTA / scrollChars;
+        if (continuous)
+            x /= WebCore::cScrollbarPixelsPerLine;
+        MSG msg = makeMsg(webViewWindow, WM_MOUSEHWHEEL, MAKEWPARAM(0, x), MAKELPARAM(rect.left + lastMousePosition.x, rect.top + lastMousePosition.y));
+        dispatchMessage(&msg);
+    }
+
+    if (y) {
+        UINT scrollLines = 3;
+        ::SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, &scrollLines, 0);
+        y *= WHEEL_DELTA / scrollLines;
+        if (continuous)
+            y /= WebCore::cScrollbarPixelsPerLine;
+        MSG msg = makeMsg(webViewWindow, WM_MOUSEWHEEL, MAKEWPARAM(0, y), MAKELPARAM(rect.left + lastMousePosition.x, rect.top + lastMousePosition.y));
+        dispatchMessage(&msg);
+    }
+}
+
+static JSValueRef mouseScrollBy(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    if (argumentCount < 1)
+        return JSValueMakeUndefined(context);
+
+    double deltaX = JSValueToNumber(context, arguments[0], exception);
+
+    double deltaY = 0;
+
+    if (argumentCount >= 2)
+        deltaY = JSValueToNumber(context, arguments[1], exception);
+
+    mouseScrollBy(deltaX, deltaY, false);
+
+    return JSValueMakeUndefined(context);
+}
+
+static JSValueRef mouseScrollByWithWheelAndMomentumPhasesCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    return mouseScrollBy(context, function, thisObject, argumentCount, arguments, exception);
+}
+
+static JSValueRef continuousMouseScrollBy(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    if (argumentCount < 1)
+        return JSValueMakeUndefined(context);
+
+    double deltaX = JSValueToNumber(context, arguments[0], exception);
+
+    double deltaY = 0;
+
+    if (argumentCount >= 2)
+        deltaY = JSValueToNumber(context, arguments[1], exception);
+
+    mouseScrollBy(deltaX, deltaY, true);
+
+    return JSValueMakeUndefined(context);
+}
+
+static JSValueRef monitorWheelEvents(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    COMPtr<IWebFrame2> frame2;
+    if (FAILED(frame->QueryInterface(&frame2)))
+        return JSValueMakeUndefined(context);
+
+    WebCore::Frame* coreFrame = core(static_cast<WebFrame*>(frame2.get()));
+    WebCoreTestSupport::monitorWheelEvents(*coreFrame);
+    
+    return JSValueMakeUndefined(context);
+}
+
+static JSValueRef callAfterScrollingCompletes(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+    if (argumentCount < 1)
+        return JSValueMakeUndefined(context);
+    
+    JSObjectRef jsCallbackFunction = JSValueToObject(context, arguments[0], exception);
+    if (!jsCallbackFunction)
+        return JSValueMakeUndefined(context);
+    
+    if (!frame)
+        return JSValueMakeUndefined(context);
+    
+    JSGlobalContextRef globalContext = frame->globalContext();
+    
+    COMPtr<IWebFrame2> frame2;
+    if (FAILED(frame->QueryInterface(&frame2)))
+        return JSValueMakeUndefined(context);
+
+    WebCore::Frame* coreFrame = core(static_cast<WebFrame*>(frame2.get()));
+    WebCoreTestSupport::setTestCallbackAndStartNotificationTimer(*coreFrame, globalContext, jsCallbackFunction);
+
+    return JSValueMakeUndefined(context);
+}
+
 static JSStaticFunction staticFunctions[] = {
     { "contextClick", contextClickCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
     { "mouseDown", mouseDownCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
@@ -795,6 +899,11 @@ static JSStaticFunction staticFunctions[] = {
     { "zoomPageOut", zoomPageOutCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
     { "beginDragWithFiles", beginDragWithFilesCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
     { "scalePageBy", scalePageByCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+    { "mouseScrollBy", mouseScrollBy, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+    { "mouseScrollByWithWheelAndMomentumPhases", mouseScrollByWithWheelAndMomentumPhasesCallback, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+    { "continuousMouseScrollBy", continuousMouseScrollBy,  kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+    { "monitorWheelEvents", monitorWheelEvents, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
+    { "callAfterScrollingCompletes", callAfterScrollingCompletes, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete },
     { 0, 0, 0 }
 };
 
@@ -816,7 +925,7 @@ static JSClassRef getClass(JSContextRef context)
     static JSClassRef eventSenderClass = 0;
 
     if (!eventSenderClass) {
-        JSClassDefinition classDefinition = {0};
+        JSClassDefinition classDefinition { };
         classDefinition.staticFunctions = staticFunctions;
         classDefinition.staticValues = staticValues;
 

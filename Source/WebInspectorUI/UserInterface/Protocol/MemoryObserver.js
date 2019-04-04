@@ -23,22 +23,27 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.MemoryObserver = class MemoryObserver
+WI.MemoryObserver = class MemoryObserver
 {
     // Events defined by the "Memory" domain.
 
+    memoryPressure(timestamp, severity)
+    {
+        WI.memoryManager.memoryPressure(timestamp, severity);
+    }
+
     trackingStart(timestamp)
     {
-        WebInspector.timelineManager.memoryTrackingStart(timestamp);
+        WI.timelineManager.memoryTrackingStarted(timestamp);
     }
 
     trackingUpdate(event)
     {
-        WebInspector.timelineManager.memoryTrackingUpdate(event);
+        WI.timelineManager.memoryTrackingUpdated(event);
     }
 
     trackingComplete()
     {
-        WebInspector.timelineManager.memoryTrackingComplete();
+        WI.timelineManager.memoryTrackingCompleted();
     }
 };

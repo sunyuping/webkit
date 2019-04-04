@@ -23,15 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DataDetectorsCoreSoftLink_h
-#define DataDetectorsCoreSoftLink_h
+#pragma once
 
-#include "DataDetectorsCoreSPI.h"
-#include "SoftLinking.h"
+#if ENABLE(DATA_DETECTION)
 
-#if PLATFORM(IOS)
+#include <pal/spi/cocoa/DataDetectorsCoreSPI.h>
+#include <wtf/SoftLinking.h>
 
-SOFT_LINK_CLASS_FOR_HEADER(WebCore, DataDetectorsCore, DDScannerResult)
+#if PLATFORM(IOS_FAMILY)
+
+SOFT_LINK_CLASS_FOR_HEADER(WebCore, DDScannerResult)
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDScannerCreate, DDScannerRef, (DDScannerType type, DDScannerOptions options, CFErrorRef * errorRef), (type, options, errorRef))
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDScannerScanQuery, Boolean, (DDScannerRef scanner, DDScanQueryRef query), (scanner, query))
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDScanQueryCreate, DDScanQueryRef, (CFAllocatorRef allocator), (allocator))
@@ -48,6 +49,11 @@ SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDResultHasProperties,
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDResultGetSubResults, CFArrayRef, (DDResultRef result), (result))
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDResultGetQueryRangeForURLification, DDQueryRange, (DDResultRef result), (result))
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDURLStringForResult, NSString *, (DDResultRef currentResult, NSString * resultIdentifier, DDURLifierPhoneNumberDetectionTypes includingTelGroups, NSDate * referenceDate, NSTimeZone * referenceTimeZone), (currentResult, resultIdentifier, includingTelGroups, referenceDate, referenceTimeZone))
+SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDURLTapAndHoldSchemes, NSArray *, (), ())
+SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDShouldImmediatelyShowActionSheetForURL, BOOL, (NSURL *url), (url))
+SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDShouldImmediatelyShowActionSheetForResult, BOOL, (DDResultRef result), (result))
+SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDShouldUseLightLinksForResult, BOOL, (DDResultRef result, BOOL extractedFromSignature), (result, extractedFromSignature))
+SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDBinderParsecSourceKey, CFStringRef)
 SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDBinderHttpURLKey, CFStringRef)
 SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDBinderWebURLKey, CFStringRef)
 SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDBinderMailURLKey, CFStringRef)
@@ -56,9 +62,10 @@ SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDBinderEmailKey, CFStr
 SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDBinderTrackingNumberKey, CFStringRef)
 SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDBinderFlightInformationKey, CFStringRef)
 SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDBinderSignatureBlockKey, CFStringRef)
-SOFT_LINK_POINTER_FOR_HEADER(WebCore, DataDetectorsCore, DDURLScheme, NSString *)
 SOFT_LINK_CONSTANT_FOR_HEADER(WebCore, DataDetectorsCore, DDScannerCopyResultsOptionsForPassiveUse, DDScannerCopyResultsOptions)
 
-#endif
+SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, DataDetectorsCore, DDScannerEnableOptionalSource, void, (DDScannerRef scanner, DDScannerSource source, Boolean enable), (scanner, source, enable))
 
-#endif // DataDetectorsCoreSoftLink_h
+#endif // PLATFORM(IOS_FAMILY)
+
+#endif

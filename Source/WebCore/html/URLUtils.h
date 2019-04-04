@@ -23,8 +23,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef URLUtils_h
-#define URLUtils_h
+#pragma once
 
 #include "SecurityOrigin.h"
 
@@ -37,6 +36,7 @@ public:
     void setHref(const String& url) { static_cast<T*>(this)->setHref(url); }
 
     String toString() const;
+    String toJSON() const;
 
     String origin() const;
 
@@ -75,16 +75,24 @@ String URLUtils<T>::toString() const
 }
 
 template <typename T>
+String URLUtils<T>::toJSON() const
+{
+    return href().string();
+}
+
+template <typename T>
 String URLUtils<T>::origin() const
 {
-    RefPtr<SecurityOrigin> origin = SecurityOrigin::create(href());
+    auto origin = SecurityOrigin::create(href());
     return origin->toString();
 }
 
 template <typename T>
 String URLUtils<T>::protocol() const
 {
-    return href().protocol() + ':';
+    if (WTF::protocolIsJavaScript(href()))
+        return "javascript:"_s;
+    return makeString(href().protocol(), ':');
 }
 
 template <typename T>
@@ -105,6 +113,8 @@ template <typename T>
 void URLUtils<T>::setUsername(const String& user)
 {
     URL url = href();
+    if (url.cannotBeABaseURL())
+        return;
     url.setUser(user);
     setHref(url);
 }
@@ -119,6 +129,8 @@ template <typename T>
 void URLUtils<T>::setPassword(const String& pass)
 {
     URL url = href();
+    if (url.cannotBeABaseURL())
+        return;
     url.setPass(pass);
     setHref(url);
 }
@@ -126,12 +138,7 @@ void URLUtils<T>::setPassword(const String& pass)
 template <typename T>
 String URLUtils<T>::host() const
 {
-    const URL& url = href();
-    if (url.hostEnd() == url.pathStart())
-        return url.host();
-    if (isDefaultPortForProtocol(url.port(), url.protocol()))
-        return url.host();
-    return url.host() + ':' + String::number(url.port());
+    return href().hostAndPort();
 }
 
 // This function does not allow leading spaces before the port number.
@@ -149,6 +156,8 @@ void URLUtils<T>::setHost(const String& value)
     if (value.isEmpty())
         return;
     URL url = href();
+    if (url.cannotBeABaseURL())
+        return;
     if (!url.canSetHostOrPort())
         return;
 
@@ -167,7 +176,7 @@ void URLUtils<T>::setHost(const String& value)
             // requires setting the port to "0" if it is set to empty string.
             url.setHostAndPort(value.substring(0, separator + 1) + '0');
         } else {
-            if (isDefaultPortForProtocol(port, url.protocol()))
+            if (WTF::isDefaultPortForProtocol(port, url.protocol()))
                 url.setHostAndPort(value.substring(0, separator));
             else
                 url.setHostAndPort(value.substring(0, portEnd));
@@ -179,7 +188,7 @@ void URLUtils<T>::setHost(const String& value)
 template <typename T>
 String URLUtils<T>::hostname() const
 {
-    return href().host();
+    return href().host().toString();
 }
 
 template <typename T>
@@ -196,6 +205,8 @@ void URLUtils<T>::setHostname(const String& value)
         return;
 
     URL url = href();
+    if (url.cannotBeABaseURL())
+        return;
     if (!url.canSetHostOrPort())
         return;
 
@@ -206,8 +217,8 @@ void URLUtils<T>::setHostname(const String& value)
 template <typename T>
 String URLUtils<T>::port() const
 {
-    if (href().hasPort())
-        return String::number(href().port());
+    if (href().port())
+        return String::number(href().port().value());
 
     return emptyString();
 }
@@ -216,6 +227,8 @@ template <typename T>
 void URLUtils<T>::setPort(const String& value)
 {
     URL url = href();
+    if (url.cannotBeABaseURL() || url.protocolIs("file"))
+        return;
     if (!url.canSetHostOrPort())
         return;
 
@@ -224,7 +237,7 @@ void URLUtils<T>::setPort(const String& value)
     // requires setting the port to "0" if it is set to empty string.
     // FIXME: http://url.spec.whatwg.org/ doesn't appear to require this; test what browsers do
     unsigned port = value.toUInt();
-    if (isDefaultPortForProtocol(port, url.protocol()))
+    if (WTF::isDefaultPortForProtocol(port, url.protocol()))
         url.removePort();
     else
         url.setPort(port);
@@ -242,6 +255,8 @@ template <typename T>
 void URLUtils<T>::setPathname(const String& value)
 {
     URL url = href();
+    if (url.cannotBeABaseURL())
+        return;
     if (!url.canSetPathname())
         return;
 
@@ -264,9 +279,14 @@ template <typename T>
 void URLUtils<T>::setSearch(const String& value)
 {
     URL url = href();
-    String newSearch = (value[0U] == '?') ? value.substring(1) : value;
-    // Make sure that '#' in the query does not leak to the hash.
-    url.setQuery(newSearch.replaceWithLiteral('#', "%23"));
+    if (value.isEmpty()) {
+        // If the given value is the empty string, set url's query to null.
+        url.setQuery({ });
+    } else {
+        String newSearch = (value[0U] == '?') ? value.substring(1) : value;
+        // Make sure that '#' in the query does not leak to the hash.
+        url.setQuery(newSearch.replaceWithLiteral('#', "%23"));
+    }
 
     setHref(url.string());
 }
@@ -284,13 +304,12 @@ template <typename T>
 void URLUtils<T>::setHash(const String& value)
 {
     URL url = href();
-    if (value[0U] == '#')
-        url.setFragmentIdentifier(value.substring(1));
+    String newFragment = value[0U] == '#' ? value.substring(1) : value;
+    if (newFragment.isEmpty())
+        url.removeFragmentIdentifier();
     else
-        url.setFragmentIdentifier(value);
+        url.setFragmentIdentifier(newFragment);
     setHref(url.string());
 }
 
 } // namespace WebCore
-
-#endif // URLUtils_h

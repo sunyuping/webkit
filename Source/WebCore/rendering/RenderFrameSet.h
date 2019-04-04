@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef RenderFrameSet_h
-#define RenderFrameSet_h
+#pragma once
 
 #include "RenderBox.h"
 
@@ -54,15 +53,16 @@ private:
 };
 
 class RenderFrameSet final : public RenderBox {
+    WTF_MAKE_ISO_ALLOCATED(RenderFrameSet);
 public:
-    RenderFrameSet(HTMLFrameSetElement&, Ref<RenderStyle>&&);
+    RenderFrameSet(HTMLFrameSetElement&, RenderStyle&&);
     virtual ~RenderFrameSet();
 
     HTMLFrameSetElement& frameSetElement() const;
 
     FrameEdgeInfo edgeInfo() const;
 
-    bool userResize(MouseEvent*);
+    bool userResize(MouseEvent&);
 
     bool isResizingRow() const;
     bool isResizingColumn() const;
@@ -91,14 +91,14 @@ private:
         int m_splitResizeOffset;
     };
 
-    virtual const char* renderName() const override { return "RenderFrameSet"; }
-    virtual bool isFrameSet() const override { return true; }
+    const char* renderName() const override { return "RenderFrameSet"; }
+    bool isFrameSet() const override { return true; }
 
-    virtual void layout() override;
-    virtual void paint(PaintInfo&, const LayoutPoint&) override;
-    virtual bool canHaveChildren() const override { return true; }
-    virtual bool isChildAllowed(const RenderObject&, const RenderStyle&) const override;
-    virtual CursorDirective getCursor(const LayoutPoint&, Cursor&) const override;
+    void layout() override;
+    void paint(PaintInfo&, const LayoutPoint&) override;
+    bool canHaveChildren() const override { return true; }
+    bool isChildAllowed(const RenderObject&, const RenderStyle&) const override;
+    CursorDirective getCursor(const LayoutPoint&, Cursor&) const override;
 
     bool flattenFrameSet() const;
 
@@ -129,5 +129,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderFrameSet, isFrameSet())
-
-#endif // RenderFrameSet_h

@@ -30,7 +30,7 @@
 #include "SourceBufferPrivateAVFObjC.h"
 #include <wtf/RetainPtr.h>
 
-#if ENABLE(ENCRYPTED_MEDIA_V2) && ENABLE(MEDIA_SOURCE)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
 OBJC_CLASS AVContentKeyRequest;
 OBJC_CLASS AVContentKeySession;
@@ -41,17 +41,18 @@ namespace WebCore {
 class CDMPrivateMediaSourceAVFObjC;
 
 class CDMSessionAVContentKeySession : public CDMSessionMediaSourceAVFObjC {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
-    CDMSessionAVContentKeySession(const Vector<int>& protocolVersions, CDMPrivateMediaSourceAVFObjC&, CDMSessionClient*);
+    CDMSessionAVContentKeySession(Vector<int>&& protocolVersions, int cdmVersion, CDMPrivateMediaSourceAVFObjC&, LegacyCDMSessionClient*);
     virtual ~CDMSessionAVContentKeySession();
 
     static bool isAvailable();
 
-    // CDMSession
-    virtual CDMSessionType type() override { return CDMSessionTypeAVContentKeySession; }
-    virtual RefPtr<Uint8Array> generateKeyRequest(const String& mimeType, Uint8Array* initData, String& destinationURL, unsigned short& errorCode, uint32_t& systemCode) override;
-    virtual void releaseKeys() override;
-    virtual bool update(Uint8Array* key, RefPtr<Uint8Array>& nextMessage, unsigned short& errorCode, uint32_t& systemCode) override;
+    // LegacyCDMSession
+    LegacyCDMSessionType type() override { return CDMSessionTypeAVContentKeySession; }
+    RefPtr<Uint8Array> generateKeyRequest(const String& mimeType, Uint8Array* initData, String& destinationURL, unsigned short& errorCode, uint32_t& systemCode) override;
+    void releaseKeys() override;
+    bool update(Uint8Array* key, RefPtr<Uint8Array>& nextMessage, unsigned short& errorCode, uint32_t& systemCode) override;
 
     // CDMSessionMediaSourceAVFObjC
     void addParser(AVStreamDataParser *) override;
@@ -60,7 +61,7 @@ public:
     void didProvideContentKeyRequest(AVContentKeyRequest *);
 
 protected:
-    PassRefPtr<Uint8Array> generateKeyReleaseMessage(unsigned short& errorCode, uint32_t& systemCode);
+    RefPtr<Uint8Array> generateKeyReleaseMessage(unsigned short& errorCode, uint32_t& systemCode);
 
     bool hasContentKeySession() const { return m_contentKeySession; }
     AVContentKeySession* contentKeySession();
@@ -68,14 +69,16 @@ protected:
     RetainPtr<AVContentKeySession> m_contentKeySession;
     RetainPtr<WebCDMSessionAVContentKeySessionDelegate> m_contentKeySessionDelegate;
     RetainPtr<AVContentKeyRequest> m_keyRequest;
+    RefPtr<Uint8Array> m_identifier;
     RefPtr<Uint8Array> m_initData;
     RetainPtr<NSData> m_expiredSession;
     Vector<int> m_protocolVersions;
+    int m_cdmVersion;
     int32_t m_protectedTrackID { 1 };
     enum { Normal, KeyRelease } m_mode;
 };
 
-inline CDMSessionAVContentKeySession* toCDMSessionAVContentKeySession(CDMSession* session)
+inline CDMSessionAVContentKeySession* toCDMSessionAVContentKeySession(LegacyCDMSession* session)
 {
     if (!session || session->type() != CDMSessionTypeAVContentKeySession)
         return nullptr;

@@ -9,35 +9,161 @@
 
 #include "libANGLE/Sampler.h"
 #include "libANGLE/angletypes.h"
+#include "libANGLE/renderer/GLImplFactory.h"
+#include "libANGLE/renderer/SamplerImpl.h"
 
 namespace gl
 {
 
-Sampler::Sampler(GLuint id)
-    : RefCountObject(id),
-      mMinFilter(GL_NEAREST_MIPMAP_LINEAR),
-      mMagFilter(GL_LINEAR),
-      mWrapS(GL_REPEAT),
-      mWrapT(GL_REPEAT),
-      mWrapR(GL_REPEAT),
-      mMinLod(-1000.0f),
-      mMaxLod(1000.0f),
-      mComparisonMode(GL_NONE),
-      mComparisonFunc(GL_LEQUAL)
+Sampler::Sampler(rx::GLImplFactory *factory, GLuint id)
+    : RefCountObject(id), mState(), mImpl(factory->createSampler(mState)), mLabel()
 {
 }
 
-void Sampler::getState(SamplerState *samplerState) const
+Sampler::~Sampler()
 {
-    samplerState->minFilter   = mMinFilter;
-    samplerState->magFilter   = mMagFilter;
-    samplerState->wrapS       = mWrapS;
-    samplerState->wrapT       = mWrapT;
-    samplerState->wrapR       = mWrapR;
-    samplerState->minLod      = mMinLod;
-    samplerState->maxLod      = mMaxLod;
-    samplerState->compareMode = mComparisonMode;
-    samplerState->compareFunc = mComparisonFunc;
+    SafeDelete(mImpl);
 }
 
+Error Sampler::onDestroy(const Context *context)
+{
+    return NoError();
 }
+
+void Sampler::setLabel(const std::string &label)
+{
+    mLabel = label;
+}
+
+const std::string &Sampler::getLabel() const
+{
+    return mLabel;
+}
+
+void Sampler::setMinFilter(GLenum minFilter)
+{
+    mState.minFilter = minFilter;
+}
+
+GLenum Sampler::getMinFilter() const
+{
+    return mState.minFilter;
+}
+
+void Sampler::setMagFilter(GLenum magFilter)
+{
+    mState.magFilter = magFilter;
+}
+
+GLenum Sampler::getMagFilter() const
+{
+    return mState.magFilter;
+}
+
+void Sampler::setWrapS(GLenum wrapS)
+{
+    mState.wrapS = wrapS;
+}
+
+GLenum Sampler::getWrapS() const
+{
+    return mState.wrapS;
+}
+
+void Sampler::setWrapT(GLenum wrapT)
+{
+    mState.wrapT = wrapT;
+}
+
+GLenum Sampler::getWrapT() const
+{
+    return mState.wrapT;
+}
+
+void Sampler::setWrapR(GLenum wrapR)
+{
+    mState.wrapR = wrapR;
+}
+
+GLenum Sampler::getWrapR() const
+{
+    return mState.wrapR;
+}
+
+void Sampler::setMaxAnisotropy(float maxAnisotropy)
+{
+    mState.maxAnisotropy = maxAnisotropy;
+}
+
+float Sampler::getMaxAnisotropy() const
+{
+    return mState.maxAnisotropy;
+}
+
+void Sampler::setMinLod(GLfloat minLod)
+{
+    mState.minLod = minLod;
+}
+
+GLfloat Sampler::getMinLod() const
+{
+    return mState.minLod;
+}
+
+void Sampler::setMaxLod(GLfloat maxLod)
+{
+    mState.maxLod = maxLod;
+}
+
+GLfloat Sampler::getMaxLod() const
+{
+    return mState.maxLod;
+}
+
+void Sampler::setCompareMode(GLenum compareMode)
+{
+    mState.compareMode = compareMode;
+}
+
+GLenum Sampler::getCompareMode() const
+{
+    return mState.compareMode;
+}
+
+void Sampler::setCompareFunc(GLenum compareFunc)
+{
+    mState.compareFunc = compareFunc;
+}
+
+GLenum Sampler::getCompareFunc() const
+{
+    return mState.compareFunc;
+}
+
+void Sampler::setSRGBDecode(GLenum sRGBDecode)
+{
+    mState.sRGBDecode = sRGBDecode;
+}
+
+GLenum Sampler::getSRGBDecode() const
+{
+    return mState.sRGBDecode;
+}
+
+const SamplerState &Sampler::getSamplerState() const
+{
+    return mState;
+}
+
+rx::SamplerImpl *Sampler::getImplementation() const
+{
+    return mImpl;
+}
+
+void Sampler::syncState(const Context *context)
+{
+    // TODO(jmadill): Use actual dirty bits for sampler.
+    mImpl->syncState(context);
+}
+
+}  // namespace gl

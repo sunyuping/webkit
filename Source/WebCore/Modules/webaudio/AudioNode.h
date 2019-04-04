@@ -22,15 +22,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AudioNode_h
-#define AudioNode_h
+#pragma once
 
 #include "AudioBus.h"
 #include "EventTarget.h"
-#include <memory>
+#include "ExceptionOr.h"
 #include <wtf/Forward.h>
-#include <wtf/RefPtr.h>
-#include <wtf/Vector.h>
+#include <wtf/LoggerHelper.h>
 
 #define DEBUG_AUDIONODE_REFERENCES 0
 
@@ -41,15 +39,20 @@ class AudioNodeInput;
 class AudioNodeOutput;
 class AudioParam;
 
-typedef int ExceptionCode;
-
 // An AudioNode is the basic building block for handling audio within an AudioContext.
 // It may be an audio source, an intermediate processing module, or an audio destination.
 // Each AudioNode can have inputs and/or outputs. An AudioSourceNode has no inputs and a single output.
 // An AudioDestinationNode has one input and no outputs and represents the final destination to the audio hardware.
 // Most processing nodes such as filters will have one input and one output, although multiple inputs and outputs are possible.
 
-class AudioNode : public EventTargetWithInlineData {
+class AudioNode
+    : public EventTargetWithInlineData
+#if !RELEASE_LOG_DISABLED
+    , private LoggerHelper
+#endif
+{
+    WTF_MAKE_NONCOPYABLE(AudioNode);
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     enum { ProcessingSizeInFrames = 128 };
 
@@ -78,6 +81,7 @@ public:
         NodeTypeAnalyser,
         NodeTypeDynamicsCompressor,
         NodeTypeWaveShaper,
+        NodeTypeBasicInspector,
         NodeTypeEnd
     };
 
@@ -126,9 +130,9 @@ public:
     AudioNodeOutput* output(unsigned);
 
     // Called from main thread by corresponding JavaScript methods.
-    virtual void connect(AudioNode*, unsigned outputIndex, unsigned inputIndex, ExceptionCode&);
-    void connect(AudioParam*, unsigned outputIndex, ExceptionCode&);
-    virtual void disconnect(unsigned outputIndex, ExceptionCode&);
+    virtual ExceptionOr<void> connect(AudioNode&, unsigned outputIndex, unsigned inputIndex);
+    ExceptionOr<void> connect(AudioParam&, unsigned outputIndex);
+    virtual ExceptionOr<void> disconnect(unsigned outputIndex);
 
     virtual float sampleRate() const { return m_sampleRate; }
 
@@ -161,26 +165,25 @@ public:
     virtual bool propagatesSilence() const;
     bool inputsAreSilent();
     void silenceOutputs();
-    void unsilenceOutputs();
 
     void enableOutputsIfNecessary();
     void disableOutputsIfNecessary();
 
-    unsigned long channelCount();
-    virtual void setChannelCount(unsigned long, ExceptionCode&);
+    unsigned channelCount();
+    virtual ExceptionOr<void> setChannelCount(unsigned);
 
     String channelCountMode();
-    void setChannelCountMode(const String&, ExceptionCode&);
+    ExceptionOr<void> setChannelCountMode(const String&);
 
     String channelInterpretation();
-    void setChannelInterpretation(const String&, ExceptionCode&);
+    ExceptionOr<void> setChannelInterpretation(const String&);
 
     ChannelCountMode internalChannelCountMode() const { return m_channelCountMode; }
     AudioBus::ChannelInterpretation internalChannelInterpretation() const { return m_channelInterpretation; }
 
     // EventTarget
-    virtual EventTargetInterface eventTargetInterface() const override;
-    virtual ScriptExecutionContext* scriptExecutionContext() const override final;
+    EventTargetInterface eventTargetInterface() const override;
+    ScriptExecutionContext* scriptExecutionContext() const final;
 
 protected:
     // Inputs and outputs must be created before the AudioNode is initialized.
@@ -194,6 +197,13 @@ protected:
 
     // Force all inputs to take any channel interpretation changes into account.
     void updateChannelsForInputs();
+
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const final { return m_logger.get(); }
+    const void* logIdentifier() const final { return m_logIdentifier; }
+    const char* logClassName() const final { return "AudioNode"; }
+    WTFLogChannel& logChannel() const final;
+#endif
 
 private:
     volatile bool m_isInitialized;
@@ -218,8 +228,13 @@ private:
     static int s_nodeCount[NodeTypeEnd];
 #endif
 
-    virtual void refEventTarget() override { ref(); }
-    virtual void derefEventTarget() override { deref(); }
+    void refEventTarget() override { ref(); }
+    void derefEventTarget() override { deref(); }
+
+#if !RELEASE_LOG_DISABLED
+    mutable Ref<const Logger> m_logger;
+    const void* m_logIdentifier;
+#endif
 
 protected:
     unsigned m_channelCount;
@@ -227,6 +242,14 @@ protected:
     AudioBus::ChannelInterpretation m_channelInterpretation;
 };
 
+String convertEnumerationToString(AudioNode::NodeType);
+
 } // namespace WebCore
 
-#endif // AudioNode_h
+namespace WTF {
+    
+template<> struct LogArgument<WebCore::AudioNode::NodeType> {
+    static String toString(WebCore::AudioNode::NodeType type) { return convertEnumerationToString(type); }
+};
+
+} // namespace WTF

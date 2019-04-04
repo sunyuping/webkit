@@ -28,32 +28,38 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ScriptSourceCode_h
-#define ScriptSourceCode_h
+#pragma once
 
 #include "CachedResourceHandle.h"
 #include "CachedScript.h"
+#include "CachedScriptFetcher.h"
 #include "CachedScriptSourceProvider.h"
-#include "URL.h"
-#include <parser/SourceProvider.h>
-#include <wtf/text/TextPosition.h>
+#include <JavaScriptCore/SourceCode.h>
+#include <JavaScriptCore/SourceProvider.h>
 #include <wtf/RefPtr.h>
+#include <wtf/URL.h>
+#include <wtf/text/TextPosition.h>
 
 namespace WebCore {
 
 class ScriptSourceCode {
 public:
-    ScriptSourceCode(const String& source, const URL& url = URL(), const TextPosition& startPosition = TextPosition::minimumPosition())
-        : m_provider(JSC::StringSourceProvider::create(source, url.isNull() ? String() : url.string(), startPosition))
-        , m_code(m_provider, startPosition.m_line.oneBasedInt(), startPosition.m_column.oneBasedInt())
-        , m_url(url)
+    ScriptSourceCode(const String& source, URL&& url = URL(), const TextPosition& startPosition = TextPosition(), JSC::SourceProviderSourceType sourceType = JSC::SourceProviderSourceType::Program)
+        : m_provider(JSC::StringSourceProvider::create(source, JSC::SourceOrigin { url.string() }, WTFMove(url), startPosition, sourceType))
+        , m_code(m_provider.copyRef(), startPosition.m_line.oneBasedInt(), startPosition.m_column.oneBasedInt())
     {
     }
 
-    explicit ScriptSourceCode(CachedScript* cachedScript)
-        : m_provider(CachedScriptSourceProvider::create(cachedScript))
-        , m_code(m_provider)
+    ScriptSourceCode(CachedScript* cachedScript, JSC::SourceProviderSourceType sourceType, Ref<CachedScriptFetcher>&& scriptFetcher)
+        : m_provider(CachedScriptSourceProvider::create(cachedScript, sourceType, WTFMove(scriptFetcher)))
+        , m_code(m_provider.copyRef())
         , m_cachedScript(cachedScript)
+    {
+    }
+
+    ScriptSourceCode(const String& source, URL&& url, const TextPosition& startPosition, JSC::SourceProviderSourceType sourceType, Ref<CachedScriptFetcher>&& scriptFetcher)
+        : m_provider(JSC::StringSourceProvider::create(source, JSC::SourceOrigin { url.string(), WTFMove(scriptFetcher) }, WTFMove(url), startPosition, sourceType))
+        , m_code(m_provider.copyRef(), startPosition.m_line.oneBasedInt(), startPosition.m_column.oneBasedInt())
     {
     }
 
@@ -63,23 +69,17 @@ public:
 
     StringView source() const { return m_provider->source(); }
 
-    int startLine() const { return m_code.firstLine(); }
+    int startLine() const { return m_code.firstLine().oneBasedInt(); }
+    int startColumn() const { return m_code.startColumn().oneBasedInt(); }
 
     CachedScript* cachedScript() const { return m_cachedScript.get(); }
 
-    const URL& url() const { return m_url; }
+    const URL& url() const { return m_provider->url(); }
     
 private:
-    RefPtr<JSC::SourceProvider> m_provider;
-    
+    Ref<JSC::SourceProvider> m_provider;
     JSC::SourceCode m_code;
-
     CachedResourceHandle<CachedScript> m_cachedScript;
-
-    URL m_url;
-
 };
 
 } // namespace WebCore
-
-#endif // ScriptSourceCode_h

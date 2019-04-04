@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -17,11 +18,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGMPathElement_h
-#define SVGMPathElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedString.h"
 #include "SVGElement.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGNames.h"
@@ -31,38 +29,37 @@ namespace WebCore {
     
 class SVGPathElement;
 
-class SVGMPathElement final : public SVGElement, public SVGURIReference, public SVGExternalResourcesRequired {
+class SVGMPathElement final : public SVGElement, public SVGExternalResourcesRequired, public SVGURIReference {
+    WTF_MAKE_ISO_ALLOCATED(SVGMPathElement);
 public:
     static Ref<SVGMPathElement> create(const QualifiedName&, Document&);
 
     virtual ~SVGMPathElement();
 
-    SVGPathElement* pathElement();
+    RefPtr<SVGPathElement> pathElement();
 
     void targetPathChanged();
 
 private:
     SVGMPathElement(const QualifiedName&, Document&);
 
-    void buildPendingResource() override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGMPathElement, SVGElement, SVGExternalResourcesRequired, SVGURIReference>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
+
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void svgAttributeChanged(const QualifiedName&) final;
+
+    void buildPendingResource() final;
     void clearResourceReferences();
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    virtual void removedFrom(ContainerNode&) override;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-
-    virtual bool rendererIsNeeded(const RenderStyle&) override { return false; }
-    virtual void finishedInsertingSubtree() override;
+    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    void didFinishInsertingNode() final;
 
     void notifyParentOfPathChange(ContainerNode*);
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGMPathElement)
-        DECLARE_ANIMATED_STRING_OVERRIDE(Href, href)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
+    PropertyRegistry m_propertyRegistry { *this };
 };
 
 } // namespace WebCore
-
-#endif // SVGMPathElement_h

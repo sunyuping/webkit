@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,36 +28,83 @@
 
 #if ENABLE(RESOURCE_USAGE)
 
-#include "MachVMSPI.h"
+#include "WorkerThread.h"
 #include <JavaScriptCore/GCActivityCallback.h>
-#include <heap/Heap.h>
+#include <JavaScriptCore/Heap.h>
+#include <JavaScriptCore/SamplingProfiler.h>
+#include <JavaScriptCore/VM.h>
 #include <mach/mach.h>
 #include <mach/vm_statistics.h>
-#include <runtime/VM.h>
-#include <sys/sysctl.h>
+#include <pal/spi/cocoa/MachVMSPI.h>
+#include <wtf/MachSendRight.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
-static size_t vmPageSize()
+size_t vmPageSize()
 {
-    static size_t pageSize;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [&] {
-        size_t outputSize = sizeof(pageSize);
-        int status = sysctlbyname("vm.pagesize", &pageSize, &outputSize, nullptr, 0);
-        ASSERT_UNUSED(status, status != -1);
-        ASSERT(pageSize);
-    });
-    return pageSize;
+#if PLATFORM(IOS_FAMILY)
+    return vm_kernel_page_size;
+#else
+    static size_t cached = sysconf(_SC_PAGESIZE);
+    return cached;
+#endif
 }
 
-struct TagInfo {
-    TagInfo() { }
-    size_t dirty { 0 };
-    size_t reclaimable { 0 };
-};
+void logFootprintComparison(const std::array<TagInfo, 256>& before, const std::array<TagInfo, 256>& after)
+{
+    const size_t pageSize = vmPageSize();
 
-static std::array<TagInfo, 256> pagesPerVMTag()
+    WTFLogAlways("Per-tag breakdown of memory reclaimed by pressure handler:");
+    WTFLogAlways("  ## %16s %10s %10s %10s", "VM Tag", "Before", "After", "Diff");
+    for (unsigned i = 0; i < 256; ++i) {
+        ssize_t dirtyBefore = before[i].dirty * pageSize;
+        ssize_t dirtyAfter = after[i].dirty * pageSize;
+        ssize_t dirtyDiff = dirtyAfter - dirtyBefore;
+        if (!dirtyBefore && !dirtyAfter)
+            continue;
+        String tagName = displayNameForVMTag(i);
+        if (!tagName)
+            tagName = makeString("Tag ", i);
+        WTFLogAlways("  %02X %16s %10ld %10ld %10ld",
+            i,
+            tagName.ascii().data(),
+            dirtyBefore,
+            dirtyAfter,
+            dirtyDiff
+        );
+    }
+}
+
+const char* displayNameForVMTag(unsigned tag)
+{
+    switch (tag) {
+    case VM_MEMORY_IOKIT: return "IOKit";
+    case VM_MEMORY_LAYERKIT: return "CoreAnimation";
+    case VM_MEMORY_IMAGEIO: return "ImageIO";
+    case VM_MEMORY_CGIMAGE: return "CG image";
+    case VM_MEMORY_JAVASCRIPT_JIT_EXECUTABLE_ALLOCATOR: return "JSC JIT";
+    case VM_MEMORY_JAVASCRIPT_CORE: return "WebAssembly";
+    case VM_MEMORY_MALLOC: return "malloc";
+    case VM_MEMORY_MALLOC_HUGE: return "malloc (huge)";
+    case VM_MEMORY_MALLOC_LARGE: return "malloc (large)";
+    case VM_MEMORY_MALLOC_SMALL: return "malloc (small)";
+    case VM_MEMORY_MALLOC_TINY: return "malloc (tiny)";
+    case VM_MEMORY_MALLOC_NANO: return "malloc (nano)";
+    case VM_MEMORY_TCMALLOC: return "bmalloc";
+    case VM_MEMORY_FOUNDATION: return "Foundation";
+    case VM_MEMORY_STACK: return "Stack";
+    case VM_MEMORY_SQLITE: return "SQLite";
+    case VM_MEMORY_UNSHARED_PMAP: return "pmap (unshared)";
+    case VM_MEMORY_DYLIB: return "dylib";
+    case VM_MEMORY_CORESERVICES: return "CoreServices";
+    case VM_MEMORY_OS_ALLOC_ONCE: return "os_alloc_once";
+    case VM_MEMORY_LIBDISPATCH: return "libdispatch";
+    default: return nullptr;
+    }
+}
+
+std::array<TagInfo, 256> pagesPerVMTag()
 {
     std::array<TagInfo, 256> tags;
     task_t task = mach_task_self();
@@ -95,37 +142,6 @@ static std::array<TagInfo, 256> pagesPerVMTag()
     return tags;
 }
 
-static float cpuUsage()
-{
-    thread_array_t threadList;
-    mach_msg_type_number_t threadCount;
-    kern_return_t kr = task_threads(mach_task_self(), &threadList, &threadCount);
-    if (kr != KERN_SUCCESS)
-        return -1;
-
-    float usage = 0;
-
-    for (mach_msg_type_number_t i = 0; i < threadCount; ++i) {
-        thread_info_data_t threadInfo;
-        thread_basic_info_t threadBasicInfo;
-
-        mach_msg_type_number_t threadInfoCount = THREAD_INFO_MAX;
-        kr = thread_info(threadList[i], THREAD_BASIC_INFO, static_cast<thread_info_t>(threadInfo), &threadInfoCount);
-        if (kr != KERN_SUCCESS)
-            return -1;
-
-        threadBasicInfo = reinterpret_cast<thread_basic_info_t>(threadInfo);
-
-        if (!(threadBasicInfo->flags & TH_FLAGS_IDLE))
-            usage += threadBasicInfo->cpu_usage / static_cast<float>(TH_USAGE_SCALE) * 100.0;
-    }
-
-    kr = vm_deallocate(mach_task_self(), (vm_offset_t)threadList, threadCount * sizeof(thread_t));
-    ASSERT(kr == KERN_SUCCESS);
-
-    return usage;
-}
-
 static unsigned categoryForVMTag(unsigned tag)
 {
     switch (tag) {
@@ -137,6 +153,8 @@ static unsigned categoryForVMTag(unsigned tag)
         return MemoryCategory::Images;
     case VM_MEMORY_JAVASCRIPT_JIT_EXECUTABLE_ALLOCATOR:
         return MemoryCategory::JSJIT;
+    case VM_MEMORY_JAVASCRIPT_CORE:
+        return MemoryCategory::WebAssembly;
     case VM_MEMORY_MALLOC:
     case VM_MEMORY_MALLOC_HUGE:
     case VM_MEMORY_MALLOC_LARGE:
@@ -149,12 +167,162 @@ static unsigned categoryForVMTag(unsigned tag)
     default:
         return MemoryCategory::Other;
     }
+}
+
+struct ThreadInfo {
+    MachSendRight sendRight;
+    float usage { 0 };
+    String threadName;
+    String dispatchQueueName;
 };
 
-void ResourceUsageThread::platformThreadBody(JSC::VM* vm, ResourceUsageData& data)
+static Vector<ThreadInfo> threadInfos()
 {
-    data.cpu = cpuUsage();
+    thread_array_t threadList = nullptr;
+    mach_msg_type_number_t threadCount = 0;
+    kern_return_t kr = task_threads(mach_task_self(), &threadList, &threadCount);
+    ASSERT(kr == KERN_SUCCESS);
+    if (kr != KERN_SUCCESS)
+        return { };
 
+    Vector<ThreadInfo> infos;
+    for (mach_msg_type_number_t i = 0; i < threadCount; ++i) {
+        MachSendRight sendRight = MachSendRight::adopt(threadList[i]);
+
+        thread_info_data_t threadInfo;
+        mach_msg_type_number_t threadInfoCount = THREAD_INFO_MAX;
+        kr = thread_info(sendRight.sendRight(), THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&threadInfo), &threadInfoCount);
+        ASSERT(kr == KERN_SUCCESS);
+        if (kr != KERN_SUCCESS)
+            continue;
+
+        thread_identifier_info_data_t threadIdentifierInfo;
+        mach_msg_type_number_t threadIdentifierInfoCount = THREAD_IDENTIFIER_INFO_COUNT;
+        kr = thread_info(sendRight.sendRight(), THREAD_IDENTIFIER_INFO, reinterpret_cast<thread_info_t>(&threadIdentifierInfo), &threadIdentifierInfoCount);
+        ASSERT(kr == KERN_SUCCESS);
+        if (kr != KERN_SUCCESS)
+            continue;
+
+        thread_extended_info_data_t threadExtendedInfo;
+        mach_msg_type_number_t threadExtendedInfoCount = THREAD_EXTENDED_INFO_COUNT;
+        kr = thread_info(sendRight.sendRight(), THREAD_EXTENDED_INFO, reinterpret_cast<thread_info_t>(&threadExtendedInfo), &threadExtendedInfoCount);
+        ASSERT(kr == KERN_SUCCESS);
+        if (kr != KERN_SUCCESS)
+            continue;
+
+        float usage = 0;
+        auto threadBasicInfo = reinterpret_cast<thread_basic_info_t>(threadInfo);
+        if (!(threadBasicInfo->flags & TH_FLAGS_IDLE))
+            usage = threadBasicInfo->cpu_usage / static_cast<float>(TH_USAGE_SCALE) * 100.0;
+
+        String threadName = String(threadExtendedInfo.pth_name);
+        String dispatchQueueName;
+        if (threadIdentifierInfo.dispatch_qaddr) {
+            dispatch_queue_t queue = *reinterpret_cast<dispatch_queue_t*>(threadIdentifierInfo.dispatch_qaddr);
+            dispatchQueueName = String(dispatch_queue_get_label(queue));
+        }
+
+        infos.append(ThreadInfo { WTFMove(sendRight), usage, threadName, dispatchQueueName });
+    }
+
+    kr = vm_deallocate(mach_task_self(), (vm_offset_t)threadList, threadCount * sizeof(thread_t));
+    ASSERT(kr == KERN_SUCCESS);
+
+    return infos;
+}
+
+void ResourceUsageThread::platformSaveStateBeforeStarting()
+{
+#if ENABLE(SAMPLING_PROFILER)
+    m_samplingProfilerMachThread = m_vm->samplingProfiler() ? m_vm->samplingProfiler()->machThread() : MACH_PORT_NULL;
+#endif
+}
+
+void ResourceUsageThread::platformCollectCPUData(JSC::VM*, ResourceUsageData& data)
+{
+    Vector<ThreadInfo> threads = threadInfos();
+    if (threads.isEmpty()) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    // Main thread is always first.
+    ASSERT(threads[0].dispatchQueueName == "com.apple.main-thread");
+
+    mach_port_t resourceUsageMachThread = mach_thread_self();
+    mach_port_t mainThreadMachThread = threads[0].sendRight.sendRight();
+
+    HashSet<mach_port_t> knownWebKitThreads;
+    {
+        LockHolder lock(Thread::allThreadsMutex());
+        for (auto* thread : Thread::allThreads(lock)) {
+            mach_port_t machThread = thread->machThread();
+            if (machThread != MACH_PORT_NULL)
+                knownWebKitThreads.add(machThread);
+        }
+    }
+
+    HashMap<mach_port_t, String> knownWorkerThreads;
+    {
+        LockHolder lock(WorkerThread::workerThreadsMutex());
+        for (auto* thread : WorkerThread::workerThreads(lock)) {
+            mach_port_t machThread = thread->thread()->machThread();
+            if (machThread != MACH_PORT_NULL)
+                knownWorkerThreads.set(machThread, thread->identifier().isolatedCopy());
+        }
+    }
+
+    auto isDebuggerThread = [&](const ThreadInfo& thread) -> bool {
+        mach_port_t machThread = thread.sendRight.sendRight();
+        if (machThread == resourceUsageMachThread)
+            return true;
+#if ENABLE(SAMPLING_PROFILER)
+        if (machThread == m_samplingProfilerMachThread)
+            return true;
+#endif
+        return false;
+    };
+
+    auto isWebKitThread = [&](const ThreadInfo& thread) -> bool {
+        mach_port_t machThread = thread.sendRight.sendRight();
+        if (knownWebKitThreads.contains(machThread))
+            return true;
+
+        // The bmalloc scavenger thread is below WTF. Detect it by its name.
+        if (thread.threadName == "JavaScriptCore bmalloc scavenger")
+            return true;
+
+        // WebKit uses many WorkQueues with common prefixes.
+        if (thread.dispatchQueueName.startsWith("com.apple.IPC.")
+            || thread.dispatchQueueName.startsWith("com.apple.WebKit.")
+            || thread.dispatchQueueName.startsWith("org.webkit."))
+            return true;
+
+        return false;
+    };
+
+    for (auto& thread : threads) {
+        data.cpu += thread.usage;
+        if (isDebuggerThread(thread))
+            continue;
+
+        data.cpuExcludingDebuggerThreads += thread.usage;
+
+        mach_port_t machThread = thread.sendRight.sendRight();
+        if (machThread == mainThreadMachThread) {
+            data.cpuThreads.append(ThreadCPUInfo { "Main Thread"_s, String(), thread.usage, ThreadCPUInfo::Type::Main});
+            continue;
+        }
+
+        String threadIdentifier = knownWorkerThreads.get(machThread);
+        bool isWorkerThread = !threadIdentifier.isEmpty();
+        ThreadCPUInfo::Type type = (isWorkerThread || isWebKitThread(thread)) ? ThreadCPUInfo::Type::WebKit : ThreadCPUInfo::Type::Unknown;
+        data.cpuThreads.append(ThreadCPUInfo { thread.threadName, threadIdentifier, thread.usage, type });
+    }
+}
+
+void ResourceUsageThread::platformCollectMemoryData(JSC::VM* vm, ResourceUsageData& data)
+{
     auto tags = pagesPerVMTag();
     std::array<TagInfo, MemoryCategory::NumberOfCategories> pagesPerCategory;
     size_t totalDirtyPages = 0;
@@ -173,17 +341,29 @@ void ResourceUsageThread::platformThreadBody(JSC::VM* vm, ResourceUsageData& dat
     data.totalDirtySize = totalDirtyPages * vmPageSize();
 
     size_t currentGCHeapCapacity = vm->heap.blockBytesAllocated();
-    size_t currentGCOwned = vm->heap.extraMemorySize();
+    size_t currentGCOwnedExtra = vm->heap.extraMemorySize();
+    size_t currentGCOwnedExternal = vm->heap.externalMemorySize();
+    ASSERT(currentGCOwnedExternal <= currentGCOwnedExtra);
 
     data.categories[MemoryCategory::GCHeap].dirtySize = currentGCHeapCapacity;
-    data.categories[MemoryCategory::GCOwned].dirtySize = currentGCOwned;
+    data.categories[MemoryCategory::GCOwned].dirtySize = currentGCOwnedExtra - currentGCOwnedExternal;
+    data.categories[MemoryCategory::GCOwned].externalSize = currentGCOwnedExternal;
 
-    // Subtract known subchunks from the bmalloc bucket.
-    // FIXME: Handle running with bmalloc disabled.
-    data.categories[MemoryCategory::bmalloc].dirtySize -= currentGCHeapCapacity + currentGCOwned;
+    auto& mallocBucket = isFastMallocEnabled() ? data.categories[MemoryCategory::bmalloc] : data.categories[MemoryCategory::LibcMalloc];
 
-    data.timeOfNextEdenCollection = vm->heap.edenActivityCallback()->nextFireTime();
-    data.timeOfNextFullCollection = vm->heap.fullActivityCallback()->nextFireTime();
+    // First subtract memory allocated by the GC heap, since we track that separately.
+    mallocBucket.dirtySize -= currentGCHeapCapacity;
+
+    // It would be nice to assert that the "GC owned" amount is smaller than the total dirty malloc size,
+    // but since the "GC owned" accounting is inexact, it's not currently feasible.
+    size_t currentGCOwnedGenerallyInMalloc = currentGCOwnedExtra - currentGCOwnedExternal;
+    if (currentGCOwnedGenerallyInMalloc < mallocBucket.dirtySize)
+        mallocBucket.dirtySize -= currentGCOwnedGenerallyInMalloc;
+
+    data.totalExternalSize = currentGCOwnedExternal;
+
+    data.timeOfNextEdenCollection = data.timestamp + vm->heap.edenActivityCallback()->timeUntilFire().valueOr(Seconds(std::numeric_limits<double>::infinity()));
+    data.timeOfNextFullCollection = data.timestamp + vm->heap.fullActivityCallback()->timeUntilFire().valueOr(Seconds(std::numeric_limits<double>::infinity()));
 }
 
 }

@@ -23,8 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ImageObserver_h
-#define ImageObserver_h
+#pragma once
+
+#include "ImageTypes.h"
 
 namespace WebCore {
 
@@ -35,16 +36,20 @@ class IntRect;
 // drawing, and animating.
 class ImageObserver {
 protected:
-    virtual ~ImageObserver() {}
+    virtual ~ImageObserver() = default;
 public:
-    virtual void decodedSizeChanged(const Image*, int delta) = 0;
-    virtual void didDraw(const Image*) = 0;
+    virtual URL sourceUrl() const = 0;
+    virtual String mimeType() const = 0;
+    virtual long long expectedContentLength() const = 0;
 
-    virtual void animationAdvanced(const Image*) = 0;
+    virtual void encodedDataStatusChanged(const Image&, EncodedDataStatus) { };
+    virtual void decodedSizeChanged(const Image&, long long delta) = 0;
 
-    virtual void changedInRect(const Image*, const IntRect&) = 0;
+    virtual void didDraw(const Image&) = 0;
+
+    virtual bool canDestroyDecodedData(const Image&) = 0;
+    virtual void imageFrameAvailable(const Image&, ImageAnimatingState, const IntRect* changeRect = nullptr, DecodingStatus = DecodingStatus::Invalid) = 0;
+    virtual void changedInRect(const Image&, const IntRect* changeRect = nullptr) = 0;
 };
 
 }
-
-#endif

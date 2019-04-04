@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,191 +31,263 @@
 
 #include "DirectArguments.h"
 #include "JSArray.h"
-#include "JSFunction.h"
+#include "JSBigInt.h"
+#include "JSBoundFunction.h"
 #include "JSCInlines.h"
+#include "JSFunction.h"
+#include "JSMap.h"
+#include "JSSet.h"
+#include "JSWeakMap.h"
+#include "JSWeakSet.h"
+#include "ProxyObject.h"
+#include "RegExpObject.h"
 #include "ScopedArguments.h"
 #include "StringObject.h"
 #include "ValueProfile.h"
+#include <wtf/CommaPrinter.h>
 #include <wtf/StringPrintStream.h>
 
 namespace JSC {
 
-void dumpSpeculation(PrintStream& out, SpeculatedType value)
+struct PrettyPrinter {
+    PrettyPrinter(PrintStream& out)
+        : out(out)
+        , separator("|")
+    { }
+    
+    template<typename T>
+    void print(const T& value)
+    {
+        out.print(separator, value);
+    }
+    
+    PrintStream& out;
+    CommaPrinter separator;
+};
+    
+void dumpSpeculation(PrintStream& outStream, SpeculatedType value)
 {
+    StringPrintStream strStream;
+    PrettyPrinter out(outStream);
+    PrettyPrinter strOut(strStream);
+    
     if (value == SpecNone) {
         out.print("None");
         return;
     }
     
-    StringPrintStream myOut;
-    
     bool isTop = true;
     
     if ((value & SpecCell) == SpecCell)
-        myOut.print("Cell");
+        strOut.print("Cell");
     else {
         if ((value & SpecObject) == SpecObject)
-            myOut.print("Object");
+            strOut.print("Object");
         else {
             if (value & SpecCellOther)
-                myOut.print("Othercell");
+                strOut.print("OtherCell");
             else
                 isTop = false;
     
             if (value & SpecObjectOther)
-                myOut.print("Otherobj");
+                strOut.print("OtherObj");
             else
                 isTop = false;
     
             if (value & SpecFinalObject)
-                myOut.print("Final");
+                strOut.print("Final");
             else
                 isTop = false;
 
             if (value & SpecArray)
-                myOut.print("Array");
+                strOut.print("Array");
             else
                 isTop = false;
     
             if (value & SpecInt8Array)
-                myOut.print("Int8array");
+                strOut.print("Int8Array");
             else
                 isTop = false;
     
             if (value & SpecInt16Array)
-                myOut.print("Int16array");
+                strOut.print("Int16Array");
             else
                 isTop = false;
     
             if (value & SpecInt32Array)
-                myOut.print("Int32array");
+                strOut.print("Int32Array");
             else
                 isTop = false;
     
             if (value & SpecUint8Array)
-                myOut.print("Uint8array");
+                strOut.print("Uint8Array");
             else
                 isTop = false;
 
             if (value & SpecUint8ClampedArray)
-                myOut.print("Uint8clampedarray");
+                strOut.print("Uint8ClampedArray");
             else
                 isTop = false;
     
             if (value & SpecUint16Array)
-                myOut.print("Uint16array");
+                strOut.print("Uint16Array");
             else
                 isTop = false;
     
             if (value & SpecUint32Array)
-                myOut.print("Uint32array");
+                strOut.print("Uint32Array");
             else
                 isTop = false;
     
             if (value & SpecFloat32Array)
-                myOut.print("Float32array");
+                strOut.print("Float32array");
             else
                 isTop = false;
     
             if (value & SpecFloat64Array)
-                myOut.print("Float64array");
+                strOut.print("Float64Array");
             else
                 isTop = false;
     
             if (value & SpecFunction)
-                myOut.print("Function");
+                strOut.print("Function");
             else
                 isTop = false;
     
             if (value & SpecDirectArguments)
-                myOut.print("Directarguments");
+                strOut.print("DirectArguments");
             else
                 isTop = false;
     
             if (value & SpecScopedArguments)
-                myOut.print("Scopedarguments");
+                strOut.print("ScopedArguments");
             else
                 isTop = false;
     
             if (value & SpecStringObject)
-                myOut.print("Stringobject");
+                strOut.print("StringObject");
+            else
+                isTop = false;
+    
+            if (value & SpecRegExpObject)
+                strOut.print("RegExpObject");
+            else
+                isTop = false;
+
+            if (value & SpecMapObject)
+                strOut.print("MapObject");
+            else
+                isTop = false;
+
+            if (value & SpecSetObject)
+                strOut.print("SetObject");
+            else
+                isTop = false;
+
+            if (value & SpecWeakMapObject)
+                strOut.print("WeakMapObject");
+            else
+                isTop = false;
+
+            if (value & SpecWeakSetObject)
+                strOut.print("WeakSetObject");
+            else
+                isTop = false;
+
+            if (value & SpecProxyObject)
+                strOut.print("ProxyObject");
+            else
+                isTop = false;
+
+            if (value & SpecDerivedArray)
+                strOut.print("DerivedArray");
+            else
+                isTop = false;
+
+            if (value & SpecDataViewObject)
+                strOut.print("DataView");
             else
                 isTop = false;
         }
 
         if ((value & SpecString) == SpecString)
-            myOut.print("String");
+            strOut.print("String");
         else {
             if (value & SpecStringIdent)
-                myOut.print("Stringident");
+                strOut.print("StringIdent");
             else
                 isTop = false;
             
             if (value & SpecStringVar)
-                myOut.print("Stringvar");
+                strOut.print("StringVar");
             else
                 isTop = false;
         }
 
         if (value & SpecSymbol)
-            myOut.print("Symbol");
+            strOut.print("Symbol");
+        else
+            isTop = false;
+
+        if (value & SpecBigInt)
+            strOut.print("BigInt");
         else
             isTop = false;
     }
     
-    if (value == SpecInt32)
-        myOut.print("Int32");
+    if (value == SpecInt32Only)
+        strOut.print("Int32");
     else {
         if (value & SpecBoolInt32)
-            myOut.print("Boolint32");
+            strOut.print("BoolInt32");
         else
             isTop = false;
         
         if (value & SpecNonBoolInt32)
-            myOut.print("Nonboolint32");
+            strOut.print("NonBoolInt32");
         else
             isTop = false;
     }
     
-    if (value & SpecInt52)
-        myOut.print("Int52");
+    if (value & SpecInt52Only)
+        strOut.print("Int52");
         
     if ((value & SpecBytecodeDouble) == SpecBytecodeDouble)
-        myOut.print("Bytecodedouble");
+        strOut.print("BytecodeDouble");
     else {
-        if (value & SpecInt52AsDouble)
-            myOut.print("Int52asdouble");
+        if (value & SpecAnyIntAsDouble)
+            strOut.print("AnyIntAsDouble");
         else
             isTop = false;
         
         if (value & SpecNonIntAsDouble)
-            myOut.print("Nonintasdouble");
+            strOut.print("NonIntAsDouble");
         else
             isTop = false;
         
         if (value & SpecDoublePureNaN)
-            myOut.print("Doublepurenan");
+            strOut.print("DoublePureNan");
         else
             isTop = false;
     }
     
     if (value & SpecDoubleImpureNaN)
-        out.print("Doubleimpurenan");
+        out.print("DoubleImpureNan");
     
     if (value & SpecBoolean)
-        myOut.print("Bool");
+        strOut.print("Bool");
     else
         isTop = false;
     
     if (value & SpecOther)
-        myOut.print("Other");
+        strOut.print("Other");
     else
         isTop = false;
     
     if (isTop)
         out.print("Top");
     else
-        out.print(myOut.toCString());
+        out.print(strStream.toCString());
     
     if (value & SpecEmpty)
         out.print("Empty");
@@ -257,6 +329,8 @@ static const char* speculationToAbbreviatedString(SpeculatedType prediction)
         return "<ScopedArguments>";
     if (isStringObjectSpeculation(prediction))
         return "<StringObject>";
+    if (isRegExpObjectSpeculation(prediction))
+        return "<RegExpObject>";
     if (isStringOrStringObjectSpeculation(prediction))
         return "<StringOrStringObject>";
     if (isObjectSpeculation(prediction))
@@ -267,12 +341,12 @@ static const char* speculationToAbbreviatedString(SpeculatedType prediction)
         return "<BoolInt32>";
     if (isInt32Speculation(prediction))
         return "<Int32>";
-    if (isInt52AsDoubleSpeculation(prediction))
-        return "<Int52AsDouble>";
+    if (isAnyIntAsDoubleSpeculation(prediction))
+        return "<AnyIntAsDouble>";
     if (isInt52Speculation(prediction))
         return "<Int52>";
-    if (isMachineIntSpeculation(prediction))
-        return "<MachineInt>";
+    if (isAnyIntSpeculation(prediction))
+        return "<AnyInt>";
     if (isDoubleSpeculation(prediction))
         return "<Double>";
     if (isFullNumberSpeculation(prediction))
@@ -322,6 +396,15 @@ SpeculatedType speculationFromTypedArrayType(TypedArrayType type)
 
 SpeculatedType speculationFromClassInfo(const ClassInfo* classInfo)
 {
+    if (classInfo == JSString::info())
+        return SpecString;
+
+    if (classInfo == Symbol::info())
+        return SpecSymbol;
+    
+    if (classInfo == JSBigInt::info())
+        return SpecBigInt;
+
     if (classInfo == JSFinalObject::info())
         return SpecFinalObject;
     
@@ -336,12 +419,39 @@ SpeculatedType speculationFromClassInfo(const ClassInfo* classInfo)
     
     if (classInfo == StringObject::info())
         return SpecStringObject;
+
+    if (classInfo == RegExpObject::info())
+        return SpecRegExpObject;
+
+    if (classInfo == JSMap::info())
+        return SpecMapObject;
+
+    if (classInfo == JSSet::info())
+        return SpecSetObject;
+
+    if (classInfo == JSWeakMap::info())
+        return SpecWeakMapObject;
+
+    if (classInfo == JSWeakSet::info())
+        return SpecWeakSetObject;
+
+    if (classInfo == ProxyObject::info())
+        return SpecProxyObject;
+
+    if (classInfo == JSDataView::info())
+        return SpecDataViewObject;
     
-    if (classInfo->isSubClassOf(JSFunction::info()))
-        return SpecFunction;
+    if (classInfo->isSubClassOf(JSFunction::info())) {
+        if (classInfo == JSBoundFunction::info())
+            return SpecFunctionWithNonDefaultHasInstance;
+        return SpecFunctionWithDefaultHasInstance;
+    }
     
     if (isTypedView(classInfo->typedArrayStorageType))
         return speculationFromTypedArrayType(classInfo->typedArrayStorageType);
+
+    if (classInfo->isSubClassOf(JSArray::info()))
+        return SpecDerivedArray;
     
     if (classInfo->isSubClassOf(JSObject::info()))
         return SpecObjectOther;
@@ -355,17 +465,22 @@ SpeculatedType speculationFromStructure(Structure* structure)
         return SpecString;
     if (structure->typeInfo().type() == SymbolType)
         return SpecSymbol;
+    if (structure->typeInfo().type() == BigIntType)
+        return SpecBigInt;
+    if (structure->typeInfo().type() == DerivedArrayType)
+        return SpecDerivedArray;
     return speculationFromClassInfo(structure->classInfo());
 }
 
 SpeculatedType speculationFromCell(JSCell* cell)
 {
-    if (JSString* string = jsDynamicCast<JSString*>(cell)) {
+    if (cell->isString()) {
+        JSString* string = jsCast<JSString*>(cell);
         if (const StringImpl* impl = string->tryGetValueImpl()) {
             if (impl->isAtomic())
                 return SpecStringIdent;
         }
-        return SpecStringVar;
+        return SpecString;
     }
     return speculationFromStructure(cell->structure());
 }
@@ -383,8 +498,8 @@ SpeculatedType speculationFromValue(JSValue value)
         double number = value.asNumber();
         if (number != number)
             return SpecDoublePureNaN;
-        if (value.isMachineInt())
-            return SpecInt52AsDouble;
+        if (value.isAnyInt())
+            return SpecAnyIntAsDouble;
         return SpecNonIntAsDouble;
     }
     if (value.isCell())
@@ -427,10 +542,45 @@ TypedArrayType typedArrayTypeFromSpeculation(SpeculatedType type)
     return NotTypedArray;
 }
 
+SpeculatedType speculationFromJSType(JSType type)
+{
+    switch (type) {
+    case StringType:
+        return SpecString;
+    case SymbolType:
+        return SpecSymbol;
+    case BigIntType:
+        return SpecBigInt;
+    case ArrayType:
+        return SpecArray;
+    case DerivedArrayType:
+        return SpecDerivedArray;
+    case RegExpObjectType:
+        return SpecRegExpObject;
+    case ProxyObjectType:
+        return SpecProxyObject;
+    case JSMapType:
+        return SpecMapObject;
+    case JSSetType:
+        return SpecSetObject;
+    case JSWeakMapType:
+        return SpecWeakMapObject;
+    case JSWeakSetType:
+        return SpecWeakSetObject;
+    case DataViewType:
+        return SpecDataViewObject;
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    return SpecNone;
+}
+
 SpeculatedType leastUpperBoundOfStrictlyEquivalentSpeculations(SpeculatedType type)
 {
-    if (type & SpecInteger)
-        type |= SpecInteger;
+    // SpecNonIntAsDouble includes negative zero (-0.0), which can be equal to 0 and 0.0 in the context of == and ===.
+    if (type & (SpecAnyInt | SpecAnyIntAsDouble | SpecNonIntAsDouble))
+        type |= (SpecAnyInt | SpecAnyIntAsDouble | SpecNonIntAsDouble);
+
     if (type & SpecString)
         type |= SpecString;
     return type;
@@ -462,9 +612,18 @@ bool valuesCouldBeEqual(SpeculatedType a, SpeculatedType b)
     return !!(a & b);
 }
 
-SpeculatedType typeOfDoubleSum(SpeculatedType a, SpeculatedType b)
+static SpeculatedType typeOfDoubleSumOrDifferenceOrProduct(SpeculatedType a, SpeculatedType b)
 {
     SpeculatedType result = a | b;
+
+    if (result & SpecNonIntAsDouble) {
+        // NaN can be produced by:
+        // Infinity - Infinity
+        // Infinity + (-Infinity)
+        // Infinity * 0
+        result |= SpecDoublePureNaN;
+    }
+
     // Impure NaN could become pure NaN during addition because addition may clear bits.
     if (result & SpecDoubleImpureNaN)
         result |= SpecDoublePureNaN;
@@ -474,14 +633,19 @@ SpeculatedType typeOfDoubleSum(SpeculatedType a, SpeculatedType b)
     return result;
 }
 
+SpeculatedType typeOfDoubleSum(SpeculatedType a, SpeculatedType b)
+{
+    return typeOfDoubleSumOrDifferenceOrProduct(a, b);
+}
+
 SpeculatedType typeOfDoubleDifference(SpeculatedType a, SpeculatedType b)
 {
-    return typeOfDoubleSum(a, b);
+    return typeOfDoubleSumOrDifferenceOrProduct(a, b);
 }
 
 SpeculatedType typeOfDoubleProduct(SpeculatedType a, SpeculatedType b)
 {
-    return typeOfDoubleSum(a, b);
+    return typeOfDoubleSumOrDifferenceOrProduct(a, b);
 }
 
 static SpeculatedType polluteDouble(SpeculatedType value)
@@ -512,10 +676,11 @@ SpeculatedType typeOfDoubleMinMax(SpeculatedType a, SpeculatedType b)
 
 SpeculatedType typeOfDoubleNegation(SpeculatedType value)
 {
-    // Impure NaN could become pure NaN because bits might get cleared.
-    if (value & SpecDoubleImpureNaN)
-        value |= SpecDoublePureNaN;
-    // We could get negative zero, which mixes SpecInt52AsDouble and SpecNotIntAsDouble.
+    // Changing bits can make pure NaN impure and vice versa:
+    // 0xefff000000000000 (pure) - 0xffff000000000000 (impure)
+    if (value & SpecDoubleNaN)
+        value |= SpecDoubleNaN;
+    // We could get negative zero, which mixes SpecAnyIntAsDouble and SpecNotIntAsDouble.
     // We could also overflow a large negative int into something that is no longer
     // representable as an int.
     if (value & SpecDoubleReal)
@@ -530,12 +695,13 @@ SpeculatedType typeOfDoubleAbs(SpeculatedType value)
 
 SpeculatedType typeOfDoubleRounding(SpeculatedType value)
 {
-    // We might lose bits, which leads to a NaN being purified.
-    if (value & SpecDoubleImpureNaN)
-        value |= SpecDoublePureNaN;
+    // Double Pure NaN can becomes impure when converted back from Float.
+    // and vice versa.
+    if (value & SpecDoubleNaN)
+        value |= SpecDoubleNaN;
     // We might lose bits, which leads to a value becoming integer-representable.
     if (value & SpecNonIntAsDouble)
-        value |= SpecInt52AsDouble;
+        value |= SpecAnyIntAsDouble;
     return value;
 }
 
@@ -545,6 +711,9 @@ SpeculatedType typeOfDoublePow(SpeculatedType xValue, SpeculatedType yValue)
     // We always set a pure NaN in that case.
     if (yValue & SpecDoubleNaN)
         xValue |= SpecDoublePureNaN;
+    // Handle the wierd case of NaN ^ 0, which returns 1. See https://tc39.github.io/ecma262/#sec-applying-the-exp-operator
+    if (xValue & SpecDoubleNaN)
+        xValue |= SpecFullDouble;
     return polluteDouble(xValue);
 }
 
@@ -556,6 +725,131 @@ SpeculatedType typeOfDoubleBinaryOp(SpeculatedType a, SpeculatedType b)
 SpeculatedType typeOfDoubleUnaryOp(SpeculatedType value)
 {
     return polluteDouble(value);
+}
+
+SpeculatedType speculationFromString(const char* speculation)
+{
+    if (!strncmp(speculation, "SpecNone", strlen("SpecNone")))
+        return SpecNone;
+    if (!strncmp(speculation, "SpecFinalObject", strlen("SpecFinalObject")))
+        return SpecFinalObject;
+    if (!strncmp(speculation, "SpecArray", strlen("SpecArray")))
+        return SpecArray;
+    if (!strncmp(speculation, "SpecFunction", strlen("SpecFunction")))
+        return SpecFunction;
+    if (!strncmp(speculation, "SpecInt8Array", strlen("SpecInt8Array")))
+        return SpecInt8Array;
+    if (!strncmp(speculation, "SpecInt16Array", strlen("SpecInt16Array")))
+        return SpecInt16Array;
+    if (!strncmp(speculation, "SpecInt32Array", strlen("SpecInt32Array")))
+        return SpecInt32Array;
+    if (!strncmp(speculation, "SpecUint8Array", strlen("SpecUint8Array")))
+        return SpecUint8Array;
+    if (!strncmp(speculation, "SpecUint8ClampedArray", strlen("SpecUint8ClampedArray")))
+        return SpecUint8ClampedArray;
+    if (!strncmp(speculation, "SpecUint16Array", strlen("SpecUint16Array")))
+        return SpecUint16Array;
+    if (!strncmp(speculation, "SpecUint32Array", strlen("SpecUint32Array")))
+        return SpecUint32Array;
+    if (!strncmp(speculation, "SpecFloat32Array", strlen("SpecFloat32Array")))
+        return SpecFloat32Array;
+    if (!strncmp(speculation, "SpecFloat64Array", strlen("SpecFloat64Array")))
+        return SpecFloat64Array;
+    if (!strncmp(speculation, "SpecTypedArrayView", strlen("SpecTypedArrayView")))
+        return SpecTypedArrayView;
+    if (!strncmp(speculation, "SpecDirectArguments", strlen("SpecDirectArguments")))
+        return SpecDirectArguments;
+    if (!strncmp(speculation, "SpecScopedArguments", strlen("SpecScopedArguments")))
+        return SpecScopedArguments;
+    if (!strncmp(speculation, "SpecStringObject", strlen("SpecStringObject")))
+        return SpecStringObject;
+    if (!strncmp(speculation, "SpecRegExpObject", strlen("SpecRegExpObject")))
+        return SpecRegExpObject;
+    if (!strncmp(speculation, "SpecMapObject", strlen("SpecMapObject")))
+        return SpecMapObject;
+    if (!strncmp(speculation, "SpecSetObject", strlen("SpecSetObject")))
+        return SpecSetObject;
+    if (!strncmp(speculation, "SpecWeakMapObject", strlen("SpecWeakMapObject")))
+        return SpecWeakMapObject;
+    if (!strncmp(speculation, "SpecWeakSetObject", strlen("SpecWeakSetObject")))
+        return SpecWeakSetObject;
+    if (!strncmp(speculation, "SpecProxyObject", strlen("SpecProxyObject")))
+        return SpecProxyObject;
+    if (!strncmp(speculation, "SpecDerivedArray", strlen("SpecDerivedArray")))
+        return SpecDerivedArray;
+    if (!strncmp(speculation, "SpecDataViewObject", strlen("SpecDataViewObject")))
+        return SpecDataViewObject;
+    if (!strncmp(speculation, "SpecObjectOther", strlen("SpecObjectOther")))
+        return SpecObjectOther;
+    if (!strncmp(speculation, "SpecObject", strlen("SpecObject")))
+        return SpecObject;
+    if (!strncmp(speculation, "SpecStringIdent", strlen("SpecStringIdent")))
+        return SpecStringIdent;
+    if (!strncmp(speculation, "SpecStringVar", strlen("SpecStringVar")))
+        return SpecStringVar;
+    if (!strncmp(speculation, "SpecString", strlen("SpecString")))
+        return SpecString;
+    if (!strncmp(speculation, "SpecSymbol", strlen("SpecSymbol")))
+        return SpecSymbol;
+    if (!strncmp(speculation, "SpecBigInt", strlen("SpecBigInt")))
+        return SpecBigInt;
+    if (!strncmp(speculation, "SpecCellOther", strlen("SpecCellOther")))
+        return SpecCellOther;
+    if (!strncmp(speculation, "SpecCell", strlen("SpecCell")))
+        return SpecCell;
+    if (!strncmp(speculation, "SpecBoolInt32", strlen("SpecBoolInt32")))
+        return SpecBoolInt32;
+    if (!strncmp(speculation, "SpecNonBoolInt32", strlen("SpecNonBoolInt32")))
+        return SpecNonBoolInt32;
+    if (!strncmp(speculation, "SpecInt32Only", strlen("SpecInt32Only")))
+        return SpecInt32Only;
+    if (!strncmp(speculation, "SpecInt52Only", strlen("SpecInt52Only")))
+        return SpecInt52Only;
+    if (!strncmp(speculation, "SpecAnyInt", strlen("SpecAnyInt")))
+        return SpecAnyInt;
+    if (!strncmp(speculation, "SpecAnyIntAsDouble", strlen("SpecAnyIntAsDouble")))
+        return SpecAnyIntAsDouble;
+    if (!strncmp(speculation, "SpecNonIntAsDouble", strlen("SpecNonIntAsDouble")))
+        return SpecNonIntAsDouble;
+    if (!strncmp(speculation, "SpecDoubleReal", strlen("SpecDoubleReal")))
+        return SpecDoubleReal;
+    if (!strncmp(speculation, "SpecDoublePureNaN", strlen("SpecDoublePureNaN")))
+        return SpecDoublePureNaN;
+    if (!strncmp(speculation, "SpecDoubleImpureNaN", strlen("SpecDoubleImpureNaN")))
+        return SpecDoubleImpureNaN;
+    if (!strncmp(speculation, "SpecDoubleNaN", strlen("SpecDoubleNaN")))
+        return SpecDoubleNaN;
+    if (!strncmp(speculation, "SpecBytecodeDouble", strlen("SpecBytecodeDouble")))
+        return SpecBytecodeDouble;
+    if (!strncmp(speculation, "SpecFullDouble", strlen("SpecFullDouble")))
+        return SpecFullDouble;
+    if (!strncmp(speculation, "SpecBytecodeRealNumber", strlen("SpecBytecodeRealNumber")))
+        return SpecBytecodeRealNumber;
+    if (!strncmp(speculation, "SpecFullRealNumber", strlen("SpecFullRealNumber")))
+        return SpecFullRealNumber;
+    if (!strncmp(speculation, "SpecBytecodeNumber", strlen("SpecBytecodeNumber")))
+        return SpecBytecodeNumber;
+    if (!strncmp(speculation, "SpecFullNumber", strlen("SpecFullNumber")))
+        return SpecFullNumber;
+    if (!strncmp(speculation, "SpecBoolean", strlen("SpecBoolean")))
+        return SpecBoolean;
+    if (!strncmp(speculation, "SpecOther", strlen("SpecOther")))
+        return SpecOther;
+    if (!strncmp(speculation, "SpecMisc", strlen("SpecMisc")))
+        return SpecMisc;
+    if (!strncmp(speculation, "SpecHeapTop", strlen("SpecHeapTop")))
+        return SpecHeapTop;
+    if (!strncmp(speculation, "SpecPrimitive", strlen("SpecPrimitive")))
+        return SpecPrimitive;
+    if (!strncmp(speculation, "SpecEmpty", strlen("SpecEmpty")))
+        return SpecEmpty;
+    if (!strncmp(speculation, "SpecBytecodeTop", strlen("SpecBytecodeTop")))
+        return SpecBytecodeTop;
+    if (!strncmp(speculation, "SpecFullTop", strlen("SpecFullTop")))
+        return SpecFullTop;
+    if (!strncmp(speculation, "SpecCellCheck", strlen("SpecCellCheck")))
+        return SpecCellCheck;
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 } // namespace JSC

@@ -18,16 +18,16 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef RenderSVGTextPath_h
-#define RenderSVGTextPath_h
+#pragma once
 
 #include "RenderSVGInline.h"
 
 namespace WebCore {
 
 class RenderSVGTextPath final : public RenderSVGInline {
+    WTF_MAKE_ISO_ALLOCATED(RenderSVGTextPath);
 public:
-    RenderSVGTextPath(SVGTextPathElement&, Ref<RenderStyle>&&);
+    RenderSVGTextPath(SVGTextPathElement&, RenderStyle&&);
 
     SVGTextPathElement& textPathElement() const;
 
@@ -39,8 +39,8 @@ public:
 private:
     void graphicsElement() const = delete;
 
-    virtual bool isSVGTextPath() const override { return true; }
-    virtual const char* renderName() const override { return "RenderSVGTextPath"; }
+    bool isSVGTextPath() const override { return true; }
+    const char* renderName() const override { return "RenderSVGTextPath"; }
 
     Path m_layoutPath;
 };
@@ -48,5 +48,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTextPath, isSVGTextPath())
-
-#endif // RenderSVGTextPath_h

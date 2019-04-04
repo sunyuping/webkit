@@ -27,10 +27,10 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MediaControlElements_h
-#define MediaControlElements_h
+#pragma once
 
 #if ENABLE(VIDEO)
+
 #include "MediaControlElementTypes.h"
 #include "TextTrackRepresentation.h"
 
@@ -39,6 +39,7 @@ namespace WebCore {
 // ----------------------------
 
 class MediaControlPanelElement final : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlPanelElement);
 public:
     static Ref<MediaControlPanelElement> create(Document&);
 
@@ -49,15 +50,15 @@ public:
     void makeOpaque();
     void makeTransparent();
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseMoveEvents() override { return true; }
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseMoveEvents() override { return true; }
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
 private:
     explicit MediaControlPanelElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
     void startDrag(const LayoutPoint& eventLocation);
     void continueDrag(const LayoutPoint& eventLocation);
@@ -82,6 +83,7 @@ private:
 // ----------------------------
 
 class MediaControlPanelEnclosureElement final : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlPanelEnclosureElement);
 public:
     static Ref<MediaControlPanelEnclosureElement> create(Document&);
 
@@ -92,6 +94,7 @@ private:
 // ----------------------------
 
 class MediaControlOverlayEnclosureElement final : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlOverlayEnclosureElement);
 public:
     static Ref<MediaControlOverlayEnclosureElement> create(Document&);
 
@@ -102,6 +105,7 @@ private:
 // ----------------------------
 
 class MediaControlTimelineContainerElement final : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlTimelineContainerElement);
 public:
     static Ref<MediaControlTimelineContainerElement> create(Document&);
 
@@ -110,30 +114,32 @@ public:
 private:
     explicit MediaControlTimelineContainerElement(Document&);
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
 };
 
 // ----------------------------
 
 class MediaControlVolumeSliderContainerElement final : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlVolumeSliderContainerElement);
 public:
     static Ref<MediaControlVolumeSliderContainerElement> create(Document&);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseMoveEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseMoveEvents() override { return true; }
 #endif
 
 private:
     explicit MediaControlVolumeSliderContainerElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
 };
 
 // ----------------------------
 
 class MediaControlStatusDisplayElement final : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlStatusDisplayElement);
 public:
     static Ref<MediaControlStatusDisplayElement> create(Document&);
 
@@ -149,17 +155,18 @@ private:
 // ----------------------------
 
 class MediaControlPanelMuteButtonElement final : public MediaControlMuteButtonElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlPanelMuteButtonElement);
 public:
     static Ref<MediaControlPanelMuteButtonElement> create(Document&, MediaControls*);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseMoveEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseMoveEvents() override { return true; }
 #endif
 
 private:
     explicit MediaControlPanelMuteButtonElement(Document&, MediaControls*);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
     MediaControls* m_controls;
 };
@@ -167,6 +174,7 @@ private:
 // ----------------------------
 
 class MediaControlVolumeSliderMuteButtonElement final : public MediaControlMuteButtonElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlVolumeSliderMuteButtonElement);
 public:
     static Ref<MediaControlVolumeSliderMuteButtonElement> create(Document&);
 
@@ -178,107 +186,114 @@ private:
 // ----------------------------
 
 class MediaControlPlayButtonElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlPlayButtonElement);
 public:
     static Ref<MediaControlPlayButtonElement> create(Document&);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
-    virtual void updateDisplayType() override;
+    void updateDisplayType() override;
 
 private:
     explicit MediaControlPlayButtonElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 };
 
 // ----------------------------
 
 class MediaControlOverlayPlayButtonElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlOverlayPlayButtonElement);
 public:
     static Ref<MediaControlOverlayPlayButtonElement> create(Document&);
 
-    virtual void updateDisplayType() override;
+    void updateDisplayType() override;
 
 private:
     explicit MediaControlOverlayPlayButtonElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 };
 
 // ----------------------------
 
 class MediaControlSeekForwardButtonElement final : public MediaControlSeekButtonElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlSeekForwardButtonElement);
 public:
     static Ref<MediaControlSeekForwardButtonElement> create(Document&);
 
 private:
     explicit MediaControlSeekForwardButtonElement(Document&);
 
-    virtual bool isForwardButton() const override { return true; }
+    bool isForwardButton() const override { return true; }
 };
 
 // ----------------------------
 
 class MediaControlSeekBackButtonElement final : public MediaControlSeekButtonElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlSeekBackButtonElement);
 public:
     static Ref<MediaControlSeekBackButtonElement> create(Document&);
 
 private:
     explicit MediaControlSeekBackButtonElement(Document&);
 
-    virtual bool isForwardButton() const override { return false; }
+    bool isForwardButton() const override { return false; }
 };
 
 // ----------------------------
 
 class MediaControlRewindButtonElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlRewindButtonElement);
 public:
     static Ref<MediaControlRewindButtonElement> create(Document&);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
 private:
     explicit MediaControlRewindButtonElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 };
 
 // ----------------------------
 
 class MediaControlReturnToRealtimeButtonElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlReturnToRealtimeButtonElement);
 public:
     static Ref<MediaControlReturnToRealtimeButtonElement> create(Document&);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
 private:
     explicit MediaControlReturnToRealtimeButtonElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 };
 
 // ----------------------------
 
 class MediaControlToggleClosedCaptionsButtonElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlToggleClosedCaptionsButtonElement);
 public:
     static Ref<MediaControlToggleClosedCaptionsButtonElement> create(Document&, MediaControls*);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
-    virtual void updateDisplayType() override;
+    void updateDisplayType() override;
 
 private:
     explicit MediaControlToggleClosedCaptionsButtonElement(Document&, MediaControls*);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
 #if PLATFORM(COCOA) || PLATFORM(WIN) || PLATFORM(GTK)
     MediaControls* m_controls;
@@ -288,11 +303,12 @@ private:
 // ----------------------------
 
 class MediaControlClosedCaptionsContainerElement final : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlClosedCaptionsContainerElement);
 public:
     static Ref<MediaControlClosedCaptionsContainerElement> create(Document&);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
 private:
@@ -302,11 +318,12 @@ private:
 // ----------------------------
 
 class MediaControlClosedCaptionsTrackListElement final : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlClosedCaptionsTrackListElement);
 public:
     static Ref<MediaControlClosedCaptionsTrackListElement> create(Document&, MediaControls*);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
     void updateDisplay();
@@ -316,7 +333,7 @@ private:
 
     void rebuildTrackListMenu();
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
     typedef Vector<RefPtr<Element>> TrackMenuItems;
     TrackMenuItems m_menuItems;
@@ -330,11 +347,12 @@ private:
 // ----------------------------
 
 class MediaControlTimelineElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlTimelineElement);
 public:
     static Ref<MediaControlTimelineElement> create(Document&, MediaControls*);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override;
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override;
 #endif
 
     void setPosition(double);
@@ -343,7 +361,7 @@ public:
 private:
     explicit MediaControlTimelineElement(Document&, MediaControls*);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
     MediaControls* m_controls;
 };
@@ -351,11 +369,12 @@ private:
 // ----------------------------
 
 class MediaControlFullscreenButtonElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlFullscreenButtonElement);
 public:
     static Ref<MediaControlFullscreenButtonElement> create(Document&);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
     void setIsFullscreen(bool);
@@ -363,12 +382,13 @@ public:
 private:
     explicit MediaControlFullscreenButtonElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 };
 
 // ----------------------------
 
 class MediaControlPanelVolumeSliderElement final : public MediaControlVolumeSliderElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlPanelVolumeSliderElement);
 public:
     static Ref<MediaControlPanelVolumeSliderElement> create(Document&);
 
@@ -378,6 +398,7 @@ private:
 // ----------------------------
 
 class MediaControlFullscreenVolumeSliderElement final : public MediaControlVolumeSliderElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlFullscreenVolumeSliderElement);
 public:
     static Ref<MediaControlFullscreenVolumeSliderElement> create(Document&);
 
@@ -388,38 +409,41 @@ private:
 // ----------------------------
 
 class MediaControlFullscreenVolumeMinButtonElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlFullscreenVolumeMinButtonElement);
 public:
     static Ref<MediaControlFullscreenVolumeMinButtonElement> create(Document&);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
 private:
     explicit MediaControlFullscreenVolumeMinButtonElement(Document&);
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 };
 
 // ----------------------------
 
 class MediaControlFullscreenVolumeMaxButtonElement final : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlFullscreenVolumeMaxButtonElement);
 public:
     static Ref<MediaControlFullscreenVolumeMaxButtonElement> create(Document&);
 
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override { return true; }
 #endif
 
 private:
     explicit MediaControlFullscreenVolumeMaxButtonElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 };
 
 
 // ----------------------------
 
 class MediaControlTimeRemainingDisplayElement final : public MediaControlTimeDisplayElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlTimeRemainingDisplayElement);
 public:
     static Ref<MediaControlTimeRemainingDisplayElement> create(Document&);
 
@@ -430,6 +454,7 @@ private:
 // ----------------------------
 
 class MediaControlCurrentTimeDisplayElement final : public MediaControlTimeDisplayElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlCurrentTimeDisplayElement);
 public:
     static Ref<MediaControlCurrentTimeDisplayElement> create(Document&);
 
@@ -442,6 +467,7 @@ private:
 #if ENABLE(VIDEO_TRACK)
 
 class MediaControlTextTrackContainerElement final : public MediaControlDivElement, public TextTrackRepresentationClient {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlTextTrackContainerElement);
 public:
     static Ref<MediaControlTextTrackContainerElement> create(Document&);
 
@@ -453,13 +479,14 @@ public:
 private:
     void updateTimerFired();
     void updateActiveCuesFontSize();
-
+    void updateTextStrokeStyle();
+    
     explicit MediaControlTextTrackContainerElement(Document&);
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
 
-    virtual RefPtr<Image> createTextTrackRepresentationImage() override;
-    virtual void textTrackRepresentationBoundsChanged(const IntRect&) override;
+    RefPtr<Image> createTextTrackRepresentationImage() override;
+    void textTrackRepresentationBoundsChanged(const IntRect&) override;
     void updateTextTrackRepresentation();
     void clearTextTrackRepresentation();
     void updateStyleForTextTrackRepresentation();
@@ -477,5 +504,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(VIDEO)
-
-#endif // MediaControlElements_h

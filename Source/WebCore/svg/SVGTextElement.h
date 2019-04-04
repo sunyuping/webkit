@@ -18,26 +18,24 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGTextElement_h
-#define SVGTextElement_h
+#pragma once
 
 #include "SVGTextPositioningElement.h"
 
 namespace WebCore {
 
 class SVGTextElement final : public SVGTextPositioningElement {
+    WTF_MAKE_ISO_ALLOCATED(SVGTextElement);
 public:
     static Ref<SVGTextElement> create(const QualifiedName&, Document&);
 
-    virtual AffineTransform animatedLocalTransform() const override;
+    AffineTransform animatedLocalTransform() const override;
 
 private:
     SVGTextElement(const QualifiedName&, Document&);
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual bool childShouldCreateRenderer(const Node&) const override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    bool childShouldCreateRenderer(const Node&) const override;
 };
 
 } // namespace WebCore
-
-#endif

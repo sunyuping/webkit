@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,22 +23,58 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef VMInlines_h
-#define VMInlines_h
+#pragma once
 
+#include "CallFrameInlines.h"
+#include "EntryFrame.h"
+#include "ProfilerDatabase.h"
 #include "VM.h"
 #include "Watchdog.h"
 
 namespace JSC {
     
-bool VM::shouldTriggerTermination(ExecState* exec)
+bool VM::ensureStackCapacityFor(Register* newTopOfStack)
 {
-    if (!watchdog())
-        return false;
-    return watchdog()->shouldTerminate(exec);
+#if !ENABLE(C_LOOP)
+    ASSERT(Thread::current().stack().isGrowingDownward());
+    return newTopOfStack >= m_softStackLimit;
+#else
+    return ensureStackCapacityForCLoop(newTopOfStack);
+#endif
+    
+}
+
+bool VM::isSafeToRecurseSoft() const
+{
+    bool safe = isSafeToRecurse(m_softStackLimit);
+#if ENABLE(C_LOOP)
+    safe = safe && isSafeToRecurseSoftCLoop();
+#endif
+    return safe;
+}
+
+template<typename Func>
+void VM::logEvent(CodeBlock* codeBlock, const char* summary, const Func& func)
+{
+    if (LIKELY(!m_perBytecodeProfiler))
+        return;
+    
+    m_perBytecodeProfiler->logEvent(codeBlock, summary, func());
+}
+
+inline CallFrame* VM::topJSCallFrame() const
+{
+    CallFrame* frame = topCallFrame;
+    if (UNLIKELY(!frame))
+        return frame;
+    if (LIKELY(!frame->isWasmFrame() && !frame->isStackOverflowFrame()))
+        return frame;
+    EntryFrame* entryFrame = topEntryFrame;
+    do {
+        frame = frame->callerFrame(entryFrame);
+        ASSERT(!frame || !frame->isStackOverflowFrame());
+    } while (frame && frame->isWasmFrame());
+    return frame;
 }
 
 } // namespace JSC
-
-#endif // LLIntData_h
-

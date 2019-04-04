@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,45 +19,54 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGRectElement_h
-#define SVGRectElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedLength.h"
 #include "SVGExternalResourcesRequired.h"
-#include "SVGGraphicsElement.h"
+#include "SVGGeometryElement.h"
 #include "SVGNames.h"
 
 namespace WebCore {
 
-class SVGRectElement final : public SVGGraphicsElement,
-                             public SVGExternalResourcesRequired {
+class SVGRectElement final : public SVGGeometryElement, public SVGExternalResourcesRequired {
+    WTF_MAKE_ISO_ALLOCATED(SVGRectElement);
 public:
     static Ref<SVGRectElement> create(const QualifiedName&, Document&);
 
+    const SVGLengthValue& x() const { return m_x->currentValue(); }
+    const SVGLengthValue& y() const { return m_y->currentValue(); }
+    const SVGLengthValue& width() const { return m_width->currentValue(); }
+    const SVGLengthValue& height() const { return m_height->currentValue(); }
+    const SVGLengthValue& rx() const { return m_rx->currentValue(); }
+    const SVGLengthValue& ry() const { return m_ry->currentValue(); }
+
+    SVGAnimatedLength& xAnimated() { return m_x; }
+    SVGAnimatedLength& yAnimated() { return m_y; }
+    SVGAnimatedLength& widthAnimated() { return m_width; }
+    SVGAnimatedLength& heightAnimated() { return m_height; }
+    SVGAnimatedLength& rxAnimated() { return m_rx; }
+    SVGAnimatedLength& ryAnimated() { return m_ry; }
+
 private:
     SVGRectElement(const QualifiedName&, Document&);
-    
-    virtual bool isValid() const override { return SVGTests::isValid(); }
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGRectElement, SVGGeometryElement, SVGExternalResourcesRequired>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual bool selfHasRelativeLengths() const override { return true; }
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void svgAttributeChanged(const QualifiedName&) final;
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    bool isValid() const final { return SVGTests::isValid(); }
+    bool selfHasRelativeLengths() const final { return true; }
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGRectElement)
-        DECLARE_ANIMATED_LENGTH(X, x)
-        DECLARE_ANIMATED_LENGTH(Y, y)
-        DECLARE_ANIMATED_LENGTH(Width, width)
-        DECLARE_ANIMATED_LENGTH(Height, height)
-        DECLARE_ANIMATED_LENGTH(Rx, rx)
-        DECLARE_ANIMATED_LENGTH(Ry, ry)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, LengthModeHeight) };
+    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, LengthModeHeight) };
+    Ref<SVGAnimatedLength> m_rx { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_ry { SVGAnimatedLength::create(this, LengthModeHeight) };
 };
 
 } // namespace WebCore
-
-#endif

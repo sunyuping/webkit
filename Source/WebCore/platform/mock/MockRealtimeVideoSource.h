@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,7 +35,9 @@
 
 #include "FontCascade.h"
 #include "ImageBuffer.h"
-#include "MockRealtimeMediaSource.h"
+#include "MockMediaDevice.h"
+#include "RealtimeMediaSourceFactory.h"
+#include "RealtimeVideoSource.h"
 #include <wtf/RunLoop.h>
 
 namespace WebCore {
@@ -43,66 +45,73 @@ namespace WebCore {
 class FloatRect;
 class GraphicsContext;
 
-class MockRealtimeVideoSource : public MockRealtimeMediaSource {
+class MockRealtimeVideoSource : public RealtimeVideoSource {
 public:
 
-    static RefPtr<MockRealtimeVideoSource> create();
-
-    virtual ~MockRealtimeVideoSource() { }
-
-    void setSize(const IntSize&);
-    const IntSize& size() const { return m_size; }
-
-    void setFrameRate(float);
+    static CaptureSourceOrError create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints*);
 
 protected:
-    MockRealtimeVideoSource();
-    virtual void updatePlatformLayer() const { }
+    MockRealtimeVideoSource(String&& deviceID, String&& name, String&& hashSalt);
 
+    virtual void updateSampleBuffer() = 0;
+
+    void setCurrentFrame(MediaSample&);
     ImageBuffer* imageBuffer() const;
 
-private:
-    void updateSettings(RealtimeMediaSourceSettings&) override;
-    void initializeCapabilities(RealtimeMediaSourceCapabilities&) override;
-    void initializeSupportedConstraints(RealtimeMediaSourceSupportedConstraints&) override;
+    Seconds elapsedTime();
+    void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) override;
 
-    void startProducingData() override;
-    void stopProducingData() override;
+private:
+    const RealtimeMediaSourceCapabilities& capabilities() final;
+    const RealtimeMediaSourceSettings& settings() final;
+
+    void startProducingData() final;
+    void stopProducingData() final;
+    bool isCaptureSource() const final { return true; }
+    CaptureDevice::DeviceType deviceType() const final { return CaptureDevice::DeviceType::Camera; }
+    bool supportsSizeAndFrameRate(Optional<int> width, Optional<int> height, Optional<double>) final;
+    void setSizeAndFrameRate(Optional<int> width, Optional<int> height, Optional<double>) final;
+    void setSizeAndFrameRateWithPreset(IntSize, double, RefPtr<VideoPreset>) final;
+    IntSize captureSize() const;
+
+    void generatePresets() final;
 
     void drawAnimation(GraphicsContext&);
     void drawText(GraphicsContext&);
     void drawBoxes(GraphicsContext&);
 
-    PlatformLayer* platformLayer() const override { return nullptr; }
-    RefPtr<Image> currentFrameImage() override;
-    void paintCurrentFrameInContext(GraphicsContext&, const FloatRect&) override;
-
     void generateFrame();
+    void startCaptureTimer();
 
-    double elapsedTime();
+    void delaySamples(Seconds) override;
+
+    bool mockCamera() const { return WTF::holds_alternative<MockCameraProperties>(m_device.properties); }
+    bool mockDisplay() const { return WTF::holds_alternative<MockDisplayProperties>(m_device.properties); }
+    bool mockScreen() const { return mockDisplayType(CaptureDevice::DeviceType::Screen); }
+    bool mockWindow() const { return mockDisplayType(CaptureDevice::DeviceType::Window); }
+    bool mockDisplayType(CaptureDevice::DeviceType) const;
 
     float m_baseFontSize { 0 };
-    FontCascade m_timeFont;
-
     float m_bipBopFontSize { 0 };
-    FontCascade m_bipBopFont;
-
     float m_statsFontSize { 0 };
-    FontCascade m_statsFont;
 
     mutable std::unique_ptr<ImageBuffer> m_imageBuffer;
 
-    IntSize m_size;
     Path m_path;
     DashArray m_dashWidths;
 
-    double m_startTime { NAN };
-    double m_elapsedTime { 0 };
+    MonotonicTime m_startTime { MonotonicTime::nan() };
+    Seconds m_elapsedTime { 0_s };
+    MonotonicTime m_delayUntil;
 
-    unsigned m_frameRate { 30 };
     unsigned m_frameNumber { 0 };
-
-    RunLoop::Timer<MockRealtimeVideoSource> m_timer;
+    RunLoop::Timer<MockRealtimeVideoSource> m_emitFrameTimer;
+    Optional<RealtimeMediaSourceCapabilities> m_capabilities;
+    Optional<RealtimeMediaSourceSettings> m_currentSettings;
+    RealtimeMediaSourceSupportedConstraints m_supportedConstraints;
+    Color m_fillColor { Color::black };
+    MockMediaDevice m_device;
+    RefPtr<VideoPreset> m_preset;
 };
 
 } // namespace WebCore

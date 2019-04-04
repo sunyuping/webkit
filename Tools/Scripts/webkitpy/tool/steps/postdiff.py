@@ -1,9 +1,9 @@
 # Copyright (C) 2010 Google Inc. All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
 # met:
-# 
+#
 #     * Redistributions of source code must retain the above copyright
 # notice, this list of conditions and the following disclaimer.
 #     * Redistributions in binary form must reproduce the above
@@ -13,7 +13,7 @@
 #     * Neither the name of Google Inc. nor the names of its
 # contributors may be used to endorse or promote products derived from
 # this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -39,6 +39,7 @@ class PostDiff(AbstractStep):
             Options.review,
             Options.request_commit,
             Options.open_bug,
+            Options.ews,
         ]
 
     def run(self, state):
@@ -47,6 +48,11 @@ class PostDiff(AbstractStep):
         comment_text = self._options.comment
         bug_id = state["bug_id"]
 
-        self._tool.bugs.add_patch_to_bug(bug_id, diff, description, comment_text=comment_text, mark_for_review=self._options.review, mark_for_commit_queue=self._options.request_commit)
+        attachment_id = self._tool.bugs.add_patch_to_bug(bug_id, diff, description, comment_text=comment_text, mark_for_review=self._options.review, mark_for_commit_queue=self._options.request_commit)
         if self._options.open_bug:
             self._tool.user.open_url(self._tool.bugs.bug_url_for_bug_id(bug_id))
+
+        # We only need to submit --no-review patches to EWS as patches posted for review are
+        # automatically submitted to EWS by EWSFeeder.
+        if not self._options.review and self._options.ews:
+            state['attachment_ids'] = [attachment_id]

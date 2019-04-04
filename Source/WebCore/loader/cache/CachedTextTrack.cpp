@@ -34,35 +34,34 @@
 #include "CachedResourceLoader.h"
 #include "SharedBuffer.h"
 #include "TextResourceDecoder.h"
-#include <wtf/Vector.h>
 
 namespace WebCore {
 
-CachedTextTrack::CachedTextTrack(const ResourceRequest& resourceRequest, SessionID sessionID)
-    : CachedResource(resourceRequest, TextTrackResource, sessionID)
+CachedTextTrack::CachedTextTrack(CachedResourceRequest&& request, const PAL::SessionID& sessionID, const CookieJar* cookieJar)
+    : CachedResource(WTFMove(request), Type::TextTrackResource, sessionID, cookieJar)
 {
 }
 
-void CachedTextTrack::updateData(SharedBuffer* data)
+void CachedTextTrack::doUpdateBuffer(SharedBuffer* data)
 {
-    ASSERT(dataBufferingPolicy() == BufferData);
+    ASSERT(dataBufferingPolicy() == DataBufferingPolicy::BufferData);
     m_data = data;
     setEncodedSize(data ? data->size() : 0);
 
     CachedResourceClientWalker<CachedResourceClient> walker(m_clients);
     while (CachedResourceClient* client = walker.next())
-        client->deprecatedDidReceiveCachedResource(this);
+        client->deprecatedDidReceiveCachedResource(*this);
 }
 
-void CachedTextTrack::addDataBuffer(SharedBuffer& data)
+void CachedTextTrack::updateBuffer(SharedBuffer& data)
 {
-    updateData(&data);
-    CachedResource::addDataBuffer(data);
+    doUpdateBuffer(&data);
+    CachedResource::updateBuffer(data);
 }
 
 void CachedTextTrack::finishLoading(SharedBuffer* data)
 {
-    updateData(data);
+    doUpdateBuffer(data);
     CachedResource::finishLoading(data);
 }
 

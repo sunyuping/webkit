@@ -22,14 +22,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef TextDocument_h
-#define TextDocument_h
+#pragma once
 
 #include "HTMLDocument.h"
 
 namespace WebCore {
 
 class TextDocument final : public HTMLDocument {
+    WTF_MAKE_ISO_ALLOCATED(TextDocument);
 public:
     static Ref<TextDocument> create(Frame* frame, const URL& url)
     {
@@ -39,9 +39,7 @@ public:
 private:
     TextDocument(Frame*, const URL&);
     
-    virtual Ref<DocumentParser> createParser() override;
+    Ref<DocumentParser> createParser() override;
 };
 
-}
-
-#endif
+} // namespace WebCore

@@ -22,15 +22,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AudioNodeOutput_h
-#define AudioNodeOutput_h
+#pragma once
 
 #include "AudioBus.h"
 #include "AudioNode.h"
 #include "AudioParam.h"
 #include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
-#include <wtf/Vector.h>
 
 namespace WebCore {
 
@@ -41,6 +39,8 @@ class AudioNodeInput;
 // It may be connected to one or more AudioNodeInputs.
 
 class AudioNodeOutput {
+    WTF_MAKE_NONCOPYABLE(AudioNodeOutput);
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     // It's OK to pass 0 for numberOfChannels in which case setNumberOfChannels() must be called later on.
     AudioNodeOutput(AudioNode*, unsigned numberOfChannels);
@@ -149,5 +149,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // AudioNodeOutput_h

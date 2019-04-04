@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,11 +26,11 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ConstructData_h
-#define ConstructData_h
+#pragma once
 
 #include "CallData.h"
 #include "JSCJSValue.h"
+#include "NativeFunction.h"
 
 namespace JSC {
 
@@ -40,24 +40,26 @@ class FunctionExecutable;
 class JSObject;
 class JSScope;
 
-enum ConstructType {
-    ConstructTypeNone,
-    ConstructTypeHost,
-    ConstructTypeJS
+enum class ConstructType : unsigned {
+    None,
+    Host,
+    JS
 };
 
-union ConstructData {
-    struct {
-        NativeFunction function;
-    } native;
-    struct {
-        FunctionExecutable* functionExecutable;
-        JSScope* scope;
-    } js;
+struct ConstructData {
+    union {
+        struct {
+            TaggedNativeFunction function;
+        } native;
+        struct {
+            FunctionExecutable* functionExecutable;
+            JSScope* scope;
+        } js;
+    };
 };
 
 // Convenience wrapper so you don't need to deal with CallData and CallType unless you are going to use them.
-JSObject* construct(ExecState*, JSValue functionObject, const ArgList&, const String& errorMessage);
+JS_EXPORT_PRIVATE JSObject* construct(ExecState*, JSValue functionObject, const ArgList&, const char* errorMessage);
 JS_EXPORT_PRIVATE JSObject* construct(ExecState*, JSValue constructor, ConstructType, const ConstructData&, const ArgList&, JSValue newTarget);
 
 ALWAYS_INLINE JSObject* construct(ExecState* exec, JSValue constructorObject, ConstructType constructType, const ConstructData& constructData, const ArgList& args)
@@ -73,5 +75,3 @@ ALWAYS_INLINE JSObject* profiledConstruct(ExecState* exec, ProfilingReason reaso
 }
 
 } // namespace JSC
-
-#endif // ConstructData_h

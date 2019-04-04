@@ -22,8 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DelayProcessor_h
-#define DelayProcessor_h
+#pragma once
 
 #include "AudioDSPKernelProcessor.h"
 #include "AudioParam.h"
@@ -34,12 +33,13 @@ namespace WebCore {
 
 class AudioDSPKernel;
     
-class DelayProcessor : public AudioDSPKernelProcessor {
+class DelayProcessor final : public AudioDSPKernelProcessor {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     DelayProcessor(AudioContext&, float sampleRate, unsigned numberOfChannels, double maxDelayTime);
     virtual ~DelayProcessor();
     
-    virtual std::unique_ptr<AudioDSPKernel> createKernel() override;
+    std::unique_ptr<AudioDSPKernel> createKernel() override;
         
     AudioParam* delayTime() const { return m_delayTime.get(); }
 
@@ -51,5 +51,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // DelayProcessor_h

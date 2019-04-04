@@ -20,14 +20,14 @@
  *
  */
 
-#ifndef HTMLLIElement_h
-#define HTMLLIElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLLIElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLLIElement);
 public:
     static Ref<HTMLLIElement> create(Document&);
     static Ref<HTMLLIElement> create(const QualifiedName&, Document&);
@@ -35,15 +35,13 @@ public:
 private:
     HTMLLIElement(const QualifiedName&, Document&);
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    bool isPresentationAttribute(const QualifiedName&) const final;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
 
-    virtual void didAttachRenderers() override;
+    void didAttachRenderers() final;
 
     void parseValue(const AtomicString&);
 };
 
-} //namespace
-
-#endif
+} // namespace WebCore

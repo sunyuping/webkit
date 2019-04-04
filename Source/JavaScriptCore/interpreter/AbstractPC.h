@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef AbstractPC_h
-#define AbstractPC_h
+#pragma once
 
 #include "MacroAssemblerCodeRef.h"
 
@@ -37,8 +36,7 @@ struct Instruction;
 class AbstractPC {
 public:
     AbstractPC()
-        : m_pointer(0)
-        , m_mode(None)
+        : m_mode(None)
     {
     }
     
@@ -63,13 +61,12 @@ public:
     bool operator!() const { return !isSet(); }
 
 private:
-    void* m_pointer;
-    
+#if ENABLE(JIT)
+    const void* m_pointer { nullptr };
+#endif
+
     enum Mode { None, JIT, Interpreter };
     Mode m_mode;
 };
 
 } // namespace JSC
-
-#endif // AbstractPC_h
-

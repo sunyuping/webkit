@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2016 Apple Inc. All rights reserved.
  * Copyright (C) 2014 Adobe Systems Incorporated. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,98 +30,82 @@
 #include "config.h"
 #include "ImageData.h"
 
-#include "ExceptionCode.h"
-#include <runtime/JSCInlines.h>
-#include <runtime/TypedArrayInlines.h>
+#include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/TypedArrayInlines.h>
 
 namespace WebCore {
 
-PassRefPtr<ImageData> ImageData::create(unsigned sw, unsigned sh, ExceptionCode& ec)
+ExceptionOr<Ref<ImageData>> ImageData::create(unsigned sw, unsigned sh)
 {
-    if (!sw || !sh) {
-        ec = INDEX_SIZE_ERR;
-        return nullptr;
-    }
+    if (!sw || !sh)
+        return Exception { IndexSizeError };
 
     Checked<int, RecordOverflow> dataSize = 4;
     dataSize *= sw;
     dataSize *= sh;
-    if (dataSize.hasOverflowed()) {
-        ec = TypeError;
-        return nullptr;
-    }
+    if (dataSize.hasOverflowed())
+        return Exception { RangeError, "Cannot allocate a buffer of this size"_s };
 
     IntSize size(sw, sh);
-    RefPtr<ImageData> data = adoptRef(new ImageData(size));
+    auto data = adoptRef(*new ImageData(size));
     data->data()->zeroFill();
-    return data.release();
+    return data;
 }
 
-PassRefPtr<ImageData> ImageData::create(const IntSize& size)
+RefPtr<ImageData> ImageData::create(const IntSize& size)
 {
     Checked<int, RecordOverflow> dataSize = 4;
     dataSize *= size.width();
     dataSize *= size.height();
     if (dataSize.hasOverflowed())
-        return 0;
+        return nullptr;
 
-    return adoptRef(new ImageData(size));
+    return adoptRef(*new ImageData(size));
 }
 
-PassRefPtr<ImageData> ImageData::create(const IntSize& size, PassRefPtr<Uint8ClampedArray> byteArray)
+RefPtr<ImageData> ImageData::create(const IntSize& size, Ref<Uint8ClampedArray>&& byteArray)
 {
     Checked<int, RecordOverflow> dataSize = 4;
     dataSize *= size.width();
     dataSize *= size.height();
     if (dataSize.hasOverflowed())
-        return 0;
+        return nullptr;
 
-    if (dataSize.unsafeGet() < 0
-        || static_cast<unsigned>(dataSize.unsafeGet()) > byteArray->length())
-        return 0;
+    if (dataSize.unsafeGet() < 0 || static_cast<unsigned>(dataSize.unsafeGet()) > byteArray->length())
+        return nullptr;
 
-    return adoptRef(new ImageData(size, byteArray));
+    return adoptRef(*new ImageData(size, WTFMove(byteArray)));
 }
 
-PassRefPtr<ImageData> ImageData::create(PassRefPtr<Uint8ClampedArray> byteArray, unsigned sw, unsigned sh, ExceptionCode& ec)
+ExceptionOr<RefPtr<ImageData>> ImageData::create(Ref<Uint8ClampedArray>&& byteArray, unsigned sw, Optional<unsigned> sh)
 {
     unsigned length = byteArray->length();
-    if (!length || length % 4 != 0) {
-        ec = INVALID_STATE_ERR;
-        return nullptr;
-    }
+    if (!length || length % 4)
+        return Exception { InvalidStateError, "Length is not a non-zero multiple of 4"_s };
 
-    if (!sw) {
-        ec = INDEX_SIZE_ERR;
-        return nullptr;
-    }
-
+    ASSERT(length > 0);
     length /= 4;
-    if (length % sw != 0) {
-        ec = INVALID_STATE_ERR;
-        return nullptr;
-    }
+    if (!sw || length % sw)
+        return Exception { IndexSizeError, "Length is not a multiple of sw"_s };
 
     unsigned height = length / sw;
-    if (sh && sh != height) {
-        ec = INDEX_SIZE_ERR;
-        return nullptr;
-    }
+    if (sh && sh.value() != height)
+        return Exception { IndexSizeError, "sh value is not equal to height"_s };
 
-    return create(IntSize(sw, height), byteArray);
+    return create(IntSize(sw, height), WTFMove(byteArray));
 }
 
 ImageData::ImageData(const IntSize& size)
     : m_size(size)
-    , m_data(Uint8ClampedArray::createUninitialized(size.width() * size.height() * 4))
+    , m_data(Uint8ClampedArray::createUninitialized((size.area() * 4).unsafeGet()))
 {
 }
 
-ImageData::ImageData(const IntSize& size, PassRefPtr<Uint8ClampedArray> byteArray)
+ImageData::ImageData(const IntSize& size, Ref<Uint8ClampedArray>&& byteArray)
     : m_size(size)
-    , m_data(byteArray)
+    , m_data(WTFMove(byteArray))
 {
-    ASSERT_WITH_SECURITY_IMPLICATION(static_cast<unsigned>(size.width() * size.height() * 4) <= m_data->length());
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION((size.area() * 4).unsafeGet() <= m_data->length());
 }
 
 }

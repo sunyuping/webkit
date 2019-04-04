@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,67 +34,89 @@
 #if ENABLE(MEDIA_STREAM)
 #import "GraphicsContextCG.h"
 #import "ImageBuffer.h"
+#import "ImageTransferSessionVT.h"
 #import "MediaConstraints.h"
+#import "MediaSampleAVFObjC.h"
+#import "MockRealtimeMediaSourceCenter.h"
 #import "NotImplemented.h"
 #import "PlatformLayer.h"
 #import "RealtimeMediaSourceSettings.h"
+#import "RealtimeVideoUtilities.h"
 #import <QuartzCore/CALayer.h>
 #import <QuartzCore/CATransaction.h>
 #import <objc/runtime.h>
 
+#import <pal/cf/CoreMediaSoftLink.h>
+#import "CoreVideoSoftLink.h"
+
 namespace WebCore {
+using namespace PAL;
 
-RefPtr<MockRealtimeVideoSource> MockRealtimeVideoSource::create()
+CaptureSourceOrError MockRealtimeVideoSource::create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints* constraints)
 {
-    return adoptRef(new MockRealtimeVideoSourceMac());
-}
-
-MockRealtimeVideoSourceMac::MockRealtimeVideoSourceMac()
-    : MockRealtimeVideoSource()
-{
-}
-
-PlatformLayer* MockRealtimeVideoSourceMac::platformLayer() const
-{
-    if (m_previewLayer)
-        return m_previewLayer.get();
-
-    m_previewLayer = adoptNS([[CALayer alloc] init]);
-    m_previewLayer.get().name = @"MockRealtimeVideoSourceMac preview layer";
-    m_previewLayer.get().contentsGravity = kCAGravityResizeAspect;
-    m_previewLayer.get().anchorPoint = CGPointZero;
-    m_previewLayer.get().needsDisplayOnBoundsChange = YES;
-#if !PLATFORM(IOS)
-    m_previewLayer.get().autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
+#ifndef NDEBUG
+    auto device = MockRealtimeMediaSourceCenter::mockDeviceWithPersistentID(deviceID);
+    ASSERT(device);
+    if (!device)
+        return { };
 #endif
 
-    updatePlatformLayer();
+    auto source = adoptRef(*new MockRealtimeVideoSourceMac(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt)));
+    // FIXME: We should report error messages
+    if (constraints && source->applyConstraints(*constraints))
+        return { };
 
-    return m_previewLayer.get();
+    return CaptureSourceOrError(WTFMove(source));
 }
 
-void MockRealtimeVideoSourceMac::updatePlatformLayer() const
+MockRealtimeVideoSourceMac::MockRealtimeVideoSourceMac(String&& deviceID, String&& name, String&& hashSalt)
+    : MockRealtimeVideoSource(WTFMove(deviceID), WTFMove(name), WTFMove(hashSalt))
 {
-    if (!m_previewLayer)
+}
+
+void MockRealtimeVideoSourceMac::updateSampleBuffer()
+{
+    auto imageBuffer = this->imageBuffer();
+    if (!imageBuffer)
         return;
 
-    [CATransaction begin];
-    [CATransaction setAnimationDuration:0];
-    [CATransaction setDisableActions:YES];
+    if (!m_imageTransferSession)
+        m_imageTransferSession = ImageTransferSessionVT::create(preferedPixelBufferFormat());
 
-    do {
-        RefPtr<Image> image = imageBuffer()->copyImage();
-        if (!image)
-            break;
+    auto sampleTime = MediaTime::createWithDouble((elapsedTime() + 100_ms).seconds());
+    auto sampleBuffer = m_imageTransferSession->createMediaSample(imageBuffer->copyImage()->nativeImage().get(), sampleTime, size(), m_deviceOrientation);
+    if (!sampleBuffer)
+        return;
 
-        m_previewImage = image->getCGImageRef();
-        if (!m_previewImage)
-            break;
+    // We use m_deviceOrientation to emulate sensor orientation
+    dispatchMediaSampleToObservers(*sampleBuffer);
+}
 
-        m_previewLayer.get().contents = (NSObject*)(m_previewImage.get());
-    } while (0);
+void MockRealtimeVideoSourceMac::orientationChanged(int orientation)
+{
+    // FIXME: Do something with m_deviceOrientation. See bug 169822.
+    switch (orientation) {
+    case 0:
+        m_deviceOrientation = MediaSample::VideoRotation::None;
+        break;
+    case 90:
+        m_deviceOrientation = MediaSample::VideoRotation::Right;
+        break;
+    case -90:
+        m_deviceOrientation = MediaSample::VideoRotation::Left;
+        break;
+    case 180:
+        m_deviceOrientation = MediaSample::VideoRotation::UpsideDown;
+        break;
+    default:
+        return;
+    }
+}
 
-    [CATransaction commit];
+void MockRealtimeVideoSourceMac::monitorOrientation(OrientationNotifier& notifier)
+{
+    notifier.addObserver(*this);
+    orientationChanged(notifier.orientation());
 }
 
 } // namespace WebCore

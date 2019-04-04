@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #include "StructureRareData.h"
 
 #include "AdaptiveInferredPropertyValueWatchpointBase.h"
+#include "JSImmutableButterfly.h"
 #include "JSPropertyNameEnumerator.h"
 #include "JSString.h"
 #include "JSCInlines.h"
@@ -34,7 +35,7 @@
 
 namespace JSC {
 
-const ClassInfo StructureRareData::s_info = { "StructureRareData", 0, 0, CREATE_METHOD_TABLE(StructureRareData) };
+const ClassInfo StructureRareData::s_info = { "StructureRareData", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(StructureRareData) };
 
 Structure* StructureRareData::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
 {
@@ -66,43 +67,39 @@ void StructureRareData::visitChildren(JSCell* cell, SlotVisitor& visitor)
     StructureRareData* thisObject = jsCast<StructureRareData*>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
-    JSCell::visitChildren(thisObject, visitor);
-    visitor.append(&thisObject->m_previous);
-    visitor.append(&thisObject->m_objectToStringValue);
-    visitor.append(&thisObject->m_cachedPropertyNameEnumerator);
-}
-
-JSPropertyNameEnumerator* StructureRareData::cachedPropertyNameEnumerator() const
-{
-    return m_cachedPropertyNameEnumerator.get();
-}
-
-void StructureRareData::setCachedPropertyNameEnumerator(VM& vm, JSPropertyNameEnumerator* enumerator)
-{
-    m_cachedPropertyNameEnumerator.set(vm, this, enumerator);
+    Base::visitChildren(thisObject, visitor);
+    visitor.append(thisObject->m_previous);
+    visitor.append(thisObject->m_objectToStringValue);
+    visitor.append(thisObject->m_cachedPropertyNameEnumerator);
+    auto* cachedOwnKeys = thisObject->m_cachedOwnKeys.unvalidatedGet();
+    if (cachedOwnKeys != cachedOwnKeysSentinel())
+        visitor.appendUnbarriered(cachedOwnKeys);
 }
 
 // ----------- Object.prototype.toString() helper watchpoint classes -----------
 
-class ObjectToStringAdaptiveInferredPropertyValueWatchpoint : public AdaptiveInferredPropertyValueWatchpointBase {
+class ObjectToStringAdaptiveInferredPropertyValueWatchpoint final : public AdaptiveInferredPropertyValueWatchpointBase {
 public:
     typedef AdaptiveInferredPropertyValueWatchpointBase Base;
     ObjectToStringAdaptiveInferredPropertyValueWatchpoint(const ObjectPropertyCondition&, StructureRareData*);
 
 private:
-    virtual void handleFire(const FireDetail&) override;
+    bool isValid() const override;
+    void handleFire(VM&, const FireDetail&) override;
 
     StructureRareData* m_structureRareData;
 };
 
-class ObjectToStringAdaptiveStructureWatchpoint : public Watchpoint {
+class ObjectToStringAdaptiveStructureWatchpoint final : public Watchpoint {
 public:
     ObjectToStringAdaptiveStructureWatchpoint(const ObjectPropertyCondition&, StructureRareData*);
 
-    void install();
+    void install(VM&);
+
+    const ObjectPropertyCondition& key() const { return m_key; }
 
 protected:
-    virtual void fireInternal(const FireDetail&) override;
+    void fireInternal(VM&, const FireDetail&) override;
     
 private:
     ObjectPropertyCondition m_key;
@@ -126,7 +123,7 @@ void StructureRareData::setObjectToStringValue(ExecState* exec, VM& vm, Structur
         // This will not create a condition for the current structure but that is good because we know the Symbol.toStringTag
         // is not on the ownStructure so we will transisition if one is added and this cache will no longer be used.
         conditionSet = generateConditionsForPrototypePropertyHit(vm, this, exec, ownStructure, toStringTagSymbolSlot.slotBase(), vm.propertyNames->toStringTagSymbol.impl());
-        ASSERT(conditionSet.hasOneSlotBaseCondition());
+        ASSERT(!conditionSet.isValid() || conditionSet.hasOneSlotBaseCondition());
     } else if (toStringTagSymbolSlot.isUnset())
         conditionSet = generateConditionsForPropertyMiss(vm, this, exec, ownStructure, vm.propertyNames->toStringTagSymbol.impl());
     else
@@ -142,7 +139,7 @@ void StructureRareData::setObjectToStringValue(ExecState* exec, VM& vm, Structur
         if (condition.condition().kind() == PropertyCondition::Presence) {
             ASSERT(isValidOffset(condition.offset()));
             condition.object()->structure(vm)->startWatchingPropertyForReplacements(vm, condition.offset());
-            equivCondition = condition.attemptToMakeEquivalenceWithoutBarrier();
+            equivCondition = condition.attemptToMakeEquivalenceWithoutBarrier(vm);
 
             // The equivalence condition won't be watchable if we have already seen a replacement.
             if (!equivCondition.isWatchable()) {
@@ -159,9 +156,9 @@ void StructureRareData::setObjectToStringValue(ExecState* exec, VM& vm, Structur
     for (ObjectPropertyCondition condition : conditionSet) {
         if (condition.condition().kind() == PropertyCondition::Presence) {
             m_objectToStringAdaptiveInferredValueWatchpoint = std::make_unique<ObjectToStringAdaptiveInferredPropertyValueWatchpoint>(equivCondition, this);
-            m_objectToStringAdaptiveInferredValueWatchpoint->install();
+            m_objectToStringAdaptiveInferredValueWatchpoint->install(vm);
         } else
-            m_objectToStringAdaptiveWatchpointSet.add(condition, this)->install();
+            m_objectToStringAdaptiveWatchpointSet.add(condition, this)->install(vm);
     }
 
     m_objectToStringValue.set(vm, this, value);
@@ -174,6 +171,22 @@ inline void StructureRareData::clearObjectToStringValue()
     m_objectToStringValue.clear();
 }
 
+void StructureRareData::finalizeUnconditionally(VM& vm)
+{
+    if (m_objectToStringAdaptiveInferredValueWatchpoint) {
+        if (!m_objectToStringAdaptiveInferredValueWatchpoint->key().isStillLive(vm)) {
+            clearObjectToStringValue();
+            return;
+        }
+    }
+    for (auto* watchpoint : m_objectToStringAdaptiveWatchpointSet) {
+        if (!watchpoint->key().isStillLive(vm)) {
+            clearObjectToStringValue();
+            return;
+        }
+    }
+}
+
 // ------------- Methods for Object.prototype.toString() helper watchpoint classes --------------
 
 ObjectToStringAdaptiveStructureWatchpoint::ObjectToStringAdaptiveStructureWatchpoint(const ObjectPropertyCondition& key, StructureRareData* structureRareData)
@@ -184,24 +197,22 @@ ObjectToStringAdaptiveStructureWatchpoint::ObjectToStringAdaptiveStructureWatchp
     RELEASE_ASSERT(!key.watchingRequiresReplacementWatchpoint());
 }
 
-void ObjectToStringAdaptiveStructureWatchpoint::install()
+void ObjectToStringAdaptiveStructureWatchpoint::install(VM& vm)
 {
     RELEASE_ASSERT(m_key.isWatchable());
 
-    m_key.object()->structure()->addTransitionWatchpoint(this);
+    m_key.object()->structure(vm)->addTransitionWatchpoint(this);
 }
 
-void ObjectToStringAdaptiveStructureWatchpoint::fireInternal(const FireDetail& detail)
+void ObjectToStringAdaptiveStructureWatchpoint::fireInternal(VM& vm, const FireDetail&)
 {
+    if (!m_structureRareData->isLive())
+        return;
+
     if (m_key.isWatchable(PropertyCondition::EnsureWatchability)) {
-        install();
+        install(vm);
         return;
     }
-
-    StringPrintStream out;
-    out.print("ObjectToStringValue Adaptation of ", m_key, " failed: ", detail);
-
-    StringFireDetail stringDetail(out.toCString().data());
 
     m_structureRareData->clearObjectToStringValue();
 }
@@ -212,13 +223,13 @@ ObjectToStringAdaptiveInferredPropertyValueWatchpoint::ObjectToStringAdaptiveInf
 {
 }
 
-void ObjectToStringAdaptiveInferredPropertyValueWatchpoint::handleFire(const FireDetail& detail)
+bool ObjectToStringAdaptiveInferredPropertyValueWatchpoint::isValid() const
 {
-    StringPrintStream out;
-    out.print("Adaptation of ", key(), " failed: ", detail);
-    
-    StringFireDetail stringDetail(out.toCString().data());
-    
+    return m_structureRareData->isLive();
+}
+
+void ObjectToStringAdaptiveInferredPropertyValueWatchpoint::handleFire(VM&, const FireDetail&)
+{
     m_structureRareData->clearObjectToStringValue();
 }
 

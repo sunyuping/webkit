@@ -23,14 +23,18 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AccessibilityObjectWrapperIOS_h
-#define AccessibilityObjectWrapperIOS_h
+#pragma once
 
-#if HAVE(ACCESSIBILITY) && PLATFORM(IOS)
+#if HAVE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
 
-#include "AXObjectCache.h"
-#include "AccessibilityObject.h"
-#include "WebAccessibilityObjectWrapperBase.h"
+#import "AXObjectCache.h"
+#import "AccessibilityObject.h"
+#import "WebAccessibilityObjectWrapperBase.h"
+#import "WAKView.h"
+
+@interface WAKView (iOSAccessibility)
+- (BOOL)accessibilityIsIgnored;
+@end
 
 @interface WebAccessibilityObjectWrapper : WebAccessibilityObjectWrapperBase {
     // Cached data to avoid frequent re-computation.
@@ -67,6 +71,4 @@
 
 @end
 
-#endif // HAVE(ACCESSIBILITY) && PLATFORM(IOS)
-
-#endif // AccessibilityObjectWrapperIOS_h
+#endif // HAVE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)

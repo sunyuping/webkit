@@ -29,48 +29,37 @@
 #if PLATFORM(WAYLAND)
 
 #include "PlatformDisplay.h"
-#include "WebKitGtkWaylandClientProtocol.h"
-#include <memory>
+#include "WlUniquePtr.h"
 #include <wayland-client.h>
-#include <wayland-egl.h>
-#include <EGL/egl.h>
 
 namespace WebCore {
 
-class GLContextEGL;
-class IntSize;
-class WaylandSurface;
-
-class PlatformDisplayWayland final: public PlatformDisplay {
+class PlatformDisplayWayland : public PlatformDisplay {
 public:
-    static std::unique_ptr<PlatformDisplayWayland> create();
+    static std::unique_ptr<PlatformDisplay> create();
+    static std::unique_ptr<PlatformDisplay> create(struct wl_display*);
+
     virtual ~PlatformDisplayWayland();
 
     struct wl_display* native() const { return m_display; }
 
-    std::unique_ptr<WaylandSurface> createSurface(const IntSize&, int widgetID);
-
-    std::unique_ptr<GLContextEGL> createSharingGLContext();
+    WlUniquePtr<struct wl_surface> createSurface() const;
 
 private:
-    static const struct wl_registry_listener m_registryListener;
-    static void globalCallback(void* data, struct wl_registry*, uint32_t name, const char* interface, uint32_t version);
-    static void globalRemoveCallback(void* data, struct wl_registry*, uint32_t name);
+    static const struct wl_registry_listener s_registryListener;
 
-    PlatformDisplayWayland(struct wl_display*);
+    Type type() const final { return PlatformDisplay::Type::Wayland; }
 
-    // FIXME: This should check also for m_webkitgtk once the UIProcess embedded Wayland subcompositer is implemented.
-    bool isInitialized() { return m_compositor && m_eglDisplay != EGL_NO_DISPLAY && m_eglConfigChosen; }
+protected:
+    PlatformDisplayWayland(struct wl_display*, NativeDisplayOwned);
 
-    Type type() const override { return PlatformDisplay::Type::Wayland; }
+    void initialize();
+
+    virtual void registryGlobal(const char* interface, uint32_t name);
 
     struct wl_display* m_display;
-    struct wl_registry* m_registry;
-    struct wl_compositor* m_compositor;
-    struct wl_webkitgtk* m_webkitgtk;
-
-    EGLConfig m_eglConfig;
-    bool m_eglConfigChosen;
+    WlUniquePtr<struct wl_registry> m_registry;
+    WlUniquePtr<struct wl_compositor> m_compositor;
 };
 
 } // namespace WebCore

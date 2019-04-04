@@ -39,9 +39,13 @@
 #include "HTMLParserIdioms.h"
 #include "ISOVTTCue.h"
 #include "ProcessingInstruction.h"
+#include "StyleRule.h"
+#include "StyleRuleImport.h"
+#include "StyleSheetContents.h"
 #include "Text.h"
 #include "VTTScanner.h"
 #include "WebVTTElement.h"
+#include "WebVTTTokenizer.h"
 
 namespace WebCore {
 
@@ -50,6 +54,8 @@ const double secondsPerMinute = 60;
 const double secondsPerMillisecond = 0.001;
 const char* fileIdentifier = "WEBVTT";
 const unsigned fileIdentifierLength = 6;
+const unsigned regionIdentifierLength = 6;
+const unsigned styleIdentifierLength = 5;
 
 bool WebVTTParser::parseFloatPercentageValue(VTTScanner& valueScanner, float& percentage)
 {
@@ -94,34 +100,36 @@ WebVTTParser::WebVTTParser(WebVTTParserClient* client, ScriptExecutionContext* c
 
 void WebVTTParser::getNewCues(Vector<RefPtr<WebVTTCueData>>& outputCues)
 {
-    outputCues = m_cuelist;
-    m_cuelist.clear();
+    outputCues = WTFMove(m_cuelist);
 }
 
 void WebVTTParser::getNewRegions(Vector<RefPtr<VTTRegion>>& outputRegions)
 {
-    outputRegions = m_regionList;
-    m_regionList.clear();
+    outputRegions = WTFMove(m_regionList);
 }
 
-void WebVTTParser::parseFileHeader(const String& data)
+Vector<String> WebVTTParser::getStyleSheets()
+{
+    return WTFMove(m_styleSheets);
+}
+
+void WebVTTParser::parseFileHeader(String&& data)
 {
     m_state = Initial;
     m_lineReader.reset();
-    m_lineReader.append(data);
+    m_lineReader.append(WTFMove(data));
     parse();
 }
 
 void WebVTTParser::parseBytes(const char* data, unsigned length)
 {
-    String textData = m_decoder->decode(data, length);
-    m_lineReader.append(textData);
+    m_lineReader.append(m_decoder->decode(data, length));
     parse();
 }
 
 void WebVTTParser::parseCueData(const ISOWebVTTCue& data)
 {
-    RefPtr<WebVTTCueData> cue = WebVTTCueData::create();
+    auto cue = WebVTTCueData::create();
 
     MediaTime startTime = data.presentationTime();
     cue->setStartTime(startTime);
@@ -135,16 +143,15 @@ void WebVTTParser::parseCueData(const ISOWebVTTCue& data)
     if (WebVTTParser::collectTimeStamp(data.originalStartTime(), originalStartTime))
         cue->setOriginalStartTime(originalStartTime);
 
-    m_cuelist.append(cue);
+    m_cuelist.append(WTFMove(cue));
     if (m_client)
         m_client->newCuesParsed();
 }
 
 void WebVTTParser::flush()
 {
-    String textData = m_decoder->flush();
-    m_lineReader.append(textData);
-    m_lineReader.setEndOfStream();
+    m_lineReader.append(m_decoder->flush());
+    m_lineReader.appendEndOfStream();
     parse();
     flushPendingCue();
 }
@@ -153,15 +160,11 @@ void WebVTTParser::parse()
 {    
     // WebVTT parser algorithm. (5.1 WebVTT file parsing.)
     // Steps 1 - 3 - Initial setup.
-    String line;
-    while (m_lineReader.getLine(line)) {
-        if (line.isNull())
-            return;
-
+    while (auto line = m_lineReader.nextLine()) {
         switch (m_state) {
         case Initial:
             // Steps 4 - 9 - Check for a valid WebVTT signature.
-            if (!hasRequiredFileIdentifier(line)) {
+            if (!hasRequiredFileIdentifier(*line)) {
                 if (m_client)
                     m_client->fileFailedToParse();
                 return;
@@ -171,53 +174,49 @@ void WebVTTParser::parse()
             break;
 
         case Header:
-            collectMetadataHeader(line);
+            // Steps 11 - 14 - Collect WebVTT block
+            m_state = collectWebVTTBlock(*line);
+            break;
 
-            if (line.isEmpty()) {
-                // Steps 10-14 - Allow a header (comment area) under the WEBVTT line.
-                if (m_client && m_regionList.size())
-                    m_client->newRegionsParsed();
-                m_state = Id;
-                break;
-            }
-            // Step 15 - Break out of header loop if the line could be a timestamp line.
-            if (line.contains("-->"))
-                m_state = recoverCue(line);
+        case Region:
+            m_state = collectRegionSettings(*line);
+            break;
 
-            // Step 16 - Line is not the empty string and does not contain "-->".
+        case Style:
+            m_state = collectStyleSheet(*line);
             break;
 
         case Id:
             // Steps 17 - 20 - Allow any number of line terminators, then initialize new cue values.
-            if (line.isEmpty())
+            if (line->isEmpty())
                 break;
 
             // Step 21 - Cue creation (start a new cue).
             resetCueValues();
 
             // Steps 22 - 25 - Check if this line contains an optional identifier or timing data.
-            m_state = collectCueId(line);
+            m_state = collectCueId(*line);
             break;
 
         case TimingsAndSettings:
             // Steps 26 - 27 - Discard current cue if the line is empty.
-            if (line.isEmpty()) {
+            if (line->isEmpty()) {
                 m_state = Id;
                 break;
             }
 
             // Steps 28 - 29 - Collect cue timings and settings.
-            m_state = collectTimingsAndSettings(line);
+            m_state = collectTimingsAndSettings(*line);
             break;
 
         case CueText:
             // Steps 31 - 41 - Collect the cue text, create a cue, and add it to the output.
-            m_state = collectCueText(line);
+            m_state = collectCueText(*line);
             break;
 
         case BadCue:
             // Steps 42 - 48 - Discard lines until an empty line or a potential timing line is seen.
-            m_state = ignoreBadCue(line);
+            m_state = ignoreBadCue(*line);
             break;
 
         case Finished:
@@ -247,33 +246,164 @@ bool WebVTTParser::hasRequiredFileIdentifier(const String& line)
     // A WebVTT file identifier consists of an optional BOM character,
     // the string "WEBVTT" followed by an optional space or tab character,
     // and any number of characters that are not line terminators ...
-    if (!line.startsWith(fileIdentifier, fileIdentifierLength))
+    if (!line.startsWith(fileIdentifier))
         return false;
     if (line.length() > fileIdentifierLength && !isHTMLSpace(line[fileIdentifierLength]))
         return false;
     return true;
 }
 
-void WebVTTParser::collectMetadataHeader(const String& line)
+WebVTTParser::ParseState WebVTTParser::collectRegionSettings(const String& line)
 {
-    // WebVTT header parsing (WebVTT parser algorithm step 12)
-    static NeverDestroyed<const AtomicString> regionHeaderName("Region", AtomicString::ConstructFromLiteral);
+    // End of region block
+    if (checkAndStoreRegion(line))
+        return checkAndRecoverCue(line);
+    
+    m_currentRegion->setRegionSettings(line);
+    return Region;
+}
 
-    // Step 12.4 If line contains the character ":" (A U+003A COLON), then set metadata's
-    // name to the substring of line before the first ":" character and
-    // metadata's value to the substring after this character.
-    size_t colonPosition = line.find(':');
-    if (colonPosition == notFound)
-        return;
+WebVTTParser::ParseState WebVTTParser::collectWebVTTBlock(const String& line)
+{
+    // collect a WebVTT block parsing. (WebVTT parser algorithm step 14)
+    
+    if (checkAndCreateRegion(line))
+        return Region;
+    
+    if (checkStyleSheet(line))
+        return Style;
 
-    String headerName = line.substring(0, colonPosition);
-
-    // Step 12.5 If metadata's name equals "Region":
-    if (headerName == regionHeaderName) {
-        String headerValue = line.substring(colonPosition + 1, line.length() - 1);
-        // Steps 12.5.1 - 12.5.11 Region creation: Let region be a new text track region [...]
-        createNewRegion(headerValue);
+    // Handle cue block.
+    ParseState state = checkAndRecoverCue(line);
+    if (state != Header) {
+        if (m_client) {
+            if (!m_regionList.isEmpty())
+                m_client->newRegionsParsed();
+            if (!m_styleSheets.isEmpty())
+                m_client->newStyleSheetsParsed();
+        }
+        if (!m_previousLine.isEmpty() && !m_previousLine.contains("-->"))
+            m_currentId = m_previousLine;
+        
+        return state;
     }
+    
+    // store previous line for cue id.
+    // length is more than 1 line clear m_previousLine and ignore line.
+    if (m_previousLine.isEmpty())
+        m_previousLine = line;
+    else
+        m_previousLine = emptyString();
+
+    return state;
+}
+
+WebVTTParser::ParseState WebVTTParser::checkAndRecoverCue(const String& line)
+{
+    // parse cue timings and settings
+    if (line.contains("-->")) {
+        ParseState state = recoverCue(line);
+        if (state != BadCue)
+            return state;
+    }
+    return Header;
+}
+
+WebVTTParser::ParseState WebVTTParser::collectStyleSheet(const String& line)
+{
+    // End of style block
+    if (checkAndStoreStyleSheet(line))
+        return checkAndRecoverCue(line);
+
+    m_currentStyleSheet.append(line);
+    return Style;
+}
+
+bool WebVTTParser::checkAndCreateRegion(const String& line)
+{
+    if (m_previousLine.contains("-->"))
+        return false;
+    // line starts with the substring "REGION" and remaining characters
+    // zero or more U+0020 SPACE characters or U+0009 CHARACTER TABULATION
+    // (tab) characters expected other than these charecters it is invalid.
+    if (line.startsWith("REGION") && line.substring(regionIdentifierLength).isAllSpecialCharacters<isASpace>()) {
+        m_currentRegion = VTTRegion::create(*m_scriptExecutionContext);
+        return true;
+    }
+    return false;
+}
+
+bool WebVTTParser::checkAndStoreRegion(const String& line)
+{
+    if (!line.isEmpty() && !line.contains("-->"))
+        return false;
+    
+    if (!m_currentRegion->id().isEmpty()) {
+        // If the text track list of regions regions contains a region
+        // with the same region identifier value as region, remove that region.
+        for (const auto& region : m_regionList) {
+            if (region->id() == m_currentRegion->id()) {
+                m_regionList.removeFirst(region);
+                break;
+            }
+        }
+        m_regionList.append(m_currentRegion);
+    }
+    m_currentRegion = nullptr;
+    return true;
+}
+
+bool WebVTTParser::checkStyleSheet(const String& line)
+{
+    if (m_previousLine.contains("-->"))
+        return false;
+    // line starts with the substring "STYLE" and remaining characters
+    // zero or more U+0020 SPACE characters or U+0009 CHARACTER TABULATION
+    // (tab) characters expected other than these charecters it is invalid.
+    if (line.startsWith("STYLE") && line.substring(styleIdentifierLength).isAllSpecialCharacters<isASpace>())
+        return true;
+
+    return false;
+}
+
+bool WebVTTParser::checkAndStoreStyleSheet(const String& line)
+{
+    if (!line.isEmpty() && !line.contains("-->"))
+        return false;
+    
+    auto styleSheet = WTFMove(m_currentStyleSheet);
+    
+    auto contents = StyleSheetContents::create();
+    if (!contents->parseString(styleSheet))
+        return true;
+
+    auto& namespaceRules = contents->namespaceRules();
+    if (namespaceRules.size())
+        return true;
+
+    auto& importRules = contents->importRules();
+    if (importRules.size())
+        return true;
+
+    auto& childRules = contents->childRules();
+    if (!childRules.size())
+        return true;
+    
+    for (auto rule : childRules) {
+        if (!rule->isStyleRule())
+            return true;
+        const auto& styleRule = downcast<StyleRule>(rule.get());
+
+        const auto& selectorList = styleRule->selectorList();
+        if (selectorList.listSize() != 1)
+            return true;
+        auto selector = selectorList.selectorAt(0);
+        if (selector->selectorText() != "::cue")
+            return true;
+    }
+
+    m_styleSheets.append(styleSheet);
+    return true;
 }
 
 WebVTTParser::ParseState WebVTTParser::collectCueId(const String& line)
@@ -364,7 +494,7 @@ public:
     WebVTTTreeBuilder(Document& document)
         : m_document(document) { }
 
-    PassRefPtr<DocumentFragment> buildFromString(const String& cueText);
+    Ref<DocumentFragment> buildFromString(const String& cueText);
 
 private:
     void constructTreeFromToken(Document&);
@@ -375,19 +505,19 @@ private:
     Document& m_document;
 };
 
-PassRefPtr<DocumentFragment> WebVTTTreeBuilder::buildFromString(const String& cueText)
+Ref<DocumentFragment> WebVTTTreeBuilder::buildFromString(const String& cueText)
 {
     // Cue text processing based on
     // 5.4 WebVTT cue text parsing rules, and
     // 5.5 WebVTT cue text DOM construction rules.
-    RefPtr<DocumentFragment> fragment = DocumentFragment::create(m_document);
+    auto fragment = DocumentFragment::create(m_document);
 
     if (cueText.isEmpty()) {
         fragment->parserAppendChild(Text::create(m_document, emptyString()));
-        return fragment.release();
+        return fragment;
     }
 
-    m_currentNode = fragment;
+    m_currentNode = fragment.ptr();
 
     WebVTTTokenizer tokenizer(cueText);
     m_languageStack.clear();
@@ -395,10 +525,10 @@ PassRefPtr<DocumentFragment> WebVTTTreeBuilder::buildFromString(const String& cu
     while (tokenizer.nextToken(m_token))
         constructTreeFromToken(m_document);
     
-    return fragment.release();
+    return fragment;
 }
 
-PassRefPtr<DocumentFragment> WebVTTParser::createDocumentFragmentFromCueText(Document& document, const String& cueText)
+Ref<DocumentFragment> WebVTTParser::createDocumentFragmentFromCueText(Document& document, const String& cueText)
 {
     WebVTTTreeBuilder treeBuilder(document);
     return treeBuilder.buildFromString(cueText);
@@ -406,14 +536,14 @@ PassRefPtr<DocumentFragment> WebVTTParser::createDocumentFragmentFromCueText(Doc
 
 void WebVTTParser::createNewCue()
 {
-    RefPtr<WebVTTCueData> cue = WebVTTCueData::create();
+    auto cue = WebVTTCueData::create();
     cue->setStartTime(m_currentStartTime);
     cue->setEndTime(m_currentEndTime);
     cue->setContent(m_currentContent.toString());
     cue->setId(m_currentId);
     cue->setSettings(m_currentSettings);
 
-    m_cuelist.append(cue);
+    m_cuelist.append(WTFMove(cue));
     if (m_client)
         m_client->newCuesParsed();
 }
@@ -425,27 +555,6 @@ void WebVTTParser::resetCueValues()
     m_currentStartTime = MediaTime::zeroTime();
     m_currentEndTime = MediaTime::zeroTime();
     m_currentContent.clear();
-}
-
-void WebVTTParser::createNewRegion(const String& headerValue)
-{
-    if (headerValue.isEmpty())
-        return;
-
-    // Steps 12.5.1 - 12.5.9 - Construct and initialize a WebVTT Region object.
-    RefPtr<VTTRegion> region = VTTRegion::create(*m_scriptExecutionContext);
-    region->setRegionSettings(headerValue);
-
-    // Step 12.5.10 If the text track list of regions regions contains a region
-    // with the same region identifier value as region, remove that region.
-    for (size_t i = 0; i < m_regionList.size(); ++i)
-        if (m_regionList[i]->id() == region->id()) {
-            m_regionList.remove(i);
-            break;
-        }
-
-    // Step 12.5.11
-    m_regionList.append(region);
 }
 
 bool WebVTTParser::collectTimeStamp(const String& line, MediaTime& timeStamp)
@@ -536,8 +645,7 @@ void WebVTTTreeBuilder::constructTreeFromToken(Document& document)
 
     switch (m_token.type()) {
     case WebVTTTokenTypes::Character: {
-        auto child = Text::create(document, m_token.characters());
-        m_currentNode->parserAppendChild(WTFMove(child));
+        m_currentNode->parserAppendChild(Text::create(document, m_token.characters()));
         break;
     }
     case WebVTTTokenTypes::StartTag: {
@@ -552,17 +660,17 @@ void WebVTTTreeBuilder::constructTreeFromToken(Document& document)
 
         auto child = WebVTTElement::create(nodeType, document);
         if (!m_token.classes().isEmpty())
-            child->setAttribute(classAttr, m_token.classes());
+            child->setAttributeWithoutSynchronization(classAttr, m_token.classes());
 
         if (nodeType == WebVTTNodeTypeVoice)
-            child->setAttribute(WebVTTElement::voiceAttributeName(), m_token.annotation());
+            child->setAttributeWithoutSynchronization(WebVTTElement::voiceAttributeName(), m_token.annotation());
         else if (nodeType == WebVTTNodeTypeLanguage) {
             m_languageStack.append(m_token.annotation());
-            child->setAttribute(WebVTTElement::langAttributeName(), m_languageStack.last());
+            child->setAttributeWithoutSynchronization(WebVTTElement::langAttributeName(), m_languageStack.last());
         }
         if (!m_languageStack.isEmpty())
             child->setLanguage(m_languageStack.last());
-        m_currentNode->parserAppendChild(child.copyRef());
+        m_currentNode->parserAppendChild(child);
         m_currentNode = WTFMove(child);
         break;
     }

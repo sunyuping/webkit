@@ -23,14 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSStringIterator_h
-#define JSStringIterator_h
+#pragma once
 
 #include "JSObject.h"
 
 namespace JSC {
 
-class JSStringIterator : public JSNonFinalObject {
+class JSStringIterator final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
 
@@ -61,6 +60,4 @@ private:
     void finishCreation(VM&, JSGlobalObject*, JSString* iteratedString);
 };
 
-}
-
-#endif // !defined(JSStringIterator_h)
+} // namespace JSC

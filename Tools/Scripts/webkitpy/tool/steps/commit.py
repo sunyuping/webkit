@@ -1,9 +1,9 @@
 # Copyright (C) 2010 Google Inc. All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
 # met:
-# 
+#
 #     * Redistributions of source code must retain the above copyright
 # notice, this list of conditions and the following disclaimer.
 #     * Redistributions in binary form must reproduce the above
@@ -13,7 +13,7 @@
 #     * Neither the name of Google Inc. nor the names of its
 # contributors may be used to endorse or promote products derived from
 # this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -47,7 +47,7 @@ class Commit(AbstractStep):
         ]
 
     def _commit_warning(self, error):
-        return ('There are %s local commits (and possibly changes in the working directory. '
+        return ('There are %s local commits (and possibly changes in the working directory). '
                 'Everything will be committed as a single commit. '
                 'To avoid this prompt, set "git config webkit-patch.commit-should-always-squash true".' % (
                 error.num_local_commits))
@@ -61,7 +61,7 @@ class Commit(AbstractStep):
         args.extend(test_expectations_files)
         try:
             self._tool.executive.run_and_throw_if_fail(self._tool.deprecated_port().check_webkit_style_command() + args, cwd=self._tool.scm().checkout_root)
-        except ScriptError, e:
+        except ScriptError as e:
             if self._options.non_interactive:
                 raise
             if not self._tool.user.confirm("Are you sure you want to continue?", default="n"):
@@ -89,14 +89,14 @@ class Commit(AbstractStep):
                 svn_revision = scm.svn_revision_from_commit_text(commit_text)
                 _log.info("Committed r%s: <%s>" % (svn_revision, urls.view_revision_url(svn_revision)))
                 self._state["commit_text"] = commit_text
-                break;
-            except AmbiguousCommitError, e:
+                break
+            except AmbiguousCommitError as e:
                 if self._tool.user.confirm(self._commit_warning(e)):
                     force_squash = True
                 else:
                     # This will correctly interrupt the rest of the commit process.
                     raise ScriptError(message="Did not commit")
-            except AuthenticationError, e:
+            except AuthenticationError as e:
                 if self._options.non_interactive:
                     raise ScriptError(message="Authentication required")
                 username = self._tool.user.prompt("%s login: " % e.server_host, repeat=5)

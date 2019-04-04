@@ -23,8 +23,7 @@
  *
  */
 
-#ifndef HTMLTablePartElement_h
-#define HTMLTablePartElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
@@ -33,18 +32,17 @@ namespace WebCore {
 class HTMLTableElement;
 
 class HTMLTablePartElement : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLTablePartElement);
 protected:
     HTMLTablePartElement(const QualifiedName& tagName, Document& document)
         : HTMLElement(tagName, document)
     {
     }
 
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
+    bool isPresentationAttribute(const QualifiedName&) const override;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
 
-    HTMLTableElement* findParentTable() const;
+    RefPtr<HTMLTableElement> findParentTable() const;
 };
 
-} //namespace
-
-#endif
+} // namespace WebCore

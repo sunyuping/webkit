@@ -23,42 +23,36 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CryptoAlgorithmRSAES_PKCS1_v1_5_h
-#define CryptoAlgorithmRSAES_PKCS1_v1_5_h
+#pragma once
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
-class CryptoAlgorithmRSAESParams;
 class CryptoKeyRSA;
 
 class CryptoAlgorithmRSAES_PKCS1_v1_5 final : public CryptoAlgorithm {
 public:
-    static const char* const s_name;
-    static const CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::RSAES_PKCS1_v1_5;
-
-    static std::unique_ptr<CryptoAlgorithm> create();
-
-    virtual CryptoAlgorithmIdentifier identifier() const override;
-
-    virtual void encrypt(const CryptoAlgorithmParameters&, const CryptoKey&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void decrypt(const CryptoAlgorithmParameters&, const CryptoKey&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void generateKey(const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsage, KeyOrKeyPairCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void importKey(const CryptoAlgorithmParameters&, const CryptoKeyData&, bool extractable, CryptoKeyUsage, KeyCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
+    static constexpr const char* s_name = "RSAES-PKCS1-v1_5";
+    static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::RSAES_PKCS1_v1_5;
+    static Ref<CryptoAlgorithm> create();
 
 private:
-    CryptoAlgorithmRSAES_PKCS1_v1_5();
-    virtual ~CryptoAlgorithmRSAES_PKCS1_v1_5();
+    CryptoAlgorithmRSAES_PKCS1_v1_5() = default;
+    CryptoAlgorithmIdentifier identifier() const final;
 
-    bool keyAlgorithmMatches(const CryptoKey&) const;
-    void platformEncrypt(const CryptoKeyRSA&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&);
-    void platformDecrypt(const CryptoKeyRSA&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&);
+    void encrypt(const CryptoAlgorithmParameters&, Ref<CryptoKey>&&, Vector<uint8_t>&&, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&) final;
+    void decrypt(const CryptoAlgorithmParameters&, Ref<CryptoKey>&&, Vector<uint8_t>&&, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&) final;
+    void generateKey(const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyOrKeyPairCallback&&, ExceptionCallback&&, ScriptExecutionContext&) final;
+    void importKey(CryptoKeyFormat, KeyData&&, const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyCallback&&, ExceptionCallback&&) final;
+    void exportKey(CryptoKeyFormat, Ref<CryptoKey>&&, KeyDataCallback&&, ExceptionCallback&&) final;
+
+    static ExceptionOr<Vector<uint8_t>> platformEncrypt(const CryptoKeyRSA&, const Vector<uint8_t>&);
+    static ExceptionOr<Vector<uint8_t>> platformDecrypt(const CryptoKeyRSA&, const Vector<uint8_t>&);
 };
 
-}
+} // namespace WebCore
 
-#endif // ENABLE(SUBTLE_CRYPTO)
-#endif // CryptoAlgorithmRSAES_PKCS1_v1_5_h
+#endif // ENABLE(WEB_CRYPTO)

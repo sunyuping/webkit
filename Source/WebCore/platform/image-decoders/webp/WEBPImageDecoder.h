@@ -26,53 +26,49 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WEBPImageDecoder_h
-#define WEBPImageDecoder_h
+#pragma once
 
-#include "ImageDecoder.h"
+#include "ScalableImageDecoder.h"
 
 #if USE(WEBP)
 
 #include "webp/decode.h"
-#if USE(QCMSLIB) && (WEBP_DECODER_ABI_VERSION > 0x200)
-#define QCMS_WEBP_COLOR_CORRECTION
-#endif
+#include "webp/demux.h"
 
 namespace WebCore {
 
-class WEBPImageDecoder : public ImageDecoder {
+class WEBPImageDecoder final : public ScalableImageDecoder {
 public:
-    WEBPImageDecoder(ImageSource::AlphaOption, ImageSource::GammaAndColorProfileOption);
+    static Ref<ScalableImageDecoder> create(AlphaOption alphaOption, GammaAndColorProfileOption gammaAndColorProfileOption)
+    {
+        return adoptRef(*new WEBPImageDecoder(alphaOption, gammaAndColorProfileOption));
+    }
+
     virtual ~WEBPImageDecoder();
 
-    virtual String filenameExtension() const { return "webp"; }
-    virtual bool isSizeAvailable();
-    virtual ImageFrame* frameBufferAtIndex(size_t index);
+    String filenameExtension() const override { return "webp"_s; }
+    void setData(SharedBuffer&, bool) final;
+    ScalableImageDecoderFrame* frameBufferAtIndex(size_t index) override;
+    RepetitionCount repetitionCount() const override;
+    size_t frameCount() const override { return m_frameCount; }
+    void clearFrameBufferCache(size_t) override;
 
 private:
-    bool decode(bool onlySize);
+    WEBPImageDecoder(AlphaOption, GammaAndColorProfileOption);
+    void tryDecodeSize(bool) override { parseHeader(); }
+    void decode(size_t, bool);
+    void decodeFrame(size_t, WebPDemuxer*);
+    void parseHeader();
+    bool initFrameBuffer(size_t, const WebPIterator*);
+    void applyPostProcessing(size_t, WebPIDecoder*, WebPDecBuffer&, bool);
+    size_t findFirstRequiredFrameToDecode(size_t, WebPDemuxer*);
 
-    WebPIDecoder* m_decoder;
-    bool m_hasAlpha;
-    int m_formatFlags;
-
-#ifdef QCMS_WEBP_COLOR_CORRECTION
-    qcms_transform* colorTransform() const { return m_transform; }
-    void createColorTransform(const char* data, size_t);
-    void readColorProfile(const uint8_t* data, size_t);
-    void applyColorProfile(const uint8_t* data, size_t, ImageFrame&);
-
-    bool m_haveReadProfile;
-    qcms_transform* m_transform;
-    int m_decodedHeight;
-#else
-    void applyColorProfile(const uint8_t*, size_t, ImageFrame&) { };
-#endif
-    void clear();
+    int m_repetitionCount { 0 };
+    size_t m_frameCount { 0 };
+    int m_formatFlags { 0 };
+    bool m_headerParsed { false };
 };
 
 } // namespace WebCore
-
-#endif
 
 #endif

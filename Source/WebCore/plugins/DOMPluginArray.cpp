@@ -26,22 +26,14 @@
 #include "PluginData.h"
 #include <wtf/text/AtomicString.h>
 
-#if ENABLE(WEB_REPLAY)
-#include "Document.h"
-#include "WebReplayInputs.h"
-#include <replay/InputCursor.h>
-#endif
-
 namespace WebCore {
 
-DOMPluginArray::DOMPluginArray(Frame* frame)
-    : DOMWindowProperty(frame)
+DOMPluginArray::DOMPluginArray(DOMWindow* window)
+    : DOMWindowProperty(window)
 {
 }
 
-DOMPluginArray::~DOMPluginArray()
-{
-}
+DOMPluginArray::~DOMPluginArray() = default;
 
 unsigned DOMPluginArray::length() const
 {
@@ -61,7 +53,7 @@ RefPtr<DOMPlugin> DOMPluginArray::item(unsigned index)
     const Vector<PluginInfo>& plugins = data->publiclyVisiblePlugins();
     if (index >= plugins.size())
         return nullptr;
-    return DOMPlugin::create(data, m_frame, plugins[index]);
+    return DOMPlugin::create(data, frame(), plugins[index]);
 }
 
 RefPtr<DOMPlugin> DOMPluginArray::namedItem(const AtomicString& propertyName)
@@ -72,47 +64,50 @@ RefPtr<DOMPlugin> DOMPluginArray::namedItem(const AtomicString& propertyName)
 
     for (auto& plugin : data->webVisiblePlugins()) {
         if (plugin.name == propertyName)
-            return DOMPlugin::create(data, m_frame, plugin);
+            return DOMPlugin::create(data, frame(), plugin);
     }
     return nullptr;
 }
 
 Vector<AtomicString> DOMPluginArray::supportedPropertyNames()
 {
-    // FIXME: Should be implemented.
-    return Vector<AtomicString>();
+    PluginData* data = pluginData();
+    if (!data)
+        return { };
+
+    const auto& plugins = data->publiclyVisiblePlugins();
+
+    Vector<AtomicString> result;
+    result.reserveInitialCapacity(plugins.size());
+    for (auto& plugin : plugins)
+        result.uncheckedAppend(plugin.name);
+
+    return result;
 }
 
-void DOMPluginArray::refresh(bool reload)
+void DOMPluginArray::refresh(bool reloadPages)
 {
-    Page::refreshPlugins(reload);
+    auto* frame = this->frame();
+    if (!frame)
+        return;
+
+    if (!frame->page())
+        return;
+
+    Page::refreshPlugins(reloadPages);
 }
 
 PluginData* DOMPluginArray::pluginData() const
 {
-    if (!m_frame)
+    auto* frame = this->frame();
+    if (!frame)
         return nullptr;
 
-    Page* page = m_frame->page();
+    Page* page = frame->page();
     if (!page)
         return nullptr;
 
-    PluginData* pluginData = &page->pluginData();
-
-#if ENABLE(WEB_REPLAY)
-    if (!m_frame->document())
-        return pluginData;
-
-    InputCursor& cursor = m_frame->document()->inputCursor();
-    if (cursor.isCapturing())
-        cursor.appendInput<FetchPluginData>(pluginData);
-    else if (cursor.isReplaying()) {
-        if (FetchPluginData* input = cursor.fetchInput<FetchPluginData>())
-            pluginData = input->pluginData().get();
-    }
-#endif
-
-    return pluginData;
+    return &page->pluginData();
 }
 
 } // namespace WebCore

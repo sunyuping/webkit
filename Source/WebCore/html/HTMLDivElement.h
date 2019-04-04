@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2018 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,14 +20,14 @@
  *
  */
 
-#ifndef HTMLDivElement_h
-#define HTMLDivElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLDivElement : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLDivElement);
 public:
     static Ref<HTMLDivElement> create(Document&);
     static Ref<HTMLDivElement> create(const QualifiedName&, Document&);
@@ -36,10 +36,7 @@ protected:
     HTMLDivElement(const QualifiedName&, Document&);
 
 private:
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
 };
 
 } // namespace WebCore
-
-#endif // HTMLDivElement_h

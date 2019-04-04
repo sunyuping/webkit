@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006, 2007 Rob Buis <buis@kde.org>
- * Copyright (C) 2015 Apple Inc. All right reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All right reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,10 +24,10 @@
 
 #include "DOMImplementation.h"
 #include "HTMLNames.h"
-#include "Language.h"
 #include "SVGElement.h"
 #include "SVGNames.h"
 #include "SVGStringList.h"
+#include <wtf/Language.h>
 #include <wtf/NeverDestroyed.h>
 
 #if ENABLE(MATHML)
@@ -38,40 +38,86 @@ namespace WebCore {
 
 using namespace SVGNames;
 
-SVGTests::SVGTests()
-    : m_requiredFeatures(requiredFeaturesAttr)
-    , m_requiredExtensions(requiredExtensionsAttr)
-    , m_systemLanguage(systemLanguageAttr)
+static const HashSet<String, ASCIICaseInsensitiveHash>& supportedSVGFeatures()
 {
+    static NeverDestroyed<HashSet<String, ASCIICaseInsensitiveHash>> features = [] {
+        static const char* const features10[] = {
+#if ENABLE(SVG_FONTS)
+            "dom",
+            "dom.svg",
+            "dom.svg.static",
+            "svg",
+            "svg.static",
+#endif
+        };
+        static const char* const features11[] = {
+            "animation",
+            "basegraphicsattribute",
+            "basicclip",
+            "basicfilter",
+            "basicpaintattribute",
+            "basicstructure",
+            "basictext",
+            "clip",
+            "conditionalprocessing",
+            "containerattribute",
+            "coreattribute",
+            "cursor",
+            "documenteventsattribute",
+            "extensibility",
+            "externalresourcesrequired",
+            "filter",
+            "gradient",
+            "graphicaleventsattribute",
+            "graphicsattribute",
+            "hyperlinking",
+            "image",
+            "marker",
+            "mask",
+            "opacityattribute",
+            "paintattribute",
+            "pattern",
+            "script",
+            "shape",
+            "structure",
+            "style",
+            "svg-animation",
+            "svgdom-animation",
+            "text",
+            "view",
+            "viewportattribute",
+            "xlinkattribute",
+#if ENABLE(SVG_FONTS)
+            "basicfont",
+            "font",
+            "svg",
+            "svg-static",
+            "svgdom",
+            "svgdom-static",
+#endif
+        };
+        HashSet<String, ASCIICaseInsensitiveHash> set;
+        for (auto& feature : features10)
+            set.add(makeString("org.w3c.", feature));
+        for (auto& feature : features11)
+            set.add(makeString("http://www.w3.org/tr/svg11/feature#", feature));
+        return set;
+    }();
+    return features;
 }
 
-static SVGPropertyInfo createSVGTestPropertyInfo(const QualifiedName& attributeName, SVGPropertyInfo::SynchronizeProperty synchronizeFunction)
+SVGTests::SVGTests(SVGElement* contextElement)
+    : m_contextElement(*contextElement)
+    , m_requiredFeatures(SVGStringList::create(contextElement))
+    , m_requiredExtensions(SVGStringList::create(contextElement))
+    , m_systemLanguage(SVGStringList::create(contextElement))
 {
-    return { AnimatedUnknown, PropertyIsReadWrite, attributeName, attributeName.localName(), synchronizeFunction, nullptr };
-}
-
-static SVGAttributeToPropertyMap createSVGTextAttributeToPropertyMap()
-{
-    typedef NeverDestroyed<const SVGPropertyInfo> Info;
-
-    SVGAttributeToPropertyMap map;
-
-    static Info requiredFeatures = createSVGTestPropertyInfo(requiredFeaturesAttr, SVGElement::synchronizeRequiredFeatures);
-    map.addProperty(requiredFeatures.get());
-
-    static Info requiredExtensions = createSVGTestPropertyInfo(requiredExtensionsAttr, SVGElement::synchronizeRequiredExtensions);
-    map.addProperty(requiredExtensions.get());
-
-    static Info systemLanguage = createSVGTestPropertyInfo(systemLanguageAttr, SVGElement::synchronizeSystemLanguage);
-    map.addProperty(systemLanguage.get());
-
-    return map;
-}
-
-const SVGAttributeToPropertyMap& SVGTests::attributeToPropertyMap()
-{
-    static NeverDestroyed<SVGAttributeToPropertyMap> map = createSVGTextAttributeToPropertyMap();
-    return map;
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        PropertyRegistry::registerProperty<SVGNames::requiredFeaturesAttr, &SVGTests::m_requiredFeatures>();
+        PropertyRegistry::registerProperty<SVGNames::requiredExtensionsAttr, &SVGTests::m_requiredExtensions>();
+        PropertyRegistry::registerProperty<SVGNames::systemLanguageAttr, &SVGTests::m_systemLanguage>();
+    });
 }
 
 bool SVGTests::hasExtension(const String& extension)
@@ -86,15 +132,15 @@ bool SVGTests::hasExtension(const String& extension)
 
 bool SVGTests::isValid() const
 {
-    for (auto& feature : m_requiredFeatures.value) {
-        if (feature.isEmpty() || !DOMImplementation::hasFeature(feature, String()))
+    for (auto& feature : m_requiredFeatures->items()) {
+        if (feature.isEmpty() || !supportedSVGFeatures().contains(feature))
             return false;
     }
-    for (auto& language : m_systemLanguage.value) {
+    for (auto& language : m_systemLanguage->items()) {
         if (language != defaultLanguage().substring(0, 2))
             return false;
     }
-    for (auto& extension : m_requiredExtensions.value) {
+    for (auto& extension : m_requiredExtensions->items()) {
         if (!hasExtension(extension))
             return false;
     }
@@ -104,29 +150,21 @@ bool SVGTests::isValid() const
 void SVGTests::parseAttribute(const QualifiedName& attributeName, const AtomicString& value)
 {
     if (attributeName == requiredFeaturesAttr)
-        m_requiredFeatures.value.reset(value);
+        m_requiredFeatures->reset(value);
     if (attributeName == requiredExtensionsAttr)
-        m_requiredExtensions.value.reset(value);
+        m_requiredExtensions->reset(value);
     if (attributeName == systemLanguageAttr)
-        m_systemLanguage.value.reset(value);
+        m_systemLanguage->reset(value);
 }
 
-bool SVGTests::isKnownAttribute(const QualifiedName& attributeName)
+void SVGTests::svgAttributeChanged(const QualifiedName& attrName)
 {
-    return attributeName == requiredFeaturesAttr
-        || attributeName == requiredExtensionsAttr
-        || attributeName == systemLanguageAttr;
-}
+    if (!PropertyRegistry::isKnownAttribute(attrName))
+        return;
 
-bool SVGTests::handleAttributeChange(SVGElement* targetElement, const QualifiedName& attributeName)
-{
-    ASSERT(targetElement);
-    if (!isKnownAttribute(attributeName))
-        return false;
-    if (!targetElement->inDocument())
-        return true;
-    targetElement->setNeedsStyleRecalc(ReconstructRenderTree);
-    return true;
+    if (!m_contextElement.isConnected())
+        return;
+    m_contextElement.invalidateStyleAndRenderersForSubtree();
 }
 
 void SVGTests::addSupportedAttributes(HashSet<QualifiedName>& supportedAttributes)
@@ -136,45 +174,25 @@ void SVGTests::addSupportedAttributes(HashSet<QualifiedName>& supportedAttribute
     supportedAttributes.add(systemLanguageAttr);
 }
 
-void SVGTests::synchronizeAttribute(SVGElement* contextElement, SVGSynchronizableAnimatedProperty<SVGStringList>& property, const QualifiedName& attributeName)
+bool SVGTests::hasFeatureForLegacyBindings(const String& feature, const String& version)
 {
-    ASSERT(contextElement);
-    if (!property.shouldSynchronize)
-        return;
-    m_requiredFeatures.synchronize(contextElement, attributeName, property.value.valueAsString());
-}
+    // FIXME: This function is here only to be exposed in the Objective-C and GObject bindings for both Node and DOMImplementation.
+    // It's likely that we can just remove this and instead have the bindings return true unconditionally.
+    // This is what the DOMImplementation function now does in JavaScript as is now suggested in the DOM specification.
+    // The behavior implemented below is quirky, but preserves what WebKit has done for at least the last few years.
 
-void SVGTests::synchronizeRequiredFeatures(SVGElement* contextElement)
-{
-    synchronizeAttribute(contextElement, m_requiredFeatures, requiredFeaturesAttr);
-}
+    bool hasSVG10FeaturePrefix = startsWithLettersIgnoringASCIICase(feature, "org.w3c.dom.svg") || startsWithLettersIgnoringASCIICase(feature, "org.w3c.svg");
+    bool hasSVG11FeaturePrefix = startsWithLettersIgnoringASCIICase(feature, "http://www.w3.org/tr/svg");
 
-void SVGTests::synchronizeRequiredExtensions(SVGElement* contextElement)
-{
-    synchronizeAttribute(contextElement, m_requiredExtensions, requiredExtensionsAttr);
-}
+    // We don't even try to handle feature names that don't look like the SVG ones, so just return true for all of those.
+    if (!(hasSVG10FeaturePrefix || hasSVG11FeaturePrefix))
+        return true;
 
-void SVGTests::synchronizeSystemLanguage(SVGElement* contextElement)
-{
-    synchronizeAttribute(contextElement, m_systemLanguage, systemLanguageAttr);
-}
+    // If the version number matches the style of the feature name, then use the set to see if the feature is supported.
+    if (version.isEmpty() || (hasSVG10FeaturePrefix && version == "1.0") || (hasSVG11FeaturePrefix && version == "1.1"))
+        return supportedSVGFeatures().contains(feature);
 
-SVGStringList& SVGTests::requiredFeatures()
-{
-    m_requiredFeatures.shouldSynchronize = true;
-    return m_requiredFeatures.value;
-}
-
-SVGStringList& SVGTests::requiredExtensions()
-{
-    m_requiredExtensions.shouldSynchronize = true;    
-    return m_requiredExtensions.value;
-}
-
-SVGStringList& SVGTests::systemLanguage()
-{
-    m_systemLanguage.shouldSynchronize = true;
-    return m_systemLanguage.value;
+    return false;
 }
 
 }

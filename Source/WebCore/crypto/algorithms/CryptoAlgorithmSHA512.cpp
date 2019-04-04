@@ -26,25 +26,16 @@
 #include "config.h"
 #include "CryptoAlgorithmSHA512.h"
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
-#include "CryptoDigest.h"
+#include "ScriptExecutionContext.h"
+#include <pal/crypto/CryptoDigest.h>
 
 namespace WebCore {
 
-const char* const CryptoAlgorithmSHA512::s_name = "SHA-512";
-
-CryptoAlgorithmSHA512::CryptoAlgorithmSHA512()
+Ref<CryptoAlgorithm> CryptoAlgorithmSHA512::create()
 {
-}
-
-CryptoAlgorithmSHA512::~CryptoAlgorithmSHA512()
-{
-}
-
-std::unique_ptr<CryptoAlgorithm> CryptoAlgorithmSHA512::create()
-{
-    return std::unique_ptr<CryptoAlgorithm>(new CryptoAlgorithmSHA512);
+    return adoptRef(*new CryptoAlgorithmSHA512);
 }
 
 CryptoAlgorithmIdentifier CryptoAlgorithmSHA512::identifier() const
@@ -52,19 +43,23 @@ CryptoAlgorithmIdentifier CryptoAlgorithmSHA512::identifier() const
     return s_identifier;
 }
 
-void CryptoAlgorithmSHA512::digest(const CryptoAlgorithmParameters&, const CryptoOperationData& data, VectorCallback&& callback, VoidCallback&& failureCallback, ExceptionCode&)
+void CryptoAlgorithmSHA512::digest(Vector<uint8_t>&& message, VectorCallback&& callback, ExceptionCallback&& exceptionCallback, ScriptExecutionContext& context, WorkQueue& workQueue)
 {
-    std::unique_ptr<CryptoDigest> digest = CryptoDigest::create(CryptoAlgorithmIdentifier::SHA_512);
+    auto digest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_512);
     if (!digest) {
-        failureCallback();
+        exceptionCallback(OperationError);
         return;
     }
 
-    digest->addBytes(data.first, data.second);
-
-    callback(digest->computeHash());
+    workQueue.dispatch([digest = WTFMove(digest), message = WTFMove(message), callback = WTFMove(callback), contextIdentifier = context.contextIdentifier()]() mutable {
+        digest->addBytes(message.data(), message.size());
+        auto result = digest->computeHash();
+        ScriptExecutionContext::postTaskTo(contextIdentifier, [callback = WTFMove(callback), result = WTFMove(result)](auto&) {
+            callback(result);
+        });
+    });
 }
 
 }
 
-#endif // ENABLE(SUBTLE_CRYPTO)
+#endif // ENABLE(WEB_CRYPTO)

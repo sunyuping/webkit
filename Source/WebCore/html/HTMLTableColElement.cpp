@@ -27,11 +27,19 @@
 
 #include "CSSPropertyNames.h"
 #include "HTMLNames.h"
+#include "HTMLParserIdioms.h"
 #include "HTMLTableElement.h"
 #include "RenderTableCol.h"
 #include "Text.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLTableColElement);
+
+const unsigned defaultSpan { 1 };
+const unsigned minSpan { 1 };
+const unsigned maxSpan { 1000 };
 
 using namespace HTMLNames;
 
@@ -64,8 +72,7 @@ void HTMLTableColElement::collectStyleForPresentationAttribute(const QualifiedNa
 void HTMLTableColElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
 {
     if (name == spanAttr) {
-        int newSpan = value.toInt();
-        m_span = newSpan ? newSpan : 1;
+        m_span = clampHTMLNonNegativeIntegerToRange(value, minSpan, maxSpan, defaultSpan);
         if (is<RenderTableCol>(renderer()))
             downcast<RenderTableCol>(*renderer()).updateFromElement();
     } else if (name == widthAttr) {
@@ -81,23 +88,23 @@ void HTMLTableColElement::parseAttribute(const QualifiedName& name, const Atomic
         HTMLTablePartElement::parseAttribute(name, value);
 }
 
-const StyleProperties* HTMLTableColElement::additionalPresentationAttributeStyle()
+const StyleProperties* HTMLTableColElement::additionalPresentationAttributeStyle() const
 {
     if (!hasTagName(colgroupTag))
         return nullptr;
-    if (HTMLTableElement* table = findParentTable())
+    if (RefPtr<HTMLTableElement> table = findParentTable())
         return table->additionalGroupStyle(false);
     return nullptr;
 }
 
-void HTMLTableColElement::setSpan(int n)
+void HTMLTableColElement::setSpan(unsigned span)
 {
-    setIntegralAttribute(spanAttr, n);
+    setUnsignedIntegralAttribute(spanAttr, limitToOnlyHTMLNonNegative(span, defaultSpan));
 }
 
 String HTMLTableColElement::width() const
 {
-    return fastGetAttribute(widthAttr);
+    return attributeWithoutSynchronization(widthAttr);
 }
 
 }

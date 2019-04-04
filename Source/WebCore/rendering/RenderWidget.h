@@ -19,14 +19,12 @@
  *
  */
 
-#ifndef RenderWidget_h
-#define RenderWidget_h
+#pragma once
 
 #include "HTMLFrameOwnerElement.h"
 #include "OverlapTestRequestClient.h"
 #include "RenderReplaced.h"
 #include "Widget.h"
-#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -45,27 +43,27 @@ public:
     }
 
     static bool isSuspended() { return s_widgetHierarchyUpdateSuspendCount; }
-    static void scheduleWidgetToMove(Widget* widget, FrameView* frame) { widgetNewParentMap().set(widget, frame); }
+    static void scheduleWidgetToMove(Widget& widget, FrameView* frame) { widgetNewParentMap().set(&widget, frame); }
 
 private:
-    typedef HashMap<RefPtr<Widget>, FrameView*> WidgetToParentMap;
+    using WidgetToParentMap = HashMap<RefPtr<Widget>, FrameView*>;
     static WidgetToParentMap& widgetNewParentMap();
 
     WEBCORE_EXPORT void moveWidgets();
-
     WEBCORE_EXPORT static unsigned s_widgetHierarchyUpdateSuspendCount;
 };
     
 class RenderWidget : public RenderReplaced, private OverlapTestRequestClient {
+    WTF_MAKE_ISO_ALLOCATED(RenderWidget);
 public:
     virtual ~RenderWidget();
 
     HTMLFrameOwnerElement& frameOwnerElement() const { return downcast<HTMLFrameOwnerElement>(nodeForNonAnonymous()); }
 
     Widget* widget() const { return m_widget.get(); }
-    WEBCORE_EXPORT void setWidget(PassRefPtr<Widget>);
+    WEBCORE_EXPORT void setWidget(RefPtr<Widget>&&);
 
-    static RenderWidget* find(const Widget*);
+    static RenderWidget* find(const Widget&);
 
     enum class ChildWidgetState { Valid, Destroyed };
     ChildWidgetState updateWidgetPosition() WARN_UNUSED_RETURN;
@@ -73,37 +71,34 @@ public:
 
     bool requiresAcceleratedCompositing() const;
 
-    WeakPtr<RenderWidget> createWeakPtr() { return m_weakPtrFactory.createWeakPtr(); }
-
     void ref() { ++m_refCount; }
     void deref();
 
 protected:
-    RenderWidget(HTMLFrameOwnerElement&, Ref<RenderStyle>&&);
+    RenderWidget(HTMLFrameOwnerElement&, RenderStyle&&);
 
-    virtual void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override final;
-    virtual void layout() override;
-    virtual void paint(PaintInfo&, const LayoutPoint&) override;
-    virtual bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
+    void willBeDestroyed() override;
+    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) final;
+    void layout() override;
+    void paint(PaintInfo&, const LayoutPoint&) override;
+    bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
     virtual void paintContents(PaintInfo&, const LayoutPoint&);
-    virtual bool requiresLayer() const override;
+    bool requiresLayer() const override;
 
 private:
     void element() const = delete;
 
-    virtual bool isWidget() const override final { return true; }
+    bool isWidget() const final { return true; }
 
-    virtual bool needsPreferredWidthsRecalculation() const override final;
-    virtual RenderBox* embeddedContentBox() const override final;
+    bool needsPreferredWidthsRecalculation() const final;
+    RenderBox* embeddedContentBox() const final;
 
-    virtual void willBeDestroyed() override final;
-    virtual void setSelectionState(SelectionState) override final;
-    virtual void setOverlapTestResult(bool) override final;
+    void setSelectionState(SelectionState) final;
+    void setOverlapTestResult(bool) final;
 
     bool setWidgetGeometry(const LayoutRect&);
     bool updateWidgetGeometry();
 
-    WeakPtrFactory<RenderWidget> m_weakPtrFactory;
     RefPtr<Widget> m_widget;
     IntRect m_clipRect; // The rectangle needs to remain correct after scrolling, so it is stored in content view coordinates, and not clipped to window.
     unsigned m_refCount { 1 };
@@ -119,5 +114,3 @@ inline void RenderWidget::deref()
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderWidget, isWidget())
-
-#endif // RenderWidget_h

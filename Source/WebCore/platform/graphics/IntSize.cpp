@@ -27,7 +27,8 @@
 #include "IntSize.h"
 
 #include "FloatSize.h"
-#include "TextStream.h"
+#include <wtf/JSONValues.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -37,9 +38,32 @@ IntSize::IntSize(const FloatSize& s)
 {
 }
 
+IntSize IntSize::constrainedBetween(const IntSize& min, const IntSize& max) const
+{
+    return {
+        std::max(min.width(), std::min(max.width(), m_width)),
+        std::max(min.height(), std::min(max.height(), m_height))
+    };
+}
+
 TextStream& operator<<(TextStream& ts, const IntSize& size)
 {
     return ts << "width=" << size.width() << " height=" << size.height();
+}
+
+Ref<JSON::Object> IntSize::toJSONObject() const
+{
+    auto object = JSON::Object::create();
+
+    object->setDouble("width"_s, m_width);
+    object->setDouble("height"_s, m_height);
+
+    return object;
+}
+
+String IntSize::toJSONString() const
+{
+    return toJSONObject()->toJSONString();
 }
 
 }

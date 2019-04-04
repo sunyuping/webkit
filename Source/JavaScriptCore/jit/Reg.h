@@ -23,10 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef Reg_h
-#define Reg_h
+#pragma once
 
-#if ENABLE(JIT)
+#if ENABLE(ASSEMBLER)
 
 #include "MacroAssembler.h"
 
@@ -172,6 +171,8 @@ public:
         return m_index;
     }
     
+    const char* debugName() const;
+    
     void dump(PrintStream&) const;
 
     class AllRegsIterable {
@@ -244,7 +245,4 @@ template<> struct HashTraits<JSC::Reg> : SimpleClassHashTraits<JSC::Reg> {
 
 } // namespace WTF
 
-#endif // ENABLE(JIT)
-
-#endif // Reg_h
-
+#endif // ENABLE(ASSEMBLER)

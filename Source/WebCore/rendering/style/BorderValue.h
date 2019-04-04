@@ -22,8 +22,7 @@
  *
  */
 
-#ifndef BorderValue_h
-#define BorderValue_h
+#pragma once
 
 #include "Color.h"
 #include "RenderStyleConstants.h"
@@ -34,32 +33,29 @@ class BorderValue {
 friend class RenderStyle;
 public:
     BorderValue()
-        : m_width(3)
-        , m_color(0)
-        , m_colorIsValid(false)
-        , m_style(BNONE)
-        , m_isAuto(AUTO_OFF)
+        : m_style(static_cast<unsigned>(BorderStyle::None))
+        , m_isAuto(static_cast<unsigned>(OutlineIsAuto::Off))
     {
     }
 
     bool nonZero(bool checkStyle = true) const
     {
-        return width() && (!checkStyle || m_style != BNONE);
+        return width() && (!checkStyle || style() != BorderStyle::None);
     }
 
     bool isTransparent() const
     {
-        return m_colorIsValid && !alphaChannel(m_color);
+        return m_color.isValid() && !m_color.isVisible();
     }
 
     bool isVisible(bool checkStyle = true) const
     {
-        return nonZero(checkStyle) && !isTransparent() && (!checkStyle || m_style != BHIDDEN);
+        return nonZero(checkStyle) && !isTransparent() && (!checkStyle || style() != BorderStyle::Hidden);
     }
 
     bool operator==(const BorderValue& o) const
     {
-        return m_width == o.m_width && m_style == o.m_style && m_color == o.m_color && m_colorIsValid == o.m_colorIsValid;
+        return m_width == o.m_width && m_style == o.m_style && m_color == o.m_color;
     }
 
     bool operator!=(const BorderValue& o) const
@@ -69,26 +65,34 @@ public:
 
     void setColor(const Color& color)
     {
-        m_color = color.rgb();
-        m_colorIsValid = color.isValid();
+        m_color = color;
     }
 
-    Color color() const { return Color(m_color, m_colorIsValid); }
+    const Color& color() const { return m_color; }
 
     float width() const { return m_width; }
-    EBorderStyle style() const { return static_cast<EBorderStyle>(m_style); }
+    BorderStyle style() const { return static_cast<BorderStyle>(m_style); }
+    
+    float boxModelWidth() const;
 
 protected:
-    float m_width;
-    RGBA32 m_color;
-    unsigned m_colorIsValid : 1;
+    Color m_color;
 
-    unsigned m_style : 4; // EBorderStyle
+    float m_width { 3 };
+
+    unsigned m_style : 4; // BorderStyle
 
     // This is only used by OutlineValue but moved here to keep the bits packed.
     unsigned m_isAuto : 1; // OutlineIsAuto
 };
 
-} // namespace WebCore
+inline float BorderValue::boxModelWidth() const
+{
+    auto style = this->style();
+    if (style == BorderStyle::None || style == BorderStyle::Hidden)
+        return 0;
 
-#endif // BorderValue_h
+    return width();
+}
+
+} // namespace WebCore

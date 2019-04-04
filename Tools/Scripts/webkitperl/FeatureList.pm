@@ -23,6 +23,13 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # A module to contain all the enable/disable feature option code.
+#
+# For CMake ports, this module only affects development builds. The
+# settings in this file have ZERO EFFECT for end users. Use
+# WebKitFeatures.cmake to change settings for users. Guidelines:
+#
+# * A feature enabled here but not WebKitFeatures.cmake is EXPERIMENTAL.
+# * A feature enabled in WebKitFeatures.cmake but not here is a BUG.
 
 use strict;
 use warnings;
@@ -42,51 +49,58 @@ BEGIN {
 }
 
 my (
-    $threeDTransformsSupport,
     $accelerated2DCanvasSupport,
-    $allInOneBuild,
-    $arrowfunctionSyntax,
+    $acceleratedOverflowScrollingSupport,
+    $applePaySessionV3Support,
+    $applePaySessionV4Support,
+    $applePaySupport,
+    $applicationManifestSupport,
+    $asyncScrollingSupport,
     $attachmentElementSupport,
-    $batteryStatusSupport,
-    $canvasPathSupport,
-    $canvasProxySupport,
+    $avfCaptionsSupport,
+    $bubblewrapSandboxSupport,
+    $cachePartitioningSupport,
     $channelMessagingSupport,
-    $classSyntax,
-    $templateLiteralSyntax,
-    $cspNextSupport,
+    $cloopSupport,
+    $contentExtensionsSupport,
+    $contentFilteringSupport,
+    $contextMenusSupport,
     $css3TextSupport,
-    $css3TextLineBreakSupport,
-    $css4ImagesSupport,
     $cssBoxDecorationBreakSupport,
-    $cssDeviceAdaptation,
-    $cssGridLayoutSupport,
+    $cssCompositingSupport,
+    $cssConicGradientsSupport,
+    $cssDeviceAdaptationSupport,
     $cssImageOrientationSupport,
     $cssImageResolutionSupport,
-    $cssImageSetSupport,
-    $cssRegionsSupport,
-    $cssShapesSupport,
-    $cssCompositingSupport,
-    $customElementsSupport,
+    $cssPaintingAPISupport,
+    $cssScrollSnapSupport,
+    $cssSelectorsLevel4Support,
+    $cssTrailingWordSupport,
+    $cssTypedOMSupport,
+    $cursorVisibilitySupport,
     $customSchemeHandlerSupport,
-    $dataTransferItemsSupport,
+    $darkModeCSSSupport,
+    $dashboardSupportSupport,
+    $dataInteractionSupport,
+    $datacueValueSupport,
     $datalistElementSupport,
-    $detailsElementSupport,
     $deviceOrientationSupport,
-    $directoryUploadSupport,
-    $dom4EventsConstructor,
+    $dfgJITSupport,
     $downloadAttributeSupport,
+    $dragSupportSupport,
+    $encryptedMediaSupport,
+    $fastJITPermissionsSupport,
     $fetchAPISupport,
-    $fontLoadEventsSupport,
+    $filtersLevel2Support,
+    $ftlJITSupport,
     $ftpDirSupport,
     $fullscreenAPISupport,
     $gamepadSupport,
-    $generatorsSupport,
     $geolocationSupport,
-    $hardwareConcurrencySupport,
-    $highDPICanvasSupport,
+    $gstreamerGLSupport,
     $icondatabaseSupport,
+    $indexedDatabaseInWorkersSupport,
     $indexedDatabaseSupport,
-    $inputSpeechSupport,
     $inputTypeColorSupport,
     $inputTypeDateSupport,
     $inputTypeDatetimeSupport,
@@ -94,377 +108,476 @@ my (
     $inputTypeMonthSupport,
     $inputTypeTimeSupport,
     $inputTypeWeekSupport,
+    $inspectorAlternateDispatchersSupport,
+    $intersectionObserverSupport,
     $intlSupport,
+    $iosGestureEventsSupport,
+    $iosTouchEventsSupport,
     $jitSupport,
-    $legacyNotificationsSupport,
-    $legacyVendorPrefixSupport,
-    $legacyWebAudioSupport,
-    $linkPrefetchSupport,
-    $linkPrerenderSupport,
+    $keyboardCodeAttributeSupport,
+    $keyboardKeyAttributeSupport,
+    $layoutFormattingContextSupport,
+    $legacyCSSVendorPrefixesSupport,
+    $legacyCustomProtocolManagerSupport,
+    $legacyEncryptedMediaSupport,
+    $letterpressSupport,
+    $macGestureEventsSupport,
     $mathmlSupport,
     $mediaCaptureSupport,
+    $mediaControlsScriptSupport,
+    $mediaSessionSupport,
     $mediaSourceSupport,
     $mediaStatisticsSupport,
     $mediaStreamSupport,
+    $memorySamplerSupport,
     $meterElementSupport,
     $mhtmlSupport,
-    $modulesSupport,
     $mouseCursorScaleSupport,
     $netscapePluginAPISupport,
-    $nosniffSupport,
     $notificationsSupport,
     $orientationEventsSupport,
-    $pageVisibilityAPISupport,
-    $performanceTimelineSupport,
-    $promiseSupport,
-    $proximityEventsSupport,
+    $paymentRequestSupport,
+    $pdfkitPluginSupport,
+    $pointerLockSupport,
+    $publicSuffixListSupport,
     $quotaSupport,
-    $resolutionMediaQuerySupport,
     $registerProtocolHandlerSupport,
-    $requestAnimationFrameSupport,
-    $resourceTimingSupport,
-    $scriptedSpeechSupport,
-    $seccompFiltersSupport,
-    $shadowDOMSupport,
+    $remoteInspectorSupport,
+    $resizeObserverSupport,
+    $resolutionMediaQuerySupport,
+    $resourceLoadStatisticsSupport,
+    $resourceUsageSupport,
+    $rubberBandingSupport,
+    $samplingProfilerSupport,
+    $serviceControlsSupport,
+    $serviceWorkerSupport,
+    $smoothScrollingSupport,
+    $speechSynthesisSupport,
+    $spellcheckSupport,
     $streamsAPISupport,
-    $styleScopedSupport,
-    $subtleCrypto,
-    $svgDOMObjCBindingsSupport,
     $svgFontsSupport,
     $systemMallocSupport,
-    $templateElementSupport,
+    $telephoneNumberDetectionSupport,
     $textAutosizingSupport,
-    $threadedCompositorSupport,
-    $threadedHTMLParserSupport,
+    $threeDTransformsSupport,
     $touchEventsSupport,
     $touchSliderSupport,
-    $touchIconLoadingSupport,
-    $userTimingSupport,
-    $vibrationSupport,
+    $userMessageHandlersSupport,
+    $userselectAllSupport,
+    $variationFontsSupport,
+    $videoPresentationModeSupport,
     $videoSupport,
     $videoTrackSupport,
-    $webglSupport,
+    $videoUsesElementFullscreenSupport,
     $webAssemblySupport,
-    $webAnimationsSupport,
     $webAudioSupport,
-    $webReplaySupport,
-    $webSocketsSupport,
-    $webTimingSupport,
+    $webAuthNSupport,
+    $webCryptoSupport,
+    $webRTCSupport,
+    $webassemblyStreamingAPISupport,
+    $webdriverSupport,
+    $webgl2Support,
+    $webglSupport,
+    $webgpuSupport,
+    $wirelessPlaybackTargetSupport,
     $xsltSupport,
-    $ftlJITSupport,
 );
 
 prohibitUnknownPort();
 
 my @features = (
     { option => "3d-rendering", desc => "Toggle 3D Rendering support",
-      define => "ENABLE_3D_TRANSFORMS", default => (isAppleMacWebKit() || isIOSWebKit() || isGtk() || isEfl()), value => \$threeDTransformsSupport },
+      define => "ENABLE_3D_TRANSFORMS", value => \$threeDTransformsSupport },
 
     { option => "accelerated-2d-canvas", desc => "Toggle Accelerated 2D Canvas support",
-      define => "ENABLE_ACCELERATED_2D_CANVAS", default => isGtk(), value => \$accelerated2DCanvasSupport },
+      define => "ENABLE_ACCELERATED_2D_CANVAS", value => \$accelerated2DCanvasSupport },
 
-    { option => "allinone-build", desc => "Toggle all-in-one build",
-      define => "ENABLE_ALLINONE_BUILD", default => isWindows(), value => \$allInOneBuild },
+    { option => "accelerated-overflow-scrolling", desc => "Toggle accelerated scrolling support",
+      define => "ENABLE_ACCELERATED_OVERFLOW_SCROLLING", value => \$acceleratedOverflowScrollingSupport },
 
-    { option => "arrowfunction-syntax", desc => "Toggle ES6 arrow function syntax support",
-      define => "ENABLE_ES6_ARROWFUNCTION_SYNTAX", default => 1, value => \$arrowfunctionSyntax },
+    { option => "apple-pay", desc => "Toggle Apply Pay support",
+      define => "ENABLE_APPLE_PAY", value => \$applePaySupport },
+
+    { option => "apple-pay-session-v3", desc => "Toggle Apple Pay Session V3 support",
+      define => "ENABLE_APPLE_PAY_SESSION_V3", value => \$applePaySessionV3Support },
+
+    { option => "apple-pay-session-v4", desc => "Toggle Apple Pay Session V4 support",
+      define => "ENABLE_APPLE_PAY_SESSION_V4", value => \$applePaySessionV4Support },
+
+    { option => "application-manifest", desc => "Toggle Application Manifest support",
+      define => "ENABLE_APPLICATION_MANIFEST", value => \$applicationManifestSupport },
+
+    { option => "async-scrolling", desc => "Enable asynchronous scrolling",
+      define => "ENABLE_ASYNC_SCROLLING", value => \$asyncScrollingSupport },
 
     { option => "attachment-element", desc => "Toggle Attachment Element support",
-      define => "ENABLE_ATTACHMENT_ELEMENT", default => 0, value => \$attachmentElementSupport },
+      define => "ENABLE_ATTACHMENT_ELEMENT", value => \$attachmentElementSupport },
 
-    { option => "battery-status", desc => "Toggle Battery Status support",
-      define => "ENABLE_BATTERY_STATUS", default => isEfl(), value => \$batteryStatusSupport },
+    { option => "avf-captions", desc => "Toggle AVFoundation caption support",
+      define => "ENABLE_AVF_CAPTIONS", value => \$avfCaptionsSupport },
 
-    { option => "canvas-path", desc => "Toggle Canvas Path support",
-      define => "ENABLE_CANVAS_PATH", default => 1, value => \$canvasPathSupport },
+    { option => "bubblewrap-sandbox", desc => "Toggle Bubblewrap sandboxing support",
+      define => "ENABLE_BUBBLEWRAP_SANDBOX", value => \$bubblewrapSandboxSupport },
 
-    { option => "canvas-proxy", desc => "Toggle CanvasProxy support",
-      define => "ENABLE_CANVAS_PROXY", default => 0, value => \$canvasProxySupport },
+    { option => "cloop", desc => "Enable CLoop interpreter",
+      define => "ENABLE_C_LOOP", value => \$cloopSupport },
+
+    { option => "cache-partitioning", desc => "Toggle cache partitioning support",
+      define => "ENABLE_CACHE_PARTITIONING", value => \$cachePartitioningSupport },
 
     { option => "channel-messaging", desc => "Toggle Channel Messaging support",
-      define => "ENABLE_CHANNEL_MESSAGING", default => 1, value => \$channelMessagingSupport },
+      define => "ENABLE_CHANNEL_MESSAGING", value => \$channelMessagingSupport },
 
-    { option => "class-syntax", desc => "Toggle ES6 class syntax support",
-      define => "ENABLE_ES6_CLASS_SYNTAX", default => 1, value => \$classSyntax },
+    { option => "content-extensions", desc => "Toggle Content Extensions support",
+      define => "ENABLE_CONTENT_EXTENSIONS", value => \$contentExtensionsSupport },
 
-    { option => "generators", desc => "Toggle ES6 generators support",
-      define => "ENABLE_ES6_GENERATORS", default => 1, value => \$generatorsSupport },
+    { option => "content-filtering", desc => "Toggle content filtering support",
+      define => "ENABLE_CONTENT_FILTERING", value => \$contentFilteringSupport },
 
-    { option => "modules", desc => "Toggle ES6 modules support",
-      define => "ENABLE_ES6_MODULES", default => 0, value => \$modulesSupport },
-
-    { option => "template-literal-syntax", desc => "Toggle ES6 template literal syntax support",
-      define => "ENABLE_ES6_TEMPLATE_LITERAL_SYNTAX", default => 1, value => \$templateLiteralSyntax },
-
-    { option => "csp-next", desc => "Toggle Content Security Policy 1.1 support",
-      define => "ENABLE_CSP_NEXT", default => isGtk(), value => \$cspNextSupport },
-
-    { option => "css-device-adaptation", desc => "Toggle CSS Device Adaptation support",
-      define => "ENABLE_CSS_DEVICE_ADAPTATION", default => isEfl(), value => \$cssDeviceAdaptation },
-
-    { option => "css-shapes", desc => "Toggle CSS Shapes support",
-      define => "ENABLE_CSS_SHAPES", default => 1, value => \$cssShapesSupport },
-
-    { option => "css-grid-layout", desc => "Toggle CSS Grid Layout support",
-      define => "ENABLE_CSS_GRID_LAYOUT", default => 1, value => \$cssGridLayoutSupport },
+    { option => "context-menus", desc => "Toggle Context Menu support",
+      define => "ENABLE_CONTEXT_MENUS", value => \$contextMenusSupport },
 
     { option => "css3-text", desc => "Toggle CSS3 Text support",
-      define => "ENABLE_CSS3_TEXT", default => (isEfl() || isGtk()), value => \$css3TextSupport },
-
-    { option => "css3-text-line-break", desc => "Toggle CSS3 Text Line Break support",
-      define => "ENABLE_CSS3_TEXT_LINE_BREAK", default => 0, value => \$css3TextLineBreakSupport },
+      define => "ENABLE_CSS3_TEXT", value => \$css3TextSupport },
 
     { option => "css-box-decoration-break", desc => "Toggle CSS box-decoration-break support",
-      define => "ENABLE_CSS_BOX_DECORATION_BREAK", default => 1, value => \$cssBoxDecorationBreakSupport },
-
-    { option => "css-image-orientation", desc => "Toggle CSS image-orientation support",
-      define => "ENABLE_CSS_IMAGE_ORIENTATION", default => (isEfl() || isGtk()), value => \$cssImageOrientationSupport },
-
-    { option => "css-image-resolution", desc => "Toggle CSS image-resolution support",
-      define => "ENABLE_CSS_IMAGE_RESOLUTION", default => isGtk(), value => \$cssImageResolutionSupport },
-
-    { option => "css-image-set", desc => "Toggle CSS image-set support",
-      define => "ENABLE_CSS_IMAGE_SET", default => (isEfl() || isGtk()), value => \$cssImageSetSupport },
-
-    { option => "css-regions", desc => "Toggle CSS Regions support",
-      define => "ENABLE_CSS_REGIONS", default => 1, value => \$cssRegionsSupport },
+      define => "ENABLE_CSS_BOX_DECORATION_BREAK", value => \$cssBoxDecorationBreakSupport },
 
     { option => "css-compositing", desc => "Toggle CSS Compositing support",
-      define => "ENABLE_CSS_COMPOSITING", default => isAppleWebKit(), value => \$cssCompositingSupport },
+      define => "ENABLE_CSS_COMPOSITING", value => \$cssCompositingSupport },
 
-    { option => "custom-elements", desc => "Toggle custom elements support",
-      define => "ENABLE_CUSTOM_ELEMENTS", default => (isAppleMacWebKit() || isIOSWebKit()), value => \$customElementsSupport },
+    { option => "css-conic-gradients", desc => "Toggle CSS Conic Gradient support",
+      define => "ENABLE_CSS_CONIC_GRADIENTS", value => \$cssConicGradientsSupport },
+
+    { option => "css-device-adaptation", desc => "Toggle CSS Device Adaptation support",
+      define => "ENABLE_CSS_DEVICE_ADAPTATION", value => \$cssDeviceAdaptationSupport },
+
+    { option => "css-image-orientation", desc => "Toggle CSS image-orientation support",
+      define => "ENABLE_CSS_IMAGE_ORIENTATION", value => \$cssImageOrientationSupport },
+
+    { option => "css-image-resolution", desc => "Toggle CSS image-resolution support",
+      define => "ENABLE_CSS_IMAGE_RESOLUTION", value => \$cssImageResolutionSupport },
+
+    { option => "css-painting-api", desc => "Toggle CSS Painting API support",
+      define => "ENABLE_CSS_PAINTING_API", value => \$cssPaintingAPISupport },
+
+    { option => "css-scroll-snap", desc => "Toggle CSS snap scroll support",
+      define => "ENABLE_CSS_SCROLL_SNAP", value => \$cssScrollSnapSupport },
+
+    { option => "css-selectors-level4", desc => "Toggle CSS Selectors Level 4 support",
+      define => "ENABLE_CSS_SELECTORS_LEVEL4", value => \$cssSelectorsLevel4Support },
+
+    { option => "css-typed-om", desc => "Toggle CSS Typed OM support",
+      define => "ENABLE_CSS_TYPED_OM", value => \$cssTypedOMSupport },
+
+    { option => "cursor-visibility", desc => "Toggle cursor visibility support",
+      define => "ENABLE_CURSOR_VISIBILITY", value => \$cursorVisibilitySupport },
 
     { option => "custom-scheme-handler", desc => "Toggle Custom Scheme Handler support",
-      define => "ENABLE_CUSTOM_SCHEME_HANDLER", default => isEfl(), value => \$customSchemeHandlerSupport },
+      define => "ENABLE_CUSTOM_SCHEME_HANDLER", value => \$customSchemeHandlerSupport },
+
+    { option => "dark-mode-css", desc => "Toggle Dark Mode CSS support",
+      define => "ENABLE_DARK_MODE_CSS", value => \$darkModeCSSSupport },
+
+    { option => "dashboard-support", desc => "Toggle dashboard support",
+      define => "ENABLE_DASHBOARD_SUPPORT", value => \$dashboardSupportSupport },
+
+    { option => "datacue-value", desc => "Toggle datacue value support",
+      define => "ENABLE_DATACUE_VALUE", value => \$datacueValueSupport },
 
     { option => "datalist-element", desc => "Toggle Datalist Element support",
-      define => "ENABLE_DATALIST_ELEMENT", default => isEfl(), value => \$datalistElementSupport },
+      define => "ENABLE_DATALIST_ELEMENT", value => \$datalistElementSupport },
 
-    { option => "data-transfer-items", desc => "Toggle Data Transfer Items support",
-      define => "ENABLE_DATA_TRANSFER_ITEMS", default => 0, value => \$dataTransferItemsSupport },
-
-    { option => "details-element", desc => "Toggle Details Element support",
-      define => "ENABLE_DETAILS_ELEMENT", default => 1, value => \$detailsElementSupport },
+    { option => "data-interaction", desc => "Toggle data interaction support",
+      define => "ENABLE_DATA_INTERACTION", value => \$dataInteractionSupport },
 
     { option => "device-orientation", desc => "Toggle Device Orientation support",
-      define => "ENABLE_DEVICE_ORIENTATION", default => isIOSWebKit(), value => \$deviceOrientationSupport },
+      define => "ENABLE_DEVICE_ORIENTATION", value => \$deviceOrientationSupport },
 
-    { option => "dom4-events-constructor", desc => "Expose DOM4 Events constructors",
-      define => "ENABLE_DOM4_EVENTS_CONSTRUCTOR", default => (isAppleWebKit() || isGtk() || isEfl()), value => \$dom4EventsConstructor },
+    { option => "dfg-jit", desc => "Toggle data flow graph JIT tier",
+      define => "ENABLE_DFG_JIT", value => \$dfgJITSupport },
 
     { option => "download-attribute", desc => "Toggle Download Attribute support",
-      define => "ENABLE_DOWNLOAD_ATTRIBUTE", default => isEfl(), value => \$downloadAttributeSupport },
+      define => "ENABLE_DOWNLOAD_ATTRIBUTE", value => \$downloadAttributeSupport },
+
+    { option => "drag-support", desc => "Toggle support of drag actions (including selection of text with mouse)",
+      define => "ENABLE_DRAG_SUPPORT", value => \$dragSupportSupport },
+
+    { option => "encrypted-media", desc => "Toggle EME V3 support",
+      define => "ENABLE_ENCRYPTED_MEDIA", value => \$encryptedMediaSupport },
+
+    { option => "fast-jit-permissions", desc => "Toggle fast JIT permissions support",
+      define => "ENABLE_FAST_JIT_PERMISSIONS", value => \$fastJITPermissionsSupport },
 
     { option => "fetch-api", desc => "Toggle Fetch API support",
-      define => "ENABLE_FETCH_API", default => 1, value => \$fetchAPISupport },
+      define => "ENABLE_FETCH_API", value => \$fetchAPISupport },
 
-    { option => "font-load-events", desc => "Toggle Font Load Events support",
-      define => "ENABLE_FONT_LOAD_EVENTS", default => 0, value => \$fontLoadEventsSupport },
+    { option => "filters-level-2", desc => "Toggle Filters Module Level 2",
+      define => "ENABLE_FILTERS_LEVEL_2", value => \$filtersLevel2Support },
+
+    { option => "ftl-jit", desc => "Toggle FTL JIT support",
+      define => "ENABLE_FTL_JIT", value => \$ftlJITSupport },
 
     { option => "ftpdir", desc => "Toggle FTP Directory support",
-      define => "ENABLE_FTPDIR", default => 1, value => \$ftpDirSupport },
+      define => "ENABLE_FTPDIR", value => \$ftpDirSupport },
 
     { option => "fullscreen-api", desc => "Toggle Fullscreen API support",
-      define => "ENABLE_FULLSCREEN_API", default => (isAppleMacWebKit() || isEfl() || isGtk()), value => \$fullscreenAPISupport },
+      define => "ENABLE_FULLSCREEN_API", value => \$fullscreenAPISupport },
 
     { option => "gamepad", desc => "Toggle Gamepad support",
-      define => "ENABLE_GAMEPAD", default => 0, value => \$gamepadSupport },
+      define => "ENABLE_GAMEPAD", value => \$gamepadSupport },
 
     { option => "geolocation", desc => "Toggle Geolocation support",
-      define => "ENABLE_GEOLOCATION", default => (isAppleWebKit() || isIOSWebKit() || isGtk() || isEfl()), value => \$geolocationSupport },
-
-    { option => "high-dpi-canvas", desc => "Toggle High DPI Canvas support",
-      define => "ENABLE_HIGH_DPI_CANVAS", default => (isAppleWebKit()), value => \$highDPICanvasSupport },
+      define => "ENABLE_GEOLOCATION", value => \$geolocationSupport },
 
     { option => "icon-database", desc => "Toggle Icondatabase support",
-      define => "ENABLE_ICONDATABASE", default => !isIOSWebKit(), value => \$icondatabaseSupport },
+      define => "ENABLE_ICONDATABASE", value => \$icondatabaseSupport },
 
     { option => "indexed-database", desc => "Toggle Indexed Database support",
-      define => "ENABLE_INDEXED_DATABASE", default => (isEfl() || isGtk()), value => \$indexedDatabaseSupport },
+      define => "ENABLE_INDEXED_DATABASE", value => \$indexedDatabaseSupport },
 
-    { option => "input-speech", desc => "Toggle Input Speech support",
-      define => "ENABLE_INPUT_SPEECH", default => 0, value => \$inputSpeechSupport },
+    { option => "indexed-database-in-workers", desc => "Toggle support for Indexed Database in workers",
+      define => "ENABLE_INDEXED_DATABASE_IN_WORKERS", value => \$indexedDatabaseInWorkersSupport },
 
     { option => "input-type-color", desc => "Toggle Input Type Color support",
-      define => "ENABLE_INPUT_TYPE_COLOR", default => (isEfl() || isGtk()), value => \$inputTypeColorSupport },
+      define => "ENABLE_INPUT_TYPE_COLOR", value => \$inputTypeColorSupport },
 
     { option => "input-type-date", desc => "Toggle Input Type Date support",
-      define => "ENABLE_INPUT_TYPE_DATE", default => 0, value => \$inputTypeDateSupport },
-
-    { option => "input-type-datetime", desc => "Toggle broken Input Type Datetime support",
-      define => "ENABLE_INPUT_TYPE_DATETIME_INCOMPLETE", default => 0, value => \$inputTypeDatetimeSupport },
+      define => "ENABLE_INPUT_TYPE_DATE", value => \$inputTypeDateSupport },
 
     { option => "input-type-datetimelocal", desc => "Toggle Input Type Datetimelocal support",
-      define => "ENABLE_INPUT_TYPE_DATETIMELOCAL", default => 0, value => \$inputTypeDatetimelocalSupport },
+      define => "ENABLE_INPUT_TYPE_DATETIMELOCAL", value => \$inputTypeDatetimelocalSupport },
+
+    { option => "input-type-datetime", desc => "Toggle broken Input Type Datetime support",
+      define => "ENABLE_INPUT_TYPE_DATETIME_INCOMPLETE", value => \$inputTypeDatetimeSupport },
 
     { option => "input-type-month", desc => "Toggle Input Type Month support",
-      define => "ENABLE_INPUT_TYPE_MONTH", default => 0, value => \$inputTypeMonthSupport },
+      define => "ENABLE_INPUT_TYPE_MONTH", value => \$inputTypeMonthSupport },
 
     { option => "input-type-time", desc => "Toggle Input Type Time support",
-      define => "ENABLE_INPUT_TYPE_TIME", default => 0, value => \$inputTypeTimeSupport },
+      define => "ENABLE_INPUT_TYPE_TIME", value => \$inputTypeTimeSupport },
 
     { option => "input-type-week", desc => "Toggle Input Type Week support",
-      define => "ENABLE_INPUT_TYPE_WEEK", default => 0, value => \$inputTypeWeekSupport },
+      define => "ENABLE_INPUT_TYPE_WEEK", value => \$inputTypeWeekSupport },
+
+    { option => "inspector-alternate-dispatchers", desc => "Toggle inspector alternate dispatchers support",
+      define => "ENABLE_INSPECTOR_ALTERNATE_DISPATCHERS", value => \$inspectorAlternateDispatchersSupport },
+
+    { option => "intersection-observer", desc => "Enable Intersection Observer support",
+      define => "ENABLE_INTERSECTION_OBSERVER", value => \$intersectionObserverSupport },
 
     { option => "intl", desc => "Toggle Intl support",
-      define => "ENABLE_INTL", default => 1, value => \$intlSupport },
+      define => "ENABLE_INTL", value => \$intlSupport },
 
-    { option => "legacy-notifications", desc => "Toggle Legacy Notifications support",
-      define => "ENABLE_LEGACY_NOTIFICATIONS", default => 0, value => \$legacyNotificationsSupport },
+    { option => "ios-gesture-events", desc => "Toggle iOS gesture events support",
+      define => "ENABLE_IOS_GESTURE_EVENTS", value => \$iosGestureEventsSupport },
 
-    { option => "legacy-vendor-prefixes", desc => "Toggle Legacy Vendor Prefix support",
-      define => "ENABLE_LEGACY_VENDOR_PREFIXES", default => 1, value => \$legacyVendorPrefixSupport },
+    { option => "ios-touch-events", desc => "Toggle iOS touch events support",
+      define => "ENABLE_IOS_TOUCH_EVENTS", value => \$iosTouchEventsSupport },
 
-    { option => "legacy-web-audio", desc => "Toggle Legacy Web Audio support",
-      define => "ENABLE_LEGACY_WEB_AUDIO", default => 1, value => \$legacyWebAudioSupport },
+    { option => "jit", desc => "Enable JustInTime JavaScript support",
+      define => "ENABLE_JIT", value => \$jitSupport },
 
-    { option => "link-prefetch", desc => "Toggle Link Prefetch support",
-      define => "ENABLE_LINK_PREFETCH", default => (isGtk() || isEfl()), value => \$linkPrefetchSupport },
+    { option => "keyboard-code-attribute", desc => "Toggle keyboard code attribute support",
+      define => "ENABLE_KEYBOARD_CODE_ATTRIBUTE", value => \$keyboardCodeAttributeSupport },
 
-    { option => "jit", desc => "Enable just-in-time JavaScript support",
-      define => "ENABLE_JIT", default => 1, value => \$jitSupport },
+    { option => "keyboard-key-attribute", desc => "Toggle keyboard key attribute support",
+      define => "ENABLE_KEYBOARD_KEY_ATTRIBUTE", value => \$keyboardKeyAttributeSupport },
+
+    { option => "layout-formatting-context", desc => "Toggle Layout Formatting Context support",
+      define => "ENABLE_LAYOUT_FORMATTING_CONTEXT", value => \$layoutFormattingContextSupport },
+
+    { option => "legacy-css-vendor-prefixes", desc => "Toggle legacy css vendor prefix support",
+      define => "ENABLE_LEGACY_CSS_VENDOR_PREFIXES", value => \$legacyCSSVendorPrefixesSupport },
+
+    { option => "legacy-custom-protocol-manager", desc => "Toggle legacy protocol manager support",
+      define => "ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER", value => \$legacyCustomProtocolManagerSupport },
+
+    { option => "legacy-encrypted-media", desc => "Toggle Legacy EME V2 support",
+      define => "ENABLE_LEGACY_ENCRYPTED_MEDIA", value => \$legacyEncryptedMediaSupport },
+
+    { option => "letterpress", desc => "Toggle letterpress support",
+      define => "ENABLE_LETTERPRESS", value => \$letterpressSupport },
+
+    { option => "mac-gesture-events", desc => "Toggle Mac gesture events support",
+      define => "ENABLE_MAC_GESTURE_EVENTS", value => \$macGestureEventsSupport },
 
     { option => "mathml", desc => "Toggle MathML support",
-      define => "ENABLE_MATHML", default => 1, value => \$mathmlSupport },
+      define => "ENABLE_MATHML", value => \$mathmlSupport },
 
     { option => "media-capture", desc => "Toggle Media Capture support",
-      define => "ENABLE_MEDIA_CAPTURE", default => isEfl(), value => \$mediaCaptureSupport },
+      define => "ENABLE_MEDIA_CAPTURE", value => \$mediaCaptureSupport },
+
+    { option => "media-controls-script", desc => "Toggle definition of media controls in Javascript",
+      define => "ENABLE_MEDIA_CONTROLS_SCRIPT", value => \$mediaControlsScriptSupport },
+
+    { option => "media-session", desc => "Toggle Media Session support",
+      define => "ENABLE_MEDIA_SESSION", value => \$mediaSessionSupport },
 
     { option => "media-source", desc => "Toggle Media Source support",
-      define => "ENABLE_MEDIA_SOURCE", default => (isGtk() || isEfl()), value => \$mediaSourceSupport },
+      define => "ENABLE_MEDIA_SOURCE", value => \$mediaSourceSupport },
 
     { option => "media-statistics", desc => "Toggle Media Statistics support",
-      define => "ENABLE_MEDIA_STATISTICS", default => 0, value => \$mediaStatisticsSupport },
+      define => "ENABLE_MEDIA_STATISTICS", value => \$mediaStatisticsSupport },
 
     { option => "media-stream", desc => "Toggle Media Stream support",
-      define => "ENABLE_MEDIA_STREAM", default => 0, value => \$mediaStreamSupport },
+      define => "ENABLE_MEDIA_STREAM", value => \$mediaStreamSupport },
+
+    { option => "memory-sampler", desc => "Toggle Memory Sampler support",
+      define => "ENABLE_MEMORY_SAMPLER", value => \$memorySamplerSupport },
 
     { option => "meter-element", desc => "Toggle Meter Element support",
-      define => "ENABLE_METER_ELEMENT", default => !isAppleWinWebKit(), value => \$meterElementSupport },
+      define => "ENABLE_METER_ELEMENT", value => \$meterElementSupport },
 
     { option => "mhtml", desc => "Toggle MHTML support",
-      define => "ENABLE_MHTML", default => (isGtk() || isEfl()), value => \$mhtmlSupport },
+      define => "ENABLE_MHTML", value => \$mhtmlSupport },
 
     { option => "mouse-cursor-scale", desc => "Toggle Scaled mouse cursor support",
-      define => "ENABLE_MOUSE_CURSOR_SCALE", default => isEfl(), value => \$mouseCursorScaleSupport },
+      define => "ENABLE_MOUSE_CURSOR_SCALE", value => \$mouseCursorScaleSupport },
 
     { option => "navigator-content-utils", desc => "Toggle Navigator Content Utils support",
-      define => "ENABLE_NAVIGATOR_CONTENT_UTILS", default => isEfl(), value => \$registerProtocolHandlerSupport },
-
-    { option => "navigator-hardware-concurrency", desc => "Toggle Navigator hardware concurrenct support",
-      define => "ENABLE_NAVIGATOR_HWCONCURRENCY", default => 1, value => \$hardwareConcurrencySupport },
+      define => "ENABLE_NAVIGATOR_CONTENT_UTILS", value => \$registerProtocolHandlerSupport },
 
     { option => "netscape-plugin-api", desc => "Toggle Netscape Plugin API support",
-      define => "ENABLE_NETSCAPE_PLUGIN_API", default => !isIOSWebKit(), value => \$netscapePluginAPISupport },
-
-    { option => "nosniff", desc => "Toggle support for 'X-Content-Type-Options: nosniff'",
-      define => "ENABLE_NOSNIFF", default => isEfl(), value => \$nosniffSupport },
+      define => "ENABLE_NETSCAPE_PLUGIN_API", value => \$netscapePluginAPISupport },
 
     { option => "notifications", desc => "Toggle Notifications support",
-      define => "ENABLE_NOTIFICATIONS", default => isGtk(), value => \$notificationsSupport },
+      define => "ENABLE_NOTIFICATIONS", value => \$notificationsSupport },
 
     { option => "orientation-events", desc => "Toggle Orientation Events support",
-      define => "ENABLE_ORIENTATION_EVENTS", default => isIOSWebKit(), value => \$orientationEventsSupport },
+      define => "ENABLE_ORIENTATION_EVENTS", value => \$orientationEventsSupport },
 
-    { option => "performance-timeline", desc => "Toggle Performance Timeline support",
-      define => "ENABLE_PERFORMANCE_TIMELINE", default => isGtk(), value => \$performanceTimelineSupport },
+    { option => "payment-request", desc => "Toggle Payment Request support",
+      define => "ENABLE_PAYMENT_REQUEST", value => \$paymentRequestSupport },
 
-    { option => "promises", desc => "Toggle Promise support",
-      define => "ENABLE_PROMISES", default => 1, value => \$promiseSupport },
+    { option => "pdfkit-plugin", desc => "Toggle PDFKit plugin support",
+      define => "ENABLE_PDFKIT_PLUGIN", value => \$pdfkitPluginSupport },
 
-    { option => "proximity-events", desc => "Toggle Proximity Events support",
-      define => "ENABLE_PROXIMITY_EVENTS", default => 0, value => \$proximityEventsSupport },
+    { option => "pointer-lock", desc => "Toggle pointer lock support",
+      define => "ENABLE_POINTER_LOCK", value => \$pointerLockSupport },
+
+    { option => "public-suffix-list", desc => "Toggle public suffix list support",
+      define => "ENABLE_PUBLIC_SUFFIX_LIST", value => \$publicSuffixListSupport },
 
     { option => "quota", desc => "Toggle Quota support",
-      define => "ENABLE_QUOTA", default => 0, value => \$quotaSupport },
+      define => "ENABLE_QUOTA", value => \$quotaSupport },
+
+    { option => "remote-inspector", desc => "Toggle remote inspector support",
+      define => "ENABLE_REMOTE_INSPECTOR", value => \$remoteInspectorSupport },
+
+    { option => "resize-observer", desc => "Enable Resize Observer support",
+      define => "ENABLE_RESIZE_OBSERVER", value => \$resizeObserverSupport },
 
     { option => "resolution-media-query", desc => "Toggle resolution media query support",
-      define => "ENABLE_RESOLUTION_MEDIA_QUERY", default => isEfl(), value => \$resolutionMediaQuerySupport },
+      define => "ENABLE_RESOLUTION_MEDIA_QUERY", value => \$resolutionMediaQuerySupport },
 
-    { option => "resource-timing", desc => "Toggle Resource Timing support",
-      define => "ENABLE_RESOURCE_TIMING", default => isGtk(), value => \$resourceTimingSupport },
+    { option => "resource-load-statistics", desc => "Toggle resource load statistics support",
+      define => "ENABLE_RESOURCE_LOAD_STATISTICS", value => \$resourceLoadStatisticsSupport },
 
-    { option => "request-animation-frame", desc => "Toggle Request Animation Frame support",
-      define => "ENABLE_REQUEST_ANIMATION_FRAME", default => (isAppleMacWebKit() || isGtk() || isEfl()), value => \$requestAnimationFrameSupport },
+    { option => "resource-usage", desc => "Toggle resource usage support",
+      define => "ENABLE_RESOURCE_USAGE", value => \$resourceUsageSupport },
 
-    { option => "seccomp-filters", desc => "Toggle Seccomp Filter sandbox",
-      define => "ENABLE_SECCOMP_FILTERS", default => 0, value => \$seccompFiltersSupport },
+    { option => "rubber-banding", desc => "Toggle rubber banding support",
+      define => "ENABLE_RUBBER_BANDING", value => \$rubberBandingSupport },
 
-    { option => "scripted-speech", desc => "Toggle Scripted Speech support",
-      define => "ENABLE_SCRIPTED_SPEECH", default => 0, value => \$scriptedSpeechSupport },
+    { option => "sampling-profiler", desc => "Toggle sampling profiler support",
+      define => "ENABLE_SAMPLING_PROFILER", value => \$samplingProfilerSupport },
 
-    { option => "shadow-dom", desc => "Toggle Shadow DOM support",
-      define => "ENABLE_SHADOW_DOM", default => (isAppleMacWebKit() || isIOSWebKit()), value => \$shadowDOMSupport },
+    { option => "service-controls", desc => "Toggle service controls support",
+      define => "ENABLE_SERVICE_CONTROLS", value => \$serviceControlsSupport },
+
+    { option => "service-worker", desc => "Toggle Service Worker support",
+      define => "ENABLE_SERVICE_WORKER", value => \$serviceWorkerSupport },
+
+    { option => "smooth-scrolling", desc => "Toggle smooth scrolling",
+      define => "ENABLE_SMOOTH_SCROLLING", value => \$smoothScrollingSupport },
+
+    { option => "speech-synthesis", desc => "Toggle Speech Synthesis API support",
+      define => "ENABLE_SPEECH_SYNTHESIS", value => \$speechSynthesisSupport },
+
+    { option => "spellcheck", desc => "Toggle Spellchecking support (requires Enchant)",
+      define => "ENABLE_SPELLCHECK", value => \$spellcheckSupport },
 
     { option => "streams-api", desc => "Toggle Streams API support",
-      define => "ENABLE_STREAMS_API", default => 1, value => \$streamsAPISupport },
-
-    { option => "subtle-crypto", desc => "Toggle WebCrypto Subtle-Crypto support",
-      define => "ENABLE_SUBTLE_CRYPTO", default => (isGtk() || isEfl() || isAppleMacWebKit() || isIOSWebKit()), value => \$subtleCrypto },
+      define => "ENABLE_STREAMS_API", value => \$streamsAPISupport },
 
     { option => "svg-fonts", desc => "Toggle SVG Fonts support",
-      define => "ENABLE_SVG_FONTS", default => 1, value => \$svgFontsSupport },
+      define => "ENABLE_SVG_FONTS", value => \$svgFontsSupport },
 
-    { option => "system-malloc", desc => "Toggle system allocator instead of bmalloc",
-      define => "USE_SYSTEM_MALLOC", default => 0, value => \$systemMallocSupport },
+    { option => "telephone-number-detection", desc => "Toggle telephone number detection support",
+      define => "ENABLE_TELEPHONE_NUMBER_DETECTION", value => \$telephoneNumberDetectionSupport },
 
-    { option => "template-element", desc => "Toggle HTMLTemplateElement support",
-      define => "ENABLE_TEMPLATE_ELEMENT", default => 1, value => \$templateElementSupport },
-
-    { option => "threaded-compositor", desc => "Toggle threaded compositor support",
-      define => "ENABLE_THREADED_COMPOSITOR", default => 0, value => \$threadedCompositorSupport },
-
-    { option => "text-autosizing", desc => "Toggle Text Autosizing support",
-      define => "ENABLE_TEXT_AUTOSIZING", default => 0, value => \$textAutosizingSupport },
+    { option => "text-autosizing", desc => "Toggle automatic text size adjustment support",
+      define => "ENABLE_TEXT_AUTOSIZING", value => \$textAutosizingSupport },
 
     { option => "touch-events", desc => "Toggle Touch Events support",
-      define => "ENABLE_TOUCH_EVENTS", default => (isIOSWebKit() || isEfl() || isGtk()), value => \$touchEventsSupport },
+      define => "ENABLE_TOUCH_EVENTS", value => \$touchEventsSupport },
 
     { option => "touch-slider", desc => "Toggle Touch Slider support",
-      define => "ENABLE_TOUCH_SLIDER", default => isEfl(), value => \$touchSliderSupport },
+      define => "ENABLE_TOUCH_SLIDER", value => \$touchSliderSupport },
 
-    { option => "touch-icon-loading", desc => "Toggle Touch Icon Loading Support",
-      define => "ENABLE_TOUCH_ICON_LOADING", default => 0, value => \$touchIconLoadingSupport },
+    { option => "userselect-all", desc => "Toggle user-select:all support",
+      define => "ENABLE_USERSELECT_ALL", value => \$userselectAllSupport },
 
-    { option => "user-timing", desc => "Toggle User Timing support",
-      define => "ENABLE_USER_TIMING", default => isGtk(), value => \$userTimingSupport },
+    { option => "user-message-handlers", desc => "Toggle user script message handler support",
+      define => "ENABLE_USER_MESSAGE_HANDLERS", value => \$userMessageHandlersSupport },
 
-    { option => "vibration", desc => "Toggle Vibration support",
-      define => "ENABLE_VIBRATION", default => isEfl(), value => \$vibrationSupport },
+    { option => "variation-fonts", desc => "Toggle variation fonts support",
+      define => "ENABLE_VARIATION_FONTS", value => \$variationFontsSupport },
 
     { option => "video", desc => "Toggle Video support",
-      define => "ENABLE_VIDEO", default => (isAppleWebKit() || isGtk() || isEfl()), value => \$videoSupport },
+      define => "ENABLE_VIDEO", value => \$videoSupport },
+
+    { option => "video-presentation-mode", desc => "Toggle Video presentation mode support",
+      define => "ENABLE_VIDEO_PRESENTATION_MODE", value => \$videoPresentationModeSupport },
 
     { option => "video-track", desc => "Toggle Video Track support",
-      define => "ENABLE_VIDEO_TRACK", default => (isAppleWebKit() || isGtk() || isEfl()), value => \$videoTrackSupport },
+      define => "ENABLE_VIDEO_TRACK", value => \$videoTrackSupport },
 
-    { option => "webgl", desc => "Toggle WebGL support",
-      define => "ENABLE_WEBGL", default => (isAppleMacWebKit() || isIOSWebKit() || isGtk() || isEfl()), value => \$webglSupport },
+    { option => "video-uses-element-fullscreen", desc => "Toggle video element fullscreen support",
+      define => "ENABLE_VIDEO_USES_ELEMENT_FULLSCREEN", value => \$videoUsesElementFullscreenSupport },
 
     { option => "webassembly", desc => "Toggle WebAssembly support",
-      define => "ENABLE_WEBASSEMBLY", default => 0, value => \$webAssemblySupport },
+      define => "ENABLE_WEBASSEMBLY", value => \$webAssemblySupport },
 
-    { option => "web-animations", desc => "Toggle Web Animations support",
-      define => "ENABLE_WEB_ANIMATIONS", default => 0, value => \$webAnimationsSupport },
+    { option => "webassembly-streaming-api", desc => "Toggle WebAssembly streaming api support.",
+      define => "ENABLE_WEBASSEMBLY_STREAMING_API", value => \$webassemblyStreamingAPISupport },
+
+    { option => "webdriver", desc => "Whether to enable the WebDriver service process",
+      define => "ENABLE_WEBDRIVER", value => \$webdriverSupport },
+
+    { option => "webgl", desc => "Toggle WebGL support",
+      define => "ENABLE_WEBGL", value => \$webglSupport },
+
+    { option => "webgl2", desc => "Toggle WebGL2 support",
+      define => "ENABLE_WEBGL2", value => \$webgl2Support },
+
+    { option => "webgpu", desc => "Toggle WebGPU support",
+      define => "ENABLE_WEBGPU", value => \$webgpuSupport },
 
     { option => "web-audio", desc => "Toggle Web Audio support",
-      define => "ENABLE_WEB_AUDIO", default => (isEfl() || isGtk()), value => \$webAudioSupport },
+      define => "ENABLE_WEB_AUDIO", value => \$webAudioSupport },
 
-    { option => "web-replay", desc => "Toggle Web Replay support",
-      define => "ENABLE_WEB_REPLAY", default => isAppleMacWebKit(), value => \$webReplaySupport },
+    { option => "web-authn", desc => "Toggle Web AuthN support",
+      define => "ENABLE_WEB_AUTHN", value => \$webAuthNSupport },
 
-    { option => "web-sockets", desc => "Toggle Web Sockets support",
-      define => "ENABLE_WEB_SOCKETS", default => 1, value => \$webSocketsSupport },
+    { option => "web-crypto", desc => "Toggle WebCrypto Subtle-Crypto support",
+      define => "ENABLE_WEB_CRYPTO", value => \$webCryptoSupport },
 
-    { option => "web-timing", desc => "Toggle Web Timing support",
-      define => "ENABLE_WEB_TIMING", default => (isGtk() || isEfl()), value => \$webTimingSupport },
+    { option => "web-rtc", desc => "Toggle WebRTC support",
+      define => "ENABLE_WEB_RTC", value => \$webRTCSupport },
+
+    { option => "wireless-playback-target", desc => "Enable wireless playback target support",
+      define => "ENABLE_WIRELESS_PLAYBACK_TARGET", value => \$wirelessPlaybackTargetSupport },
 
     { option => "xslt", desc => "Toggle XSLT support",
-      define => "ENABLE_XSLT", default => 1, value => \$xsltSupport },
+      define => "ENABLE_XSLT", value => \$xsltSupport },
 
-    { option => "ftl-jit", desc => "Toggle FTLJIT support",
-      define => "ENABLE_FTL_JIT", default => (isX86_64() && (isGtk() || isEfl())) , value => \$ftlJITSupport },
+    { option => "gstreamer-gl", desc => "Toggle GStreamer GL support",
+      define => "USE_GSTREAMER_GL", value => \$gstreamerGLSupport },
+
+    { option => "system-malloc", desc => "Toggle system allocator instead of bmalloc",
+      define => "USE_SYSTEM_MALLOC", value => \$systemMallocSupport },
 );
 
 sub getFeatureOptionList()

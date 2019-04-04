@@ -32,6 +32,7 @@
 #include "MutationRecord.h"
 
 #include "CharacterData.h"
+#include "JSNode.h"
 #include "StaticNodeList.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
@@ -40,25 +41,42 @@ namespace WebCore {
 
 namespace {
 
-class ChildListRecord : public MutationRecord {
+static void visitNodeList(JSC::SlotVisitor& visitor, NodeList& nodeList)
+{
+    ASSERT(!nodeList.isLiveNodeList());
+    unsigned length = nodeList.length();
+    for (unsigned i = 0; i < length; ++i)
+        visitor.addOpaqueRoot(root(nodeList.item(i)));
+}
+
+class ChildListRecord final : public MutationRecord {
 public:
-    ChildListRecord(ContainerNode& target, PassRefPtr<NodeList> added, PassRefPtr<NodeList> removed, PassRefPtr<Node> previousSibling, PassRefPtr<Node> nextSibling)
+    ChildListRecord(ContainerNode& target, Ref<NodeList>&& added, Ref<NodeList>&& removed, RefPtr<Node>&& previousSibling, RefPtr<Node>&& nextSibling)
         : m_target(target)
-        , m_addedNodes(added)
-        , m_removedNodes(removed)
-        , m_previousSibling(previousSibling)
-        , m_nextSibling(nextSibling)
+        , m_addedNodes(WTFMove(added))
+        , m_removedNodes(WTFMove(removed))
+        , m_previousSibling(WTFMove(previousSibling))
+        , m_nextSibling(WTFMove(nextSibling))
     {
     }
 
 private:
-    virtual const AtomicString& type() override;
-    virtual Node* target() override { return m_target.ptr(); }
-    virtual NodeList* addedNodes() override { return m_addedNodes.get(); }
-    virtual NodeList* removedNodes() override { return m_removedNodes.get(); }
-    virtual Node* previousSibling() override { return m_previousSibling.get(); }
-    virtual Node* nextSibling() override { return m_nextSibling.get(); }
+    const AtomicString& type() override;
+    Node* target() override { return m_target.ptr(); }
+    NodeList* addedNodes() override { return m_addedNodes.get(); }
+    NodeList* removedNodes() override { return m_removedNodes.get(); }
+    Node* previousSibling() override { return m_previousSibling.get(); }
+    Node* nextSibling() override { return m_nextSibling.get(); }
 
+    void visitNodesConcurrently(JSC::SlotVisitor& visitor) const final
+    {
+        visitor.addOpaqueRoot(root(m_target.ptr()));
+        if (m_addedNodes)
+            visitNodeList(visitor, *m_addedNodes);
+        if (m_removedNodes)
+            visitNodeList(visitor, *m_removedNodes);
+    }
+    
     Ref<ContainerNode> m_target;
     RefPtr<NodeList> m_addedNodes;
     RefPtr<NodeList> m_removedNodes;
@@ -75,16 +93,21 @@ public:
     }
 
 private:
-    virtual Node* target() override { return m_target.ptr(); }
-    virtual String oldValue() override { return m_oldValue; }
-    virtual NodeList* addedNodes() override { return lazilyInitializeEmptyNodeList(m_addedNodes); }
-    virtual NodeList* removedNodes() override { return lazilyInitializeEmptyNodeList(m_removedNodes); }
+    Node* target() override { return m_target.ptr(); }
+    String oldValue() override { return m_oldValue; }
+    NodeList* addedNodes() override { return lazilyInitializeEmptyNodeList(m_addedNodes); }
+    NodeList* removedNodes() override { return lazilyInitializeEmptyNodeList(m_removedNodes); }
 
     static NodeList* lazilyInitializeEmptyNodeList(RefPtr<NodeList>& nodeList)
     {
         if (!nodeList)
-            nodeList = StaticNodeList::createEmpty();
+            nodeList = StaticNodeList::create();
         return nodeList.get();
+    }
+
+    void visitNodesConcurrently(JSC::SlotVisitor& visitor) const final
+    {
+        visitor.addOpaqueRoot(root(m_target.ptr()));
     }
 
     Ref<Node> m_target;
@@ -93,7 +116,7 @@ private:
     RefPtr<NodeList> m_removedNodes;
 };
 
-class AttributesRecord : public RecordWithEmptyNodeLists {
+class AttributesRecord final : public RecordWithEmptyNodeLists {
 public:
     AttributesRecord(Element& target, const QualifiedName& name, const AtomicString& oldValue)
         : RecordWithEmptyNodeLists(target, oldValue)
@@ -103,9 +126,9 @@ public:
     }
 
 private:
-    virtual const AtomicString& type() override;
-    virtual const AtomicString& attributeName() override { return m_attributeName; }
-    virtual const AtomicString& attributeNamespace() override { return m_attributeNamespace; }
+    const AtomicString& type() override;
+    const AtomicString& attributeName() override { return m_attributeName; }
+    const AtomicString& attributeNamespace() override { return m_attributeNamespace; }
 
     AtomicString m_attributeName;
     AtomicString m_attributeNamespace;
@@ -119,10 +142,10 @@ public:
     }
 
 private:
-    virtual const AtomicString& type() override;
+    const AtomicString& type() override;
 };
 
-class MutationRecordWithNullOldValue : public MutationRecord {
+class MutationRecordWithNullOldValue final : public MutationRecord {
 public:
     MutationRecordWithNullOldValue(MutationRecord& record)
         : m_record(record)
@@ -130,16 +153,21 @@ public:
     }
 
 private:
-    virtual const AtomicString& type() override { return m_record->type(); }
-    virtual Node* target() override { return m_record->target(); }
-    virtual NodeList* addedNodes() override { return m_record->addedNodes(); }
-    virtual NodeList* removedNodes() override { return m_record->removedNodes(); }
-    virtual Node* previousSibling() override { return m_record->previousSibling(); }
-    virtual Node* nextSibling() override { return m_record->nextSibling(); }
-    virtual const AtomicString& attributeName() override { return m_record->attributeName(); }
-    virtual const AtomicString& attributeNamespace() override { return m_record->attributeNamespace(); }
+    const AtomicString& type() override { return m_record->type(); }
+    Node* target() override { return m_record->target(); }
+    NodeList* addedNodes() override { return m_record->addedNodes(); }
+    NodeList* removedNodes() override { return m_record->removedNodes(); }
+    Node* previousSibling() override { return m_record->previousSibling(); }
+    Node* nextSibling() override { return m_record->nextSibling(); }
+    const AtomicString& attributeName() override { return m_record->attributeName(); }
+    const AtomicString& attributeNamespace() override { return m_record->attributeNamespace(); }
 
-    virtual String oldValue() override { return String(); }
+    String oldValue() override { return String(); }
+
+    void visitNodesConcurrently(JSC::SlotVisitor& visitor) const final
+    {
+        m_record->visitNodesConcurrently(visitor);
+    }
 
     Ref<MutationRecord> m_record;
 };
@@ -164,9 +192,9 @@ const AtomicString& CharacterDataRecord::type()
 
 } // namespace
 
-Ref<MutationRecord> MutationRecord::createChildList(ContainerNode& target, PassRefPtr<NodeList> added, PassRefPtr<NodeList> removed, PassRefPtr<Node> previousSibling, PassRefPtr<Node> nextSibling)
+Ref<MutationRecord> MutationRecord::createChildList(ContainerNode& target, Ref<NodeList>&& added, Ref<NodeList>&& removed, RefPtr<Node>&& previousSibling, RefPtr<Node>&& nextSibling)
 {
-    return adoptRef(static_cast<MutationRecord&>(*new ChildListRecord(target, added, removed, previousSibling, nextSibling)));
+    return adoptRef(static_cast<MutationRecord&>(*new ChildListRecord(target, WTFMove(added), WTFMove(removed), WTFMove(previousSibling), WTFMove(nextSibling))));
 }
 
 Ref<MutationRecord> MutationRecord::createAttributes(Element& target, const QualifiedName& name, const AtomicString& oldValue)
@@ -184,8 +212,6 @@ Ref<MutationRecord> MutationRecord::createWithNullOldValue(MutationRecord& recor
     return adoptRef(static_cast<MutationRecord&>(*new MutationRecordWithNullOldValue(record)));
 }
 
-MutationRecord::~MutationRecord()
-{
-}
+MutationRecord::~MutationRecord() = default;
 
 } // namespace WebCore

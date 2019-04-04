@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,14 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ThreadedScrollingTree_h
-#define ThreadedScrollingTree_h
+#pragma once
 
 #if ENABLE(ASYNC_SCROLLING)
 
 #include "ScrollingStateTree.h"
 #include "ScrollingTree.h"
-#include <wtf/PassRefPtr.h>
+#include <wtf/Condition.h>
 #include <wtf/RefPtr.h>
 
 namespace WebCore {
@@ -45,22 +44,24 @@ class ThreadedScrollingTree : public ScrollingTree {
 public:
     virtual ~ThreadedScrollingTree();
 
-    virtual void commitNewTreeState(std::unique_ptr<ScrollingStateTree>) override;
+    void commitTreeState(std::unique_ptr<ScrollingStateTree>) override;
 
-    virtual void handleWheelEvent(const PlatformWheelEvent&) override;
+    ScrollingEventResult handleWheelEvent(const PlatformWheelEvent&) override;
 
     // Can be called from any thread. Will try to handle the wheel event on the scrolling thread.
     // Returns true if the wheel event can be handled on the scrolling thread and false if the
     // event must be sent again to the WebCore event handler.
-    virtual EventResult tryToHandleWheelEvent(const PlatformWheelEvent&) override;
+    ScrollingEventResult tryToHandleWheelEvent(const PlatformWheelEvent&) override;
 
-    virtual void invalidate() override;
+    void invalidate() override;
+
+    void incrementPendingCommitCount();
+    void decrementPendingCommitCount();
 
 protected:
-    explicit ThreadedScrollingTree(AsyncScrollingCoordinator*);
+    explicit ThreadedScrollingTree(AsyncScrollingCoordinator&);
 
-    virtual void scrollingTreeNodeDidScroll(ScrollingNodeID, const FloatPoint& scrollPosition, SetOrSyncScrollingLayerPosition = SyncScrollingLayerPosition) override;
-    void currentSnapPointIndicesDidChange(ScrollingNodeID, unsigned horizontal, unsigned vertical) override;
+    void scrollingTreeNodeDidScroll(ScrollingTreeScrollingNode&, ScrollingLayerPositionAction = ScrollingLayerPositionAction::Sync) override;
 #if PLATFORM(MAC)
     void handleWheelEventPhase(PlatformWheelEventPhase) override;
     void setActiveScrollSnapIndices(ScrollingNodeID, unsigned horizontalIndex, unsigned verticalIndex) override;
@@ -68,10 +69,24 @@ protected:
     void removeTestDeferralForReason(WheelEventTestTrigger::ScrollableAreaIdentifier, WheelEventTestTrigger::DeferTestTriggerReason) override;
 #endif
 
+#if PLATFORM(COCOA)
+    void currentSnapPointIndicesDidChange(ScrollingNodeID, unsigned horizontal, unsigned vertical) override;
+#endif
+
+    void reportExposedUnfilledArea(MonotonicTime, unsigned unfilledArea) override;
+    void reportSynchronousScrollingReasonsChanged(MonotonicTime, SynchronousScrollingReasons) override;
+
 private:
-    virtual bool isThreadedScrollingTree() const override { return true; }
+    bool isThreadedScrollingTree() const override { return true; }
+    void applyLayerPositions() override;
 
     RefPtr<AsyncScrollingCoordinator> m_scrollingCoordinator;
+
+    void waitForPendingCommits();
+
+    Lock m_pendingCommitCountMutex;
+    unsigned m_pendingCommitCount { 0 };
+    Condition m_commitCondition;
 };
 
 } // namespace WebCore
@@ -79,5 +94,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_SCROLLING_TREE(WebCore::ThreadedScrollingTree, isThreadedScrollingTree())
 
 #endif // ENABLE(ASYNC_SCROLLING)
-
-#endif // ThreadedScrollingTree_h

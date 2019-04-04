@@ -23,36 +23,49 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ScopeChainNode = class ScopeChainNode extends WebInspector.Object
+WI.ScopeChainNode = class ScopeChainNode
 {
-    constructor(type, objects)
+    constructor(type, objects, name, location, empty)
     {
-        super();
-
         console.assert(typeof type === "string");
-        console.assert(objects.every(function(x) { return x instanceof WebInspector.RemoteObject; }));
+        console.assert(objects.every((x) => x instanceof WI.RemoteObject));
 
-        if (type in WebInspector.ScopeChainNode.Type)
-            type = WebInspector.ScopeChainNode.Type[type];
+        if (type in WI.ScopeChainNode.Type)
+            type = WI.ScopeChainNode.Type[type];
 
         this._type = type || null;
         this._objects = objects || [];
+        this._name = name || "";
+        this._location = location || null;
+        this._empty = empty || false;
     }
 
     // Public
 
-    get type()
+    get type() { return this._type; }
+    get objects() { return this._objects; }
+    get name() { return this._name; }
+    get location() { return this._location; }
+    get empty() { return this._empty; }
+
+    get hash()
     {
-        return this._type;
+        if (this._hash)
+            return this._hash;
+
+        this._hash = this._name;
+        if (this._location)
+            this._hash += `:${this._location.scriptId}:${this._location.lineNumber}:${this._location.columnNumber}`;
+        return this._hash;
     }
 
-    get objects()
+    convertToLocalScope()
     {
-        return this._objects;
+        this._type = WI.ScopeChainNode.Type.Local;
     }
 };
 
-WebInspector.ScopeChainNode.Type = {
+WI.ScopeChainNode.Type = {
     Local: "scope-chain-type-local",
     Global: "scope-chain-type-global",
     GlobalLexicalEnvironment: "scope-chain-type-global-lexical-environment",

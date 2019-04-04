@@ -20,30 +20,28 @@
  *
  */
 
-#ifndef HTMLBaseElement_h
-#define HTMLBaseElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLBaseElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLBaseElement);
 public:
     static Ref<HTMLBaseElement> create(const QualifiedName&, Document&);
 
-    URL href() const;
-    void setHref(const AtomicString&);
+    WEBCORE_EXPORT URL href() const;
+    WEBCORE_EXPORT void setHref(const AtomicString&);
 
 private:
     HTMLBaseElement(const QualifiedName&, Document&);
 
-    virtual String target() const override;
-    virtual bool isURLAttribute(const Attribute&) const override;
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    virtual void removedFrom(ContainerNode&) override;
+    String target() const final;
+    bool isURLAttribute(const Attribute&) const final;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
 };
 
 } // namespace
-
-#endif

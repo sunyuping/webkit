@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef FormNamedItem_h
-#define FormNamedItem_h
+#pragma once
 
 namespace WebCore {
 
@@ -27,12 +26,10 @@ class HTMLElement;
 
 class FormNamedItem {
 public:
-    virtual ~FormNamedItem() { }
+    virtual ~FormNamedItem() = default;
     virtual HTMLElement& asHTMLElement() = 0;
     virtual const HTMLElement& asHTMLElement() const = 0;
     virtual bool isFormAssociatedElement() const = 0;
 };
 
-}
-
-#endif /* FormNamedItem_h */
+} // namespace WebCore

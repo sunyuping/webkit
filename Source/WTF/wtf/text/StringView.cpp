@@ -1,6 +1,6 @@
 /*
 
-Copyright (C) 2014 Apple Inc. All rights reserved.
+Copyright (C) 2014-2019 Apple Inc. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions
@@ -25,13 +25,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "config.h"
-#include "StringView.h"
+#include <wtf/text/StringView.h>
 
 #include <mutex>
+#include <unicode/ubrk.h>
+#include <unicode/unorm2.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/unicode/UTF8.h>
+#include <wtf/Optional.h>
+#include <wtf/text/TextBreakIterator.h>
+#include <wtf/unicode/UTF8Conversion.h>
 
 namespace WTF {
 
@@ -77,7 +81,7 @@ bool StringView::endsWithIgnoringASCIICase(const StringView& suffix) const
     return ::WTF::endsWithIgnoringASCIICase(*this, suffix);
 }
 
-CString StringView::utf8(ConversionMode mode) const
+Expected<CString, UTF8ConversionError> StringView::tryGetUtf8(ConversionMode mode) const
 {
     if (isNull())
         return CString("", 0);
@@ -86,9 +90,191 @@ CString StringView::utf8(ConversionMode mode) const
     return StringImpl::utf8ForCharacters(characters16(), length(), mode);
 }
 
+CString StringView::utf8(ConversionMode mode) const
+{
+    auto expectedString = tryGetUtf8(mode);
+    RELEASE_ASSERT(expectedString);
+    return expectedString.value();
+}
+
 size_t StringView::find(StringView matchString, unsigned start) const
 {
     return findCommon(*this, matchString, start);
+}
+
+void StringView::SplitResult::Iterator::findNextSubstring()
+{
+    for (size_t separatorPosition; (separatorPosition = m_result.m_string.find(m_result.m_separator, m_position)) != notFound; ++m_position) {
+        if (m_result.m_allowEmptyEntries || separatorPosition > m_position) {
+            m_length = separatorPosition - m_position;
+            return;
+        }
+    }
+    m_length = m_result.m_string.length() - m_position;
+    if (!m_length && !m_result.m_allowEmptyEntries)
+        m_isDone = true;
+}
+
+auto StringView::SplitResult::Iterator::operator++() -> Iterator&
+{
+    ASSERT(m_position <= m_result.m_string.length() && !m_isDone);
+    m_position += m_length;
+    if (m_position < m_result.m_string.length()) {
+        ++m_position;
+        findNextSubstring();
+    } else if (!m_isDone)
+        m_isDone = true;
+    return *this;
+}
+
+class StringView::GraphemeClusters::Iterator::Impl {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    Impl(const StringView& stringView, Optional<NonSharedCharacterBreakIterator>&& iterator, unsigned index)
+        : m_stringView(stringView)
+        , m_iterator(WTFMove(iterator))
+        , m_index(index)
+        , m_indexEnd(computeIndexEnd())
+    {
+    }
+
+    void operator++()
+    {
+        ASSERT(m_indexEnd > m_index);
+        m_index = m_indexEnd;
+        m_indexEnd = computeIndexEnd();
+    }
+
+    StringView operator*() const
+    {
+        if (m_stringView.is8Bit())
+            return StringView(m_stringView.characters8() + m_index, m_indexEnd - m_index);
+        return StringView(m_stringView.characters16() + m_index, m_indexEnd - m_index);
+    }
+
+    bool operator==(const Impl& other) const
+    {
+        ASSERT(&m_stringView == &other.m_stringView);
+        auto result = m_index == other.m_index;
+        ASSERT(!result || m_indexEnd == other.m_indexEnd);
+        return result;
+    }
+
+    unsigned computeIndexEnd()
+    {
+        if (!m_iterator)
+            return 0;
+        if (m_index == m_stringView.length())
+            return m_index;
+        return ubrk_following(m_iterator.value(), m_index);
+    }
+
+private:
+    const StringView& m_stringView;
+    Optional<NonSharedCharacterBreakIterator> m_iterator;
+    unsigned m_index;
+    unsigned m_indexEnd;
+};
+
+StringView::GraphemeClusters::Iterator::Iterator(const StringView& stringView, unsigned index)
+    : m_impl(std::make_unique<Impl>(stringView, stringView.isNull() ? WTF::nullopt : Optional<NonSharedCharacterBreakIterator>(NonSharedCharacterBreakIterator(stringView)), index))
+{
+}
+
+StringView::GraphemeClusters::Iterator::~Iterator()
+{
+}
+
+StringView::GraphemeClusters::Iterator::Iterator(Iterator&& other)
+    : m_impl(WTFMove(other.m_impl))
+{
+}
+
+auto StringView::GraphemeClusters::Iterator::operator++() -> Iterator&
+{
+    ++(*m_impl);
+    return *this;
+}
+
+StringView StringView::GraphemeClusters::Iterator::operator*() const
+{
+    return **m_impl;
+}
+
+bool StringView::GraphemeClusters::Iterator::operator==(const Iterator& other) const
+{
+    return *m_impl == *(other.m_impl);
+}
+
+bool StringView::GraphemeClusters::Iterator::operator!=(const Iterator& other) const
+{
+    return !(*this == other);
+}
+
+enum class ASCIICase { Lower, Upper };
+
+template<ASCIICase type, typename CharacterType>
+String convertASCIICase(const CharacterType* input, unsigned length)
+{
+    if (!input)
+        return { };
+
+    CharacterType* characters;
+    auto result = String::createUninitialized(length, characters);
+    for (unsigned i = 0; i < length; ++i)
+        characters[i] = type == ASCIICase::Lower ? toASCIILower(input[i]) : toASCIIUpper(input[i]);
+    return result;
+}
+
+String StringView::convertToASCIILowercase() const
+{
+    if (m_is8Bit)
+        return convertASCIICase<ASCIICase::Lower>(static_cast<const LChar*>(m_characters), m_length);
+    return convertASCIICase<ASCIICase::Lower>(static_cast<const UChar*>(m_characters), m_length);
+}
+
+String StringView::convertToASCIIUppercase() const
+{
+    if (m_is8Bit)
+        return convertASCIICase<ASCIICase::Upper>(static_cast<const LChar*>(m_characters), m_length);
+    return convertASCIICase<ASCIICase::Upper>(static_cast<const UChar*>(m_characters), m_length);
+}
+
+StringViewWithUnderlyingString normalizedNFC(StringView string)
+{
+    // Latin-1 characters are unaffected by normalization.
+    if (string.is8Bit())
+        return { string, { } };
+
+    UErrorCode status = U_ZERO_ERROR;
+    const UNormalizer2* normalizer = unorm2_getNFCInstance(&status);
+    ASSERT(U_SUCCESS(status));
+
+    // No need to normalize if already normalized.
+    UBool checkResult = unorm2_isNormalized(normalizer, string.characters16(), string.length(), &status);
+    if (checkResult)
+        return { string, { } };
+
+    unsigned normalizedLength = unorm2_normalize(normalizer, string.characters16(), string.length(), nullptr, 0, &status);
+    ASSERT(status == U_BUFFER_OVERFLOW_ERROR);
+
+    UChar* characters;
+    String result = String::createUninitialized(normalizedLength, characters);
+
+    status = U_ZERO_ERROR;
+    unorm2_normalize(normalizer, string.characters16(), string.length(), characters, normalizedLength, &status);
+    ASSERT(U_SUCCESS(status));
+
+    StringView view { result };
+    return { view, WTFMove(result) };
+}
+
+String normalizedNFC(const String& string)
+{
+    auto result = normalizedNFC(StringView { string });
+    if (result.underlyingString.isNull())
+        return string;
+    return result.underlyingString;
 }
 
 #if CHECK_STRINGVIEW_LIFETIME
@@ -107,7 +293,7 @@ StringView::UnderlyingString::UnderlyingString(const StringImpl& string)
 {
 }
 
-static StaticLock underlyingStringsMutex;
+static Lock underlyingStringsMutex;
 
 static HashMap<const StringImpl*, StringView::UnderlyingString*>& underlyingStrings()
 {
@@ -119,7 +305,7 @@ void StringView::invalidate(const StringImpl& stringToBeDestroyed)
 {
     UnderlyingString* underlyingString;
     {
-        std::lock_guard<StaticLock> lock(underlyingStringsMutex);
+        std::lock_guard<Lock> lock(underlyingStringsMutex);
         underlyingString = underlyingStrings().take(&stringToBeDestroyed);
         if (!underlyingString)
             return;
@@ -136,9 +322,9 @@ bool StringView::underlyingStringIsValid() const
 void StringView::adoptUnderlyingString(UnderlyingString* underlyingString)
 {
     if (m_underlyingString) {
+        std::lock_guard<Lock> lock(underlyingStringsMutex);
         if (!--m_underlyingString->refCount) {
             if (m_underlyingString->isValid) {
-                std::lock_guard<StaticLock> lock(underlyingStringsMutex);
                 underlyingStrings().remove(&m_underlyingString->string);
             }
             delete m_underlyingString;
@@ -153,7 +339,7 @@ void StringView::setUnderlyingString(const StringImpl* string)
     if (!string)
         underlyingString = nullptr;
     else {
-        std::lock_guard<StaticLock> lock(underlyingStringsMutex);
+        std::lock_guard<Lock> lock(underlyingStringsMutex);
         auto result = underlyingStrings().add(string, nullptr);
         if (result.isNewEntry)
             result.iterator->value = new UnderlyingString(*string);
@@ -164,9 +350,9 @@ void StringView::setUnderlyingString(const StringImpl* string)
     adoptUnderlyingString(underlyingString);
 }
 
-void StringView::setUnderlyingString(const StringView& string)
+void StringView::setUnderlyingString(const StringView& otherString)
 {
-    UnderlyingString* underlyingString = string.m_underlyingString;
+    UnderlyingString* underlyingString = otherString.m_underlyingString;
     if (underlyingString)
         ++underlyingString->refCount;
     adoptUnderlyingString(underlyingString);

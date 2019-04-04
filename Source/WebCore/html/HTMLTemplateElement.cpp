@@ -29,18 +29,16 @@
  */
 
 #include "config.h"
-
-#if ENABLE(TEMPLATE_ELEMENT)
-
 #include "HTMLTemplateElement.h"
 
-#include "DOMImplementation.h"
 #include "DocumentFragment.h"
-#include "HTMLDocument.h"
 #include "TemplateContentDocumentFragment.h"
 #include "markup.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLTemplateElement);
 
 using namespace HTMLNames;
 
@@ -60,12 +58,17 @@ Ref<HTMLTemplateElement> HTMLTemplateElement::create(const QualifiedName& tagNam
     return adoptRef(*new HTMLTemplateElement(tagName, document));
 }
 
-DocumentFragment* HTMLTemplateElement::content() const
+DocumentFragment* HTMLTemplateElement::contentIfAvailable() const
+{
+    return m_content.get();
+}
+
+DocumentFragment& HTMLTemplateElement::content() const
 {
     if (!m_content)
         m_content = TemplateContentDocumentFragment::create(document().ensureTemplateDocument(), this);
 
-    return m_content.get();
+    return *m_content;
 }
 
 Ref<Node> HTMLTemplateElement::cloneNodeInternal(Document& targetDocument, CloningOperation type)
@@ -82,18 +85,17 @@ Ref<Node> HTMLTemplateElement::cloneNodeInternal(Document& targetDocument, Cloni
         break;
     }
     if (m_content)
-        content()->cloneChildNodes(*downcast<HTMLTemplateElement>(clone.get())->content());
+        content().cloneChildNodes(downcast<HTMLTemplateElement>(clone.get())->content());
     return clone.releaseNonNull();
 }
 
-void HTMLTemplateElement::didMoveToNewDocument(Document* oldDocument)
+void HTMLTemplateElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
 {
-    HTMLElement::didMoveToNewDocument(oldDocument);
+    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
     if (!m_content)
         return;
-    document().ensureTemplateDocument().adoptIfNeeded(m_content.get());
+    ASSERT_WITH_SECURITY_IMPLICATION(&document() == &newDocument);
+    m_content->setTreeScopeRecursively(newDocument.ensureTemplateDocument());
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(TEMPLATE_ELEMENT)

@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2007, 2009, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018 Yusuke Suzuki <utatane.tea@gmail.com>.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,26 +24,35 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef JSNodeCustom_h
-#define JSNodeCustom_h
+#pragma once
 
 #include "JSDOMBinding.h"
 #include "JSNode.h"
-#include "ScriptState.h"
-#include "ShadowRoot.h"
+
+namespace JSC {
+namespace JSCastingHelpers {
+
+template<>
+struct InheritsTraits<WebCore::JSNode> {
+    template<typename From>
+    static inline bool inherits(VM&, From* from)
+    {
+        return from->type() >= WebCore::JSNodeType;
+    }
+};
+
+} // namespace JSCastingHelpers
+} // namespace JSC
 
 namespace WebCore {
 
-WEBCORE_EXPORT JSC::JSValue createWrapper(JSC::ExecState*, JSDOMGlobalObject*, Node*);
-WEBCORE_EXPORT JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject*, Node*);
+WEBCORE_EXPORT JSC::JSValue createWrapper(JSC::ExecState*, JSDOMGlobalObject*, Ref<Node>&&);
+WEBCORE_EXPORT JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject*, Node&);
 
-inline JSC::JSValue toJS(JSC::ExecState* exec, JSDOMGlobalObject* globalObject, Node* node)
+inline JSC::JSValue toJS(JSC::ExecState* exec, JSDOMGlobalObject* globalObject, Node& node)
 {
-    if (!node)
-        return JSC::jsNull();
-
     if (LIKELY(globalObject->worldIsNormal())) {
-        if (auto* wrapper = node->wrapper())
+        if (auto* wrapper = node.wrapper())
             return wrapper;
     } else {
         if (auto* wrapper = getOutOfLineCachedWrapper(globalObject, node))
@@ -70,12 +80,7 @@ inline void willCreatePossiblyOrphanedTreeByRemoval(Node* root)
 
 inline void* root(Node* node)
 {
-    if (node->inDocument())
-        return &node->document();
-
-    while (node->parentOrShadowHostNode())
-        node = node->parentOrShadowHostNode();
-    return node;
+    return node ? node->opaqueRoot() : nullptr;
 }
 
 inline void* root(Node& node)
@@ -83,13 +88,9 @@ inline void* root(Node& node)
     return root(&node);
 }
 
-ALWAYS_INLINE JSNode* jsNodeCast(JSC::JSValue value)
+ALWAYS_INLINE JSC::JSValue JSNode::nodeType(JSC::ExecState&) const
 {
-    if (UNLIKELY(!value.isCell()))
-        return nullptr;
-    return value.asCell()->type() >= JSNodeType ? JSC::jsCast<JSNode*>(value) : nullptr;
+    return JSC::jsNumber(static_cast<uint8_t>(type()) & JSNodeTypeMask);
 }
 
 } // namespace WebCore
-
-#endif // JSDOMNodeCustom_h

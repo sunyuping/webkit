@@ -18,13 +18,11 @@
  *
  */
 
-#ifndef Identifier_h
-#define Identifier_h
+#pragma once
 
+#include "PrivateName.h"
 #include "VM.h"
 #include <wtf/Optional.h>
-#include <wtf/ThreadSpecific.h>
-#include <wtf/WTFThreadData.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/UniquedStringImpl.h>
 #include <wtf/text/WTFString.h>
@@ -43,38 +41,38 @@ ALWAYS_INLINE Optional<uint32_t> parseIndex(const CharType* characters, unsigned
 {
     // An empty string is not a number.
     if (!length)
-        return Nullopt;
+        return WTF::nullopt;
 
     // Get the first character, turning it into a digit.
     uint32_t value = characters[0] - '0';
     if (value > 9)
-        return Nullopt;
+        return WTF::nullopt;
 
     // Check for leading zeros. If the first characher is 0, then the
     // length of the string must be one - e.g. "042" is not equal to "42".
     if (!value && length > 1)
-        return Nullopt;
+        return WTF::nullopt;
 
     while (--length) {
         // Multiply value by 10, checking for overflow out of 32 bits.
         if (value > 0xFFFFFFFFU / 10)
-            return Nullopt;
+            return WTF::nullopt;
         value *= 10;
 
         // Get the next character, turning it into a digit.
         uint32_t newValue = *(++characters) - '0';
         if (newValue > 9)
-            return Nullopt;
+            return WTF::nullopt;
 
         // Add in the old value, checking for overflow out of 32 bits.
         newValue += value;
         if (newValue < value)
-            return Nullopt;
+            return WTF::nullopt;
         value = newValue;
     }
 
     if (!isIndex(value))
-        return Nullopt;
+        return WTF::nullopt;
     return value;
 }
 
@@ -123,10 +121,12 @@ public:
     static Identifier fromString(ExecState*, const AtomicString&);
     static Identifier fromString(ExecState*, const String&);
     static Identifier fromString(ExecState*, const char*);
+    static Identifier fromString(VM* vm, const Vector<LChar>& characters) { return fromString(vm, characters.data(), characters.size()); }
 
     static Identifier fromUid(VM*, UniquedStringImpl* uid);
     static Identifier fromUid(ExecState*, UniquedStringImpl* uid);
     static Identifier fromUid(const PrivateName&);
+    static Identifier fromUid(SymbolImpl&);
 
     static Identifier createLCharFromUChar(VM* vm, const UChar* s, int length) { return Identifier(vm, add8(vm, s, length)); }
 
@@ -140,6 +140,7 @@ public:
     bool isNull() const { return m_string.isNull(); }
     bool isEmpty() const { return m_string.isEmpty(); }
     bool isSymbol() const { return !isNull() && impl()->isSymbol(); }
+    bool isPrivateName() const { return isSymbol() && static_cast<const SymbolImpl*>(impl())->isPrivate(); }
 
     friend bool operator==(const Identifier&, const Identifier&);
     friend bool operator!=(const Identifier&, const Identifier&);
@@ -219,7 +220,7 @@ Ref<StringImpl> Identifier::add(VM* vm, const T* s, int length)
     if (length == 1) {
         T c = s[0];
         if (canUseSingleCharacterString(c))
-            return *vm->smallStrings.singleCharacterStringRep(c);
+            return vm->smallStrings.singleCharacterStringRep(c);
     }
     if (!length)
         return *StringImpl::empty();
@@ -276,11 +277,16 @@ ALWAYS_INLINE Optional<uint32_t> parseIndex(const Identifier& identifier)
 {
     auto uid = identifier.impl();
     if (!uid)
-        return Nullopt;
+        return WTF::nullopt;
     if (uid->isSymbol())
-        return Nullopt;
+        return WTF::nullopt;
     return parseIndex(*uid);
 }
+
+JSValue identifierToJSValue(VM&, const Identifier&);
+// This will stringify private symbols. When leaking JSValues to
+// non-internal code, make sure to use this function and not the above one.
+JSValue identifierToSafePublicJSValue(VM&, const Identifier&);
 
 // FIXME: It may be better for this to just be a typedef for PtrHash, since PtrHash may be cheaper to
 // compute than loading the StringImpl's hash from memory. That change would also reduce the likelihood of
@@ -307,5 +313,3 @@ namespace WTF {
 template <> struct VectorTraits<JSC::Identifier> : SimpleClassVectorTraits { };
 
 } // namespace WTF
-
-#endif // Identifier_h

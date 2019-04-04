@@ -26,14 +26,14 @@
 #include "config.h"
 #include "LegacyTileLayer.h"
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 
 #include "LegacyTileCache.h"
 #include "LegacyTileGrid.h"
 #include "WebCoreThread.h"
+#include <wtf/SetForScope.h>
 
-using namespace WebCore;
-
+using WebCore::LegacyTileCache;
 @implementation LegacyTileHostLayer
 
 - (id)initWithTileGrid:(WebCore::LegacyTileGrid*)tileGrid
@@ -59,20 +59,22 @@ using namespace WebCore;
         WebThreadLock();
 
     CGRect dirtyRect = CGContextGetClipBoundingBox(context);
-    _tileGrid->tileCache().setOverrideVisibleRect(FloatRect(dirtyRect));
-    _tileGrid->tileCache().doLayoutTiles();
+    auto useExistingTiles = _tileGrid->tileCache().setOverrideVisibleRect(WebCore::FloatRect(dirtyRect));
+    if (!useExistingTiles)
+        _tileGrid->tileCache().doLayoutTiles();
 
     [super renderInContext:context];
 
-    _tileGrid->tileCache().setOverrideVisibleRect(Nullopt);
+    _tileGrid->tileCache().clearOverrideVisibleRect();
+    if (!useExistingTiles)
+        _tileGrid->tileCache().doLayoutTiles();
 }
 @end
 
 @implementation LegacyTileLayer
 @synthesize paintCount = _paintCount;
 @synthesize tileGrid = _tileGrid;
-
-static LegacyTileLayer *layerBeingPainted;
+@synthesize isRenderingInContext = _isRenderingInContext;
 
 - (void)setNeedsDisplayInRect:(CGRect)rect
 {
@@ -93,6 +95,12 @@ static LegacyTileLayer *layerBeingPainted;
         _tileGrid->tileCache().prepareToDraw();
 }
 
+- (void)renderInContext:(CGContextRef)context
+{
+    SetForScope<BOOL> change(_isRenderingInContext, YES);
+    [super renderInContext:context];
+}
+
 - (void)drawInContext:(CGContextRef)context
 {
     // Bugs in clients or other frameworks may cause tile invalidation from within a CA commit.
@@ -105,7 +113,7 @@ static LegacyTileLayer *layerBeingPainted;
         WebThreadLock();
 
     if (_tileGrid)
-        _tileGrid->tileCache().drawLayer(self, context);
+        _tileGrid->tileCache().drawLayer(self, context, self.isRenderingInContext ? LegacyTileCache::DrawingFlags::Snapshotting : LegacyTileCache::DrawingFlags::None);
 }
 
 - (id<CAAction>)actionForKey:(NSString *)key
@@ -115,11 +123,6 @@ static LegacyTileLayer *layerBeingPainted;
     return nil;
 }
 
-+ (LegacyTileLayer *)layerBeingPainted
-{
-    return layerBeingPainted;
-}
-
 @end
 
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,8 +40,11 @@ void ValueRep::addUsedRegistersTo(RegisterSet& set) const
     case ColdAny:
     case LateColdAny:
     case SomeRegister:
+    case SomeRegisterWithClobber:
+    case SomeEarlyRegister:
     case Constant:
         return;
+    case LateRegister:
     case Register:
         set.set(reg());
         return;
@@ -69,7 +72,10 @@ void ValueRep::dump(PrintStream& out) const
     case ColdAny:
     case LateColdAny:
     case SomeRegister:
+    case SomeRegisterWithClobber:
+    case SomeEarlyRegister:
         return;
+    case LateRegister:
     case Register:
         out.print("(", reg(), ")");
         return;
@@ -90,6 +96,7 @@ void ValueRep::emitRestore(AssemblyHelpers& jit, Reg reg) const
 {
     if (reg.isGPR()) {
         switch (kind()) {
+        case LateRegister:
         case Register:
             if (isGPR())
                 jit.move(gpr(), reg.gpr());
@@ -110,6 +117,7 @@ void ValueRep::emitRestore(AssemblyHelpers& jit, Reg reg) const
     }
     
     switch (kind()) {
+    case LateRegister:
     case Register:
         if (isGPR())
             jit.move64ToDouble(gpr(), reg.fpr());
@@ -132,6 +140,7 @@ void ValueRep::emitRestore(AssemblyHelpers& jit, Reg reg) const
 ValueRecovery ValueRep::recoveryForJSValue() const
 {
     switch (kind()) {
+    case LateRegister:
     case Register:
         return ValueRecovery::inGPR(gpr(), DataFormatJS);
     case Stack:
@@ -168,8 +177,17 @@ void printInternal(PrintStream& out, ValueRep::Kind kind)
     case ValueRep::SomeRegister:
         out.print("SomeRegister");
         return;
+    case ValueRep::SomeRegisterWithClobber:
+        out.print("SomeRegisterWithClobber");
+        return;
+    case ValueRep::SomeEarlyRegister:
+        out.print("SomeEarlyRegister");
+        return;
     case ValueRep::Register:
         out.print("Register");
+        return;
+    case ValueRep::LateRegister:
+        out.print("LateRegister");
         return;
     case ValueRep::Stack:
         out.print("Stack");

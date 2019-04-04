@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,7 @@ JSObjectRef objCCallbackFunctionForMethod(JSContext *, Class, Protocol *, BOOL i
 JSObjectRef objCCallbackFunctionForBlock(JSContext *, id);
 JSObjectRef objCCallbackFunctionForInit(JSContext *, Class, Protocol *, SEL, const char* types);
 
-id tryUnwrapConstructor(JSObjectRef);
+id tryUnwrapConstructor(JSC::VM*, JSObjectRef);
 #endif
 
 namespace JSC {
@@ -48,13 +48,19 @@ class ObjCCallbackFunction : public InternalFunction {
 public:
     typedef InternalFunction Base;
 
+    template<typename CellType, SubspaceAccess mode>
+    static IsoSubspace* subspaceFor(VM& vm)
+    {
+        return vm.objCCallbackFunctionSpace<mode>();
+    }
+
     static ObjCCallbackFunction* create(VM&, JSGlobalObject*, const String& name, std::unique_ptr<ObjCCallbackFunctionImpl>);
     static void destroy(JSCell*);
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
         ASSERT(globalObject);
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
     }
 
     DECLARE_EXPORT_INFO;
@@ -62,12 +68,9 @@ public:
     ObjCCallbackFunctionImpl* impl() const { return m_impl.get(); }
 
 protected:
-    ObjCCallbackFunction(VM&, JSGlobalObject*, JSObjectCallAsFunctionCallback, JSObjectCallAsConstructorCallback, std::unique_ptr<ObjCCallbackFunctionImpl>);
+    ObjCCallbackFunction(VM&, Structure*, JSObjectCallAsFunctionCallback, JSObjectCallAsConstructorCallback, std::unique_ptr<ObjCCallbackFunctionImpl>);
 
 private:
-    static CallType getCallData(JSCell*, CallData&);
-    static ConstructType getConstructData(JSCell*, ConstructData&);
-
     JSObjectCallAsFunctionCallback functionCallback() { return m_functionCallback; }
     JSObjectCallAsConstructorCallback constructCallback() { return m_constructCallback; }
 

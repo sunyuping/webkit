@@ -29,40 +29,46 @@
  *
  */
 
-#ifndef LinkLoader_h
-#define LinkLoader_h
+#pragma once
 
+#include "CachedResource.h"
 #include "CachedResourceClient.h"
 #include "CachedResourceHandle.h"
 #include "LinkLoaderClient.h"
-#include "Timer.h"
+
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class Document;
-class URL;
+class LinkPreloadResourceClient;
 
 struct LinkRelAttribute;
 
-class LinkLoader : private CachedResourceClient {
+class LinkLoader : private CachedResourceClient, public CanMakeWeakPtr<LinkLoader> {
 public:
     explicit LinkLoader(LinkLoaderClient&);
     virtual ~LinkLoader();
 
-    bool loadLink(const LinkRelAttribute&, const URL&, Document&);
+    bool loadLink(const LinkRelAttribute&, const URL&, const String& as, const String& media, const String& type, const String& crossOrigin, Document&);
+    static Optional<CachedResource::Type> resourceTypeFromAsAttribute(const String& as);
+
+    enum class MediaAttributeCheck { MediaAttributeEmpty, MediaAttributeNotEmpty, SkipMediaAttributeCheck };
+    static void loadLinksFromHeader(const String& headerValue, const URL& baseURL, Document&, MediaAttributeCheck);
+    static bool isSupportedType(CachedResource::Type, const String& mimeType);
+
+    void triggerEvents(const CachedResource&);
+    void cancelLoad();
 
 private:
-    virtual void notifyFinished(CachedResource*) override;
-
-    void linkLoadTimerFired();
-    void linkLoadingErrorTimerFired();
+    void notifyFinished(CachedResource&) override;
+    static void preconnectIfNeeded(const LinkRelAttribute&, const URL& href, Document&, const String& crossOrigin);
+    static std::unique_ptr<LinkPreloadResourceClient> preloadIfNeeded(const LinkRelAttribute&, const URL& href, Document&, const String& as, const String& media, const String& type, const String& crossOriginMode, LinkLoader*);
+    void prefetchIfNeeded(const LinkRelAttribute&, const URL& href, Document&);
 
     LinkLoaderClient& m_client;
     CachedResourceHandle<CachedResource> m_cachedLinkResource;
-    Timer m_linkLoadTimer;
-    Timer m_linkLoadingErrorTimer;
+    std::unique_ptr<LinkPreloadResourceClient> m_preloadResourceClient;
 };
-    
-}
 
-#endif
+}

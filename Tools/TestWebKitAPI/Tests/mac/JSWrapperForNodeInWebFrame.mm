@@ -50,7 +50,7 @@ static bool didFinishLoad;
 
 namespace TestWebKitAPI {
 
-TEST(WebKit1, JSWrapperForNode)
+TEST(WebKitLegacy, JSWrapperForNode)
 {
     RetainPtr<WebView> webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 120, 200) frameName:nil groupName:nil]);
     RetainPtr<JSWrapperForNodeFrameLoadDelegate> frameLoadDelegate = adoptNS([[JSWrapperForNodeFrameLoadDelegate alloc] init]);
@@ -80,13 +80,15 @@ TEST(WebKit1, JSWrapperForNode)
     ASSERT_TRUE(JSValueIsObject(normalCtx, normalNodeJSValue));
     JSObjectRef normalNodeJSObject = JSValueToObject(normalCtx, normalNodeJSValue, 0);
 
-    JSRetainPtr<JSStringRef> isolatedPropertyJSString = JSStringCreateWithUTF8CString("isolatedProperty");
+    auto isolatedPropertyJSString = adopt(JSStringCreateWithUTF8CString("isolatedProperty"));
+
     // Test for successful retrieval of the first property in the isolated script world
     EXPECT_TRUE(JSValueIsBoolean(isolatedCtx, JSObjectGetProperty(isolatedCtx, isolatedNodeJSObject, isolatedPropertyJSString.get(), 0)));
     // Test for failed retrieval of the first property in the standard script world
     EXPECT_TRUE(JSValueIsUndefined(normalCtx, JSObjectGetProperty(normalCtx, normalNodeJSObject, isolatedPropertyJSString.get(), 0)));
 
-    JSRetainPtr<JSStringRef> normalPropertyJSString = JSStringCreateWithUTF8CString("normalProperty");
+    auto normalPropertyJSString = adopt(JSStringCreateWithUTF8CString("normalProperty"));
+
     // Test for successful retrieval of the second property in the standard script world
     EXPECT_TRUE(JSValueIsBoolean(normalCtx, JSObjectGetProperty(normalCtx, normalNodeJSObject, normalPropertyJSString.get(), 0)));
     // Test for failed retrieval of the second property in the isolated script world

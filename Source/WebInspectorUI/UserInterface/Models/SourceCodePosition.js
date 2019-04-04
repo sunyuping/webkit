@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,25 +23,64 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.SourceCodePosition = class SourceCodePosition extends WebInspector.Object
+WI.SourceCodePosition = class SourceCodePosition
 {
     constructor(lineNumber, columNumber)
     {
-        super();
-
         this._lineNumber = lineNumber || 0;
         this._columnNumber = columNumber || 0;
     }
 
     // Public
 
-    get lineNumber()
+    get lineNumber() { return this._lineNumber; }
+    get columnNumber() { return this._columnNumber; }
+
+    offsetColumn(delta)
     {
-        return this._lineNumber;
+        console.assert(this._columnNumber + delta >= 0);
+        return new WI.SourceCodePosition(this._lineNumber, this._columnNumber + delta);
     }
 
-    get columnNumber()
+    equals(position)
     {
-        return this._columnNumber;
+        return this._lineNumber === position.lineNumber && this._columnNumber === position.columnNumber;
+    }
+
+    isBefore(position)
+    {
+        if (this._lineNumber < position.lineNumber)
+            return true;
+        if (this._lineNumber === position.lineNumber && this._columnNumber < position.columnNumber)
+            return true;
+
+        return false;
+    }
+
+    isAfter(position)
+    {
+        if (this._lineNumber > position.lineNumber)
+            return true;
+        if (this._lineNumber === position.lineNumber && this._columnNumber > position.columnNumber)
+            return true;
+
+        return false;
+    }
+
+    isWithin(startPosition, endPosition)
+    {
+        console.assert(startPosition.isBefore(endPosition) || startPosition.equals(endPosition));
+
+        if (this.equals(startPosition) || this.equals(endPosition))
+            return true;
+        if (this.isAfter(startPosition) && this.isBefore(endPosition))
+            return true;
+
+        return false;
+    }
+
+    toCodeMirror()
+    {
+        return {line: this._lineNumber, ch: this._columnNumber};
     }
 };

@@ -23,10 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
  
-#ifndef UserStyleSheet_h
-#define UserStyleSheet_h
+#pragma once
 
-#include "URL.h"
+#include <wtf/URL.h>
 #include "UserContentTypes.h"
 #include "UserStyleSheetTypes.h"
 #include <wtf/Vector.h>
@@ -69,5 +68,3 @@ private:
 };
 
 } // namespace WebCore
- 
-#endif // UserStyleSheet_h

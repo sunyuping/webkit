@@ -29,6 +29,7 @@
 #if USE(SOUP)
 
 #include "LocalizedStrings.h"
+#include "URLSoup.h"
 #include <libsoup/soup.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/CString.h>
@@ -38,7 +39,7 @@ namespace WebCore {
 static URL failingURI(SoupURI* soupURI)
 {
     ASSERT(soupURI);
-    return URL(soupURI);
+    return soupURIToURL(soupURI);
 }
 
 static URL failingURI(SoupRequest* request)
@@ -75,10 +76,9 @@ ResourceError ResourceError::genericGError(GError* error, SoupRequest* request)
         failingURI(request), String::fromUTF8(error->message));
 }
 
-ResourceError ResourceError::tlsError(SoupRequest* request, unsigned tlsErrors, GTlsCertificate* certificate)
+ResourceError ResourceError::tlsError(const URL& failingURL, unsigned tlsErrors, GTlsCertificate* certificate)
 {
-    ResourceError resourceError(g_quark_to_string(SOUP_HTTP_ERROR), SOUP_STATUS_SSL_FAILED,
-        failingURI(request), unacceptableTLSCertificate());
+    ResourceError resourceError(g_quark_to_string(SOUP_HTTP_ERROR), SOUP_STATUS_SSL_FAILED, failingURL, unacceptableTLSCertificate());
     resourceError.setTLSErrors(tlsErrors);
     resourceError.setCertificate(certificate);
     return resourceError;
@@ -86,21 +86,19 @@ ResourceError ResourceError::tlsError(SoupRequest* request, unsigned tlsErrors, 
 
 ResourceError ResourceError::timeoutError(const URL& failingURL)
 {
-    // FIXME: This should probably either be integrated into Errors(Gtk/EFL).h or the
-    // networking errors from those files should be moved here.
+    // FIXME: This should probably either be integrated into ErrorsGtk.h or the
+    // networking errors from that file should be moved here.
 
     // Use the same value as in NSURLError.h
     static const int timeoutError = -1001;
     static const char* const  errorDomain = "WebKitNetworkError";
-    ResourceError error = ResourceError(errorDomain, timeoutError, failingURL, "Request timed out");
-    error.setIsTimeout(true);
-    return error;
+    return ResourceError(errorDomain, timeoutError, failingURL, "Request timed out", ResourceError::Type::Timeout);
 }
 
-void ResourceError::platformCopy(ResourceError& errorCopy) const
+void ResourceError::doPlatformIsolatedCopy(const ResourceError& other)
 {
-    errorCopy.m_certificate = m_certificate;
-    errorCopy.m_tlsErrors = m_tlsErrors;
+    m_certificate = other.m_certificate;
+    m_tlsErrors = other.m_tlsErrors;
 }
 
 bool ResourceError::platformCompare(const ResourceError& a, const ResourceError& b)

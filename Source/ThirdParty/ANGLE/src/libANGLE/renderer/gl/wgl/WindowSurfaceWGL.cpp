@@ -9,137 +9,130 @@
 #include "libANGLE/renderer/gl/wgl/WindowSurfaceWGL.h"
 
 #include "common/debug.h"
+#include "libANGLE/renderer/gl/RendererGL.h"
 #include "libANGLE/renderer/gl/wgl/FunctionsWGL.h"
 #include "libANGLE/renderer/gl/wgl/wgl_utils.h"
 
 namespace rx
 {
 
-WindowSurfaceWGL::WindowSurfaceWGL(EGLNativeWindowType window, ATOM windowClass, int pixelFormat, HGLRC wglContext, const FunctionsWGL *functions)
-    : SurfaceGL(),
-      mWindowClass(windowClass),
+WindowSurfaceWGL::WindowSurfaceWGL(const egl::SurfaceState &state,
+                                   RendererGL *renderer,
+                                   EGLNativeWindowType window,
+                                   int pixelFormat,
+                                   const FunctionsWGL *functions,
+                                   EGLint orientation)
+    : SurfaceWGL(state, renderer),
       mPixelFormat(pixelFormat),
-      mShareWGLContext(wglContext),
-      mParentWindow(window),
-      mChildWindow(nullptr),
-      mChildDeviceContext(nullptr),
-      mFunctionsWGL(functions)
+      mWindow(window),
+      mDeviceContext(nullptr),
+      mFunctionsWGL(functions),
+      mSwapBehavior(0)
 {
+    // EGL_ANGLE_surface_orientation is not supported for regular WGL window surfaces
+    ASSERT(orientation == 0);
 }
 
 WindowSurfaceWGL::~WindowSurfaceWGL()
 {
-    mWindowClass = 0;
-    mPixelFormat = 0;
-    mShareWGLContext = nullptr;
-
-    ReleaseDC(mChildWindow, mChildDeviceContext);
-    mChildDeviceContext = nullptr;
-
-    DestroyWindow(mChildWindow);
-    mChildWindow = nullptr;
+    ReleaseDC(mWindow, mDeviceContext);
+    mDeviceContext = nullptr;
 }
 
-egl::Error WindowSurfaceWGL::initialize()
+egl::Error WindowSurfaceWGL::initialize(const egl::Display *display)
 {
-    // Create a child window of the supplied window to draw to.
-    RECT rect;
-    if (!GetClientRect(mParentWindow, &rect))
+    mDeviceContext = GetDC(mWindow);
+    if (!mDeviceContext)
     {
-        return egl::Error(EGL_BAD_NATIVE_WINDOW, "Failed to get the size of the native window.");
+        return egl::EglBadNativeWindow()
+               << "Failed to get the device context from the native window, "
+               << gl::FmtErr(GetLastError());
     }
 
-    mChildWindow = CreateWindowExA(WS_EX_NOPARENTNOTIFY,
-                                   reinterpret_cast<const char*>(mWindowClass),
-                                   "ANGLE Intermediate Surface Window",
-                                   WS_CHILDWINDOW | WS_DISABLED | WS_VISIBLE,
-                                   0,
-                                   0,
-                                   rect.right - rect.left,
-                                   rect.bottom - rect.top,
-                                   mParentWindow,
-                                   NULL,
-                                   NULL,
-                                   NULL);
-    if (!mChildWindow)
+    // Require that the pixel format for this window has not been set yet or is equal to the Display's pixel format.
+    int windowPixelFormat = GetPixelFormat(mDeviceContext);
+    if (windowPixelFormat == 0)
     {
-        return egl::Error(EGL_BAD_NATIVE_WINDOW, "Failed to create a child window.");
+        PIXELFORMATDESCRIPTOR pixelFormatDescriptor = { 0 };
+        if (!DescribePixelFormat(mDeviceContext, mPixelFormat, sizeof(pixelFormatDescriptor), &pixelFormatDescriptor))
+        {
+            return egl::EglBadNativeWindow()
+                   << "Failed to DescribePixelFormat, " << gl::FmtErr(GetLastError());
+        }
+
+        if (!SetPixelFormat(mDeviceContext, mPixelFormat, &pixelFormatDescriptor))
+        {
+            return egl::EglNotInitialized()
+                   << "Failed to set the pixel format on the device context, "
+                   << gl::FmtErr(GetLastError());
+        }
+    }
+    else if (windowPixelFormat != mPixelFormat)
+    {
+        return egl::EglNotInitialized()
+               << "Pixel format of the NativeWindow and NativeDisplayType must match.";
     }
 
-    mChildDeviceContext = GetDC(mChildWindow);
-    if (!mChildDeviceContext)
+    // Check for the swap behavior of this pixel format
+    switch (
+        wgl::QueryWGLFormatAttrib(mDeviceContext, mPixelFormat, WGL_SWAP_METHOD_ARB, mFunctionsWGL))
     {
-        return egl::Error(EGL_BAD_NATIVE_WINDOW, "Failed to get the device context of the child window.");
+        case WGL_SWAP_COPY_ARB:
+            mSwapBehavior = EGL_BUFFER_PRESERVED;
+            break;
+
+        case WGL_SWAP_EXCHANGE_ARB:
+        case WGL_SWAP_UNDEFINED_ARB:
+        default:
+            mSwapBehavior = EGL_BUFFER_DESTROYED;
+            break;
     }
 
-    const PIXELFORMATDESCRIPTOR pixelFormatDescriptor = wgl::GetDefaultPixelFormatDescriptor();
-
-    if (!SetPixelFormat(mChildDeviceContext, mPixelFormat, &pixelFormatDescriptor))
-    {
-        return egl::Error(EGL_BAD_NATIVE_WINDOW, "Failed to set the pixel format on the child window.");
-    }
-
-    return egl::Error(EGL_SUCCESS);
+    return egl::NoError();
 }
 
 egl::Error WindowSurfaceWGL::makeCurrent()
 {
-    if (!mFunctionsWGL->makeCurrent(mChildDeviceContext, mShareWGLContext))
-    {
-        // TODO: What error type here?
-        return egl::Error(EGL_CONTEXT_LOST, "Failed to make the WGL context current.");
-    }
-
-    return egl::Error(EGL_SUCCESS);
+    return egl::NoError();
 }
 
-egl::Error WindowSurfaceWGL::swap()
+egl::Error WindowSurfaceWGL::swap(const gl::Context *context)
 {
-    // Resize the child window to the interior of the parent window.
-    RECT rect;
-    if (!GetClientRect(mParentWindow, &rect))
+    if (!mFunctionsWGL->swapBuffers(mDeviceContext))
     {
         // TODO: What error type here?
-        return egl::Error(EGL_CONTEXT_LOST, "Failed to get the size of the native window.");
+        return egl::EglContextLost() << "Failed to swap buffers on the child window.";
     }
 
-    if (!MoveWindow(mChildWindow, 0, 0, rect.right - rect.left, rect.bottom - rect.top, FALSE))
-    {
-        // TODO: What error type here?
-        return egl::Error(EGL_CONTEXT_LOST, "Failed to move the child window.");
-    }
-
-    if (!mFunctionsWGL->swapBuffers(mChildDeviceContext))
-    {
-        // TODO: What error type here?
-        return egl::Error(EGL_CONTEXT_LOST, "Failed to swap buffers on the child window.");
-    }
-
-    return egl::Error(EGL_SUCCESS);
+    return egl::NoError();
 }
 
-egl::Error WindowSurfaceWGL::postSubBuffer(EGLint x, EGLint y, EGLint width, EGLint height)
+egl::Error WindowSurfaceWGL::postSubBuffer(const gl::Context *context,
+                                           EGLint x,
+                                           EGLint y,
+                                           EGLint width,
+                                           EGLint height)
 {
     UNIMPLEMENTED();
-    return egl::Error(EGL_SUCCESS);
+    return egl::NoError();
 }
 
 egl::Error WindowSurfaceWGL::querySurfacePointerANGLE(EGLint attribute, void **value)
 {
-    UNIMPLEMENTED();
-    return egl::Error(EGL_SUCCESS);
+    *value = nullptr;
+    return egl::NoError();
 }
 
-egl::Error WindowSurfaceWGL::bindTexImage(EGLint buffer)
+egl::Error WindowSurfaceWGL::bindTexImage(gl::Texture *texture, EGLint buffer)
 {
     UNIMPLEMENTED();
-    return egl::Error(EGL_SUCCESS);
+    return egl::NoError();
 }
 
 egl::Error WindowSurfaceWGL::releaseTexImage(EGLint buffer)
 {
     UNIMPLEMENTED();
-    return egl::Error(EGL_SUCCESS);
+    return egl::NoError();
 }
 
 void WindowSurfaceWGL::setSwapInterval(EGLint interval)
@@ -153,7 +146,7 @@ void WindowSurfaceWGL::setSwapInterval(EGLint interval)
 EGLint WindowSurfaceWGL::getWidth() const
 {
     RECT rect;
-    if (!GetClientRect(mParentWindow, &rect))
+    if (!GetClientRect(mWindow, &rect))
     {
         return 0;
     }
@@ -163,7 +156,7 @@ EGLint WindowSurfaceWGL::getWidth() const
 EGLint WindowSurfaceWGL::getHeight() const
 {
     RECT rect;
-    if (!GetClientRect(mParentWindow, &rect))
+    if (!GetClientRect(mWindow, &rect))
     {
         return 0;
     }
@@ -177,4 +170,13 @@ EGLint WindowSurfaceWGL::isPostSubBufferSupported() const
     return EGL_FALSE;
 }
 
+EGLint WindowSurfaceWGL::getSwapBehavior() const
+{
+    return mSwapBehavior;
+}
+
+HDC WindowSurfaceWGL::getDC() const
+{
+    return mDeviceContext;
+}
 }

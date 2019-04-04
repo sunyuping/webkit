@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2018 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,13 +23,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ResourceError_h
-#define ResourceError_h
+#pragma once
 
 #include "ResourceErrorBase.h"
 
 #include <wtf/RetainPtr.h>
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
 #include <CoreFoundation/CFStream.h>
 #endif
 #if PLATFORM(WIN)
@@ -45,15 +44,20 @@ namespace WebCore {
 
 class ResourceError : public ResourceErrorBase {
 public:
-    ResourceError()
-        : m_dataIsUpToDate(true)
+    ResourceError(Type type = Type::Null)
+        : ResourceErrorBase(type)
+        , m_dataIsUpToDate(true)
     {
     }
 
-    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription)
-        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription)
+    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type type = Type::General)
+        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, type)
         , m_dataIsUpToDate(true)
     {
+#if PLATFORM(COCOA)
+        ASSERT(domain != getNSURLErrorDomain());
+        ASSERT(domain != getCFErrorDomainCFNetwork());
+#endif
     }
 
     WEBCORE_EXPORT ResourceError(CFErrorRef error);
@@ -61,15 +65,15 @@ public:
     WEBCORE_EXPORT CFErrorRef cfError() const;
     WEBCORE_EXPORT operator CFErrorRef() const;
 
-#if USE(CFNETWORK)
-#if PLATFORM(WIN)
+#if USE(CFURLCONNECTION)
     ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, CFDataRef certificate);
     PCCERT_CONTEXT certificate() const;
     void setCertificate(CFDataRef);
-#endif
     ResourceError(CFStreamError error);
     CFStreamError cfStreamError() const;
     operator CFStreamError() const;
+    static const void* getSSLPeerCertificateDataBytePtr(CFDictionaryRef);
+
 #endif
 
 #if PLATFORM(COCOA)
@@ -83,14 +87,18 @@ public:
 private:
     friend class ResourceErrorBase;
 
-    void platformLazyInit();
-    void platformCopy(ResourceError&) const;
-    bool m_dataIsUpToDate;
-#if USE(CFNETWORK)
-    mutable RetainPtr<CFErrorRef> m_platformError;
 #if PLATFORM(COCOA)
-    mutable RetainPtr<NSError> m_platformNSError;
+    WEBCORE_EXPORT const String& getNSURLErrorDomain() const;
+    WEBCORE_EXPORT const String& getCFErrorDomainCFNetwork() const;
+    WEBCORE_EXPORT void mapPlatformError();
 #endif
+    void platformLazyInit();
+
+    void doPlatformIsolatedCopy(const ResourceError&);
+
+    bool m_dataIsUpToDate;
+#if USE(CFURLCONNECTION)
+    mutable RetainPtr<CFErrorRef> m_platformError;
 #if PLATFORM(WIN)
     RetainPtr<CFDataRef> m_certificate;
 #endif
@@ -100,5 +108,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ResourceError_h

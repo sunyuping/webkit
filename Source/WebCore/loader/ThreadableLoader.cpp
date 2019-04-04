@@ -31,10 +31,11 @@
 #include "config.h"
 #include "ThreadableLoader.h"
 
+#include "CachedResourceRequestInitiators.h"
 #include "Document.h"
 #include "DocumentThreadableLoader.h"
+#include "ResourceError.h"
 #include "ScriptExecutionContext.h"
-#include "SecurityOrigin.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerRunLoop.h"
 #include "WorkerThreadableLoader.h"
@@ -42,53 +43,106 @@
 namespace WebCore {
 
 ThreadableLoaderOptions::ThreadableLoaderOptions()
-    : preflightPolicy(ConsiderPreflight)
-    , crossOriginRequestPolicy(DenyCrossOriginRequests)
+{
+    mode = FetchOptions::Mode::SameOrigin;
+}
+
+ThreadableLoaderOptions::~ThreadableLoaderOptions() = default;
+
+ThreadableLoaderOptions::ThreadableLoaderOptions(FetchOptions&& baseOptions)
+    : ResourceLoaderOptions { WTFMove(baseOptions) }
 {
 }
 
-ThreadableLoaderOptions::~ThreadableLoaderOptions()
-{
-}
-
-ThreadableLoaderOptions::ThreadableLoaderOptions(const ResourceLoaderOptions& baseOptions, PreflightPolicy preflightPolicy, CrossOriginRequestPolicy crossOriginRequestPolicy, ContentSecurityPolicyEnforcement contentSecurityPolicyEnforcement, RefPtr<SecurityOrigin>&& securityOrigin, String&& initiator)
+ThreadableLoaderOptions::ThreadableLoaderOptions(const ResourceLoaderOptions& baseOptions, ContentSecurityPolicyEnforcement contentSecurityPolicyEnforcement, String&& initiator, ResponseFilteringPolicy filteringPolicy)
     : ResourceLoaderOptions(baseOptions)
-    , preflightPolicy(preflightPolicy)
-    , crossOriginRequestPolicy(crossOriginRequestPolicy)
     , contentSecurityPolicyEnforcement(contentSecurityPolicyEnforcement)
-    , securityOrigin(WTFMove(securityOrigin))
     , initiator(WTFMove(initiator))
+    , filteringPolicy(filteringPolicy)
 {
 }
 
-std::unique_ptr<ThreadableLoaderOptions> ThreadableLoaderOptions::isolatedCopy() const
+ThreadableLoaderOptions ThreadableLoaderOptions::isolatedCopy() const
 {
-    RefPtr<SecurityOrigin> securityOriginCopy;
-    if (securityOrigin)
-        securityOriginCopy = securityOrigin->isolatedCopy();
-    return std::make_unique<ThreadableLoaderOptions>(*this, preflightPolicy, crossOriginRequestPolicy, contentSecurityPolicyEnforcement, WTFMove(securityOriginCopy), initiator.isolatedCopy());
+    ThreadableLoaderOptions copy;
+
+    // FetchOptions
+    copy.destination = this->destination;
+    copy.mode = this->mode;
+    copy.credentials = this->credentials;
+    copy.cache = this->cache;
+    copy.redirect = this->redirect;
+    copy.referrerPolicy = this->referrerPolicy;
+    copy.integrity = this->integrity.isolatedCopy();
+
+    // ResourceLoaderOptions
+    copy.sendLoadCallbacks = this->sendLoadCallbacks;
+    copy.sniffContent = this->sniffContent;
+    copy.dataBufferingPolicy = this->dataBufferingPolicy;
+    copy.storedCredentialsPolicy = this->storedCredentialsPolicy;
+    copy.securityCheck = this->securityCheck;
+    copy.certificateInfoPolicy = this->certificateInfoPolicy;
+    copy.contentSecurityPolicyImposition = this->contentSecurityPolicyImposition;
+    copy.defersLoadingPolicy = this->defersLoadingPolicy;
+    copy.cachingPolicy = this->cachingPolicy;
+    copy.sameOriginDataURLFlag = this->sameOriginDataURLFlag;
+    copy.initiatorContext = this->initiatorContext;
+    copy.clientCredentialPolicy = this->clientCredentialPolicy;
+    copy.maxRedirectCount = this->maxRedirectCount;
+    copy.preflightPolicy = this->preflightPolicy;
+
+    // ThreadableLoaderOptions
+    copy.contentSecurityPolicyEnforcement = this->contentSecurityPolicyEnforcement;
+    copy.initiator = this->initiator.isolatedCopy();
+    copy.filteringPolicy = this->filteringPolicy;
+
+    return copy;
 }
 
-PassRefPtr<ThreadableLoader> ThreadableLoader::create(ScriptExecutionContext* context, ThreadableLoaderClient* client, const ResourceRequest& request, const ThreadableLoaderOptions& options)
+
+RefPtr<ThreadableLoader> ThreadableLoader::create(ScriptExecutionContext& context, ThreadableLoaderClient& client, ResourceRequest&& request, const ThreadableLoaderOptions& options, String&& referrer)
 {
-    ASSERT(client);
-    ASSERT(context);
+    if (is<WorkerGlobalScope>(context))
+        return WorkerThreadableLoader::create(downcast<WorkerGlobalScope>(context), client, WorkerRunLoop::defaultMode(), WTFMove(request), options, WTFMove(referrer));
 
-    if (is<WorkerGlobalScope>(*context))
-        return WorkerThreadableLoader::create(downcast<WorkerGlobalScope>(context), client, WorkerRunLoop::defaultMode(), request, options);
-
-    return DocumentThreadableLoader::create(downcast<Document>(*context), *client, request, options);
+    return DocumentThreadableLoader::create(downcast<Document>(context), client, WTFMove(request), options, WTFMove(referrer));
 }
 
-void ThreadableLoader::loadResourceSynchronously(ScriptExecutionContext* context, const ResourceRequest& request, ThreadableLoaderClient& client, const ThreadableLoaderOptions& options)
+void ThreadableLoader::loadResourceSynchronously(ScriptExecutionContext& context, ResourceRequest&& request, ThreadableLoaderClient& client, const ThreadableLoaderOptions& options)
 {
-    ASSERT(context);
-
-    if (is<WorkerGlobalScope>(*context))
-        WorkerThreadableLoader::loadResourceSynchronously(downcast<WorkerGlobalScope>(context), request, client, options);
+    if (is<WorkerGlobalScope>(context))
+        WorkerThreadableLoader::loadResourceSynchronously(downcast<WorkerGlobalScope>(context), WTFMove(request), client, options);
     else
-        DocumentThreadableLoader::loadResourceSynchronously(downcast<Document>(*context), request, client, options);
-    context->didLoadResourceSynchronously(request);
+        DocumentThreadableLoader::loadResourceSynchronously(downcast<Document>(context), WTFMove(request), client, options);
+    context.didLoadResourceSynchronously();
+}
+
+void ThreadableLoader::logError(ScriptExecutionContext& context, const ResourceError& error, const String& initiator)
+{
+    if (error.isCancellation())
+        return;
+
+    // FIXME: Some errors are returned with null URLs. This leads to poor console messages. We should do better for these errors.
+    if (error.failingURL().isNull())
+        return;
+
+    // We further reduce logging to some errors.
+    // FIXME: Log more errors when making so do not make some layout tests flaky.
+    if (error.domain() != errorDomainWebKitInternal && error.domain() != errorDomainWebKitServiceWorker && !error.isAccessControl())
+        return;
+
+    const char* messageStart;
+    if (initiator == cachedResourceRequestInitiators().eventsource)
+        messageStart = "EventSource cannot load ";
+    else if (initiator == cachedResourceRequestInitiators().fetch)
+        messageStart = "Fetch API cannot load ";
+    else if (initiator == cachedResourceRequestInitiators().xmlhttprequest)
+        messageStart = "XMLHttpRequest cannot load ";
+    else
+        messageStart = "Cannot load ";
+
+    String messageEnd = error.isAccessControl() ? " due to access control checks."_s : "."_s;
+    context.addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString(messageStart, error.failingURL().string(), messageEnd));
 }
 
 } // namespace WebCore

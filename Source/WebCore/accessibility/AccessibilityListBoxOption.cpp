@@ -50,9 +50,7 @@ AccessibilityListBoxOption::AccessibilityListBoxOption()
 {
 }
 
-AccessibilityListBoxOption::~AccessibilityListBoxOption()
-{
-}    
+AccessibilityListBoxOption::~AccessibilityListBoxOption() = default;
     
 Ref<AccessibilityListBoxOption> AccessibilityListBoxOption::create()
 {
@@ -67,7 +65,7 @@ bool AccessibilityListBoxOption::isEnabled() const
     if (equalLettersIgnoringASCIICase(getAttribute(aria_disabledAttr), "true"))
         return false;
 
-    if (m_optionElement->fastHasAttribute(disabledAttr))
+    if (m_optionElement->hasAttributeWithoutSynchronization(disabledAttr))
         return false;
     
     return true;
@@ -177,6 +175,9 @@ void AccessibilityListBoxOption::setSelected(bool selected)
         return;
     
     if (!canSetSelectedAttribute())
+        return;
+    
+    if (selected && dispatchAccessibilityEventWithType(AccessibilityEventType::Select))
         return;
     
     bool isOptionSelected = isSelected();

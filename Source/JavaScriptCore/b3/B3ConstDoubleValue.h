@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef B3ConstDoubleValue_h
-#define B3ConstDoubleValue_h
+#pragma once
 
 #if ENABLE(B3_JIT)
 
@@ -34,7 +33,7 @@ namespace JSC { namespace B3 {
 
 class JS_EXPORT_PRIVATE ConstDoubleValue : public Value {
 public:
-    static bool accepts(Opcode opcode) { return opcode == ConstDouble; }
+    static bool accepts(Kind kind) { return kind == ConstDouble; }
     
     ~ConstDoubleValue();
     
@@ -48,10 +47,13 @@ public:
     Value* modConstant(Procedure&, const Value* other) const override;
     Value* mulConstant(Procedure&, const Value* other) const override;
     Value* bitAndConstant(Procedure&, const Value* other) const override;
+    Value* bitOrConstant(Procedure&, const Value* other) const override;
+    Value* bitXorConstant(Procedure&, const Value* other) const override;
     Value* bitwiseCastConstant(Procedure&) const override;
     Value* doubleToFloatConstant(Procedure&) const override;
     Value* absConstant(Procedure&) const override;
     Value* ceilConstant(Procedure&) const override;
+    Value* floorConstant(Procedure&) const override;
     Value* sqrtConstant(Procedure&) const override;
 
     TriState equalConstant(const Value* other) const override;
@@ -82,6 +84,3 @@ private:
 } } // namespace JSC::B3
 
 #endif // ENABLE(B3_JIT)
-
-#endif // B3ConstDoubleValue_h
-

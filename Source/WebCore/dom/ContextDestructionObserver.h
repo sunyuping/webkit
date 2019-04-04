@@ -24,10 +24,7 @@
  *
  */
 
-#ifndef ContextDestructionObserver_h
-#define ContextDestructionObserver_h
-
-#include "PlatformExportMacros.h"
+#pragma once
 
 namespace WebCore {
 
@@ -48,5 +45,3 @@ protected:
 };
 
 } // namespace WebCore
-
-#endif // ContextDestructionObserver_h

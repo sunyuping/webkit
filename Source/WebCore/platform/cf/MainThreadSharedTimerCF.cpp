@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2010, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,8 @@
 
 #if PLATFORM(MAC)
 #import "PowerObserverMac.h"
-#elif PLATFORM(IOS)
-#import "WebCoreThread.h"
+#elif PLATFORM(IOS_FAMILY)
+#import "WebCoreThreadInternal.h"
 #import "WebCoreThreadRun.h"
 #endif
 
@@ -43,7 +43,7 @@ static void restartSharedTimer();
 
 static const CFTimeInterval kCFTimeIntervalDistantFuture = std::numeric_limits<CFTimeInterval>::max();
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 static void applicationDidBecomeActive(CFNotificationCenterRef, void*, CFStringRef, const void*, CFDictionaryRef)
 {
     WebThreadRun(^{
@@ -58,7 +58,7 @@ static void setupPowerObserver()
     static PowerObserver* powerObserver;
     if (!powerObserver)
         powerObserver = std::make_unique<PowerObserver>(restartSharedTimer).release();
-#elif PLATFORM(IOS)
+#elif PLATFORM(IOS_FAMILY)
     static bool registeredForApplicationNotification = false;
     if (!registeredForApplicationNotification) {
         registeredForApplicationNotification = true;
@@ -93,14 +93,14 @@ void MainThreadSharedTimer::invalidate()
     sharedTimer = nullptr;
 }
 
-void MainThreadSharedTimer::setFireInterval(double interval)
+void MainThreadSharedTimer::setFireInterval(Seconds interval)
 {
     ASSERT(m_firedFunction);
 
-    CFAbsoluteTime fireDate = CFAbsoluteTimeGetCurrent() + interval;
+    CFAbsoluteTime fireDate = CFAbsoluteTimeGetCurrent() + interval.value();
     if (!sharedTimer) {
         sharedTimer = CFRunLoopTimerCreate(nullptr, fireDate, kCFTimeIntervalDistantFuture, 0, 0, timerFired, nullptr);
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
         CFRunLoopAddTimer(WebThreadRunLoop(), sharedTimer, kCFRunLoopCommonModes);
 #else
         CFRunLoopAddTimer(CFRunLoopGetCurrent(), sharedTimer, kCFRunLoopCommonModes);

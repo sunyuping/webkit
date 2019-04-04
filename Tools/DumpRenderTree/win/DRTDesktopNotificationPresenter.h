@@ -29,10 +29,10 @@
 #ifndef DRTDesktopNotificationPresenter_h
 #define DRTDesktopNotificationPresenter_h
 
-#include <WebKit/WebKit.h>
+#include <WebKitLegacy/WebKit.h>
 #include <windef.h>
 
-class DRTDesktopNotificationPresenter : public IWebDesktopNotificationsDelegate {
+class DRTDesktopNotificationPresenter final : public IWebDesktopNotificationsDelegate {
 public:
     DRTDesktopNotificationPresenter();
 

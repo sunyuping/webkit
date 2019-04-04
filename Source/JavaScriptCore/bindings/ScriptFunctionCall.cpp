@@ -34,26 +34,11 @@
 
 #include "JSCInlines.h"
 #include "JSLock.h"
-#include "ScriptValue.h"
 #include <wtf/text/WTFString.h>
 
 using namespace JSC;
 
 namespace Deprecated {
-
-void ScriptCallArgumentHandler::appendArgument(const Deprecated::ScriptObject& argument)
-{
-    if (argument.scriptState() != m_exec) {
-        ASSERT_NOT_REACHED();
-        return;
-    }
-    m_arguments.append(argument.jsObject());
-}
-
-void ScriptCallArgumentHandler::appendArgument(const Deprecated::ScriptValue& argument)
-{
-    m_arguments.append(argument.jsValue());
-}
 
 void ScriptCallArgumentHandler::appendArgument(const String& argument)
 {
@@ -90,7 +75,7 @@ void ScriptCallArgumentHandler::appendArgument(unsigned int argument)
     m_arguments.append(jsNumber(argument));
 }
 
-void ScriptCallArgumentHandler::appendArgument(unsigned long argument)
+void ScriptCallArgumentHandler::appendArgument(uint64_t argument)
 {
     JSLockHolder lock(m_exec);
     m_arguments.append(jsNumber(argument));
@@ -115,22 +100,24 @@ ScriptFunctionCall::ScriptFunctionCall(const Deprecated::ScriptObject& thisObjec
 {
 }
 
-Deprecated::ScriptValue ScriptFunctionCall::call(bool& hadException)
+JSValue ScriptFunctionCall::call(bool& hadException)
 {
     JSObject* thisObject = m_thisObject.jsObject();
 
-    JSLockHolder lock(m_exec);
+    VM& vm = m_exec->vm();
+    JSLockHolder lock(vm);
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue function = thisObject->get(m_exec, Identifier::fromString(m_exec, m_name));
-    if (m_exec->hadException()) {
+    if (UNLIKELY(scope.exception())) {
         hadException = true;
-        return Deprecated::ScriptValue();
+        return { };
     }
 
     CallData callData;
-    CallType callType = getCallData(function, callData);
-    if (callType == CallTypeNone)
-        return Deprecated::ScriptValue();
+    CallType callType = getCallData(vm, function, callData);
+    if (callType == CallType::None)
+        return { };
 
     JSValue result;
     NakedPtr<Exception> exception;
@@ -141,16 +128,16 @@ Deprecated::ScriptValue ScriptFunctionCall::call(bool& hadException)
 
     if (exception) {
         // Do not treat a terminated execution exception as having an exception. Just treat it as an empty result.
-        hadException = !isTerminatedExecutionException(exception);
-        return Deprecated::ScriptValue();
+        hadException = !isTerminatedExecutionException(vm, exception);
+        return { };
     }
 
-    return Deprecated::ScriptValue(m_exec->vm(), result);
+    return result;
 }
 
-Deprecated::ScriptValue ScriptFunctionCall::call()
+JSC::JSValue ScriptFunctionCall::call()
 {
-    bool hadException = false;
+    bool hadException;
     return call(hadException);
 }
 

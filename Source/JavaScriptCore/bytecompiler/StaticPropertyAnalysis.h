@@ -23,11 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef StaticPropertyAnalysis_h
-#define StaticPropertyAnalysis_h
+#pragma once
 
-#include "Executable.h"
-#include "JSGlobalObject.h"
+#include "InstructionStream.h"
 #include <wtf/HashSet.h>
 
 namespace JSC {
@@ -35,33 +33,26 @@ namespace JSC {
 // Reference count indicates number of live registers that alias this object.
 class StaticPropertyAnalysis : public RefCounted<StaticPropertyAnalysis> {
 public:
-    static Ref<StaticPropertyAnalysis> create(Vector<UnlinkedInstruction, 0, UnsafeVectorOverflow>* instructions, unsigned target)
+    static Ref<StaticPropertyAnalysis> create(InstructionStream::MutableRef&& instructionRef)
     {
-        return adoptRef(*new StaticPropertyAnalysis(instructions, target)); 
+        return adoptRef(*new StaticPropertyAnalysis(WTFMove(instructionRef))); 
     }
 
     void addPropertyIndex(unsigned propertyIndex) { m_propertyIndexes.add(propertyIndex); }
 
-    void record()
-    {
-        (*m_instructions)[m_target] = m_propertyIndexes.size();
-    }
+    void record();
 
     int propertyIndexCount() { return m_propertyIndexes.size(); }
 
 private:
-    StaticPropertyAnalysis(Vector<UnlinkedInstruction, 0, UnsafeVectorOverflow>* instructions, unsigned target)
-        : m_instructions(instructions)
-        , m_target(target)
+    StaticPropertyAnalysis(InstructionStream::MutableRef&& instructionRef)
+        : m_instructionRef(WTFMove(instructionRef))
     {
     }
 
-    Vector<UnlinkedInstruction, 0, UnsafeVectorOverflow>* m_instructions;
-    unsigned m_target;
+    InstructionStream::MutableRef m_instructionRef;
     typedef HashSet<unsigned, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> PropertyIndexSet;
     PropertyIndexSet m_propertyIndexes;
 };
 
 } // namespace JSC
-
-#endif // StaticPropertyAnalysis_h

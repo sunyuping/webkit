@@ -20,7 +20,7 @@
 #ifndef GraphicsLayerTextureMapper_h
 #define GraphicsLayerTextureMapper_h
 
-#if USE(TEXTURE_MAPPER) && !USE(COORDINATED_GRAPHICS)
+#if !USE(COORDINATED_GRAPHICS)
 
 #include "GraphicsLayer.h"
 #include "GraphicsLayerClient.h"
@@ -28,7 +28,6 @@
 #include "TextureMapperLayer.h"
 #include "TextureMapperPlatformLayer.h"
 #include "TextureMapperTiledBackingStore.h"
-#include "Timer.h"
 
 namespace WebCore {
 
@@ -37,85 +36,76 @@ public:
     explicit GraphicsLayerTextureMapper(Type, GraphicsLayerClient&);
     virtual ~GraphicsLayerTextureMapper();
 
-    void setScrollClient(TextureMapperLayer::ScrollingClient* client) { m_layer.setScrollClient(client); }
     void setID(uint32_t id) { m_layer.setID(id); }
 
     // GraphicsLayer
-    virtual bool setChildren(const Vector<GraphicsLayer*>&) override;
-    virtual void addChild(GraphicsLayer*) override;
-    virtual void addChildAtIndex(GraphicsLayer*, int index) override;
-    virtual void addChildAbove(GraphicsLayer*, GraphicsLayer* sibling) override;
-    virtual void addChildBelow(GraphicsLayer*, GraphicsLayer* sibling) override;
-    virtual bool replaceChild(GraphicsLayer* oldChild, GraphicsLayer* newChild) override;
+    bool setChildren(Vector<Ref<GraphicsLayer>>&&) override;
+    void addChild(Ref<GraphicsLayer>&&) override;
+    void addChildAtIndex(Ref<GraphicsLayer>&&, int index) override;
+    void addChildAbove(Ref<GraphicsLayer>&&, GraphicsLayer* sibling) override;
+    void addChildBelow(Ref<GraphicsLayer>&&, GraphicsLayer* sibling) override;
+    bool replaceChild(GraphicsLayer* oldChild, Ref<GraphicsLayer>&& newChild) override;
 
-    virtual void setMaskLayer(GraphicsLayer*) override;
-    virtual void setReplicatedByLayer(GraphicsLayer*) override;
-    virtual void setPosition(const FloatPoint&) override;
-    virtual void setAnchorPoint(const FloatPoint3D&) override;
-    virtual void setSize(const FloatSize&) override;
-    virtual void setTransform(const TransformationMatrix&) override;
-    virtual void setChildrenTransform(const TransformationMatrix&) override;
-    virtual void setPreserves3D(bool) override;
-    virtual void setMasksToBounds(bool) override;
-    virtual void setDrawsContent(bool) override;
-    virtual void setContentsVisible(bool) override;
-    virtual void setContentsOpaque(bool) override;
-    virtual void setBackfaceVisibility(bool) override;
-    virtual void setOpacity(float) override;
-    virtual bool setFilters(const FilterOperations&) override;
+    void setMaskLayer(RefPtr<GraphicsLayer>&&) override;
+    void setReplicatedByLayer(RefPtr<GraphicsLayer>&&) override;
+    void setPosition(const FloatPoint&) override;
+    void setAnchorPoint(const FloatPoint3D&) override;
+    void setSize(const FloatSize&) override;
+    void setTransform(const TransformationMatrix&) override;
+    void setChildrenTransform(const TransformationMatrix&) override;
+    void setPreserves3D(bool) override;
+    void setMasksToBounds(bool) override;
+    void setDrawsContent(bool) override;
+    void setContentsVisible(bool) override;
+    void setContentsOpaque(bool) override;
+    void setBackfaceVisibility(bool) override;
+    void setOpacity(float) override;
+    bool setFilters(const FilterOperations&) override;
 
-    virtual void setNeedsDisplay() override;
-    virtual void setNeedsDisplayInRect(const FloatRect&, ShouldClipToLayer = ClipToLayer) override;
-    virtual void setContentsNeedsDisplay() override;
-    virtual void setContentsRect(const FloatRect&) override;
+    void setNeedsDisplay() override;
+    void setNeedsDisplayInRect(const FloatRect&, ShouldClipToLayer = ClipToLayer) override;
+    void setContentsNeedsDisplay() override;
+    void setContentsRect(const FloatRect&) override;
 
-    virtual bool addAnimation(const KeyframeValueList&, const FloatSize&, const Animation*, const String&, double) override;
-    virtual void pauseAnimation(const String&, double) override;
-    virtual void removeAnimation(const String&) override;
+    bool addAnimation(const KeyframeValueList&, const FloatSize&, const Animation*, const String&, double) override;
+    void pauseAnimation(const String&, double) override;
+    void removeAnimation(const String&) override;
 
-    virtual void setContentsToImage(Image*) override;
-    virtual void setContentsToSolidColor(const Color&) override;
-    virtual void setContentsToPlatformLayer(PlatformLayer*, ContentsLayerPurpose) override;
-    virtual bool usesContentsLayer() const override { return m_contentsLayer; }
-    virtual PlatformLayer* platformLayer() const override { return m_contentsLayer; }
+    void setContentsToImage(Image*) override;
+    void setContentsToSolidColor(const Color&) override;
+    void setContentsToPlatformLayer(PlatformLayer*, ContentsLayerPurpose) override;
+    bool usesContentsLayer() const override { return m_contentsLayer; }
+    PlatformLayer* platformLayer() const override { return m_contentsLayer; }
 
-    virtual void setShowDebugBorder(bool) override;
-    virtual void setDebugBorder(const Color&, float width) override;
-    virtual void setShowRepaintCounter(bool) override;
+    void setShowDebugBorder(bool) override;
+    void setDebugBorder(const Color&, float width) override;
+    void setShowRepaintCounter(bool) override;
 
-    virtual void flushCompositingState(const FloatRect&, bool) override;
-    virtual void flushCompositingStateForThisLayerOnly(bool) override;
+    void flushCompositingState(const FloatRect&) override;
+    void flushCompositingStateForThisLayerOnly() override;
 
     void updateBackingStoreIncludingSubLayers();
 
     TextureMapperLayer& layer() { return m_layer; }
 
-    void didCommitScrollOffset(const IntSize&);
-    void setIsScrollable(bool);
-    bool isScrollable() const { return m_isScrollable; }
-
-    void setFixedToViewport(bool);
-    bool fixedToViewport() const { return m_fixedToViewport; }
-
     Color debugBorderColor() const { return m_debugBorderColor; }
     float debugBorderWidth() const { return m_debugBorderWidth; }
-    void setRepaintCount(int);
-
-    void setAnimations(const TextureMapperAnimations&);
 
 private:
     // GraphicsLayer
-    virtual bool isGraphicsLayerTextureMapper() const override { return true; }
+    bool isGraphicsLayerTextureMapper() const override { return true; }
 
     // TextureMapperPlatformLayer::Client
-    virtual void platformLayerWillBeDestroyed() override { setContentsToPlatformLayer(0, NoContentsLayer); }
-    virtual void setPlatformLayerNeedsDisplay() override { setContentsNeedsDisplay(); }
+    void platformLayerWillBeDestroyed() override { setContentsToPlatformLayer(0, ContentsLayerPurpose::None); }
+    void setPlatformLayerNeedsDisplay() override { setContentsNeedsDisplay(); }
 
     void commitLayerChanges();
     void updateDebugBorderAndRepaintCount();
     void updateBackingStoreIfNeeded();
     void prepareBackingStoreIfNeeded();
     bool shouldHaveBackingStore() const;
+
+    bool filtersCanBeComposited(const FilterOperations&) const;
 
     // This set of flags help us defer which properties of the layer have been
     // modified by the compositor, so we can know what to look for in the next flush.
@@ -154,22 +144,17 @@ private:
         DebugVisualsChange =        (1L << 24),
         RepaintCountChange =        (1L << 25),
 
-        FixedToViewporChange =      (1L << 26),
-        AnimationStarted =          (1L << 27),
-
-        CommittedScrollOffsetChange =     (1L << 28),
-        IsScrollableChange =              (1L << 29)
+        AnimationStarted =          (1L << 26),
     };
     void notifyChange(ChangeMask);
 
     TextureMapperLayer m_layer;
     RefPtr<TextureMapperTiledBackingStore> m_compositedImage;
     NativeImagePtr m_compositedNativeImagePtr;
-    RefPtr<TextureMapperBackingStore> m_backingStore;
+    RefPtr<TextureMapperTiledBackingStore> m_backingStore;
 
     int m_changeMask;
     bool m_needsDisplay;
-    bool m_fixedToViewport;
     Color m_solidColor;
 
     Color m_debugBorderColor;
@@ -178,10 +163,7 @@ private:
     TextureMapperPlatformLayer* m_contentsLayer;
     FloatRect m_needsDisplayRect;
     TextureMapperAnimations m_animations;
-    double m_animationStartTime;
-
-    IntSize m_committedScrollOffset;
-    bool m_isScrollable;
+    MonotonicTime m_animationStartTime;
 };
 
 } // namespace WebCore

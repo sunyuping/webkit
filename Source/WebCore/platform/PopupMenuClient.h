@@ -37,7 +37,7 @@ class ScrollableArea;
 
 class PopupMenuClient {
 public:
-    virtual ~PopupMenuClient() {}
+    virtual ~PopupMenuClient() = default;
     virtual void valueChanged(unsigned listIndex, bool fireEvents = true) = 0;
     virtual void selectionChanged(unsigned listIndex, bool fireEvents = true) = 0;
     virtual void selectionCleared() = 0;
@@ -74,7 +74,7 @@ public:
     virtual FontSelector* fontSelector() const = 0;
     virtual HostWindow* hostWindow() const = 0;
 
-    virtual PassRefPtr<Scrollbar> createScrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarControlSize) = 0;
+    virtual Ref<Scrollbar> createScrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarControlSize) = 0;
 };
 
 }

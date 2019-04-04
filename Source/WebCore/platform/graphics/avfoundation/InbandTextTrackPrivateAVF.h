@@ -26,11 +26,10 @@
 #ifndef InbandTextTrackPrivateAVF_h
 #define InbandTextTrackPrivateAVF_h
 
-#if ENABLE(VIDEO) && (USE(AVFOUNDATION) || PLATFORM(IOS))
+#if ENABLE(VIDEO) && (USE(AVFOUNDATION) || PLATFORM(IOS_FAMILY))
 
 #include "InbandTextTrackPrivate.h"
 #include "InbandTextTrackPrivateClient.h"
-#include <wtf/text/StringBuilder.h>
 
 typedef const struct opaqueCMFormatDescription* CMFormatDescriptionRef;
 
@@ -51,9 +50,9 @@ class InbandTextTrackPrivateAVF : public InbandTextTrackPrivate {
 public:
     virtual ~InbandTextTrackPrivateAVF();
 
-    virtual void setMode(InbandTextTrackPrivate::Mode) override;
+    void setMode(InbandTextTrackPrivate::Mode) override;
 
-    virtual int trackIndex() const override { return m_index; }
+    int trackIndex() const override { return m_index; }
     void setTextTrackIndex(int index) { m_index = index; }
 
     virtual void disconnect();
@@ -75,7 +74,7 @@ public:
     };
     virtual Category textTrackCategory() const = 0;
     
-    virtual MediaTime startTimeVariance() const override { return MediaTime(1, 4); }
+    MediaTime startTimeVariance() const override { return MediaTime(1, 4); }
 
     virtual bool readNativeSampleBuffer(CFArrayRef nativeSamples, CFIndex, RefPtr<JSC::ArrayBuffer>&, MediaTime&, CMFormatDescriptionRef&);
     
@@ -87,13 +86,18 @@ protected:
     void processNativeSamples(CFArrayRef, const MediaTime&);
     void removeCompletedCues();
 
+    Vector<char> m_sampleInputBuffer;
+
+private:
+#if !RELEASE_LOG_DISABLED
+    const char* logClassName() const final { return "InbandTextTrackPrivateAVF"; }
+#endif
+
     MediaTime m_currentCueStartTime;
     MediaTime m_currentCueEndTime;
 
     Vector<RefPtr<GenericCueData>> m_cues;
     AVFInbandTrackParent* m_owner;
-
-    Vector<char> m_sampleInputBuffer;
 
     enum PendingCueStatus {
         None,
@@ -110,6 +114,6 @@ protected:
 
 } // namespace WebCore
 
-#endif //  ENABLE(VIDEO) && (USE(AVFOUNDATION) || PLATFORM(IOS))
+#endif //  ENABLE(VIDEO) && (USE(AVFOUNDATION) || PLATFORM(IOS_FAMILY))
 
 #endif // InbandTextTrackPrivateAVF_h

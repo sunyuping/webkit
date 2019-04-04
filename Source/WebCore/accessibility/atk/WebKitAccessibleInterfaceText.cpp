@@ -36,6 +36,7 @@
 
 #include "AccessibilityObject.h"
 #include "Document.h"
+#include "Editing.h"
 #include "FontCascade.h"
 #include "FrameView.h"
 #include "HTMLParserIdioms.h"
@@ -50,7 +51,6 @@
 #include "VisibleUnits.h"
 #include "WebKitAccessibleUtil.h"
 #include "WebKitAccessibleWrapperAtk.h"
-#include "htmlediting.h"
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/CString.h>
 
@@ -84,10 +84,10 @@ static AtkAttributeSet* getAttributeSetForAccessibilityObject(const Accessibilit
         return 0;
 
     RenderObject* renderer = object->renderer();
-    RenderStyle* style = &renderer->style();
+    auto* style = &renderer->style();
 
     AtkAttributeSet* result = nullptr;
-    GUniquePtr<gchar> buffer(g_strdup_printf("%i", style->fontSize()));
+    GUniquePtr<gchar> buffer(g_strdup_printf("%i", style->computedFontPixelSize()));
     result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_SIZE), buffer.get());
 
     Color bgColor = style->visitedDependentColor(CSSPropertyBackgroundColor);
@@ -105,13 +105,13 @@ static AtkAttributeSet* getAttributeSetForAccessibilityObject(const Accessibilit
     int baselinePosition;
     bool includeRise = true;
     switch (style->verticalAlign()) {
-    case SUB:
+    case VerticalAlign::Sub:
         baselinePosition = -1 * baselinePositionForRenderObject(renderer);
         break;
-    case SUPER:
+    case VerticalAlign::Super:
         baselinePosition = baselinePositionForRenderObject(renderer);
         break;
-    case BASELINE:
+    case VerticalAlign::Baseline:
         baselinePosition = 0;
         break;
     default:
@@ -136,69 +136,41 @@ static AtkAttributeSet* getAttributeSetForAccessibilityObject(const Accessibilit
 
     result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_FAMILY_NAME), fontFamilyName.utf8().data());
 
-    int fontWeight = -1;
-    switch (style->fontCascade().weight()) {
-    case FontWeight100:
-        fontWeight = 100;
-        break;
-    case FontWeight200:
-        fontWeight = 200;
-        break;
-    case FontWeight300:
-        fontWeight = 300;
-        break;
-    case FontWeight400:
-        fontWeight = 400;
-        break;
-    case FontWeight500:
-        fontWeight = 500;
-        break;
-    case FontWeight600:
-        fontWeight = 600;
-        break;
-    case FontWeight700:
-        fontWeight = 700;
-        break;
-    case FontWeight800:
-        fontWeight = 800;
-        break;
-    case FontWeight900:
-        fontWeight = 900;
-    }
+    int fontWeight = static_cast<float>(style->fontCascade().weight());
     if (fontWeight > 0) {
         buffer.reset(g_strdup_printf("%i", fontWeight));
         result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_WEIGHT), buffer.get());
     }
 
     switch (style->textAlign()) {
-    case TASTART:
-    case TAEND:
+    case TextAlignMode::Start:
+    case TextAlignMode::End:
         break;
-    case LEFT:
-    case WEBKIT_LEFT:
+    case TextAlignMode::Left:
+    case TextAlignMode::WebKitLeft:
         result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_JUSTIFICATION), "left");
         break;
-    case RIGHT:
-    case WEBKIT_RIGHT:
+    case TextAlignMode::Right:
+    case TextAlignMode::WebKitRight:
         result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_JUSTIFICATION), "right");
         break;
-    case CENTER:
-    case WEBKIT_CENTER:
+    case TextAlignMode::Center:
+    case TextAlignMode::WebKitCenter:
         result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_JUSTIFICATION), "center");
         break;
-    case JUSTIFY:
+    case TextAlignMode::Justify:
         result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_JUSTIFICATION), "fill");
     }
 
-    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_UNDERLINE), (style->textDecoration() & TextDecorationUnderline) ? "single" : "none");
+    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_UNDERLINE), (style->textDecoration() & TextDecoration::Underline) ? "single" : "none");
 
     result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_STYLE), style->fontCascade().italic() ? "italic" : "normal");
 
-    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_STRIKETHROUGH), (style->textDecoration() & TextDecorationLineThrough) ? "true" : "false");
+    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_STRIKETHROUGH), (style->textDecoration() & TextDecoration::LineThrough) ? "true" : "false");
 
-    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_INVISIBLE), (style->visibility() == HIDDEN) ? "true" : "false");
+    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_INVISIBLE), (style->visibility() == Visibility::Hidden) ? "true" : "false");
 
-    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_EDITABLE), object->isReadOnly() ? "false" : "true");
+    result = addToAtkAttributeSet(result, atk_text_attribute_get_name(ATK_TEXT_ATTR_EDITABLE), object->canSetValueAttribute() ? "true" : "false");
 
     String language = object->language();
     if (!language.isEmpty())
@@ -353,6 +325,10 @@ static IntRect textExtents(AtkText* text, gint startOffset, gint length, AtkCoor
     case ATK_XY_WINDOW:
         // No-op
         break;
+#if ATK_CHECK_VERSION(2, 30, 0)
+    case ATK_XY_PARENT:
+        RELEASE_ASSERT_NOT_REACHED();
+#endif
     }
 
     return extents;
@@ -363,7 +339,7 @@ static int offsetAdjustmentForListItem(const AccessibilityObject* object)
     // We need to adjust the offsets for the list item marker in
     // Left-To-Right text, since we expose it together with the text.
     RenderObject* renderer = object->renderer();
-    if (is<RenderListItem>(renderer) && renderer->style().direction() == LTR)
+    if (is<RenderListItem>(renderer) && renderer->style().direction() == TextDirection::LTR)
         return downcast<RenderListItem>(*renderer).markerTextWithSuffix().length();
 
     return 0;
@@ -419,13 +395,6 @@ static void getSelectionOffsetsForObject(AccessibilityObject* coreObject, Visibl
     Position firstValidPosition = firstPositionInOrBeforeNode(node->firstDescendant());
     Position lastValidPosition = lastPositionInOrAfterNode(node->lastDescendant());
 
-    // Early return with proper values if the selection falls entirely out of the object.
-    if (!selectionBelongsToObject(coreObject, selection)) {
-        startOffset = comparePositions(selection.start(), firstValidPosition) <= 0 ? 0 : accessibilityObjectLength(coreObject);
-        endOffset = startOffset;
-        return;
-    }
-
     // Find the proper range for the selection that falls inside the object.
     Position nodeRangeStart = selection.start();
     if (comparePositions(nodeRangeStart, firstValidPosition) < 0)
@@ -437,13 +406,13 @@ static void getSelectionOffsetsForObject(AccessibilityObject* coreObject, Visibl
 
     // Calculate position of the selected range inside the object.
     Position parentFirstPosition = firstPositionInOrBeforeNode(node);
-    RefPtr<Range> rangeInParent = Range::create(node->document(), parentFirstPosition, nodeRangeStart);
+    auto rangeInParent = Range::create(node->document(), parentFirstPosition, nodeRangeStart);
 
     // Set values for start offsets and calculate initial range length.
     // These values might be adjusted later to cover special cases.
-    startOffset = webCoreOffsetToAtkOffset(coreObject, TextIterator::rangeLength(rangeInParent.get(), true));
-    RefPtr<Range> nodeRange = Range::create(node->document(), nodeRangeStart, nodeRangeEnd);
-    int rangeLength = TextIterator::rangeLength(nodeRange.get(), true);
+    startOffset = webCoreOffsetToAtkOffset(coreObject, TextIterator::rangeLength(rangeInParent.ptr(), true));
+    auto nodeRange = Range::create(node->document(), nodeRangeStart, nodeRangeEnd);
+    int rangeLength = TextIterator::rangeLength(nodeRange.ptr(), true);
 
     // Special cases that are only relevant when working with *_END boundaries.
     if (selection.affinity() == UPSTREAM) {
@@ -475,7 +444,7 @@ static gchar* webkitAccessibleTextGetText(AtkText* text, gint startOffset, gint 
     AccessibilityObject* coreObject = core(text);
 
 #if ENABLE(INPUT_TYPE_COLOR)
-    if (coreObject->roleValue() == ColorWellRole) {
+    if (coreObject->roleValue() == AccessibilityRole::ColorWell) {
         int r, g, b;
         coreObject->colorValue(r, g, b);
         return g_strdup_printf("rgb %7.5f %7.5f %7.5f 1", r / 255., g / 255., b / 255.);
@@ -493,11 +462,11 @@ static gchar* webkitAccessibleTextGetText(AtkText* text, gint startOffset, gint 
 
     // Prefix a item number/bullet if needed
     int actualEndOffset = endOffset == -1 ? ret.length() : endOffset;
-    if (coreObject->roleValue() == ListItemRole) {
+    if (coreObject->roleValue() == AccessibilityRole::ListItem) {
         RenderObject* objRenderer = coreObject->renderer();
         if (is<RenderListItem>(objRenderer)) {
             String markerText = downcast<RenderListItem>(*objRenderer).markerTextWithSuffix();
-            ret = objRenderer->style().direction() == LTR ? markerText + ret : ret + markerText;
+            ret = objRenderer->style().direction() == TextDirection::LTR ? markerText + ret : ret + markerText;
             if (endOffset == -1)
                 actualEndOffset = ret.length() + markerText.length();
         }
@@ -601,7 +570,7 @@ static VisibleSelection wordAtPositionForAtkBoundary(const AccessibilityObject* 
         // as when at the beginning of a whitespace range between two "real" words,
         // since that whitespace is considered a "word" as well. And in case we are
         // already at the beginning of a "real" word we do not need to look backwards.
-        if (isStartOfWord(position) && isWhitespace(position.characterBefore()))
+        if (isStartOfWord(position) && deprecatedIsEditingWhitespace(position.characterBefore()))
             startPosition = position;
         else
             startPosition = previousWordPosition(position);
@@ -729,7 +698,7 @@ static bool isWhiteSpaceBetweenSentences(const VisiblePosition& position)
     if (position.isNull())
         return false;
 
-    if (!isWhitespace(position.characterAfter()))
+    if (!deprecatedIsEditingWhitespace(position.characterAfter()))
         return false;
 
     VisiblePosition startOfWhiteSpace = startOfWord(position, RightWordIfOnBoundary);
@@ -764,12 +733,12 @@ static VisibleSelection sentenceAtPositionForAtkBoundary(const AccessibilityObje
 
         // startOfSentence returns a position after any white space previous to
         // the sentence, so we might need to adjust that offset for this boundary.
-        if (isWhitespace(startPosition.characterBefore()))
+        if (deprecatedIsEditingWhitespace(startPosition.characterBefore()))
             startPosition = startOfWord(startPosition, LeftWordIfOnBoundary);
 
         // endOfSentence returns a position after any white space after the
         // sentence, so we might need to adjust that offset for this boundary.
-        if (isWhitespace(endPosition.characterBefore()))
+        if (deprecatedIsEditingWhitespace(endPosition.characterBefore()))
             endPosition = startOfWord(endPosition, LeftWordIfOnBoundary);
 
         // Finally, do some additional adjustments that might be needed if
@@ -940,11 +909,11 @@ static char* webkitAccessibleTextLineForBoundary(AtkText* text, int offset, AtkT
     RenderObject* renderer = coreObject->renderer();
     if (renderer->isListItem()) {
         // For Left-to-Right, the list item marker is at the beginning of the exposed text.
-        if (renderer->style().direction() == LTR && isFirstVisiblePositionInNode(selectedLine.visibleStart(), node))
+        if (renderer->style().direction() == TextDirection::LTR && isFirstVisiblePositionInNode(selectedLine.visibleStart(), node))
             *startOffset = 0;
 
         // For Right-to-Left, the list item marker is at the end of the exposed text.
-        if (renderer->style().direction() == RTL && isLastVisiblePositionInNode(selectedLine.visibleEnd(), node))
+        if (renderer->style().direction() == TextDirection::RTL && isLastVisiblePositionInNode(selectedLine.visibleEnd(), node))
             *endOffset = accessibilityObjectLength(coreObject);
     }
 

@@ -18,10 +18,10 @@
  *
  */
 
-#ifndef HTMLFrameOwnerElement_h
-#define HTMLFrameOwnerElement_h
+#pragma once
 
 #include "HTMLElement.h"
+#include "ReferrerPolicy.h"
 #include <wtf/HashCountedSet.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -33,11 +33,12 @@ class RenderWidget;
 class SVGDocument;
 
 class HTMLFrameOwnerElement : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLFrameOwnerElement);
 public:
     virtual ~HTMLFrameOwnerElement();
 
     Frame* contentFrame() const { return m_contentFrame; }
-    DOMWindow* contentWindow() const;
+    WEBCORE_EXPORT WindowProxy* contentWindow() const;
     WEBCORE_EXPORT Document* contentDocument() const;
 
     void setContentFrame(Frame*);
@@ -50,21 +51,25 @@ public:
     // RenderElement when using fallback content.
     RenderWidget* renderWidget() const;
 
-    SVGDocument* getSVGDocument(ExceptionCode&) const;
+    ExceptionOr<Document&> getSVGDocument() const;
 
     virtual ScrollbarMode scrollingMode() const { return ScrollbarAuto; }
 
     SandboxFlags sandboxFlags() const { return m_sandboxFlags; }
 
-    void scheduleSetNeedsStyleRecalc(StyleChangeType = FullStyleChange);
+    void scheduleInvalidateStyleAndLayerComposition();
+
+    virtual bool isURLAllowed(const URL&) const { return true; }
+
+    virtual ReferrerPolicy referrerPolicy() const { return ReferrerPolicy::EmptyString; }
 
 protected:
     HTMLFrameOwnerElement(const QualifiedName& tagName, Document&);
     void setSandboxFlags(SandboxFlags);
 
 private:
-    virtual bool isKeyboardFocusable(KeyboardEvent*) const override;
-    virtual bool isFrameOwnerElement() const override final { return true; }
+    bool isKeyboardFocusable(KeyboardEvent*) const override;
+    bool isFrameOwnerElement() const final { return true; }
 
     Frame* m_contentFrame;
     SandboxFlags m_sandboxFlags;
@@ -72,15 +77,17 @@ private:
 
 class SubframeLoadingDisabler {
 public:
-    explicit SubframeLoadingDisabler(ContainerNode& root)
+    explicit SubframeLoadingDisabler(ContainerNode* root)
         : m_root(root)
     {
-        disabledSubtreeRoots().add(&m_root);
+        if (m_root)
+            disabledSubtreeRoots().add(m_root);
     }
 
     ~SubframeLoadingDisabler()
     {
-        disabledSubtreeRoots().remove(&m_root);
+        if (m_root)
+            disabledSubtreeRoots().remove(m_root);
     }
 
     static bool canLoadFrame(HTMLFrameOwnerElement&);
@@ -92,7 +99,7 @@ private:
         return nodes;
     }
 
-    ContainerNode& m_root;
+    ContainerNode* m_root;
 };
 
 } // namespace WebCore
@@ -100,5 +107,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::HTMLFrameOwnerElement)
     static bool isType(const WebCore::Node& node) { return node.isFrameOwnerElement(); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // HTMLFrameOwnerElement_h

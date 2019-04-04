@@ -23,11 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef IdentifierInlines_h
-#define IdentifierInlines_h
+#pragma once
 
 #include "CallFrame.h"
 #include "Identifier.h"
+#include "Symbol.h"
 
 namespace JSC  {
 
@@ -60,7 +60,8 @@ inline Ref<StringImpl> Identifier::add(ExecState* exec, StringImpl* r)
 #ifndef NDEBUG
     checkCurrentAtomicStringTable(exec);
 #endif
-    return *AtomicStringImpl::addWithStringTableProvider(*exec, r);
+    VM& vm = exec->vm();
+    return *AtomicStringImpl::addWithStringTableProvider(vm, r);
 }
 inline Ref<StringImpl> Identifier::add(VM* vm, StringImpl* r)
 {
@@ -84,7 +85,12 @@ inline Identifier Identifier::fromUid(ExecState* exec, UniquedStringImpl* uid)
 
 inline Identifier Identifier::fromUid(const PrivateName& name)
 {
-    return *name.uid();
+    return name.uid();
+}
+
+inline Identifier Identifier::fromUid(SymbolImpl& symbol)
+{
+    return symbol;
 }
 
 template<unsigned charactersCount>
@@ -134,6 +140,18 @@ inline Identifier Identifier::fromString(ExecState* exec, const char* s)
     return Identifier(exec, AtomicString(s));
 }
 
-} // namespace JSC
+inline JSValue identifierToJSValue(VM& vm, const Identifier& identifier)
+{
+    if (identifier.isSymbol())
+        return Symbol::create(vm, static_cast<SymbolImpl&>(*identifier.impl()));
+    return jsString(&vm, identifier.impl());
+}
 
-#endif // IdentifierInlines_h
+inline JSValue identifierToSafePublicJSValue(VM& vm, const Identifier& identifier) 
+{
+    if (identifier.isSymbol() && !identifier.isPrivateName())
+        return Symbol::create(vm, static_cast<SymbolImpl&>(*identifier.impl()));
+    return jsString(&vm, identifier.impl());
+}
+
+} // namespace JSC

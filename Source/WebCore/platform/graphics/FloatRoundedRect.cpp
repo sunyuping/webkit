@@ -30,8 +30,8 @@
 #include "config.h"
 #include "FloatRoundedRect.h"
 
-#include "TextStream.h"
 #include <algorithm>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -197,21 +197,21 @@ void FloatRoundedRect::adjustRadii()
     m_radii.scale(widthRatio < heightRatio ? widthRatio : heightRatio);
 }
 
+// This is conservative; it does not test intrusion into the corner rects.
+bool FloatRoundedRect::intersectionIsRectangular(const FloatRect& rect) const
+{
+    return !(rect.intersects(topLeftCorner()) || rect.intersects(topRightCorner()) || rect.intersects(bottomLeftCorner()) || rect.intersects(bottomRightCorner()));
+}
+
 TextStream& operator<<(TextStream& ts, const FloatRoundedRect& roundedRect)
 {
     ts << roundedRect.rect().x() << " " << roundedRect.rect().y() << " " << roundedRect.rect().width() << " " << roundedRect.rect().height() << "\n";
 
-    ts.increaseIndent();
-    ts.writeIndent();
-    ts << "topLeft=" << roundedRect.topLeftCorner().width() << " " << roundedRect.topLeftCorner().height() << "\n";
-    ts.writeIndent();
-    ts << "topRight=" << roundedRect.topRightCorner().width() << " " << roundedRect.topRightCorner().height() << "\n";
-    ts.writeIndent();
-    ts << "bottomLeft=" << roundedRect.bottomLeftCorner().width() << " " << roundedRect.bottomLeftCorner().height() << "\n";
-    ts.writeIndent();
-    ts << "bottomRight=" << roundedRect.bottomRightCorner().width() << " " << roundedRect.bottomRightCorner().height();
-    ts.decreaseIndent();
-
+    TextStream::IndentScope indentScope(ts);
+    ts << indent << "topLeft=" << roundedRect.topLeftCorner().width() << " " << roundedRect.topLeftCorner().height() << "\n";
+    ts << indent << "topRight=" << roundedRect.topRightCorner().width() << " " << roundedRect.topRightCorner().height() << "\n";
+    ts << indent << "bottomLeft=" << roundedRect.bottomLeftCorner().width() << " " << roundedRect.bottomLeftCorner().height() << "\n";
+    ts << indent << "bottomRight=" << roundedRect.bottomRightCorner().width() << " " << roundedRect.bottomRightCorner().height();
     return ts;
 }
 

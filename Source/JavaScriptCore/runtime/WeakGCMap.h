@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2009, 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,20 +23,24 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WeakGCMap_h
-#define WeakGCMap_h
+#pragma once
 
 #include "Weak.h"
-#include "WeakInlines.h"
 #include <wtf/HashMap.h>
 
 namespace JSC {
 
 // A HashMap with Weak<JSCell> values, which automatically removes values once they're garbage collected.
 
+class WeakGCMapBase {
+public:
+    virtual ~WeakGCMapBase() { }
+    virtual void pruneStaleEntries() = 0;
+};
+
 template<typename KeyArg, typename ValueArg, typename HashArg = typename DefaultHash<KeyArg>::Hash,
     typename KeyTraitsArg = HashTraits<KeyArg>>
-class WeakGCMap {
+class WeakGCMap : public WeakGCMapBase {
     WTF_MAKE_FAST_ALLOCATED;
     typedef Weak<ValueArg> ValueType;
     typedef HashMap<KeyArg, ValueType, HashArg, KeyTraitsArg> HashMapType;
@@ -81,35 +85,13 @@ public:
         return false;
     }
 
-    iterator find(const KeyType& key)
-    {
-        iterator it = m_map.find(key);
-        iterator end = m_map.end();
-        if (it != end && !it->value) // Found a zombie value.
-            return end;
-        return it;
-    }
+    inline iterator find(const KeyType& key);
 
-    const_iterator find(const KeyType& key) const
-    {
-        return const_cast<WeakGCMap*>(this)->find(key);
-    }
+    inline const_iterator find(const KeyType& key) const;
 
-    template<typename Functor>
-    void forEach(Functor functor)
-    {
-        for (auto& pair : m_map) {
-            if (pair.value)
-                functor(pair.key, pair.value.get());
-        }
-    }
+    inline bool contains(const KeyType& key) const;
 
-    bool contains(const KeyType& key) const
-    {
-        return find(key) != m_map.end();
-    }
-
-    void pruneStaleEntries();
+    void pruneStaleEntries() override;
 
 private:
     HashMapType m_map;
@@ -117,5 +99,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // WeakGCMap_h

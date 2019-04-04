@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef InlineFlowBox_h
-#define InlineFlowBox_h
+#pragma once
 
 #include "InlineBox.h"
 #include "RenderOverflow.h"
@@ -39,13 +38,10 @@ struct GlyphOverflow;
 typedef HashMap<const InlineTextBox*, std::pair<Vector<const Font*>, GlyphOverflow>> GlyphOverflowAndFallbackFontsMap;
 
 class InlineFlowBox : public InlineBox {
+    WTF_MAKE_ISO_ALLOCATED(InlineFlowBox);
 public:
     explicit InlineFlowBox(RenderBoxModelObject& renderer)
         : InlineBox(renderer)
-        , m_firstChild(nullptr)
-        , m_lastChild(nullptr)
-        , m_prevLineBox(nullptr)
-        , m_nextLineBox(nullptr)
         , m_includeLogicalLeftEdge(false)
         , m_includeLogicalRightEdge(false)
         , m_descendantsHaveSameLineHeightAndBaseline(true)
@@ -53,17 +49,20 @@ public:
         , m_hasAnnotationsBefore(false)
         , m_hasAnnotationsAfter(false)
         , m_isFirstAfterPageBreak(false)
-        , m_hasAnonymousInlineBlock(false)
 #if !ASSERT_WITH_SECURITY_IMPLICATION_DISABLED
         , m_hasBadChildList(false)
 #endif
+        , m_firstChild(nullptr)
+        , m_lastChild(nullptr)
+        , m_prevLineBox(nullptr)
+        , m_nextLineBox(nullptr)
     {
         // Internet Explorer and Firefox always create a marker for list items, even when the list-style-type is none.  We do not make a marker
         // in the list-style-type: none case, since it is wasteful to do so.  However, in order to match other browsers we have to pretend like
         // an invisible marker exists.  The side effect of having an invisible marker is that the quirks mode behavior of shrinking lines with no
         // text children must not apply.  This change also means that gaps will exist between image bullet list items.  Even when the list bullet
         // is an image, the line is still considered to be immune from the quirk.
-        m_hasTextChildren = renderer.style().display() == LIST_ITEM;
+        m_hasTextChildren = renderer.style().display() == DisplayType::ListItem;
         m_hasTextDescendants = m_hasTextChildren;
     }
 
@@ -72,8 +71,8 @@ public:
 #endif
 
 #if ENABLE(TREE_DEBUGGING)
-    virtual void showLineTreeAndMark(const InlineBox* markedBox, int depth) const override;
-    virtual const char* boxName() const override;
+    void outputLineTreeAndMark(WTF::TextStream&, const InlineBox* markedBox, int depth) const override;
+    const char* boxName() const override;
 #endif
 
     RenderBoxModelObject& renderer() const { return downcast<RenderBoxModelObject>(InlineBox::renderer()); }
@@ -87,7 +86,7 @@ public:
     InlineBox* firstChild() const { checkConsistency(); return m_firstChild; }
     InlineBox* lastChild() const { checkConsistency(); return m_lastChild; }
 
-    virtual bool isLeaf() const override final { return false; }
+    bool isLeaf() const final { return false; }
     
     InlineBox* firstLeafChild() const;
     InlineBox* lastLeafChild() const;
@@ -95,7 +94,7 @@ public:
     typedef void (*CustomInlineBoxRangeReverse)(void* userData, Vector<InlineBox*>::iterator first, Vector<InlineBox*>::iterator last);
     void collectLeafBoxesInLogicalOrder(Vector<InlineBox*>&, CustomInlineBoxRangeReverse customReverseImplementation = nullptr, void* userData = nullptr) const;
 
-    virtual void setConstructed() override final
+    void setConstructed() final
     {
         InlineBox::setConstructed();
         for (InlineBox* child = firstChild(); child; child = child->nextOnLine())
@@ -103,24 +102,24 @@ public:
     }
 
     void addToLine(InlineBox* child);
-    virtual void deleteLine() override final;
-    virtual void extractLine() override final;
-    virtual void attachLine() override final;
-    virtual void adjustPosition(float dx, float dy) override;
+    void deleteLine() final;
+    void extractLine() final;
+    void attachLine() final;
+    void adjustPosition(float dx, float dy) override;
 
     virtual void extractLineBoxFromRenderObject();
     virtual void attachLineBoxToRenderObject();
     virtual void removeLineBoxFromRenderObject();
 
-    virtual void clearTruncation() override;
+    void clearTruncation() override;
 
     void paintBoxDecorations(PaintInfo&, const LayoutPoint&);
     void paintMask(PaintInfo&, const LayoutPoint&);
-    void paintFillLayers(const PaintInfo&, const Color&, const FillLayer*, const LayoutRect&, CompositeOperator = CompositeSourceOver);
-    void paintFillLayer(const PaintInfo&, const Color&, const FillLayer*, const LayoutRect&, CompositeOperator = CompositeSourceOver);
+    void paintFillLayers(const PaintInfo&, const Color&, const FillLayer&, const LayoutRect&, CompositeOperator = CompositeSourceOver);
+    void paintFillLayer(const PaintInfo&, const Color&, const FillLayer&, const LayoutRect&, CompositeOperator = CompositeSourceOver);
     void paintBoxShadow(const PaintInfo&, const RenderStyle&, ShadowStyle, const LayoutRect&);
-    virtual void paint(PaintInfo&, const LayoutPoint&, LayoutUnit lineTop, LayoutUnit lineBottom) override;
-    virtual bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, LayoutUnit lineTop, LayoutUnit lineBottom, HitTestAction) override;
+    void paint(PaintInfo&, const LayoutPoint&, LayoutUnit lineTop, LayoutUnit lineBottom) override;
+    bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, LayoutUnit lineTop, LayoutUnit lineBottom, HitTestAction) override;
 
     bool boxShadowCanBeAppliedToBackground(const FillLayer&) const;
 
@@ -202,19 +201,15 @@ public:
     
     void removeChild(InlineBox* child);
 
-    virtual RenderObject::SelectionState selectionState() override;
+    RenderObject::SelectionState selectionState() override;
 
-    virtual bool canAccommodateEllipsis(bool ltr, int blockEdge, int ellipsisWidth) const override final;
-    virtual float placeEllipsisBox(bool ltr, float blockLeftEdge, float blockRightEdge, float ellipsisWidth, float &truncatedWidth, bool&) override;
+    bool canAccommodateEllipsis(bool ltr, int blockEdge, int ellipsisWidth) const final;
+    float placeEllipsisBox(bool ltr, float blockLeftEdge, float blockRightEdge, float ellipsisWidth, float &truncatedWidth, bool&) override;
 
     bool hasTextChildren() const { return m_hasTextChildren; }
     bool hasTextDescendants() const { return m_hasTextDescendants; }
     void setHasTextChildren() { m_hasTextChildren = true; setHasTextDescendants(); }
     void setHasTextDescendants() { m_hasTextDescendants = true; }
-    
-    bool hasAnonymousInlineBlock() const { return m_hasAnonymousInlineBlock; }
-    void setHasAnonymousInlineBlock(bool b) { m_hasAnonymousInlineBlock = b; }
-    RenderBlockFlow* anonymousInlineBlock() const;
     
     void checkConsistency() const;
     void setHasBadChildList();
@@ -223,7 +218,7 @@ public:
     // For horizontal-tb and vertical-lr they will match physical directions, but for horizontal-bt and vertical-rl, the top/bottom and left/right
     // respectively are flipped when compared to their physical counterparts.  For example minX is on the left in vertical-lr, but it is on the right in vertical-rl.
     LayoutRect layoutOverflowRect(LayoutUnit lineTop, LayoutUnit lineBottom) const
-    { 
+    {
         return m_overflow ? m_overflow->layoutOverflowRect() : enclosingLayoutRect(frameRectIncludingLineHeight(lineTop, lineBottom));
     }
     LayoutUnit logicalTopLayoutOverflow(LayoutUnit lineTop) const
@@ -279,8 +274,8 @@ public:
     FloatRect frameRectIncludingLineHeight(LayoutUnit lineTop, LayoutUnit lineBottom) const
     {
         if (isHorizontal())
-            return FloatRect(m_topLeft.x(), lineTop, width(), lineBottom - lineTop);
-        return FloatRect(lineTop, m_topLeft.y(), lineBottom - lineTop, height());
+            return FloatRect(x(), lineTop, width(), lineBottom - lineTop);
+        return FloatRect(lineTop, y(), lineBottom - lineTop, height());
     }
     
     FloatRect logicalFrameRectIncludingLineHeight(LayoutUnit lineTop, LayoutUnit lineBottom) const
@@ -297,13 +292,12 @@ public:
     }
 
     void computeReplacedAndTextLineTopAndBottom(LayoutUnit& lineTop, LayoutUnit& lineBottom) const;
-    
-    // Used to calculate the underline offset for TextUnderlinePositionUnder.
-    void maxLogicalBottomForTextDecorationLine(float& maxLogicalBottom, const RenderElement* decorationRenderer, TextDecoration) const;
-    void minLogicalTopForTextDecorationLine(float& minLogicalTop, const RenderElement* decorationRenderer, TextDecoration) const;
+
+    void maxLogicalBottomForTextDecorationLine(float& maxLogicalBottom, const RenderElement* decorationRenderer, OptionSet<TextDecoration>) const;
+    void minLogicalTopForTextDecorationLine(float& minLogicalTop, const RenderElement* decorationRenderer, OptionSet<TextDecoration>) const;
 
 private:
-    virtual bool isInlineFlowBox() const override final { return true; }
+    bool isInlineFlowBox() const final { return true; }
     void boxModelObject() const = delete;
 
     void addBoxShadowVisualOverflow(LayoutRect& logicalVisualOverflow);
@@ -312,15 +306,6 @@ private:
     void addOutlineVisualOverflow(LayoutRect& logicalVisualOverflow);
     void addReplacedChildOverflow(const InlineBox*, LayoutRect& logicalLayoutOverflow, LayoutRect& logicalVisualOverflow);
     void constrainToLineTopAndBottomIfNeeded(LayoutRect&) const;
-
-protected:
-    RefPtr<RenderOverflow> m_overflow;
-
-    InlineBox* m_firstChild;
-    InlineBox* m_lastChild;
-    
-    InlineFlowBox* m_prevLineBox; // The previous box that also uses our RenderObject
-    InlineFlowBox* m_nextLineBox; // The next box that also uses our RenderObject
 
 private:
     unsigned m_includeLogicalLeftEdge : 1;
@@ -344,7 +329,6 @@ protected:
     unsigned m_lineBreakBidiStatusLast : 5; // UCharDirection
 
     unsigned m_isFirstAfterPageBreak : 1;
-    unsigned m_hasAnonymousInlineBlock : 1;
 
     // End of RootInlineBox-specific members.
 
@@ -352,6 +336,15 @@ protected:
 private:
     unsigned m_hasBadChildList : 1;
 #endif
+
+protected:
+    RefPtr<RenderOverflow> m_overflow;
+
+    InlineBox* m_firstChild;
+    InlineBox* m_lastChild;
+    
+    InlineFlowBox* m_prevLineBox; // The previous box that also uses our RenderObject
+    InlineFlowBox* m_nextLineBox; // The next box that also uses our RenderObject
 };
 
 #ifdef NDEBUG
@@ -375,8 +368,6 @@ inline void InlineFlowBox::setHasBadChildList()
 SPECIALIZE_TYPE_TRAITS_INLINE_BOX(InlineFlowBox, isInlineFlowBox())
 
 #if ENABLE(TREE_DEBUGGING)
-// Outside the WebCore namespace for ease of invocation from gdb.
+// Outside the WebCore namespace for ease of invocation from the debugger.
 void showTree(const WebCore::InlineFlowBox*);
 #endif
-
-#endif // InlineFlowBox_h

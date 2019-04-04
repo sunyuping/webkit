@@ -30,11 +30,8 @@
 #include <string.h>
 #include <wtf/Assertions.h>
 #include <wtf/FastMalloc.h>
-#include <wtf/HashSet.h>
 #include <wtf/text/ASCIIFastPath.h>
 #include <wtf/text/StringHash.h>
-
-using WTF::ThreadSpecific;
 
 namespace JSC {
 
@@ -43,7 +40,7 @@ Ref<StringImpl> Identifier::add(VM* vm, const char* c)
     ASSERT(c);
     ASSERT(c[0]);
     if (!c[1])
-        return *vm->smallStrings.singleCharacterStringRep(c[0]);
+        return vm->smallStrings.singleCharacterStringRep(c[0]);
 
     return *AtomicStringImpl::add(c);
 }
@@ -59,7 +56,7 @@ Ref<StringImpl> Identifier::add8(VM* vm, const UChar* s, int length)
         UChar c = s[0];
         ASSERT(c <= 0xff);
         if (canUseSingleCharacterString(c))
-            return *vm->smallStrings.singleCharacterStringRep(c);
+            return vm->smallStrings.singleCharacterStringRep(c);
     }
     if (!length)
         return *StringImpl::empty();
@@ -99,9 +96,14 @@ Identifier Identifier::from(VM* vm, double value)
 
 void Identifier::dump(PrintStream& out) const
 {
-    if (impl())
+    if (impl()) {
+        if (impl()->isSymbol()) {
+            auto* symbol = static_cast<SymbolImpl*>(impl());
+            if (symbol->isPrivate())
+                out.print("PrivateSymbol.");
+        }
         out.print(impl());
-    else
+    } else
         out.print("<null identifier>");
 }
 
@@ -111,7 +113,7 @@ void Identifier::checkCurrentAtomicStringTable(VM* vm)
 {
     // Check the identifier table accessible through the threadspecific matches the
     // vm's identifier table.
-    ASSERT_UNUSED(vm, vm->atomicStringTable() == wtfThreadData().atomicStringTable());
+    ASSERT_UNUSED(vm, vm->atomicStringTable() == Thread::current().atomicStringTable());
 }
 
 void Identifier::checkCurrentAtomicStringTable(ExecState* exec)

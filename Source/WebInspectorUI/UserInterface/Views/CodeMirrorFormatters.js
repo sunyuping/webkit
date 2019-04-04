@@ -35,7 +35,7 @@ CodeMirror.extendMode("javascript", {
             if (content === "(") // Most keywords like "if (" but not "function(" or "typeof(".
                 return lastToken && /\bkeyword\b/.test(lastToken) && (lastContent !== "function" && lastContent !== "typeof" && lastContent !== "instanceof");
             if (content === ":") // Ternary.
-                return (state.lexical.type === "stat" || state.lexical.type === ")" || state.lexical.type === "]");
+                return state.lexical.type === "stat" || state.lexical.type === ")" || state.lexical.type === "]";
             return false;
         }
 
@@ -53,6 +53,8 @@ CodeMirror.extendMode("javascript", {
         if (/\bkeyword\b/.test(token)) { // Most keywords require spaces before them, unless a '}' can come before it.
             if (content === "else" || content === "catch" || content === "finally")
                 return lastContent === "}";
+            if (content === "while" && lastContent === "}")
+                return state._jsPrettyPrint.lastContentBeforeBlock === "do";
             return false;
         }
 
@@ -61,7 +63,7 @@ CodeMirror.extendMode("javascript", {
 
     shouldHaveSpaceAfterLastToken: function(lastToken, lastContent, token, state, content, isComment)
     {
-        if (lastToken && /\bkeyword\b/.test(lastToken)) {  // Most keywords require spaces after them, unless a '{' or ';' can come after it.
+        if (lastToken && /\bkeyword\b/.test(lastToken)) { // Most keywords require spaces after them, unless a '{' or ';' can come after it.
             if (lastContent === "else")
                 return true;
             if (lastContent === "catch")
@@ -141,6 +143,8 @@ CodeMirror.extendMode("javascript", {
         if (/\bkeyword\b/.test(token)) {
             if (content === "else" || content === "catch" || content === "finally") // "} else", "} catch", "} finally"
                 return lastContent === "}";
+            if (content === "while" && lastContent === "}")
+                return state._jsPrettyPrint.lastContentBeforeBlock === "do";
             return false;
         }
 
@@ -201,6 +205,7 @@ CodeMirror.extendMode("javascript", {
                 openBraceStartMarkers: [],  // Keep track of non-single statement blocks.
                 openBraceTrackingCount: -1, // Keep track of "{" and "}" in non-single statement blocks.
                 unaryOperatorHadLeadingExpr: false, // Try to detect if a unary operator had a leading expression and therefore may be binary.
+                lastContentBeforeBlock: undefined, // Used to detect if this was a do/while.
             };
         }
 
@@ -224,7 +229,7 @@ CodeMirror.extendMode("javascript", {
         if (!isComment && state.lexical.prev && state.lexical.prev.type === "form" && !state.lexical.prev._jsPrettyPrintMarker && (lastContent === ")" || lastContent === "else" || lastContent === "do") && (state.lexical.type !== ")")) {
             if (content === "{") {
                 // Save the state at the opening brace so we can return to it when we see "}".
-                var savedState = {indentCount: state._jsPrettyPrint.indentCount, openBraceTrackingCount: state._jsPrettyPrint.openBraceTrackingCount};
+                var savedState = {indentCount: state._jsPrettyPrint.indentCount, openBraceTrackingCount: state._jsPrettyPrint.openBraceTrackingCount, lastContentBeforeBlock: lastContent};
                 state._jsPrettyPrint.openBraceStartMarkers.push(savedState);
                 state._jsPrettyPrint.openBraceTrackingCount = 1;
             } else if (state.lexical.type !== "}") {
@@ -241,7 +246,6 @@ CodeMirror.extendMode("javascript", {
 
         // - Leaving:
         //   - Preconditions:
-        //     - we must be indented
         //     - ignore ";", wait for the next token instead.
         //   - Cases:
         //     1. "else"
@@ -250,7 +254,7 @@ CodeMirror.extendMode("javascript", {
         //       - dedent to the last "{"
         //     3. Token without a marker on the stack
         //       - dedent all the way
-        else if (state._jsPrettyPrint.indentCount) {
+        else {
             console.assert(!state._jsPrettyPrint.shouldDedent);
             console.assert(!state._jsPrettyPrint.dedentSize);
 
@@ -277,6 +281,7 @@ CodeMirror.extendMode("javascript", {
                 state._jsPrettyPrint.shouldDedent = true;
                 state._jsPrettyPrint.dedentSize = state._jsPrettyPrint.indentCount - savedState.indentCount;
                 state._jsPrettyPrint.openBraceTrackingCount = savedState.openBraceTrackingCount;
+                state._jsPrettyPrint.lastContentBeforeBlock = savedState.lastContentBeforeBlock;
             } else {
                 // Dedent all the way.
                 var shouldDedent = true;
@@ -297,7 +302,7 @@ CodeMirror.extendMode("javascript", {
 
         // Signal for when we will be entering an if.
         if (token && state.lexical.type === "form" && state.lexical.prev && state.lexical.prev !== "form" && /\bkeyword\b/.test(token))
-            state._jsPrettyPrint.enteringIf = (content === "if");
+            state._jsPrettyPrint.enteringIf = content === "if";
     },
 
     modifyStateForTokenPost: function(lastToken, lastContent, token, state, content, isComment)
@@ -440,99 +445,5 @@ CodeMirror.extendMode("css", {
             state._cssPrettyPrint.lineLength += content.length;
         else
             state._cssPrettyPrint.lineLength = 0;
-    }
-});
-
-CodeMirror.extendMode("css-rule", {
-    shouldHaveSpaceBeforeToken: function(lastToken, lastContent, token, state, content, isComment)
-    {
-        // Add whitespace before ":_value"
-        if (lastContent === ":" && !lastToken)
-            return true;
-
-        // Add whitespace between "1px_solid_green"
-        var tokenRegExp = /\b(?:keyword|atom|number)\b/;
-        if (tokenRegExp.test(lastToken) && tokenRegExp.test(token))
-            return true;
-
-        return false;
-    },
-
-    shouldHaveSpaceAfterLastToken: function(lastToken, lastContent, token, state, content, isComment)
-    {
-        return lastContent === "," && !lastToken;
-    },
-
-    newlinesAfterToken: function(lastToken, lastContent, token, state, content, isComment)
-    {
-        return 0;
-    },
-
-    removeLastWhitespace: function(lastToken, lastContent, token, state, content, isComment)
-    {
-        // Remove whitespace before a comment which moves the comment to the beginning of the line.
-        if (isComment)
-            return true;
-
-        // A semicolon indicates the end of line. So remove whitespace before next line.
-        if (!lastToken)
-            return lastContent === ";";
-
-        // Remove whitespace before semicolon. Like `prop: value ;`.
-        // Remove whitespace before colon. Like `prop : value;`.
-        if (!token)
-            return content === ";" || content === ":";
-
-        // A comment is supposed to be in its own line. So remove whitespace before next line.
-        if (/\bcomment\b/.test(lastToken))
-            return true;
-
-        return false;
-    },
-
-    removeLastNewline: function(lastToken, lastContent, token, state, content, isComment, firstTokenOnLine)
-    {
-        // Each property should be formatted to one line each with no extra newlines.
-        return true;
-    },
-
-    indentAfterToken: function(lastToken, lastContent, token, state, content, isComment)
-    {
-        return false;
-    },
-
-    newlineBeforeToken: function(lastToken, lastContent, token, state, content, isComment)
-    {
-        // Add new line before comments.
-        if (isComment)
-            return true;
-
-        // Add new line before a prefixed property like `-webkit-animation`.
-        if (state.state === "block")
-            return /\bmeta\b/.test(token);
-
-        // Add new line after comment
-        if (/\bcomment\b/.test(lastToken))
-            return true;
-
-        // Add new line before a regular property like `display`.
-        if (/\bproperty\b/.test(token))
-            return !(/\bmeta\b/.test(lastToken));
-
-        // Add new line before a CSS variable like `--foo`.
-        if (state.state === "maybeprop" && /\bvariable-2\b/.test(token))
-            return true;
-
-        return false;
-    },
-
-    indentBeforeToken: function(lastToken, lastContent, token, state, content, isComment)
-    {
-        return false;
-    },
-
-    dedentsBeforeToken: function(lastToken, lastContent, token, state, content, isComment)
-    {
-        return 0;
     }
 });

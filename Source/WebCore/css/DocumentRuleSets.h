@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef DocumentRuleSets_h
-#define DocumentRuleSets_h
+#pragma once
 
 #include "CSSDefaultStyleSheets.h"
 #include "RuleFeature.h"
@@ -38,36 +37,69 @@ class CSSStyleSheet;
 class ExtensionStyleSheets;
 class InspectorCSSOMWrappers;
 class MediaQueryEvaluator;
-class RuleSet;
+
+struct InvalidationRuleSet {
+    MatchElement matchElement;
+    std::unique_ptr<RuleSet> ruleSet;
+    Vector<const CSSSelector*> invalidationSelectors;
+
+    WTF_MAKE_FAST_ALLOCATED;
+};
 
 class DocumentRuleSets {
 public:
-    DocumentRuleSets();
+    DocumentRuleSets(StyleResolver&);
     ~DocumentRuleSets();
-    RuleSet* authorStyle() const { return m_authorStyle.get(); }
-    RuleSet* userStyle() const { return m_userStyle.get(); }
-    RuleFeatureSet& features() { return m_features; }
+
+    bool isAuthorStyleDefined() const { return m_isAuthorStyleDefined; }
+    RuleSet* userAgentMediaQueryStyle() const;
+    RuleSet& authorStyle() const { return *m_authorStyle.get(); }
+    RuleSet* userStyle() const;
     const RuleFeatureSet& features() const;
     RuleSet* sibling() const { return m_siblingRuleSet.get(); }
     RuleSet* uncommonAttribute() const { return m_uncommonAttributeRuleSet.get(); }
-    RuleSet* ancestorClassRules(AtomicStringImpl* className) const;
 
-    void initUserStyle(ExtensionStyleSheets&, const MediaQueryEvaluator&, StyleResolver&);
+    const Vector<InvalidationRuleSet>* classInvalidationRuleSets(const AtomicString& className) const;
+    const Vector<InvalidationRuleSet>* attributeInvalidationRuleSets(const AtomicString& attributeName) const;
+
+    bool hasComplexSelectorsForStyleAttribute() const;
+
+    void setIsForShadowScope() { m_isForShadowScope = true; }
+
+    void setUsesSharedUserStyle(bool b) { m_usesSharedUserStyle = b; }
+    void initializeUserStyle();
+
     void resetAuthorStyle();
     void appendAuthorStyleSheets(const Vector<RefPtr<CSSStyleSheet>>&, MediaQueryEvaluator*, InspectorCSSOMWrappers&, StyleResolver*);
+
+    void resetUserAgentMediaQueryStyle();
+
+    RuleFeatureSet& mutableFeatures();
 
 private:
     void collectFeatures() const;
     void collectRulesFromUserStyleSheets(const Vector<RefPtr<CSSStyleSheet>>&, RuleSet& userStyle, const MediaQueryEvaluator&, StyleResolver&);
+    void updateUserAgentMediaQueryStyleIfNeeded() const;
 
     std::unique_ptr<RuleSet> m_authorStyle;
+    mutable std::unique_ptr<RuleSet> m_userAgentMediaQueryStyle;
     std::unique_ptr<RuleSet> m_userStyle;
 
+    StyleResolver& m_styleResolver;
     mutable RuleFeatureSet m_features;
-    mutable unsigned m_defaultStyleVersionOnFeatureCollection { 0 };
     mutable std::unique_ptr<RuleSet> m_siblingRuleSet;
     mutable std::unique_ptr<RuleSet> m_uncommonAttributeRuleSet;
-    mutable HashMap<AtomicStringImpl*, std::unique_ptr<RuleSet>> m_ancestorClassRuleSet;
+    mutable HashMap<AtomicString, std::unique_ptr<Vector<InvalidationRuleSet>>> m_classInvalidationRuleSets;
+    mutable HashMap<AtomicString, std::unique_ptr<Vector<InvalidationRuleSet>>> m_attributeInvalidationRuleSets;
+
+    mutable Optional<bool> m_cachedHasComplexSelectorsForStyleAttribute;
+
+    mutable unsigned m_defaultStyleVersionOnFeatureCollection { 0 };
+    mutable unsigned m_userAgentMediaQueryRuleCountOnUpdate { 0 };
+
+    bool m_usesSharedUserStyle { false };
+    bool m_isForShadowScope { false };
+    bool m_isAuthorStyleDefined { false };
 };
 
 inline const RuleFeatureSet& DocumentRuleSets::features() const
@@ -77,6 +109,12 @@ inline const RuleFeatureSet& DocumentRuleSets::features() const
     return m_features;
 }
 
-} // namespace WebCore
+// FIXME: There should be just the const version.
+inline RuleFeatureSet& DocumentRuleSets::mutableFeatures()
+{
+    if (m_defaultStyleVersionOnFeatureCollection < CSSDefaultStyleSheets::defaultStyleVersion)
+        collectFeatures();
+    return m_features;
+}
 
-#endif // DocumentRuleSets_h
+} // namespace WebCore

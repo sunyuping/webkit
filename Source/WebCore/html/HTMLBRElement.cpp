@@ -27,8 +27,11 @@
 #include "CSSValueKeywords.h"
 #include "HTMLNames.h"
 #include "RenderLineBreak.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLBRElement);
 
 using namespace HTMLNames;
 
@@ -70,9 +73,9 @@ void HTMLBRElement::collectStyleForPresentationAttribute(const QualifiedName& na
         HTMLElement::collectStyleForPresentationAttribute(name, value, style);
 }
 
-RenderPtr<RenderElement> HTMLBRElement::createElementRenderer(Ref<RenderStyle>&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> HTMLBRElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
-    if (style.get().hasContent())
+    if (style.hasContent())
         return RenderElement::createFor(*this, WTFMove(style));
 
     return createRenderer<RenderLineBreak>(*this, WTFMove(style));

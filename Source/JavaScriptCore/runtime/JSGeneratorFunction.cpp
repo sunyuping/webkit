@@ -37,31 +37,36 @@
 
 namespace JSC {
 
-const ClassInfo JSGeneratorFunction::s_info = { "GeneratorFunction", &Base::s_info, nullptr, CREATE_METHOD_TABLE(JSGeneratorFunction) };
+const ClassInfo JSGeneratorFunction::s_info = { "GeneratorFunction", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSGeneratorFunction) };
 
-JSGeneratorFunction::JSGeneratorFunction(VM& vm, FunctionExecutable* executable, JSScope* scope)
-    : Base(vm, executable, scope, scope->globalObject()->generatorFunctionStructure())
+JSGeneratorFunction::JSGeneratorFunction(VM& vm, FunctionExecutable* executable, JSScope* scope, Structure* structure)
+    : Base(vm, executable, scope, structure)
 {
 }
 
-JSGeneratorFunction* JSGeneratorFunction::createImpl(VM& vm, FunctionExecutable* executable, JSScope* scope)
+JSGeneratorFunction* JSGeneratorFunction::createImpl(VM& vm, FunctionExecutable* executable, JSScope* scope, Structure* structure)
 {
-    JSGeneratorFunction* generatorFunction = new (NotNull, allocateCell<JSGeneratorFunction>(vm.heap)) JSGeneratorFunction(vm, executable, scope);
-    ASSERT(generatorFunction->structure()->globalObject());
+    JSGeneratorFunction* generatorFunction = new (NotNull, allocateCell<JSGeneratorFunction>(vm.heap)) JSGeneratorFunction(vm, executable, scope, structure);
+    ASSERT(generatorFunction->structure(vm)->globalObject());
     generatorFunction->finishCreation(vm);
     return generatorFunction;
 }
 
 JSGeneratorFunction* JSGeneratorFunction::create(VM& vm, FunctionExecutable* executable, JSScope* scope)
 {
-    JSGeneratorFunction* generatorFunction = createImpl(vm, executable, scope);
-    executable->singletonFunction()->notifyWrite(vm, generatorFunction, "Allocating a generator function");
+    return create(vm, executable, scope, scope->globalObject(vm)->generatorFunctionStructure());
+}
+
+JSGeneratorFunction* JSGeneratorFunction::create(VM& vm, FunctionExecutable* executable, JSScope* scope, Structure* structure)
+{
+    JSGeneratorFunction* generatorFunction = createImpl(vm, executable, scope, structure);
+    executable->notifyCreation(vm, generatorFunction, "Allocating a generator function");
     return generatorFunction;
 }
 
 JSGeneratorFunction* JSGeneratorFunction::createWithInvalidatedReallocationWatchpoint(VM& vm, FunctionExecutable* executable, JSScope* scope)
 {
-    return createImpl(vm, executable, scope);
+    return createImpl(vm, executable, scope, scope->globalObject(vm)->generatorFunctionStructure());
 }
 
 } // namespace JSC

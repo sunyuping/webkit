@@ -24,16 +24,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef InspectorWebAgentBase_h
-#define InspectorWebAgentBase_h
+#pragma once
 
-#include <inspector/InspectorAgentBase.h>
+#include <JavaScriptCore/InspectorAgentBase.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class InstrumentingAgents;
 class Page;
+class WorkerGlobalScope;
 
 // FIXME: move this to Inspector namespace when remaining agents move.
 struct WebAgentContext : public Inspector::AgentContext {
@@ -56,6 +56,16 @@ struct PageAgentContext : public WebAgentContext {
     Page& inspectedPage;
 };
 
+struct WorkerAgentContext : public WebAgentContext {
+    WorkerAgentContext(WebAgentContext& context, WorkerGlobalScope& workerGlobalScope)
+        : WebAgentContext(context)
+        , workerGlobalScope(workerGlobalScope)
+    {
+    }
+
+    WorkerGlobalScope& workerGlobalScope;
+};
+
 class InspectorAgentBase : public Inspector::InspectorAgentBase {
 protected:
     InspectorAgentBase(const String& name, WebAgentContext& context)
@@ -70,5 +80,3 @@ protected:
 };
     
 } // namespace WebCore
-
-#endif // !defined(InspectorWebAgentBase_h)

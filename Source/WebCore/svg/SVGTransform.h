@@ -1,98 +1,157 @@
 /*
- * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
- * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
+ * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
- *
- * You should have received a copy of the GNU Library General Public License
- * along with this library; see the file COPYING.LIB.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SVGTransform_h
-#define SVGTransform_h
+#pragma once
 
-#include "FloatPoint.h"
 #include "SVGMatrix.h"
+#include "SVGTransformValue.h"
+#include "SVGValueProperty.h"
 
 namespace WebCore {
 
-class FloatSize;
-
-class SVGTransform {
+class SVGTransform : public SVGValueProperty<SVGTransformValue>, public SVGPropertyOwner {
 public:
-    enum SVGTransformType {
-        SVG_TRANSFORM_UNKNOWN = 0,
-        SVG_TRANSFORM_MATRIX = 1,
-        SVG_TRANSFORM_TRANSLATE = 2,
-        SVG_TRANSFORM_SCALE = 3,
-        SVG_TRANSFORM_ROTATE = 4,
-        SVG_TRANSFORM_SKEWX = 5,
-        SVG_TRANSFORM_SKEWY = 6
-    };
+    static Ref<SVGTransform> create(SVGTransformValue::SVGTransformType type)
+    {
+        return adoptRef(*new SVGTransform(type));
+    }
 
-    enum ConstructionMode {
-        ConstructIdentityTransform,
-        ConstructZeroTransform
-    };
+    static Ref<SVGTransform> create(const AffineTransform& transform = { })
+    {
+        return adoptRef(*new SVGTransform(SVGTransformValue::SVG_TRANSFORM_MATRIX, transform));
+    }
 
-    SVGTransform();
-    SVGTransform(SVGTransformType, ConstructionMode = ConstructIdentityTransform);
-    explicit SVGTransform(const AffineTransform&);
+    static Ref<SVGTransform> create(const SVGTransformValue& value)
+    {
+        return adoptRef(*new SVGTransform(value.type(), value.matrix()->value(), value.angle(), value.rotationCenter()));
+    }
 
-    SVGTransformType type() const { return m_type; }
+    template<typename T>
+    static ExceptionOr<Ref<SVGTransform>> create(ExceptionOr<T>&& value)
+    {
+        if (value.hasException())
+            return value.releaseException();
+        return create(value.releaseReturnValue());
+    }
 
-    SVGMatrix& svgMatrix() { return static_cast<SVGMatrix&>(m_matrix); }
-    AffineTransform matrix() const { return m_matrix; }
-    void updateSVGMatrix();
+    ~SVGTransform()
+    {
+        m_value.matrix()->detach();
+    }
 
-    float angle() const { return m_angle; }
-    FloatPoint rotationCenter() const { return m_center; }
+    Ref<SVGTransform> clone() const
+    {
+        return SVGTransform::create(m_value);
+    }
 
-    void setMatrix(const AffineTransform&);
-    void setTranslate(float tx, float ty);
-    void setScale(float sx, float sy);
-    void setRotate(float angle, float cx, float cy);
-    void setSkewX(float angle);
-    void setSkewY(float angle);
-    
-    // Internal use only (animation system)
-    FloatPoint translate() const;
-    FloatSize scale() const;
+    unsigned short type() { return m_value.type(); }
+    float angle() { return m_value.angle(); }
+    const Ref<SVGMatrix>& matrix() { return m_value.matrix(); }
 
-    bool isValid() const { return m_type != SVG_TRANSFORM_UNKNOWN; }
-    String valueAsString() const;
+    ExceptionOr<void> setMatrix(SVGMatrix& matrix)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
 
-    static const String& transformTypePrefixForParsing(SVGTransformType);
+        m_value.setMatrix(matrix.value());
+        commitChange();
+        return { };
+    }
+
+    ExceptionOr<void> setTranslate(float tx, float ty)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setTranslate(tx, ty);
+        commitChange();
+        return { };
+    }
+
+    ExceptionOr<void> setScale(float sx, float sy)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setScale(sx, sy);
+        commitChange();
+        return { };
+    }
+
+    ExceptionOr<void> setRotate(float angle, float cx, float cy)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setRotate(angle, cx, cy);
+        commitChange();
+        return { };
+    }
+
+    ExceptionOr<void> setSkewX(float angle)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setSkewX(angle);
+        commitChange();
+        return { };
+    }
+
+    ExceptionOr<void> setSkewY(float angle)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setSkewY(angle);
+        commitChange();
+        return { };
+    }
 
 private:
-    friend bool operator==(const SVGTransform& a, const SVGTransform& b);
+    using Base = SVGValueProperty<SVGTransformValue>;
 
-    SVGTransformType m_type;
-    float m_angle;
-    FloatPoint m_center;
-    AffineTransform m_matrix;
+    SVGTransform(SVGTransformValue::SVGTransformType type, const AffineTransform& transform = { }, float angle = 0, const FloatPoint& rotationCenter = { })
+        : Base(SVGTransformValue(type, SVGMatrix::create(this, SVGPropertyAccess::ReadWrite, transform), angle, rotationCenter))
+    {
+    }
+
+    SVGPropertyOwner* owner() const override { return m_owner; }
+
+    void commitPropertyChange(SVGProperty* property) override
+    {
+        ASSERT_UNUSED(property, property == m_value.matrix().ptr());
+        if (owner())
+            owner()->commitPropertyChange(this);
+        m_value.matrixDidChange();
+    }
+
+    String valueAsString() const override
+    {
+        return m_value.valueAsString();
+    }
 };
 
-inline bool operator==(const SVGTransform& a, const SVGTransform& b)
-{
-    return a.m_type == b.m_type && a.m_angle == b.m_angle && a.m_matrix == b.m_matrix;
-}
-
-inline bool operator!=(const SVGTransform& a, const SVGTransform& b)
-{
-    return !(a == b);
-}
-
 } // namespace WebCore
-
-#endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2017 Apple Inc. All rights reserved.
  * Copyright (C) 2010, 2011, 2012 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -19,10 +19,9 @@
  *
  */
 
-#ifndef FormController_h
-#define FormController_h
+#pragma once
 
-#include "CheckedRadioButtons.h"
+#include "RadioButtonGroups.h"
 #include <wtf/Forward.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/Vector.h>
@@ -30,46 +29,12 @@
 
 namespace WebCore {
 
-class FormAssociatedElement;
 class FormKeyGenerator;
 class HTMLFormControlElementWithState;
 class HTMLFormElement;
 class SavedFormState;
 
-class FormControlState {
-public:
-    FormControlState() : m_type(TypeSkip) { }
-    explicit FormControlState(const String& value) : m_type(TypeRestore) { m_values.append(value); }
-    static FormControlState deserialize(const Vector<String>& stateVector, size_t& index);
-    FormControlState(const FormControlState& another) : m_type(another.m_type), m_values(another.m_values) { }
-    FormControlState& operator=(const FormControlState&);
-
-    bool isFailure() const { return m_type == TypeFailure; }
-    size_t valueSize() const { return m_values.size(); }
-    const String& operator[](size_t i) const { return m_values[i]; }
-    void append(const String&);
-    void serializeTo(Vector<String>& stateVector) const;
-
-private:
-    enum Type { TypeSkip, TypeRestore, TypeFailure };
-    explicit FormControlState(Type type) : m_type(type) { }
-
-    Type m_type;
-    Vector<String> m_values;
-};
-
-inline FormControlState& FormControlState::operator=(const FormControlState& another)
-{
-    m_type = another.m_type;
-    m_values = another.m_values;
-    return *this;
-}
-
-inline void FormControlState::append(const String& value)
-{
-    m_type = TypeRestore;
-    m_values.append(value);
-}
+using FormControlState = Vector<String>;
 
 class FormController {
     WTF_MAKE_FAST_ALLOCATED;
@@ -77,22 +42,22 @@ public:
     FormController();
     ~FormController();
 
-    CheckedRadioButtons& checkedRadioButtons() { return m_checkedRadioButtons; }
+    RadioButtonGroups& radioButtonGroups() { return m_radioButtonGroups; }
 
-    void registerFormElementWithState(HTMLFormControlElementWithState*);
-    void unregisterFormElementWithState(HTMLFormControlElementWithState*);
+    void registerFormElementWithState(HTMLFormControlElementWithState&);
+    void unregisterFormElementWithState(HTMLFormControlElementWithState&);
 
     unsigned formElementsCharacterCount() const;
 
-    // This should be callled only by Document::formElementsState().
     Vector<String> formElementsState() const;
-    // This should be callled only by Document::setStateForNewFormElements().
     void setStateForNewFormElements(const Vector<String>&);
-    void willDeleteForm(HTMLFormElement*);
+
+    void willDeleteForm(HTMLFormElement&);
     void restoreControlStateFor(HTMLFormControlElementWithState&);
     void restoreControlStateIn(HTMLFormElement&);
+    bool hasFormStateToRestore() const;
 
-    WEBCORE_EXPORT static Vector<String> getReferencedFilePaths(const Vector<String>& stateVector);
+    WEBCORE_EXPORT static Vector<String> referencedFilePaths(const Vector<String>& stateVector);
 
 private:
     typedef ListHashSet<RefPtr<HTMLFormControlElementWithState>> FormElementListHashSet;
@@ -102,11 +67,10 @@ private:
     FormControlState takeStateForFormElement(const HTMLFormControlElementWithState&);
     static void formStatesFromStateVector(const Vector<String>&, SavedFormStateMap&);
 
-    CheckedRadioButtons m_checkedRadioButtons;
+    RadioButtonGroups m_radioButtonGroups;
     FormElementListHashSet m_formElementsWithState;
     SavedFormStateMap m_savedFormStateMap;
     std::unique_ptr<FormKeyGenerator> m_formKeyGenerator;
 };
 
 } // namespace WebCore
-#endif

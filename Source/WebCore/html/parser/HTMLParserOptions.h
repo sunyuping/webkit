@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLParserOptions_h
-#define HTMLParserOptions_h
+#pragma once
 
 namespace WebCore {
 
@@ -36,11 +35,8 @@ public:
     explicit HTMLParserOptions(Document&);
 
     bool scriptEnabled;
-    bool pluginsEnabled;
     bool usePreHTML5ParserQuirks;
     unsigned maximumDOMTreeDepth;
 };
 
-}
-
-#endif
+} // namespace WebCore

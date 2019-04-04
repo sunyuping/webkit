@@ -39,14 +39,14 @@ struct Object {
     size_t size;
 };
 
-void benchmark_medium(bool isParallel)
+void benchmark_medium(CommandLine& commandLine)
 {
     size_t times = 1;
 
     size_t vmSize = 1ul * 1024 * 1024 * 1024;
-    size_t objectSizeMin = 2 * 1024;
+    size_t objectSizeMin = 1 * 1024;
     size_t objectSizeMax = 8 * 1024;
-    if (isParallel)
+    if (commandLine.isParallel())
         vmSize /= cpuCount();
 
     size_t objectCount = vmSize / objectSizeMin;
@@ -58,7 +58,7 @@ void benchmark_medium(bool isParallel)
         bzero(objects, objectCount * sizeof(Object));
 
         for (size_t i = 0, remaining = vmSize; remaining > objectSizeMin; ++i) {
-            size_t size = min(remaining, max(objectSizeMin, random() % objectSizeMax));
+            size_t size = min<size_t>(remaining, max<size_t>(objectSizeMin, random() % objectSizeMax));
             objects[i] = { (double*)mbmalloc(size), size };
             bzero(objects[i].p, size);
             remaining -= size;

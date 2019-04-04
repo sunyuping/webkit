@@ -25,8 +25,6 @@
 
 #import "ExtensionManagerWindowController.h"
 
-#if WK_API_ENABLED
-
 #import "AppDelegate.h"
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/_WKUserContentExtensionStore.h>
@@ -75,7 +73,7 @@
     
     [openPanel beginSheetModalForWindow:self.window completionHandler:^(NSInteger result)
     {
-        if (result != NSFileHandlingPanelOKButton)
+        if (result != NSModalResponseOK)
             return;
 
         NSURL *url = [openPanel.URLs objectAtIndex:0];
@@ -102,6 +100,7 @@
 
             [mutableInstalledContentExtensions addObject:identifier];
             [defaults setObject:mutableInstalledContentExtensions forKey:@"InstalledContentExtensions"];
+            [mutableInstalledContentExtensions release];
 
             [arrayController addObject:identifier];
 
@@ -131,6 +130,7 @@
         NSMutableArray *installedContentExtensions = [[defaults arrayForKey:@"InstalledContentExtensions"] mutableCopy];
         [installedContentExtensions removeObject:identifierToRemove];
         [defaults setObject:installedContentExtensions forKey:@"InstalledContentExtensions"];
+        [installedContentExtensions release];
 
         [arrayController removeObjectAtArrangedObjectIndex:index];
         BrowserAppDelegate* appDelegate = (BrowserAppDelegate *)[[NSApplication sharedApplication] delegate];
@@ -139,5 +139,3 @@
 }
 
 @end
-
-#endif

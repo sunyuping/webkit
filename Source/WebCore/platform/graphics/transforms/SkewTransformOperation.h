@@ -2,7 +2,7 @@
  * Copyright (C) 2000 Lars Knoll (knoll@kde.org)
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2003, 2005-2008, 2017 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Graham Dennis (graham.dennis@gmail.com)
  *
  * This library is free software; you can redistribute it and/or
@@ -22,8 +22,7 @@
  *
  */
 
-#ifndef SkewTransformOperation_h
-#define SkewTransformOperation_h
+#pragma once
 
 #include "TransformOperation.h"
 #include <wtf/Ref.h>
@@ -37,46 +36,42 @@ public:
         return adoptRef(*new SkewTransformOperation(angleX, angleY, type));
     }
 
-    virtual Ref<TransformOperation> clone() const override
+    Ref<TransformOperation> clone() const override
     {
-        return adoptRef(*new SkewTransformOperation(m_angleX, m_angleY, m_type));
+        return adoptRef(*new SkewTransformOperation(m_angleX, m_angleY, type()));
     }
 
     double angleX() const { return m_angleX; }
     double angleY() const { return m_angleY; }
 
 private:
-    virtual bool isIdentity() const override { return m_angleX == 0 && m_angleY == 0; }
-    virtual bool isAffectedByTransformOrigin() const override { return !isIdentity(); }
+    bool isIdentity() const override { return m_angleX == 0 && m_angleY == 0; }
+    bool isAffectedByTransformOrigin() const override { return !isIdentity(); }
 
-    virtual OperationType type() const override { return m_type; }
-    virtual bool isSameType(const TransformOperation& o) const override { return o.type() == m_type; }
+    bool operator==(const TransformOperation&) const override;
 
-    virtual bool operator==(const TransformOperation&) const override;
-
-    virtual bool apply(TransformationMatrix& transform, const FloatSize&) const override
+    bool apply(TransformationMatrix& transform, const FloatSize&) const override
     {
         transform.skew(m_angleX, m_angleY);
         return false;
     }
 
-    virtual Ref<TransformOperation> blend(const TransformOperation* from, double progress, bool blendToIdentity = false) override;
+    Ref<TransformOperation> blend(const TransformOperation* from, double progress, bool blendToIdentity = false) override;
+
+    void dump(WTF::TextStream&) const final;
     
     SkewTransformOperation(double angleX, double angleY, OperationType type)
-        : m_angleX(angleX)
+        : TransformOperation(type)
+        , m_angleX(angleX)
         , m_angleY(angleY)
-        , m_type(type)
     {
         ASSERT(isSkewTransformOperationType());
     }
     
     double m_angleX;
     double m_angleY;
-    OperationType m_type;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(WebCore::SkewTransformOperation, isSkewTransformOperationType())
-
-#endif // SkewTransformOperation_h

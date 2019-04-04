@@ -32,8 +32,8 @@
 #include "LocalWindowsContext.h"
 #include "PlatformMouseEvent.h"
 #include "Scrollbar.h"
-#include "SoftLinking.h"
 #include "SystemInfo.h"
+#include <wtf/SoftLinking.h>
 #include <wtf/win/GDIObject.h>
 
 // Generic state constants
@@ -61,7 +61,6 @@
 #define TS_LEFT_BUTTON_HOVER  19
 #define TS_RIGHT_BUTTON_HOVER   20
 
-using namespace std;
 
 namespace WebCore {
 
@@ -105,9 +104,7 @@ ScrollbarThemeWin::ScrollbarThemeWin()
     }
 }
 
-ScrollbarThemeWin::~ScrollbarThemeWin()
-{
-}
+ScrollbarThemeWin::~ScrollbarThemeWin() = default;
 
 static int scrollbarThicknessInPixels()
 {
@@ -115,7 +112,7 @@ static int scrollbarThicknessInPixels()
     return thickness;
 }
 
-int ScrollbarThemeWin::scrollbarThickness(ScrollbarControlSize)
+int ScrollbarThemeWin::scrollbarThickness(ScrollbarControlSize, ScrollbarExpansionState)
 {
     float inverseScaleFactor = 1.0f / deviceScaleFactorForWindow(0);
     return clampTo<int>(inverseScaleFactor * scrollbarThicknessInPixels());
@@ -193,9 +190,24 @@ IntRect ScrollbarThemeWin::trackRect(Scrollbar& scrollbar, bool)
     return IntRect(scrollbar.x(), scrollbar.y() + thickness, thickness, scrollbar.height() - 2 * thickness);
 }
 
-bool ScrollbarThemeWin::shouldCenterOnThumb(Scrollbar&, const PlatformMouseEvent& evt)
+ScrollbarButtonPressAction ScrollbarThemeWin::handleMousePressEvent(Scrollbar&, const PlatformMouseEvent& event, ScrollbarPart pressedPart)
 {
-    return evt.shiftKey() && evt.button() == LeftButton;
+    if (event.button() == RightButton)
+        return ScrollbarButtonPressAction::None;
+
+    switch (pressedPart) {
+    case BackTrackPart:
+    case ForwardTrackPart:
+        if (event.shiftKey() && event.button() == LeftButton)
+            return ScrollbarButtonPressAction::CenterOnThumb;
+        break;
+    case ThumbPart:
+        return ScrollbarButtonPressAction::StartDrag;
+    default:
+        break;
+    }
+
+    return ScrollbarButtonPressAction::Scroll;
 }
 
 bool ScrollbarThemeWin::shouldSnapBackToDragOrigin(Scrollbar& scrollbar, const PlatformMouseEvent& evt)
@@ -316,15 +328,26 @@ void ScrollbarThemeWin::paintButton(GraphicsContext& context, Scrollbar& scrollb
     if (scrollbarTheme)
         alphaBlend = IsThemeBackgroundPartiallyTransparent(scrollbarTheme, SP_BUTTON, xpState);
 
-    LocalWindowsContext windowsContext(context, rect, alphaBlend);
-    RECT themeRect(rect);
-    if (scrollbarTheme)
-        DrawThemeBackground(scrollbarTheme, windowsContext.hdc(), SP_BUTTON, xpState, &themeRect, 0);
-    else
-        ::DrawFrameControl(windowsContext.hdc(), &themeRect, DFC_SCROLL, classicState);
+    // There seems to be a bug in DrawThemeBackground when the device context is scaled.
+    // We can work around this by scaling the drawing rectangle instead.
+    auto scaleFactor = context.scaleFactor().width();
+    auto scaledRect = rect;
+    scaledRect.scale(scaleFactor);
+    context.save();
+    context.scale(FloatSize(1.0f / scaleFactor, 1.0f / scaleFactor));
 
-    if (!alphaBlend && !context.isInTransparencyLayer())
-        DIBPixelData::setRGBABitmapAlpha(windowsContext.hdc(), rect, 255);
+    {
+        LocalWindowsContext windowsContext(context, scaledRect, alphaBlend);
+        RECT themeRect(scaledRect);
+        if (scrollbarTheme)
+            DrawThemeBackground(scrollbarTheme, windowsContext.hdc(), SP_BUTTON, xpState, &themeRect, 0);
+        else
+            ::DrawFrameControl(windowsContext.hdc(), &themeRect, DFC_SCROLL, classicState);
+
+        if (!alphaBlend && !context.isInTransparencyLayer())
+            DIBPixelData::setRGBABitmapAlpha(windowsContext.hdc(), scaledRect, 255);
+    }
+    context.restore();
 }
 
 static IntRect gripperRect(int thickness, const IntRect& thumbRect)

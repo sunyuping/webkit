@@ -26,18 +26,20 @@
 #import "config.h"
 #import "CDMSessionAVFoundationObjC.h"
 
-#if ENABLE(ENCRYPTED_MEDIA_V2)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
-#import "CDM.h"
-#import "CDMSession.h"
-#import "ExceptionCode.h"
+#import "LegacyCDM.h"
+#import "LegacyCDMSession.h"
 #import "MediaPlayer.h"
 #import "MediaPlayerPrivateAVFoundationObjC.h"
-#import "SoftLinking.h"
-#import "UUID.h"
 #import "WebCoreNSErrorExtras.h"
-#import <AVFoundation/AVFoundation.h>
+#import <AVFoundation/AVAsset.h>
+#import <AVFoundation/AVAssetResourceLoader.h>
+#import <JavaScriptCore/TypedArrayInlines.h>
 #import <objc/objc-runtime.h>
+#import <wtf/MainThread.h>
+#import <wtf/SoftLinking.h>
+#import <wtf/UUID.h>
 
 SOFT_LINK_FRAMEWORK_OPTIONAL(AVFoundation)
 SOFT_LINK_CLASS(AVFoundation, AVURLAsset)
@@ -47,10 +49,14 @@ SOFT_LINK_CLASS(AVFoundation, AVAssetResourceLoadingRequest)
 
 namespace WebCore {
 
-CDMSessionAVFoundationObjC::CDMSessionAVFoundationObjC(MediaPlayerPrivateAVFoundationObjC* parent, CDMSessionClient* client)
-    : m_parent(parent)
+CDMSessionAVFoundationObjC::CDMSessionAVFoundationObjC(MediaPlayerPrivateAVFoundationObjC* parent, LegacyCDMSessionClient* client)
+    : m_parent(makeWeakPtr(*parent))
     , m_client(client)
     , m_sessionId(createCanonicalUUIDString())
+{
+}
+
+CDMSessionAVFoundationObjC::~CDMSessionAVFoundationObjC()
 {
 }
 
@@ -58,17 +64,22 @@ RefPtr<Uint8Array> CDMSessionAVFoundationObjC::generateKeyRequest(const String& 
 {
     UNUSED_PARAM(mimeType);
 
+    if (!m_parent) {
+        errorCode = LegacyCDM::UnknownError;
+        return nullptr;
+    }
+
     String keyURI;
     String keyID;
     RefPtr<Uint8Array> certificate;
     if (!MediaPlayerPrivateAVFoundationObjC::extractKeyURIKeyIDAndCertificateFromInitData(initData, keyURI, keyID, certificate)) {
-        errorCode = CDM::UnknownError;
+        errorCode = LegacyCDM::UnknownError;
         return nullptr;
     }
 
     m_request = m_parent->takeRequestForKeyURI(keyURI);
     if (!m_request) {
-        errorCode = CDM::UnknownError;
+        errorCode = LegacyCDM::UnknownError;
         return nullptr;
     }
 
@@ -79,7 +90,7 @@ RefPtr<Uint8Array> CDMSessionAVFoundationObjC::generateKeyRequest(const String& 
     RetainPtr<NSData> keyRequest = [m_request streamingContentKeyRequestDataForApp:certificateData.get() contentIdentifier:assetID.get() options:nil error:&nsError];
 
     if (!keyRequest) {
-        errorCode = CDM::DomainError;
+        errorCode = LegacyCDM::DomainError;
         systemCode = mediaKeyErrorSystemCode(nsError);
         return nullptr;
     }
@@ -88,8 +99,9 @@ RefPtr<Uint8Array> CDMSessionAVFoundationObjC::generateKeyRequest(const String& 
     systemCode = 0;
     destinationURL = String();
 
-    RefPtr<ArrayBuffer> keyRequestBuffer = ArrayBuffer::create([keyRequest.get() bytes], [keyRequest.get() length]);
-    return Uint8Array::create(keyRequestBuffer, 0, keyRequestBuffer->byteLength());
+    auto keyRequestBuffer = ArrayBuffer::create([keyRequest.get() bytes], [keyRequest.get() length]);
+    unsigned byteLength = keyRequestBuffer->byteLength();
+    return Uint8Array::tryCreate(WTFMove(keyRequestBuffer), 0, byteLength);
 }
 
 void CDMSessionAVFoundationObjC::releaseKeys()
@@ -106,6 +118,15 @@ bool CDMSessionAVFoundationObjC::update(Uint8Array* key, RefPtr<Uint8Array>& nex
     nextMessage = nullptr;
 
     return true;
+}
+
+void CDMSessionAVFoundationObjC::playerDidReceiveError(NSError *error)
+{
+    if (!m_client)
+        return;
+
+    unsigned long code = mediaKeyErrorSystemCode(error);
+    m_client->sendError(LegacyCDMSessionClient::MediaKeyErrorDomain, code);
 }
 
 }

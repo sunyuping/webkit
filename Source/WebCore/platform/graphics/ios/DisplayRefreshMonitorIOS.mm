@@ -26,15 +26,13 @@
 #import "config.h"
 #import "DisplayRefreshMonitorIOS.h"
 
-#if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
+#if USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR) && PLATFORM(IOS_FAMILY)
 
 #import "WebCoreThread.h"
-#import <QuartzCore/QuartzCore.h>
-#import <wtf/CurrentTime.h>
+#import <QuartzCore/CADisplayLink.h>
 #import <wtf/MainThread.h>
 
-using namespace WebCore;
-
+using WebCore::DisplayRefreshMonitorIOS;
 @interface WebDisplayLinkHandler : NSObject
 {
     DisplayRefreshMonitorIOS* m_monitor;
@@ -56,6 +54,7 @@ using namespace WebCore;
         // Note that CADisplayLink retains its target (self), so a call to -invalidate is needed on teardown.
         m_displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(handleDisplayLink:)];
         [m_displayLink addToRunLoop:WebThreadNSRunLoop() forMode:NSDefaultRunLoopMode];
+        m_displayLink.preferredFramesPerSecond = 60;
     }
     return self;
 }
@@ -68,8 +67,9 @@ using namespace WebCore;
 
 - (void)handleDisplayLink:(CADisplayLink *)sender
 {
+    UNUSED_PARAM(sender);
     ASSERT(isMainThread());
-    m_monitor->displayLinkFired(sender.timestamp);
+    m_monitor->displayLinkFired();
 }
 
 - (void)invalidate
@@ -106,23 +106,15 @@ bool DisplayRefreshMonitorIOS::requestRefreshCallback()
     return true;
 }
 
-static double mediaTimeToCurrentTime(CFTimeInterval t)
-{
-    // FIXME: This may be a no-op if CACurrentMediaTime is *guaranteed* to be mach_absolute_time.
-    return monotonicallyIncreasingTime() + t - CACurrentMediaTime();
-}
-
-void DisplayRefreshMonitorIOS::displayLinkFired(double nowSeconds)
+void DisplayRefreshMonitorIOS::displayLinkFired()
 {
     if (!isPreviousFrameDone())
         return;
 
     setIsPreviousFrameDone(false);
-    setMonotonicAnimationStartTime(mediaTimeToCurrentTime(nowSeconds));
-
     handleDisplayRefreshedNotificationOnMainThread(this);
 }
 
 }
 
-#endif // USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR)
+#endif // USE(REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR) && PLATFORM(IOS_FAMILY)

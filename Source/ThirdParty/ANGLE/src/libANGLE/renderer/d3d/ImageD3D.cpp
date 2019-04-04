@@ -23,26 +23,40 @@ ImageD3D::ImageD3D()
       mHeight(0),
       mDepth(0),
       mInternalFormat(GL_NONE),
-      mTarget(GL_NONE),
       mRenderable(false),
+      mTarget(GL_NONE),
       mDirty(false)
 {
 }
 
-gl::Error ImageD3D::copy(const gl::Offset &destOffset, const gl::Rectangle &sourceArea, const gl::Framebuffer *source)
+gl::Error ImageD3D::setManagedSurface2D(const gl::Context *context,
+                                        TextureStorage *storage,
+                                        int level)
 {
-    const gl::FramebufferAttachment *srcAttachment = source->getReadColorbuffer();
-    ASSERT(srcAttachment);
-
-    RenderTargetD3D *renderTarget = NULL;
-    gl::Error error = srcAttachment->getRenderTarget(&renderTarget);
-    if (error.isError())
-    {
-        return error;
-    }
-
-    ASSERT(renderTarget);
-    return copy(destOffset, sourceArea, renderTarget);
+    return gl::NoError();
 }
 
+gl::Error ImageD3D::setManagedSurfaceCube(const gl::Context *context,
+                                          TextureStorage *storage,
+                                          int face,
+                                          int level)
+{
+    return gl::NoError();
 }
+
+gl::Error ImageD3D::setManagedSurface3D(const gl::Context *context,
+                                        TextureStorage *storage,
+                                        int level)
+{
+    return gl::NoError();
+}
+
+gl::Error ImageD3D::setManagedSurface2DArray(const gl::Context *context,
+                                             TextureStorage *storage,
+                                             int layer,
+                                             int level)
+{
+    return gl::NoError();
+}
+
+}  // namespace rx

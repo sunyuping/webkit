@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ContentExtensionsBackend_h
-#define ContentExtensionsBackend_h
+#pragma once
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
@@ -38,7 +37,6 @@ namespace WebCore {
 
 class DocumentLoader;
 class ResourceRequest;
-class URL;
 
 struct ResourceLoadInfo;
 
@@ -55,28 +53,28 @@ class ContentExtensionsBackend {
 public:
     // - Rule management interface. This can be used by upper layer.
 
-    // Set a list of rules for a given name. If there were existing rules for the name, they are overriden.
+    // Set a list of rules for a given name. If there were existing rules for the name, they are overridden.
     // The identifier cannot be empty.
-    WEBCORE_EXPORT void addContentExtension(const String& identifier, RefPtr<CompiledContentExtension>);
+    WEBCORE_EXPORT void addContentExtension(const String& identifier, Ref<CompiledContentExtension>, ContentExtension::ShouldCompileCSS = ContentExtension::ShouldCompileCSS::Yes);
     WEBCORE_EXPORT void removeContentExtension(const String& identifier);
     WEBCORE_EXPORT void removeAllContentExtensions();
 
     // - Internal WebCore Interface.
-    WEBCORE_EXPORT Vector<Action> actionsForResourceLoad(const ResourceLoadInfo&) const;
+    WEBCORE_EXPORT Vector<ActionsFromContentRuleList> actionsForResourceLoad(const ResourceLoadInfo&) const;
     WEBCORE_EXPORT StyleSheetContents* globalDisplayNoneStyleSheet(const String& identifier) const;
 
-    BlockedStatus processContentExtensionRulesForLoad(ResourceRequest&, ResourceType, DocumentLoader& initiatingDocumentLoader);
+    ContentRuleListResults processContentRuleListsForLoad(const URL&, ResourceType, DocumentLoader& initiatingDocumentLoader);
+    WEBCORE_EXPORT ContentRuleListResults processContentRuleListsForPingLoad(const URL&, const URL& mainDocumentURL);
 
     static const String& displayNoneCSSRule();
 
+    void forEach(const Function<void(const String&, ContentExtension&)>&);
+
 private:
-    HashMap<String, RefPtr<ContentExtension>> m_contentExtensions;
+    HashMap<String, Ref<ContentExtension>> m_contentExtensions;
 };
 
 } // namespace ContentExtensions
-
 } // namespace WebCore
 
 #endif // ENABLE(CONTENT_EXTENSIONS)
-
-#endif // ContentExtensionsBackend_h

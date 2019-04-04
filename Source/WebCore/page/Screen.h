@@ -27,21 +27,18 @@
  */
 
 
-#ifndef Screen_h
-#define Screen_h
+#pragma once
 
 #include "DOMWindowProperty.h"
 #include "ScriptWrappable.h"
-#include <wtf/PassRefPtr.h>
 #include <wtf/RefCounted.h>
+#include <wtf/Ref.h>
 
 namespace WebCore {
 
-class Frame;
-
 class Screen final : public ScriptWrappable, public RefCounted<Screen>, public DOMWindowProperty {
 public:
-    static Ref<Screen> create(Frame* frame) { return adoptRef(*new Screen(frame)); }
+    static Ref<Screen> create(DOMWindow& window) { return adoptRef(*new Screen(window)); }
 
     unsigned height() const;
     unsigned width() const;
@@ -53,9 +50,7 @@ public:
     unsigned availWidth() const;
 
 private:
-    explicit Screen(Frame*);
+    explicit Screen(DOMWindow&);
 };
 
 } // namespace WebCore
-
-#endif // Screen_h

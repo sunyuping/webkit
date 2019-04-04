@@ -26,8 +26,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SamplingCounter_h
-#define SamplingCounter_h
+#pragma once
 
 #include <stdint.h>
 #include <wtf/Assertions.h>
@@ -74,7 +73,7 @@ protected:
     AbstractSamplingCounter** m_referer;
     // Null object used to detect end of static chain.
     static AbstractSamplingCounter s_abstractSamplingCounterChainEnd;
-    JS_EXPORTDATA static AbstractSamplingCounter* s_abstractSamplingCounterChain;
+    JS_EXPORT_PRIVATE static AbstractSamplingCounter* s_abstractSamplingCounterChain;
     static bool s_completed;
 };
 
@@ -172,7 +171,3 @@ public:
 #endif
 
 } // namespace JSC
-
-#endif // SamplingCounter_h
-
-

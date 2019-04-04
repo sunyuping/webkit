@@ -1,7 +1,5 @@
 /*
- * This file is part of the theme implementation for form controls in WebCore.
- *
- * Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Apple Inc.
+ * Copyright (C) 2005-2017 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -19,14 +17,12 @@
  * Boston, MA 02110-1301, USA.
  *
  */
-#if !PLATFORM(IOS)
 
-#ifndef RenderThemeMac_h
-#define RenderThemeMac_h
+#pragma once
 
-#import "RenderTheme.h"
-#import <wtf/RetainPtr.h>
-#import <wtf/HashMap.h>
+#if PLATFORM(MAC)
+
+#import "RenderThemeCocoa.h"
 
 #if ENABLE(SERVICE_CONTROLS)
 OBJC_CLASS NSServicesRolloverButtonCell;
@@ -38,150 +34,157 @@ namespace WebCore {
 
 class RenderProgress;
 class RenderStyle;
+
 struct AttachmentLayout;
 
-class RenderThemeMac final : public RenderTheme {
+class RenderThemeMac final : public RenderThemeCocoa {
 public:
-    static Ref<RenderTheme> create();
+    friend NeverDestroyed<RenderThemeMac>;
 
     // A method asking if the control changes its tint when the window has focus or not.
-    virtual bool controlSupportsTints(const RenderObject&) const override;
+    bool controlSupportsTints(const RenderObject&) const final;
 
     // A general method asking if any control tinting is supported at all.
-    virtual bool supportsControlTints() const override { return true; }
+    bool supportsControlTints() const final { return true; }
 
-    virtual void adjustRepaintRect(const RenderObject&, FloatRect&) override;
+    void adjustRepaintRect(const RenderObject&, FloatRect&) final;
 
-    virtual bool isControlStyled(const RenderStyle&, const BorderData&, const FillLayer&, const Color& backgroundColor) const override;
+    bool isControlStyled(const RenderStyle&, const BorderData&, const FillLayer&, const Color& backgroundColor) const final;
 
-    virtual Color platformActiveSelectionBackgroundColor() const override;
-    virtual Color platformInactiveSelectionBackgroundColor() const override;
-    virtual Color platformActiveListBoxSelectionBackgroundColor() const override;
-    virtual Color platformActiveListBoxSelectionForegroundColor() const override;
-    virtual Color platformInactiveListBoxSelectionBackgroundColor() const override;
-    virtual Color platformInactiveListBoxSelectionForegroundColor() const override;
-    virtual Color platformFocusRingColor() const override;
+    bool supportsSelectionForegroundColors(OptionSet<StyleColor::Options>) const final;
 
-    virtual ScrollbarControlSize scrollbarControlSizeForPart(ControlPart) override { return SmallScrollbar; }
+    Color platformActiveSelectionBackgroundColor(OptionSet<StyleColor::Options>) const final;
+    Color platformActiveSelectionForegroundColor(OptionSet<StyleColor::Options>) const final;
+    Color transformSelectionBackgroundColor(const Color&, OptionSet<StyleColor::Options>) const final;
+    Color platformInactiveSelectionBackgroundColor(OptionSet<StyleColor::Options>) const final;
+    Color platformInactiveSelectionForegroundColor(OptionSet<StyleColor::Options>) const final;
+    Color platformActiveListBoxSelectionBackgroundColor(OptionSet<StyleColor::Options>) const final;
+    Color platformActiveListBoxSelectionForegroundColor(OptionSet<StyleColor::Options>) const final;
+    Color platformInactiveListBoxSelectionBackgroundColor(OptionSet<StyleColor::Options>) const final;
+    Color platformInactiveListBoxSelectionForegroundColor(OptionSet<StyleColor::Options>) const final;
+    Color platformFocusRingColor(OptionSet<StyleColor::Options>) const final;
+    Color platformActiveTextSearchHighlightColor(OptionSet<StyleColor::Options>) const final;
+    Color platformInactiveTextSearchHighlightColor(OptionSet<StyleColor::Options>) const final;
 
-    virtual void platformColorsDidChange() override;
+    ScrollbarControlSize scrollbarControlSizeForPart(ControlPart) final { return SmallScrollbar; }
 
-    virtual int minimumMenuListSize(RenderStyle&) const override;
+    int minimumMenuListSize(const RenderStyle&) const final;
 
-    virtual void adjustSliderThumbSize(RenderStyle&, Element*) const override;
+    void adjustSliderThumbSize(RenderStyle&, const Element*) const final;
 
 #if ENABLE(DATALIST_ELEMENT)
-    virtual IntSize sliderTickSize() const override;
-    virtual int sliderTickOffsetFromTrackCenter() const override;
+    IntSize sliderTickSize() const final;
+    int sliderTickOffsetFromTrackCenter() const final;
 #endif
 
-    virtual int popupInternalPaddingLeft(RenderStyle&) const override;
-    virtual int popupInternalPaddingRight(RenderStyle&) const override;
-    virtual int popupInternalPaddingTop(RenderStyle&) const override;
-    virtual int popupInternalPaddingBottom(RenderStyle&) const override;
-    virtual PopupMenuStyle::PopupMenuSize popupMenuSize(const RenderStyle&, IntRect&) const override;
+    LengthBox popupInternalPaddingBox(const RenderStyle&) const final;
+    PopupMenuStyle::PopupMenuSize popupMenuSize(const RenderStyle&, IntRect&) const final;
 
-    virtual bool popsMenuByArrowKeys() const override { return true; }
+    bool popsMenuByArrowKeys() const final { return true; }
 
 #if ENABLE(METER_ELEMENT)
-    virtual IntSize meterSizeForBounds(const RenderMeter&, const IntRect&) const override;
-    virtual bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    virtual bool supportsMeter(ControlPart) const override;
+    IntSize meterSizeForBounds(const RenderMeter&, const IntRect&) const final;
+    bool paintMeter(const RenderObject&, const PaintInfo&, const IntRect&) final;
+    bool supportsMeter(ControlPart) const final;
 #endif
 
     // Returns the repeat interval of the animation for the progress bar.
-    virtual double animationRepeatIntervalForProgressBar(RenderProgress&) const override;
+    Seconds animationRepeatIntervalForProgressBar(RenderProgress&) const final;
     // Returns the duration of the animation for the progress bar.
-    virtual double animationDurationForProgressBar(RenderProgress&) const override;
-    virtual IntRect progressBarRectForBounds(const RenderObject&, const IntRect&) const override;
+    Seconds animationDurationForProgressBar(RenderProgress&) const final;
+    IntRect progressBarRectForBounds(const RenderObject&, const IntRect&) const final;
 
     // Controls color values returned from platformFocusRingColor(). systemColor() will be used when false.
     bool usesTestModeFocusRingColor() const;
     // A view associated to the contained document.
     NSView* documentViewFor(const RenderObject&) const;
 
-protected:
+private:
     RenderThemeMac();
-    virtual ~RenderThemeMac();
 
     // System fonts.
-    virtual void updateCachedSystemFontDescription(CSSValueID, FontCascadeDescription&) const override;
+    void updateCachedSystemFontDescription(CSSValueID, FontCascadeDescription&) const final;
 
 #if ENABLE(VIDEO)
     // Media controls
-    virtual String mediaControlsStyleSheet() override;
-    virtual String mediaControlsScript() override;
+    String mediaControlsStyleSheet() final;
+    String modernMediaControlsStyleSheet() final;
+    String mediaControlsScript() final;
+    String mediaControlsBase64StringForIconNameAndType(const String&, const String&) final;
 #endif
 
 #if ENABLE(SERVICE_CONTROLS)
-    virtual String imageControlsStyleSheet() const override;
+    String imageControlsStyleSheet() const final;
 #endif
 
-    virtual bool supportsSelectionForegroundColors() const override { return false; }
+    bool paintTextField(const RenderObject&, const PaintInfo&, const FloatRect&) final;
+    void adjustTextFieldStyle(StyleResolver&, RenderStyle&, const Element*) const final;
 
-    virtual bool paintTextField(const RenderObject&, const PaintInfo&, const FloatRect&) override;
-    virtual void adjustTextFieldStyle(StyleResolver&, RenderStyle&, Element*) const override;
+    bool paintTextArea(const RenderObject&, const PaintInfo&, const FloatRect&) final;
+    void adjustTextAreaStyle(StyleResolver&, RenderStyle&, const Element*) const final;
 
-    virtual bool paintTextArea(const RenderObject&, const PaintInfo&, const FloatRect&) override;
-    virtual void adjustTextAreaStyle(StyleResolver&, RenderStyle&, Element*) const override;
+    bool paintMenuList(const RenderObject&, const PaintInfo&, const FloatRect&) final;
+    void adjustMenuListStyle(StyleResolver&, RenderStyle&, const Element*) const final;
 
-    virtual bool paintMenuList(const RenderObject&, const PaintInfo&, const FloatRect&) override;
-    virtual void adjustMenuListStyle(StyleResolver&, RenderStyle&, Element*) const override;
+    bool paintMenuListButtonDecorations(const RenderBox&, const PaintInfo&, const FloatRect&) final;
+    void adjustMenuListButtonStyle(StyleResolver&, RenderStyle&, const Element*) const final;
 
-    virtual bool paintMenuListButtonDecorations(const RenderBox&, const PaintInfo&, const FloatRect&) override;
-    virtual void adjustMenuListButtonStyle(StyleResolver&, RenderStyle&, Element*) const override;
+    void adjustProgressBarStyle(StyleResolver&, RenderStyle&, const Element*) const final;
+    bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&) final;
 
-    virtual void adjustProgressBarStyle(StyleResolver&, RenderStyle&, Element*) const override;
-    virtual bool paintProgressBar(const RenderObject&, const PaintInfo&, const IntRect&) override;
+    bool paintSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&) final;
+    void adjustSliderTrackStyle(StyleResolver&, RenderStyle&, const Element*) const final;
 
-    virtual bool paintSliderTrack(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    virtual void adjustSliderTrackStyle(StyleResolver&, RenderStyle&, Element*) const override;
+    bool paintSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&) final;
+    void adjustSliderThumbStyle(StyleResolver&, RenderStyle&, const Element*) const final;
 
-    virtual bool paintSliderThumb(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    virtual void adjustSliderThumbStyle(StyleResolver&, RenderStyle&, Element*) const override;
+    bool paintSearchField(const RenderObject&, const PaintInfo&, const IntRect&) final;
+    void adjustSearchFieldStyle(StyleResolver&, RenderStyle&, const Element*) const final;
 
-    virtual bool paintSearchField(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    virtual void adjustSearchFieldStyle(StyleResolver&, RenderStyle&, Element*) const override;
+    void adjustSearchFieldCancelButtonStyle(StyleResolver&, RenderStyle&, const Element*) const final;
+    bool paintSearchFieldCancelButton(const RenderBox&, const PaintInfo&, const IntRect&) final;
 
-    virtual void adjustSearchFieldCancelButtonStyle(StyleResolver&, RenderStyle&, Element*) const override;
-    virtual bool paintSearchFieldCancelButton(const RenderBox&, const PaintInfo&, const IntRect&) override;
+    void adjustSearchFieldDecorationPartStyle(StyleResolver&, RenderStyle&, const Element*) const final;
+    bool paintSearchFieldDecorationPart(const RenderObject&, const PaintInfo&, const IntRect&) final;
 
-    virtual void adjustSearchFieldDecorationPartStyle(StyleResolver&, RenderStyle&, Element*) const override;
-    virtual bool paintSearchFieldDecorationPart(const RenderObject&, const PaintInfo&, const IntRect&) override;
+    void adjustSearchFieldResultsDecorationPartStyle(StyleResolver&, RenderStyle&, const Element*) const final;
+    bool paintSearchFieldResultsDecorationPart(const RenderBox&, const PaintInfo&, const IntRect&) final;
 
-    virtual void adjustSearchFieldResultsDecorationPartStyle(StyleResolver&, RenderStyle&, Element*) const override;
-    virtual bool paintSearchFieldResultsDecorationPart(const RenderBox&, const PaintInfo&, const IntRect&) override;
+    void adjustSearchFieldResultsButtonStyle(StyleResolver&, RenderStyle&, const Element*) const final;
+    bool paintSearchFieldResultsButton(const RenderBox&, const PaintInfo&, const IntRect&) final;
 
-    virtual void adjustSearchFieldResultsButtonStyle(StyleResolver&, RenderStyle&, Element*) const override;
-    virtual bool paintSearchFieldResultsButton(const RenderBox&, const PaintInfo&, const IntRect&) override;
+#if ENABLE(DATALIST_ELEMENT)
+    void paintListButtonForInput(const RenderObject&, GraphicsContext&, const FloatRect&);
+    void adjustListButtonStyle(StyleResolver&, RenderStyle&, const Element*) const final;
+#endif
 
 #if ENABLE(VIDEO)
-    virtual bool supportsClosedCaptioning() const override { return true; }
+    bool supportsClosedCaptioning() const final { return true; }
 #endif
 
-    virtual bool shouldHaveCapsLockIndicator(HTMLInputElement&) const override;
-
-    virtual bool paintSnapshottedPluginOverlay(const RenderObject&, const PaintInfo&, const IntRect&) override;
+    bool paintSnapshottedPluginOverlay(const RenderObject&, const PaintInfo&, const IntRect&) final;
 
 #if ENABLE(ATTACHMENT_ELEMENT)
-    virtual LayoutSize attachmentIntrinsicSize(const RenderAttachment&) const override;
-    virtual int attachmentBaseline(const RenderAttachment&) const override;
-    virtual bool paintAttachment(const RenderObject&, const PaintInfo&, const IntRect&) override;
+    LayoutSize attachmentIntrinsicSize(const RenderAttachment&) const final;
+    int attachmentBaseline(const RenderAttachment&) const final;
+    bool paintAttachment(const RenderObject&, const PaintInfo&, const IntRect&) final;
 #endif
 
 private:
-    virtual String fileListNameForWidth(const FileList*, const FontCascade&, int width, bool multipleFilesAllowed) const override;
+    String fileListNameForWidth(const FileList*, const FontCascade&, int width, bool multipleFilesAllowed) const final;
 
-    virtual Color systemColor(CSSValueID) const override;
+    Color systemColor(CSSValueID, OptionSet<StyleColor::Options>) const final;
+
+    void purgeCaches() final;
 
     // Get the control size based off the font. Used by some of the controls (like buttons).
-    NSControlSize controlSizeForFont(RenderStyle&) const;
-    NSControlSize controlSizeForSystemFont(RenderStyle&) const;
+    NSControlSize controlSizeForFont(const RenderStyle&) const;
+    NSControlSize controlSizeForSystemFont(const RenderStyle&) const;
     NSControlSize controlSizeForCell(NSCell*, const IntSize* sizes, const IntSize& minSize, float zoomLevel = 1.0f) const;
     void setControlSize(NSCell*, const IntSize* sizes, const IntSize& minSize, float zoomLevel = 1.0f);
     void setSizeFromFont(RenderStyle&, const IntSize* sizes) const;
-    IntSize sizeForFont(RenderStyle&, const IntSize* sizes) const;
-    IntSize sizeForSystemFont(RenderStyle&, const IntSize* sizes) const;
+    IntSize sizeForFont(const RenderStyle&, const IntSize* sizes) const;
+    IntSize sizeForSystemFont(const RenderStyle&, const IntSize* sizes) const;
     void setFontFromControlSize(StyleResolver&, RenderStyle&, NSControlSize) const;
 
     void updateCheckedState(NSCell*, const RenderObject&);
@@ -195,7 +198,7 @@ private:
     void setPopupButtonCellState(const RenderObject&, const IntSize&);
     const IntSize* popupButtonSizes() const;
     const int* popupButtonMargins() const;
-    const int* popupButtonPadding(NSControlSize) const;
+    const int* popupButtonPadding(NSControlSize, bool isRTL) const;
     void paintMenuListButtonGradients(const RenderObject&, const PaintInfo&, const IntRect&);
     const IntSize* menuListSizes() const;
 
@@ -211,20 +214,23 @@ private:
     NSSliderCell *sliderThumbHorizontal() const;
     NSSliderCell *sliderThumbVertical() const;
     NSTextFieldCell *textField() const;
+#if ENABLE(DATALIST_ELEMENT)
+    NSCell *listButton() const;
+#endif
 
 #if ENABLE(METER_ELEMENT)
     NSLevelIndicatorStyle levelIndicatorStyleFor(ControlPart) const;
     NSLevelIndicatorCell *levelIndicatorFor(const RenderMeter&) const;
 #endif
 
-    int minimumProgressBarHeight(RenderStyle&) const;
+    int minimumProgressBarHeight(const RenderStyle&) const;
     const IntSize* progressBarSizes() const;
     const int* progressBarMargins(NSControlSize) const;
 
 #if ENABLE(SERVICE_CONTROLS)
-    virtual bool paintImageControlsButton(const RenderObject&, const PaintInfo&, const IntRect&) override;
-    virtual IntSize imageControlsButtonSize(const RenderObject&) const override;
-    virtual IntSize imageControlsButtonPositionOffset() const override;
+    bool paintImageControlsButton(const RenderObject&, const PaintInfo&, const IntRect&) final;
+    IntSize imageControlsButtonSize(const RenderObject&) const final;
+    IntSize imageControlsButtonPositionOffset() const final;
 
     NSServicesRolloverButtonCell *servicesRolloverButtonCell() const;
 #endif
@@ -239,20 +245,21 @@ private:
 #if ENABLE(SERVICE_CONTROLS)
     mutable RetainPtr<NSServicesRolloverButtonCell> m_servicesRolloverButton;
 #endif
+#if ENABLE(DATALIST_ELEMENT)
+    mutable RetainPtr<NSCell> m_listButton;
+#endif
 
-    bool m_isSliderThumbHorizontalPressed;
-    bool m_isSliderThumbVerticalPressed;
-
-    mutable HashMap<int, Color> m_systemColorCache;
+    bool m_isSliderThumbHorizontalPressed { false };
+    bool m_isSliderThumbVerticalPressed { false };
 
     RetainPtr<WebCoreRenderThemeNotificationObserver> m_notificationObserver;
 
+    String m_legacyMediaControlsScript;
     String m_mediaControlsScript;
+    String m_legacyMediaControlsStyleSheet;
     String m_mediaControlsStyleSheet;
 };
 
 } // namespace WebCore
 
-#endif // RenderThemeMac_h
-
-#endif // !PLATFORM(IOS)
+#endif // PLATFORM(MAC)

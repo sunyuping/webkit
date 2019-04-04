@@ -23,10 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebVideoFullscreenControllerAVKit_h
-#define WebVideoFullscreenControllerAVKit_h
 
-#if PLATFORM(IOS)
+#pragma once
+
+#if PLATFORM(IOS_FAMILY)
 
 #import <WebCore/HTMLMediaElementEnums.h>
 
@@ -45,4 +45,4 @@ WEBCORE_EXPORT @interface WebVideoFullscreenController : NSObject
 @end
 
 #endif
-#endif // WebVideoFullscreenControllerAVKit_h
+

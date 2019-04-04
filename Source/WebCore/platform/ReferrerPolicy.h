@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012 Google Inc. All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -29,20 +30,44 @@
  *
  */
 
-#ifndef ReferrerPolicy_h
-#define ReferrerPolicy_h
+#pragma once
+
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
-enum ReferrerPolicy {
-    ReferrerPolicyAlways,
-    ReferrerPolicyDefault,
-    ReferrerPolicyNever,
-    // Same as ReferrerPolicyAlways, except that only the origin of the
-    // referring URL is send.
-    ReferrerPolicyOrigin,
+enum class ReferrerPolicy : uint8_t {
+    EmptyString,
+    NoReferrer,
+    NoReferrerWhenDowngrade,
+    SameOrigin,
+    Origin,
+    StrictOrigin,
+    OriginWhenCrossOrigin,
+    StrictOriginWhenCrossOrigin,
+    UnsafeUrl
 };
+
+enum class ReferrerPolicySource : uint8_t { MetaTag, HTTPHeader, ReferrerPolicyAttribute };
+Optional<ReferrerPolicy> parseReferrerPolicy(StringView, ReferrerPolicySource);
 
 }
 
-#endif // ReferrerPolicy_h
+namespace WTF {
+
+template<> struct EnumTraits<WebCore::ReferrerPolicy> {
+    using values = EnumValues<
+        WebCore::ReferrerPolicy,
+        WebCore::ReferrerPolicy::EmptyString,
+        WebCore::ReferrerPolicy::NoReferrer,
+        WebCore::ReferrerPolicy::NoReferrerWhenDowngrade,
+        WebCore::ReferrerPolicy::SameOrigin,
+        WebCore::ReferrerPolicy::Origin,
+        WebCore::ReferrerPolicy::StrictOrigin,
+        WebCore::ReferrerPolicy::OriginWhenCrossOrigin,
+        WebCore::ReferrerPolicy::StrictOriginWhenCrossOrigin,
+        WebCore::ReferrerPolicy::UnsafeUrl
+    >;
+};
+
+}

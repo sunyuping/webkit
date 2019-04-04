@@ -23,14 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IDBDatabaseIdentifier_h
-#define IDBDatabaseIdentifier_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
+#include "ClientOrigin.h"
 #include "SecurityOriginData.h"
-#include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <pal/SessionID.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -40,67 +39,67 @@ class SecurityOrigin;
 
 class IDBDatabaseIdentifier {
 public:
-    IDBDatabaseIdentifier()
+    IDBDatabaseIdentifier() { }
+    IDBDatabaseIdentifier(WTF::HashTableDeletedValueType)
+        : m_databaseName(WTF::HashTableDeletedValue)
     {
-        m_openingOrigin.port = -2;
-        m_mainFrameOrigin.port = -2;
     }
 
-    IDBDatabaseIdentifier(WTF::HashTableDeletedValueType)
-    {
-        m_openingOrigin.port = -1;
-        m_mainFrameOrigin.port = -1;
-    }
+    WEBCORE_EXPORT IDBDatabaseIdentifier(const String& databaseName, const PAL::SessionID&, SecurityOriginData&& openingOrigin, SecurityOriginData&& mainFrameOrigin);
 
     IDBDatabaseIdentifier isolatedCopy() const;
 
     bool isHashTableDeletedValue() const
     {
-        return m_openingOrigin.port == -1 && m_mainFrameOrigin.port == -1;
+        return m_databaseName.isHashTableDeletedValue();
     }
 
     unsigned hash() const
     {
         unsigned nameHash = StringHash::hash(m_databaseName);
-        unsigned openingProtocolHash = StringHash::hash(m_openingOrigin.protocol);
-        unsigned openingHostHash = StringHash::hash(m_openingOrigin.host);
-        unsigned mainFrameProtocolHash = StringHash::hash(m_mainFrameOrigin.protocol);
-        unsigned mainFrameHostHash = StringHash::hash(m_mainFrameOrigin.host);
-        
-        unsigned hashCodes[7] = { nameHash, openingProtocolHash, openingHostHash, static_cast<unsigned>(m_openingOrigin.port), mainFrameProtocolHash, mainFrameHostHash, static_cast<unsigned>(m_mainFrameOrigin.port) };
+        unsigned sessionIDHash = WTF::SessionIDHash::hash(m_sessionID);
+        unsigned originHash = m_origin.hash();
+
+        unsigned hashCodes[3] = { nameHash, sessionIDHash, originHash };
         return StringHasher::hashMemory<sizeof(hashCodes)>(hashCodes);
     }
 
-    IDBDatabaseIdentifier(const String& databaseName, const SecurityOrigin& openingOrigin, const SecurityOrigin& mainFrameOrigin);
-
     bool isValid() const
     {
-        return !m_databaseName.isNull() && m_openingOrigin.port >= 0 && m_mainFrameOrigin.port >= 0;
+        return !m_databaseName.isNull()
+            && !m_databaseName.isHashTableDeletedValue();
     }
 
     bool isEmpty() const
     {
-        return m_openingOrigin.port == -2 && m_mainFrameOrigin.port == -2;
+        return m_databaseName.isNull();
     }
 
     bool operator==(const IDBDatabaseIdentifier& other) const
     {
-        return other.m_databaseName == m_databaseName
-            && other.m_openingOrigin == m_openingOrigin
-            && other.m_mainFrameOrigin == m_mainFrameOrigin;
+        return other.m_databaseName == m_databaseName && other.m_origin == m_origin;
     }
 
     const String& databaseName() const { return m_databaseName; }
+    const PAL::SessionID& sessionID() const { return m_sessionID; }
+    const ClientOrigin& origin() const { return m_origin; }
 
-    String databaseDirectoryRelativeToRoot(const String& rootDirectory) const;
+    String databaseDirectoryRelativeToRoot(const String& rootDirectory, const String& versionString="v1") const;
+    static String databaseDirectoryRelativeToRoot(const SecurityOriginData& topLevelOrigin, const SecurityOriginData& openingOrigin, const String& rootDirectory, const String& versionString);
 
-#ifndef NDEBUG
+    template<class Encoder> void encode(Encoder&) const;
+    template<class Decoder> static Optional<IDBDatabaseIdentifier> decode(Decoder&);
+
+#if !LOG_DISABLED
     String debugString() const;
 #endif
 
+    bool isRelatedToOrigin(const SecurityOriginData& other) const { return m_origin.isRelated(other); }
+
 private:
     String m_databaseName;
-    SecurityOriginData m_openingOrigin;
+    PAL::SessionID m_sessionID;
+    ClientOrigin m_origin;
     SecurityOriginData m_mainFrameOrigin;
 };
 
@@ -116,6 +115,37 @@ struct IDBDatabaseIdentifierHashTraits : WTF::SimpleClassHashTraits<IDBDatabaseI
     static bool isEmptyValue(const IDBDatabaseIdentifier& info) { return info.isEmpty(); }
 };
 
+template<class Encoder>
+void IDBDatabaseIdentifier::encode(Encoder& encoder) const
+{
+    encoder << m_databaseName << m_sessionID << m_origin;
+}
+
+template<class Decoder>
+Optional<IDBDatabaseIdentifier> IDBDatabaseIdentifier::decode(Decoder& decoder)
+{
+    Optional<String> databaseName;
+    decoder >> databaseName;
+    if (!databaseName)
+        return WTF::nullopt;
+
+    Optional<PAL::SessionID> sessionID;
+    decoder >> sessionID;
+    if (!sessionID)
+        return WTF::nullopt;
+    
+    Optional<ClientOrigin> origin;
+    decoder >> origin;
+    if (!origin)
+        return WTF::nullopt;
+
+    IDBDatabaseIdentifier identifier;
+    identifier.m_databaseName = WTFMove(*databaseName); // FIXME: When decoding from IPC, databaseName can be null, and the non-empty constructor asserts that this is not the case.
+    identifier.m_sessionID = WTFMove(*sessionID);
+    identifier.m_origin = WTFMove(*origin);
+    return identifier;
+}
+
 } // namespace WebCore
 
 namespace WTF {
@@ -128,4 +158,3 @@ template<> struct DefaultHash<WebCore::IDBDatabaseIdentifier> {
 } // namespace WTF
 
 #endif // ENABLE(INDEXED_DATABASE)
-#endif // IDBDatabaseIdentifier_h

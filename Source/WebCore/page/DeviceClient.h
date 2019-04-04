@@ -24,20 +24,17 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DeviceClient_h
-#define DeviceClient_h
+#pragma once
 
 namespace WebCore {
 
 class DeviceClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    virtual ~DeviceClient() { }
+    virtual ~DeviceClient() = default;
 
     virtual void startUpdating() = 0;
     virtual void stopUpdating() = 0;
 };
 
 } // namespace WebCore
-
-#endif // DeviceClient_h

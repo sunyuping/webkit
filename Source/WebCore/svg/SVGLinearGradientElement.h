@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,10 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGLinearGradientElement_h
-#define SVGLinearGradientElement_h
+#pragma once
 
-#include "SVGAnimatedLength.h"
 #include "SVGGradientElement.h"
 #include "SVGNames.h"
 
@@ -30,30 +29,40 @@ namespace WebCore {
 struct LinearGradientAttributes;
 
 class SVGLinearGradientElement final : public SVGGradientElement {
+    WTF_MAKE_ISO_ALLOCATED(SVGLinearGradientElement);
 public:
     static Ref<SVGLinearGradientElement> create(const QualifiedName&, Document&);
 
     bool collectGradientAttributes(LinearGradientAttributes&);
 
+    const SVGLengthValue& x1() const { return m_x1->currentValue(); }
+    const SVGLengthValue& y1() const { return m_y1->currentValue(); }
+    const SVGLengthValue& x2() const { return m_x2->currentValue(); }
+    const SVGLengthValue& y2() const { return m_y2->currentValue(); }
+
+    SVGAnimatedLength& x1Animated() { return m_x1; }
+    SVGAnimatedLength& y1Animated() { return m_y1; }
+    SVGAnimatedLength& x2Animated() { return m_x2; }
+    SVGAnimatedLength& y2Animated() { return m_y2; }
+
 private:
     SVGLinearGradientElement(const QualifiedName&, Document&);
 
-    static bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGLinearGradientElement, SVGGradientElement>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
 
-    virtual bool selfHasRelativeLengths() const override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGLinearGradientElement)
-        DECLARE_ANIMATED_LENGTH(X1, x1)
-        DECLARE_ANIMATED_LENGTH(Y1, y1)
-        DECLARE_ANIMATED_LENGTH(X2, x2)
-        DECLARE_ANIMATED_LENGTH(Y2, y2)
-    END_DECLARE_ANIMATED_PROPERTIES
+    bool selfHasRelativeLengths() const override;
+
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedLength> m_x1 { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_y1 { SVGAnimatedLength::create(this, LengthModeHeight) };
+    Ref<SVGAnimatedLength> m_x2 { SVGAnimatedLength::create(this, LengthModeWidth, "100%") };
+    Ref<SVGAnimatedLength> m_y2 { SVGAnimatedLength::create(this, LengthModeHeight) };
 };
 
 } // namespace WebCore
-
-#endif

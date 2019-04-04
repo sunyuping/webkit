@@ -21,15 +21,16 @@
  *
  */
 
-#ifndef MouseRelatedEvent_h
-#define MouseRelatedEvent_h
+#pragma once
 
 #include "LayoutPoint.h"
 #include "UIEventWithKeyState.h"
 
 namespace WebCore {
 
-struct MouseRelatedEventInit : public UIEventWithKeyStateInit {
+class FrameView;
+
+struct MouseRelatedEventInit : public EventModifierInit {
     int screenX { 0 };
     int screenY { 0 };
 };
@@ -37,6 +38,8 @@ struct MouseRelatedEventInit : public UIEventWithKeyStateInit {
 // Internal only: Helper class for what's common between mouse and wheel events.
 class MouseRelatedEvent : public UIEventWithKeyState {
 public:
+    enum class IsSimulated : uint8_t { Yes, No };
+
     // Note that these values are adjusted to counter the effects of zoom, so that values
     // exposed via DOM APIs are invariant under zooming.
     int screenX() const { return m_screenLocation.x(); }
@@ -49,38 +52,44 @@ public:
     int movementY() const { return m_movementDelta.y(); }
 #endif
     const LayoutPoint& clientLocation() const { return m_clientLocation; }
-    virtual int layerX() override;
-    virtual int layerY() override;
+    int layerX() override;
+    int layerY() override;
     WEBCORE_EXPORT int offsetX();
     WEBCORE_EXPORT int offsetY();
     bool isSimulated() const { return m_isSimulated; }
-    virtual int pageX() const override final;
-    virtual int pageY() const override final;
+    void setIsSimulated(bool value) { m_isSimulated = value; }
+    int pageX() const final;
+    int pageY() const final;
+    FloatPoint locationInRootViewCoordinates() const;
     virtual const LayoutPoint& pageLocation() const;
-    int x() const;
-    int y() const;
+    WEBCORE_EXPORT int x() const;
+    WEBCORE_EXPORT int y() const;
 
     // Page point in "absolute" coordinates (i.e. post-zoomed, page-relative coords,
     // usable with RenderObject::absoluteToLocal).
     const LayoutPoint& absoluteLocation() const { return m_absoluteLocation; }
-    void setAbsoluteLocation(const LayoutPoint& p) { m_absoluteLocation = p; }
+    
+    static FrameView* frameViewFromWindowProxy(WindowProxy*);
+
+    static LayoutPoint pagePointToClientPoint(LayoutPoint pagePoint, FrameView*);
+    static LayoutPoint pagePointToAbsolutePoint(LayoutPoint pagePoint, FrameView*);
 
 protected:
-    MouseRelatedEvent();
-    MouseRelatedEvent(const AtomicString& type, bool canBubble, bool cancelable, double timestamp, AbstractView*,
-        int detail, const IntPoint& screenLocation, const IntPoint& windowLocation,
-#if ENABLE(POINTER_LOCK)
-        const IntPoint& movementDelta,
-#endif
-        bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool isSimulated = false);
-    MouseRelatedEvent(const AtomicString& type, const MouseRelatedEventInit&);
+    MouseRelatedEvent() = default;
+    MouseRelatedEvent(const AtomicString& type, CanBubble, IsCancelable, IsComposed, MonotonicTime, RefPtr<WindowProxy>&&, int detail,
+        const IntPoint& screenLocation, const IntPoint& windowLocation, const IntPoint& movementDelta, OptionSet<Modifier> modifiers,
+        IsSimulated = IsSimulated::No, IsTrusted = IsTrusted::Yes);
+    MouseRelatedEvent(const AtomicString& type, IsCancelable, MonotonicTime, RefPtr<WindowProxy>&&, const IntPoint& globalLocation, OptionSet<Modifier>);
+    MouseRelatedEvent(const AtomicString& type, const MouseRelatedEventInit&, IsTrusted = IsTrusted::No);
 
     void initCoordinates();
     void initCoordinates(const LayoutPoint& clientLocation);
-    virtual void receivedTarget() override final;
+    void receivedTarget() final;
 
     void computePageLocation();
     void computeRelativePosition();
+
+    float documentToAbsoluteScaleFactor() const;
 
     // Expose these so MouseEvent::initMouseEvent can set them.
     IntPoint m_screenLocation;
@@ -96,10 +105,8 @@ private:
     LayoutPoint m_layerLocation;
     LayoutPoint m_offsetLocation;
     LayoutPoint m_absoluteLocation;
-    bool m_isSimulated;
-    bool m_hasCachedRelativePosition;
+    bool m_isSimulated { false };
+    bool m_hasCachedRelativePosition { false };
 };
 
 } // namespace WebCore
-
-#endif // MouseRelatedEvent_h

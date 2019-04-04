@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004, 2005, 2006, 2007, 2008, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2016 Apple Inc. All rights reserved.
  *           (C) 2006 Alexey Proskuryakov (ap@nypop.com)
  *
  * This library is free software; you can redistribute it and/or
@@ -26,14 +26,18 @@
 #include "HTMLOptGroupElement.h"
 
 #include "Document.h"
+#include "ElementAncestorIterator.h"
 #include "HTMLNames.h"
 #include "HTMLSelectElement.h"
 #include "RenderMenuList.h"
 #include "NodeRenderStyle.h"
 #include "StyleResolver.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLOptGroupElement);
 
 using namespace HTMLNames;
 
@@ -50,7 +54,7 @@ Ref<HTMLOptGroupElement> HTMLOptGroupElement::create(const QualifiedName& tagNam
 
 bool HTMLOptGroupElement::isDisabledFormControl() const
 {
-    return fastHasAttribute(disabledAttr);
+    return hasAttributeWithoutSynchronization(disabledAttr);
 }
 
 bool HTMLOptGroupElement::isFocusable() const
@@ -59,7 +63,7 @@ bool HTMLOptGroupElement::isFocusable() const
         return false;
     // Optgroup elements do not have a renderer.
     auto* style = const_cast<HTMLOptGroupElement&>(*this).computedStyle();
-    return style && style->display() != NONE;
+    return style && style->display() != DisplayType::None;
 }
 
 const AtomicString& HTMLOptGroupElement::formControlType() const
@@ -80,21 +84,20 @@ void HTMLOptGroupElement::parseAttribute(const QualifiedName& name, const Atomic
     recalcSelectOptions();
 
     if (name == disabledAttr)
-        setNeedsStyleRecalc();
+        invalidateStyleForSubtree();
 }
 
 void HTMLOptGroupElement::recalcSelectOptions()
 {
-    ContainerNode* select = parentNode();
-    while (select && !is<HTMLSelectElement>(*select))
-        select = select->parentNode();
-    if (select)
-        downcast<HTMLSelectElement>(*select).setRecalcListItems();
+    if (auto selectElement = makeRefPtr(ancestorsOfType<HTMLSelectElement>(*this).first())) {
+        selectElement->setRecalcListItems();
+        selectElement->updateValidity();
+    }
 }
 
 String HTMLOptGroupElement::groupLabelText() const
 {
-    String itemText = document().displayStringModifiedByEncoding(fastGetAttribute(labelAttr));
+    String itemText = document().displayStringModifiedByEncoding(attributeWithoutSynchronization(labelAttr));
     
     // In WinIE, leading and trailing whitespace is ignored in options and optgroups. We match this behavior.
     itemText = itemText.stripWhiteSpace();
@@ -106,19 +109,19 @@ String HTMLOptGroupElement::groupLabelText() const
     
 HTMLSelectElement* HTMLOptGroupElement::ownerSelectElement() const
 {
-    ContainerNode* select = parentNode();
+    RefPtr<ContainerNode> select = parentNode();
     while (select && !is<HTMLSelectElement>(*select))
         select = select->parentNode();
     
     if (!select)
         return nullptr;
     
-    return downcast<HTMLSelectElement>(select);
+    return downcast<HTMLSelectElement>(select.get());
 }
 
 void HTMLOptGroupElement::accessKeyAction(bool)
 {
-    HTMLSelectElement* select = ownerSelectElement();
+    RefPtr<HTMLSelectElement> select = ownerSelectElement();
     // send to the parent to bring focus to the list box
     if (select && !select->focused())
         select->accessKeyAction(false);

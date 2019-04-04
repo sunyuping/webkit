@@ -27,16 +27,13 @@
 
 namespace WebCore {
 
-CachedSVGDocument::CachedSVGDocument(const ResourceRequest& request, SessionID sessionID)
-    : CachedResource(request, SVGDocumentResource, sessionID)
+CachedSVGDocument::CachedSVGDocument(CachedResourceRequest&& request, const PAL::SessionID& sessionID, const CookieJar* cookieJar)
+    : CachedResource(WTFMove(request), Type::SVGDocumentResource, sessionID, cookieJar)
     , m_decoder(TextResourceDecoder::create("application/xml"))
 {
-    setAccept("image/svg+xml");
 }
 
-CachedSVGDocument::~CachedSVGDocument()
-{
-}
+CachedSVGDocument::~CachedSVGDocument() = default;
 
 void CachedSVGDocument::setEncoding(const String& chs)
 {

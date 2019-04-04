@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,11 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGPhase_h
-#define DFGPhase_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
+#include "CompilerTimingScope.h"
 #include "DFGCommon.h"
 #include "DFGGraph.h"
 
@@ -77,8 +77,11 @@ private:
 template<typename PhaseType>
 bool runAndLog(PhaseType& phase)
 {
+    CompilerTimingScope timingScope("DFG", phase.name());
+    
     bool result = phase.run();
-    if (result && logCompilationChanges(phase.graph().m_plan.mode))
+
+    if (result && logCompilationChanges(phase.graph().m_plan.mode()))
         dataLogF("Phase %s changed the IR.\n", phase.name());
     return result;
 }
@@ -93,6 +96,3 @@ bool runPhase(Graph& graph)
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGPhase_h
-

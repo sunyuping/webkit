@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2009, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2009, 2014, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,9 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DebuggerScope_h
-#define DebuggerScope_h
+#pragma once
 
+#include "DebuggerLocation.h"
 #include "JSObject.h"
 
 namespace JSC {
@@ -33,22 +33,18 @@ namespace JSC {
 class DebuggerCallFrame;
 class JSScope;
 
-class DebuggerScope : public JSNonFinalObject {
+class DebuggerScope final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
     static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetPropertyNames;
 
-    static DebuggerScope* create(VM& vm, JSScope* scope)
-    {
-        DebuggerScope* debuggerScope = new (NotNull, allocateCell<DebuggerScope>(vm.heap)) DebuggerScope(vm, scope);
-        debuggerScope->finishCreation(vm);
-        return debuggerScope;
-    }
+    JS_EXPORT_PRIVATE static DebuggerScope* create(VM& vm, JSScope* scope);
 
     static void visitChildren(JSCell*, SlotVisitor&);
-    static String className(const JSObject*);
+    static String className(const JSObject*, VM&);
+    static String toStringName(const JSObject*, ExecState*);
     static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
-    static void put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
+    static bool put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
     static bool deleteProperty(JSCell*, ExecState*, PropertyName);
     static void getOwnPropertyNames(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
     static bool defineOwnProperty(JSObject*, ExecState*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
@@ -93,11 +89,14 @@ public:
     bool isGlobalLexicalEnvironment() const;
     bool isNestedLexicalScope() const;
 
+    String name() const;
+    DebuggerLocation location() const;
+
     JSValue caughtValue(ExecState*) const;
 
 private:
-    JS_EXPORT_PRIVATE DebuggerScope(VM&, JSScope*);
-    JS_EXPORT_PRIVATE void finishCreation(VM&);
+    DebuggerScope(VM&, Structure*, JSScope*);
+    void finishCreation(VM&);
 
     JSScope* jsScope() const { return m_scope.get(); }
 
@@ -118,5 +117,3 @@ inline DebuggerScope::iterator DebuggerScope::end()
 }
 
 } // namespace JSC
-
-#endif // DebuggerScope_h

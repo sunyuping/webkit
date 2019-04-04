@@ -23,15 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WheelEventDeltaFilter_h
-#define WheelEventDeltaFilter_h
+#pragma once
 
 #include "FloatSize.h"
 #include <wtf/Deque.h>
 
 namespace WebCore {
-
-class PlatformWheelEvent;
 
 class WheelEventDeltaFilter {
 public:
@@ -42,11 +39,13 @@ public:
     WEBCORE_EXPORT virtual void updateFromDelta(const FloatSize&) = 0;
     WEBCORE_EXPORT virtual void beginFilteringDeltas() = 0;
     WEBCORE_EXPORT virtual void endFilteringDeltas() = 0;
+    WEBCORE_EXPORT FloatSize filteredVelocity() const;
     WEBCORE_EXPORT bool isFilteringDeltas() const;
     WEBCORE_EXPORT FloatSize filteredDelta() const;
 
 protected:
     FloatSize m_currentFilteredDelta;
+    FloatSize m_currentFilteredVelocity;
     bool m_isFilteringDeltas { false };
 };
 
@@ -57,11 +56,12 @@ enum class DominantScrollGestureDirection {
 };
 
 class BasicWheelEventDeltaFilter final : public WheelEventDeltaFilter {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     BasicWheelEventDeltaFilter();
-    virtual void updateFromDelta(const FloatSize&) override;
-    virtual void beginFilteringDeltas() override;
-    virtual void endFilteringDeltas() override;
+    void updateFromDelta(const FloatSize&) override;
+    void beginFilteringDeltas() override;
+    void endFilteringDeltas() override;
 
 private:
     DominantScrollGestureDirection dominantScrollGestureDirection() const;
@@ -69,6 +69,4 @@ private:
     Deque<FloatSize> m_recentWheelEventDeltas;
 };
 
-}
-
-#endif
+} // namespace WebCore

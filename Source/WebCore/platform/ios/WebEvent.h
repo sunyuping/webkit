@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// FIXME: Rename this file to WebEventIOS.mm after we upstream the iOS port and remove the PLATFORM(IOS)-guard.
+// FIXME: Rename this file to WebEventIOS.mm after we upstream the iOS port and remove the PLATFORM(IOS_FAMILY)-guard.
 #ifndef WebEventIOS_h
 #define WebEventIOS_h
 
@@ -56,17 +56,43 @@ typedef enum {
     WebEventTouchPhaseCancelled
 } WebEventTouchPhaseType;
 
-// These enum values are copied directly from GSEvent for compatibility.
+// These enum values correspond to the GraphicsServices kGSEvent* enumerators for compatibility.
+enum {
+    WebEventLeftCommandKey,
+    WebEventLeftShiftKey,
+    WebEventLeftCapsLockKey,
+    WebEventLeftOptionKey,
+    WebEventLeftControlKey,
+    WebEventRightShiftKey,
+    WebEventRightOptionKey,
+    WebEventRightControlKey,
+    WebEventRightCommandKey,
+    WebEventDeadKey,
+};
+
+// These enum values correspond to the GraphicsServices kGSEventFlagMask* enumerators for compatibility.
 typedef enum {
-    WebEventFlagMaskAlphaShift = 0x00010000,
-    WebEventFlagMaskShift      = 0x00020000,
-    WebEventFlagMaskControl    = 0x00040000,
-    WebEventFlagMaskAlternate  = 0x00080000,
-    WebEventFlagMaskCommand    = 0x00100000,
+    WebEventFlagMaskLeftCommandKey = 1 << (WebEventLeftCommandKey + 16),
+    WebEventFlagMaskLeftShiftKey = 1 << (WebEventLeftShiftKey + 16),
+    WebEventFlagMaskLeftCapsLockKey = 1 << (WebEventLeftCapsLockKey + 16),
+    WebEventFlagMaskLeftOptionKey = 1 << (WebEventLeftOptionKey + 16),
+    WebEventFlagMaskLeftControlKey = 1 << (WebEventLeftControlKey + 16),
+    WebEventFlagMaskRightControlKey = 1 << (WebEventRightControlKey + 16),
+    WebEventFlagMaskRightShiftKey = 1 << (WebEventRightShiftKey + 16),
+    WebEventFlagMaskRightOptionKey = 1 << (WebEventRightOptionKey + 16),
+    WebEventFlagMaskRightCommandKey = 1 << (WebEventRightCommandKey + 16),
 } WebEventFlagValues;
 typedef unsigned WebEventFlags;
 
-// These enum values are copied directly from GSEvent for compatibility.
+// These enum values correspond to the GraphicsServices kGSEventFlagMask* enumerators for compatibility.
+enum {
+    WebEventFlagMaskCommandKey = WebEventFlagMaskLeftCommandKey | WebEventFlagMaskRightCommandKey,
+    WebEventFlagMaskOptionKey = WebEventFlagMaskLeftOptionKey | WebEventFlagMaskRightOptionKey,
+    WebEventFlagMaskControlKey = WebEventFlagMaskLeftControlKey | WebEventFlagMaskRightControlKey,
+    WebEventFlagMaskShiftKey = WebEventFlagMaskLeftShiftKey | WebEventFlagMaskRightShiftKey,
+};
+
+// These enum values correspond to the GraphicsServices kGSCharacterSet* constants for compatibility.
 typedef enum {
     WebEventCharacterSetASCII           = 0,
     WebEventCharacterSetSymbol          = 1,
@@ -74,6 +100,13 @@ typedef enum {
     WebEventCharacterSetUnicode         = 253,
     WebEventCharacterSetFunctionKeys    = 254,
 } WebEventCharacterSet;
+
+// These enum values are copied directly from UIKit for compatibility.
+typedef enum {
+    WebEventKeyboardInputRepeat = 1 << 0,
+    WebEventKeyboardInputModifierFlagsChanged = 1 << 5,
+} WebKeyboardInputFlagValues;
+typedef NSUInteger WebKeyboardInputFlags;
 
 WEBCORE_EXPORT @interface WebEvent : NSObject {
 @private
@@ -86,11 +119,10 @@ WEBCORE_EXPORT @interface WebEvent : NSObject {
     NSString *_charactersIgnoringModifiers;
     WebEventFlags _modifierFlags;
     BOOL _keyRepeating;
-    BOOL _popupVariant; // FIXME: to be removed
-    NSUInteger _keyboardFlags;
+    WebKeyboardInputFlags _keyboardFlags;
+    NSString *_inputManagerHint;
     uint16_t _keyCode;
     BOOL _tabKey;
-    WebEventCharacterSet _characterSet;
     
     float _deltaX;
     float _deltaY;
@@ -107,9 +139,12 @@ WEBCORE_EXPORT @interface WebEvent : NSObject {
     BOOL _wasHandled;
 }
 
+// Deprecated. Remove once UIKit adopts -initWithMouseEventType taking modifiers.
 - (WebEvent *)initWithMouseEventType:(WebEventType)type
                            timeStamp:(CFTimeInterval)timeStamp
                             location:(CGPoint)point;
+
+- (WebEvent *)initWithMouseEventType:(WebEventType)type timeStamp:(CFTimeInterval)timeStamp location:(CGPoint)point modifiers:(WebEventFlags)modifiers;
 
 - (WebEvent *)initWithScrollWheelEventWithTimeStamp:(CFTimeInterval)timeStamp
                                            location:(CGPoint)point
@@ -127,28 +162,16 @@ WEBCORE_EXPORT @interface WebEvent : NSObject {
                         gestureScale:(float)gestureScale
                      gestureRotation:(float)gestureRotation;
 
-// FIXME: this is deprecated. It will be removed when UIKit adopts the new one below.
 - (WebEvent *)initWithKeyEventType:(WebEventType)type
                          timeStamp:(CFTimeInterval)timeStamp
                         characters:(NSString *)characters
        charactersIgnoringModifiers:(NSString *)charactersIgnoringModifiers
                          modifiers:(WebEventFlags)modifiers
                        isRepeating:(BOOL)repeating
-                    isPopupVariant:(BOOL)popupVariant
+                         withFlags:(WebKeyboardInputFlags)flags
+              withInputManagerHint:(NSString *)hint
                            keyCode:(uint16_t)keyCode
-                          isTabKey:(BOOL)tabKey
-                      characterSet:(WebEventCharacterSet)characterSet;
-
-- (WebEvent *)initWithKeyEventType:(WebEventType)type
-                         timeStamp:(CFTimeInterval)timeStamp
-                        characters:(NSString *)characters
-       charactersIgnoringModifiers:(NSString *)charactersIgnoringModifiers
-                         modifiers:(WebEventFlags)modifiers
-                       isRepeating:(BOOL)repeating
-                         withFlags:(NSUInteger)flags
-                           keyCode:(uint16_t)keyCode
-                          isTabKey:(BOOL)tabKey
-                      characterSet:(WebEventCharacterSet)characterSet;
+                          isTabKey:(BOOL)tabKey;
 
 @property(nonatomic, readonly) WebEventType type;
 @property(nonatomic, readonly) CFTimeInterval timestamp;
@@ -161,13 +184,11 @@ WEBCORE_EXPORT @interface WebEvent : NSObject {
 @property(nonatomic, readonly, retain) NSString *charactersIgnoringModifiers;
 @property(nonatomic, readonly) WebEventFlags modifierFlags;
 @property(nonatomic, readonly, getter = isKeyRepeating) BOOL keyRepeating;
+@property(nonatomic, readonly, retain) NSString *inputManagerHint;
 
-// FIXME: this is deprecated. It will be removed when UIKit adopts the new initWithKeyEventType.
-@property(nonatomic, readonly, getter = isPopupVariant) BOOL popupVariant;
-@property(nonatomic, readonly) NSUInteger keyboardFlags;
+@property(nonatomic, readonly) WebKeyboardInputFlags keyboardFlags;
 @property(nonatomic, readonly) uint16_t keyCode;
 @property(nonatomic, readonly, getter = isTabKey) BOOL tabKey;
-@property(nonatomic, readonly) WebEventCharacterSet characterSet;
 
 // Scroll Wheel
 @property(nonatomic, readonly) float deltaX;
@@ -186,9 +207,8 @@ WEBCORE_EXPORT @interface WebEvent : NSObject {
 
 @property(nonatomic) BOOL wasHandled;
 
-@end
+@property (class, readonly) WebEventFlags modifierFlags;
 
-@interface WebIOSEvent : WebEvent
 @end
 
 #endif // TARGET_OS_IPHONE

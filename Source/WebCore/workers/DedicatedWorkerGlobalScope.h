@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 Google Inc. All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,41 +29,44 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DedicatedWorkerGlobalScope_h
-#define DedicatedWorkerGlobalScope_h
+#pragma once
 
-#include "MessagePort.h"
 #include "WorkerGlobalScope.h"
+
+namespace JSC {
+class ExecState;
+class JSObject;
+class JSValue;
+}
 
 namespace WebCore {
 
-    class ContentSecurityPolicyResponseHeaders;
-    class DedicatedWorkerThread;
+class ContentSecurityPolicyResponseHeaders;
+class DedicatedWorkerThread;
+class MessagePort;
+class SerializedScriptValue;
 
-    class DedicatedWorkerGlobalScope : public WorkerGlobalScope {
-    public:
-        typedef WorkerGlobalScope Base;
-        static Ref<DedicatedWorkerGlobalScope> create(const URL&, const String& userAgent, DedicatedWorkerThread&, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, PassRefPtr<SecurityOrigin> topOrigin);
-        virtual ~DedicatedWorkerGlobalScope();
+class DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
+public:
+    static Ref<DedicatedWorkerGlobalScope> create(const URL&, Ref<SecurityOrigin>&&, const String& name, const String& identifier, const String& userAgent, bool isOnline, DedicatedWorkerThread&, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, Ref<SecurityOrigin>&& topOrigin, MonotonicTime timeOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, PAL::SessionID);
+    virtual ~DedicatedWorkerGlobalScope();
 
-        virtual bool isDedicatedWorkerGlobalScope() const override { return true; }
+    const String& name() const { return m_name; }
 
-        // Overridden to allow us to check our pending activity after executing imported script.
-        virtual void importScripts(const Vector<String>& urls, ExceptionCode&) override;
+    ExceptionOr<void> postMessage(JSC::ExecState&, JSC::JSValue message, Vector<JSC::Strong<JSC::JSObject>>&&);
 
-        // EventTarget
-        virtual EventTargetInterface eventTargetInterface() const override;
+    DedicatedWorkerThread& thread();
 
-        void postMessage(PassRefPtr<SerializedScriptValue>, const MessagePortArray*, ExceptionCode&);
-        // Needed for Objective-C bindings (see bug 28774).
-        void postMessage(PassRefPtr<SerializedScriptValue>, MessagePort*, ExceptionCode&);
+private:
+    using Base = WorkerGlobalScope;
 
-        DedicatedWorkerThread& thread();
+    DedicatedWorkerGlobalScope(const URL&, Ref<SecurityOrigin>&&, const String& name, const String& identifier, const String& userAgent, bool isOnline, DedicatedWorkerThread&, bool shouldBypassMainWorldContentSecurityPolicy, Ref<SecurityOrigin>&& topOrigin, MonotonicTime timeOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, PAL::SessionID);
 
-    private:
-        DedicatedWorkerGlobalScope(const URL&, const String& userAgent, DedicatedWorkerThread&, bool shouldBypassMainWorldContentSecurityPolicy, PassRefPtr<SecurityOrigin> topOrigin);
-    };
+    bool isDedicatedWorkerGlobalScope() const final { return true; }
+    ExceptionOr<void> importScripts(const Vector<String>& urls) final;
+    EventTargetInterface eventTargetInterface() const final;
+
+    String m_name;
+};
 
 } // namespace WebCore
-
-#endif // DedicatedWorkerGlobalScope_h

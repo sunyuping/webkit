@@ -399,6 +399,26 @@ function moveSelectionBackwardByLineBoundaryCommand() {
 
 //-------------------------------------------------------------------------------------------------------
 
+function moveMouseToCenterOfElement(element) {
+    if (!window.eventSender)
+        return;
+
+    const centerX = element.offsetLeft + element.offsetWidth / 2;
+    const centerY = element.offsetTop + element.offsetHeight / 2;
+    eventSender.mouseMoveTo(centerX, centerY);
+}
+
+function dragFilesOntoElement(element, files) {
+    if (!window.eventSender)
+        return;
+
+    eventSender.beginDragWithFiles(files);
+    moveMouseToCenterOfElement(element);
+    eventSender.mouseUp();
+}
+
+//-------------------------------------------------------------------------------------------------------
+
 function doubleClick(x, y) {
     eventSender.mouseMoveTo(x, y);
     eventSender.mouseDown();
@@ -894,13 +914,27 @@ function forwardDeleteCommand() {
 })();
 
 function runEditingTest() {
-    if (window.testRunner)
+    runEditingTestWithCallbackLogging(true);
+}
+
+function runEditingTestWithCallbackLogging(enableCallbackLogging) {
+    if (window.testRunner && enableCallbackLogging)
         testRunner.dumpEditingCallbacks();
 
     var elem = document.getElementById("test");
     var selection = window.getSelection();
     selection.setPosition(elem, 0);
-    editingTest();
+    
+    const result = editingTest();
+ 
+    if (result instanceof Promise) {
+        if (window.testRunner)
+            testRunner.waitUntilDone();
+        result.then(() => {
+            if (window.testRunner)
+                testRunner.notifyDone();
+        });
+    }
 }
 
 var dumpAsText = false;
@@ -918,10 +952,23 @@ function runDumpAsTextEditingTest(enableCallbacks) {
     var elem = document.getElementById("test");
     var selection = window.getSelection();
     selection.setPosition(elem, 0);
-    editingTest();
+    const result = editingTest();
 
-    for (var i = 0; i < elementsForDumpingMarkupList.length; i++)
-        document.body.appendChild(elementsForDumpingMarkupList[i]);
+    const postTask = () => {
+        for (var i = 0; i < elementsForDumpingMarkupList.length; i++)
+            document.body.appendChild(elementsForDumpingMarkupList[i]);
+    }
+
+    if (result instanceof Promise) {
+        if (window.testRunner)
+            testRunner.waitUntilDone();
+        result.then(() => {
+            postTask();
+            if (window.testRunner)
+                testRunner.notifyDone();
+        });
+    } else
+        postTask();
 }
 
 function debugForDumpAsText(name) {

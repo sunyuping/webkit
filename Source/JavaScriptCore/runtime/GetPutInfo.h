@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2015-2019 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef GetPutInfo_h
-#define GetPutInfo_h
+#pragma once
 
 #include <wtf/text/UniquedStringImpl.h>
 
@@ -39,7 +38,7 @@ enum ResolveMode {
     DoNotThrowIfNotFound
 };
 
-enum ResolveType {
+enum ResolveType : unsigned {
     // Lexical scope guaranteed a certain type of variable access.
     GlobalProperty,
     GlobalVar,
@@ -65,10 +64,11 @@ enum ResolveType {
     Dynamic
 };
 
-enum InitializationMode {
-    Initialization,   // "let x = 20;"
-    NotInitialization // "x = 20;"
-}; 
+enum class InitializationMode : unsigned {
+    Initialization,      // "let x = 20;"
+    ConstInitialization, // "const x = 20;"
+    NotInitialization    // "x = 20;"
+};
 
 ALWAYS_INLINE const char* resolveModeName(ResolveMode resolveMode)
 {
@@ -103,11 +103,24 @@ ALWAYS_INLINE const char* initializationModeName(InitializationMode initializati
 {
     static const char* const names[] = {
         "Initialization",
+        "ConstInitialization",
         "NotInitialization"
     };
-    return names[initializationMode];
+    return names[static_cast<unsigned>(initializationMode)];
 }
 
+ALWAYS_INLINE bool isInitialization(InitializationMode initializationMode)
+{
+    switch (initializationMode) {
+    case InitializationMode::Initialization:
+    case InitializationMode::ConstInitialization:
+        return true;
+    case InitializationMode::NotInitialization:
+        return false;
+    }
+    ASSERT_NOT_REACHED();
+    return false;
+}
 
 ALWAYS_INLINE ResolveType makeType(ResolveType type, bool needsVarInjectionChecks)
 {
@@ -197,8 +210,10 @@ public:
     static const unsigned modeBits = ((1 << 30) - 1) & ~initializationBits & ~typeBits;
     static_assert((modeBits & initializationBits & typeBits) == 0x0, "There should be no intersection between ResolveMode ResolveType and InitializationMode");
 
+    GetPutInfo() = default;
+
     GetPutInfo(ResolveMode resolveMode, ResolveType resolveType, InitializationMode initializationMode)
-        : m_operand((resolveMode << modeShift) | (initializationMode << initializationShift) | resolveType)
+        : m_operand((resolveMode << modeShift) | (static_cast<unsigned>(initializationMode) << initializationShift) | resolveType)
     {
     }
 
@@ -210,14 +225,26 @@ public:
     ResolveType resolveType() const { return static_cast<ResolveType>(m_operand & typeBits); }
     InitializationMode initializationMode() const { return static_cast<InitializationMode>((m_operand & initializationBits) >> initializationShift); }
     ResolveMode resolveMode() const { return static_cast<ResolveMode>((m_operand & modeBits) >> modeShift); }
-    unsigned operand() { return m_operand; }
+    unsigned operand() const { return m_operand; }
+
+    void dump(PrintStream&) const;
 
 private:
-    Operand m_operand;
+    Operand m_operand { 0 };
+
+    friend class JSC::LLIntOffsetsExtractor;
 };
 
 enum GetOrPut { Get, Put };
 
 } // namespace JSC
 
-#endif // GetPutInfo_h
+namespace WTF {
+
+class PrintStream;
+
+void printInternal(PrintStream&, JSC::ResolveMode);
+void printInternal(PrintStream&, JSC::ResolveType);
+void printInternal(PrintStream&, JSC::InitializationMode);
+
+} // namespace WTF

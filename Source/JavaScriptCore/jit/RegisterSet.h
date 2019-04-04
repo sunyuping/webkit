@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,24 +23,27 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef RegisterSet_h
-#define RegisterSet_h
+#pragma once
 
-#if ENABLE(JIT)
+#if !ENABLE(C_LOOP)
 
-#include "FPRInfo.h"
 #include "GPRInfo.h"
 #include "MacroAssembler.h"
 #include "Reg.h"
 #include "TempRegisterSet.h"
-#include <wtf/BitVector.h>
+#include <wtf/Bitmap.h>
 
 namespace JSC {
 
+typedef Bitmap<MacroAssembler::numGPRs + MacroAssembler::numFPRs + 1> RegisterBitmap;
+class RegisterAtOffsetList;
+
 class RegisterSet {
 public:
+    constexpr RegisterSet() { }
+
     template<typename... Regs>
-    explicit RegisterSet(Regs... regs)
+    constexpr explicit RegisterSet(Regs... regs)
     {
         setMany(regs...);
     }
@@ -49,8 +52,9 @@ public:
     JS_EXPORT_PRIVATE static RegisterSet reservedHardwareRegisters();
     static RegisterSet runtimeRegisters();
     static RegisterSet specialRegisters(); // The union of stack, reserved hardware, and runtime registers.
-    static RegisterSet calleeSaveRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet calleeSaveRegisters();
     static RegisterSet vmCalleeSaveRegisters(); // Callee save registers that might be saved and used by any tier.
+    static RegisterAtOffsetList* vmCalleeSaveRegisterOffsets();
     static RegisterSet llintBaselineCalleeSaveRegisters(); // Registers saved and used by the LLInt.
     static RegisterSet dfgCalleeSaveRegisters(); // Registers saved and used by the DFG JIT.
     static RegisterSet ftlCalleeSaveRegisters(); // Registers that might be saved and used by the FTL JIT.
@@ -63,6 +67,7 @@ public:
     JS_EXPORT_PRIVATE static RegisterSet allGPRs();
     JS_EXPORT_PRIVATE static RegisterSet allFPRs();
     static RegisterSet allRegisters();
+    JS_EXPORT_PRIVATE static RegisterSet argumentGPRS();
 
     static RegisterSet registersToNotSaveForJSCall();
     static RegisterSet registersToNotSaveForCCall();
@@ -70,7 +75,7 @@ public:
     void set(Reg reg, bool value = true)
     {
         ASSERT(!!reg);
-        m_vector.set(reg.index(), value);
+        m_bits.set(reg.index(), value);
     }
     
     void set(JSValueRegs regs, bool value = true)
@@ -89,9 +94,9 @@ public:
     bool get(Reg reg) const
     {
         ASSERT(!!reg);
-        return m_vector.get(reg.index());
+        return m_bits.get(reg.index());
     }
-
+    
     template<typename Iterable>
     void setAll(const Iterable& iterable)
     {
@@ -99,44 +104,110 @@ public:
             set(reg);
     }
     
-    void merge(const RegisterSet& other) { m_vector.merge(other.m_vector); }
-    void filter(const RegisterSet& other) { m_vector.filter(other.m_vector); }
-    void exclude(const RegisterSet& other) { m_vector.exclude(other.m_vector); }
+    // Also allow add/remove/contains terminology, which means the same thing as set/clear/get.
+    bool add(Reg reg)
+    {
+        ASSERT(!!reg);
+        return !m_bits.testAndSet(reg.index());
+    }
+    bool remove(Reg reg)
+    {
+        ASSERT(!!reg);
+        return m_bits.testAndClear(reg.index());
+    }
+    bool contains(Reg reg) const { return get(reg); }
+    
+    void merge(const RegisterSet& other) { m_bits.merge(other.m_bits); }
+    void filter(const RegisterSet& other) { m_bits.filter(other.m_bits); }
+    void exclude(const RegisterSet& other) { m_bits.exclude(other.m_bits); }
+    
+    bool subsumes(const RegisterSet& other) const { return m_bits.subsumes(other.m_bits); }
     
     size_t numberOfSetGPRs() const;
     size_t numberOfSetFPRs() const;
-    size_t numberOfSetRegisters() const { return m_vector.bitCount(); }
+    size_t numberOfSetRegisters() const { return m_bits.count(); }
     
-    void dump(PrintStream&) const;
+    bool isEmpty() const { return m_bits.isEmpty(); }
+    
+    JS_EXPORT_PRIVATE void dump(PrintStream&) const;
     
     enum EmptyValueTag { EmptyValue };
     enum DeletedValueTag { DeletedValue };
     
     RegisterSet(EmptyValueTag)
-        : m_vector(BitVector::EmptyValue)
     {
+        m_bits.set(hashSpecialBitIndex);
     }
     
     RegisterSet(DeletedValueTag)
-        : m_vector(BitVector::DeletedValue)
     {
+        m_bits.set(hashSpecialBitIndex);
+        m_bits.set(deletedBitIndex);
     }
     
-    bool isEmptyValue() const { return m_vector.isEmptyValue(); }
-    bool isDeletedValue() const { return m_vector.isDeletedValue(); }
-    
-    bool operator==(const RegisterSet& other) const { return m_vector == other.m_vector; }
-    unsigned hash() const { return m_vector.hash(); }
-
-    template<typename Functor>
-    void forEach(const Functor& functor) const
+    bool isEmptyValue() const
     {
-        for (size_t index : m_vector)
-            functor(Reg::fromIndex(index));
+        return m_bits.get(hashSpecialBitIndex) && !m_bits.get(deletedBitIndex);
     }
+    
+    bool isDeletedValue() const
+    {
+        return m_bits.get(hashSpecialBitIndex) && m_bits.get(deletedBitIndex);
+    }
+    
+    bool operator==(const RegisterSet& other) const { return m_bits == other.m_bits; }
+    bool operator!=(const RegisterSet& other) const { return m_bits != other.m_bits; }
+    
+    unsigned hash() const { return m_bits.hash(); }
+    
+    template<typename Func>
+    void forEach(const Func& func) const
+    {
+        m_bits.forEachSetBit(
+            [&] (size_t index) {
+                func(Reg::fromIndex(index));
+            });
+    }
+    
+    class iterator {
+    public:
+        iterator()
+        {
+        }
+        
+        iterator(const RegisterBitmap::iterator& iter)
+            : m_iter(iter)
+        {
+        }
+        
+        Reg operator*() const { return Reg::fromIndex(*m_iter); }
+        
+        iterator& operator++()
+        {
+            ++m_iter;
+            return *this;
+        }
+        
+        bool operator==(const iterator& other)
+        {
+            return m_iter == other.m_iter;
+        }
+        
+        bool operator!=(const iterator& other)
+        {
+            return !(*this == other);
+        }
+        
+    private:
+        RegisterBitmap::iterator m_iter;
+    };
+    
+    iterator begin() const { return iterator(m_bits.begin()); }
+    iterator end() const { return iterator(m_bits.end()); }
     
 private:
     void setAny(Reg reg) { set(reg); }
+    void setAny(JSValueRegs regs) { set(regs); }
     void setAny(const RegisterSet& set) { merge(set); }
     void setMany() { }
     template<typename RegType, typename... Regs>
@@ -146,7 +217,13 @@ private:
         setMany(regs...);
     }
 
-    BitVector m_vector;
+    // These offsets mirror the logic in Reg.h.
+    static const unsigned gprOffset = 0;
+    static const unsigned fprOffset = gprOffset + MacroAssembler::numGPRs;
+    static const unsigned hashSpecialBitIndex = fprOffset + MacroAssembler::numFPRs;
+    static const unsigned deletedBitIndex = 0;
+    
+    RegisterBitmap m_bits;
 };
 
 struct RegisterSetHash {
@@ -169,7 +246,4 @@ template<> struct HashTraits<JSC::RegisterSet> : public CustomHashTraits<JSC::Re
 
 } // namespace WTF
 
-#endif // ENABLE(JIT)
-
-#endif // RegisterSet_h
-
+#endif // !ENABLE(C_LOOP)

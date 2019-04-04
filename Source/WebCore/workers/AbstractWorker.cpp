@@ -32,41 +32,29 @@
 #include "AbstractWorker.h"
 
 #include "ContentSecurityPolicy.h"
-#include "Event.h"
-#include "ExceptionCode.h"
 #include "ScriptExecutionContext.h"
 #include "SecurityOrigin.h"
 
 namespace WebCore {
 
-AbstractWorker::~AbstractWorker()
+ExceptionOr<URL> AbstractWorker::resolveURL(const String& url, bool shouldBypassMainWorldContentSecurityPolicy)
 {
-}
+    if (url.isEmpty())
+        return Exception { SyntaxError };
 
-URL AbstractWorker::resolveURL(const String& url, bool shouldBypassMainWorldContentSecurityPolicy, ExceptionCode& ec)
-{
-    if (url.isEmpty()) {
-        ec = SYNTAX_ERR;
-        return URL();
-    }
+    auto& context = *scriptExecutionContext();
 
-    // FIXME: This should use the dynamic global scope (bug #27887)
-    URL scriptURL = scriptExecutionContext()->completeURL(url);
-    if (!scriptURL.isValid()) {
-        ec = SYNTAX_ERR;
-        return URL();
-    }
+    // FIXME: This should use the dynamic global scope (bug #27887).
+    URL scriptURL = context.completeURL(url);
+    if (!scriptURL.isValid())
+        return Exception { SyntaxError };
 
-    if (!scriptExecutionContext()->securityOrigin()->canRequest(scriptURL)) {
-        ec = SECURITY_ERR;
-        return URL();
-    }
+    if (!context.securityOrigin()->canRequest(scriptURL))
+        return Exception { SecurityError };
 
-    ASSERT(scriptExecutionContext()->contentSecurityPolicy());
-    if (!scriptExecutionContext()->contentSecurityPolicy()->allowChildContextFromSource(scriptURL, shouldBypassMainWorldContentSecurityPolicy)) {
-        ec = SECURITY_ERR;
-        return URL();
-    }
+    ASSERT(context.contentSecurityPolicy());
+    if (!shouldBypassMainWorldContentSecurityPolicy && !context.contentSecurityPolicy()->allowChildContextFromSource(scriptURL))
+        return Exception { SecurityError };
 
     return scriptURL;
 }

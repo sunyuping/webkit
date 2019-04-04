@@ -21,14 +21,14 @@
 #import "config.h"
 #import "Icon.h"
 
-#if !PLATFORM(IOS)
+#if PLATFORM(MAC)
 
 #import "GraphicsContext.h"
 #import "IntRect.h"
 #import "LocalCurrentGraphicsContext.h"
 #import "UTIUtilities.h"
-#import <wtf/PassRefPtr.h>
-#include <wtf/text/WTFString.h>
+#import <wtf/RefPtr.h>
+#import <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -36,10 +36,9 @@ Icon::Icon(NSImage *image)
     : m_nsImage(image)
 {
     // Need this because WebCore uses AppKit's flipped coordinate system exclusively.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [image setFlipped:YES];
-#pragma clang diagnostic pop
+    ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 Icon::~Icon()
@@ -47,7 +46,7 @@ Icon::~Icon()
 }
 
 // FIXME: Move the code to ChromeClient::iconForFiles().
-PassRefPtr<Icon> Icon::createIconForFiles(const Vector<String>& filenames)
+RefPtr<Icon> Icon::createIconForFiles(const Vector<String>& filenames)
 {
     if (filenames.isEmpty())
         return nullptr;
@@ -91,11 +90,6 @@ RefPtr<Icon> Icon::createIconForUTI(const String& UTI)
     return adoptRef(new Icon(image));
 }
 
-RefPtr<Icon> Icon::createIconForMIMEType(const String& MIMEType)
-{
-    return createIconForUTI(UTIFromMIMEType(MIMEType.createCFString().get()).get());
-}
-
 void Icon::paint(GraphicsContext& context, const FloatRect& rect)
 {
     if (context.paintingDisabled())
@@ -103,9 +97,9 @@ void Icon::paint(GraphicsContext& context, const FloatRect& rect)
 
     LocalCurrentGraphicsContext localCurrentGC(context);
 
-    [m_nsImage drawInRect:rect fromRect:NSMakeRect(0, 0, [m_nsImage size].width, [m_nsImage size].height) operation:NSCompositeSourceOver fraction:1.0f];
+    [m_nsImage drawInRect:rect fromRect:NSMakeRect(0, 0, [m_nsImage size].width, [m_nsImage size].height) operation:NSCompositingOperationSourceOver fraction:1.0f];
 }
 
 }
 
-#endif // !PLATFORM(IOS)
+#endif // PLATFORM(MAC)

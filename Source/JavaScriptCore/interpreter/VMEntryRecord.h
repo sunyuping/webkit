@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,14 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef VMEntryRecord_h
-#define VMEntryRecord_h
+#pragma once
+
+#include "GPRInfo.h"
 
 namespace JSC {
 
-typedef void VMEntryFrame;
-
+struct EntryFrame;
 class ExecState;
+class JSObject;
 class VM;
 
 struct VMEntryRecord {
@@ -40,15 +41,24 @@ struct VMEntryRecord {
      */
     VM* m_vm;
     ExecState* m_prevTopCallFrame;
-    VMEntryFrame* m_prevTopVMEntryFrame;
+    EntryFrame* m_prevTopEntryFrame;
+    JSObject* m_callee;
+
+    JSObject* callee() const { return m_callee; }
+
+#if !ENABLE(C_LOOP) && NUMBER_OF_CALLEE_SAVES_REGISTERS > 0
+    CPURegister calleeSaveRegistersBuffer[NUMBER_OF_CALLEE_SAVES_REGISTERS];
+#elif ENABLE(C_LOOP)
+    CPURegister calleeSaveRegistersBuffer[1];
+#endif
 
     ExecState* prevTopCallFrame() { return m_prevTopCallFrame; }
+    SUPPRESS_ASAN ExecState* unsafePrevTopCallFrame() { return m_prevTopCallFrame; }
 
-    VMEntryFrame* prevTopVMEntryFrame() { return m_prevTopVMEntryFrame; }
+    EntryFrame* prevTopEntryFrame() { return m_prevTopEntryFrame; }
+    SUPPRESS_ASAN EntryFrame* unsafePrevTopEntryFrame() { return m_prevTopEntryFrame; }
 };
 
-extern "C" VMEntryRecord* vmEntryRecord(VMEntryFrame*);
+extern "C" VMEntryRecord* vmEntryRecord(EntryFrame*);
 
 } // namespace JSC
-
-#endif // VMEntryRecord_h

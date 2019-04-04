@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,30 +26,33 @@
 
 // @internal
 
+@globalPrivate
 function isPromise(promise)
 {
     "use strict";
 
-    return @isObject(promise) && !!promise.@promiseState;
+    return @isObject(promise) && !!@getByIdDirectPrivate(promise, "promiseState");
 }
 
-function newPromiseReaction(capability, handler)
+@globalPrivate
+function newPromiseReaction(capability, onFulfilled, onRejected)
 {
     "use strict";
 
     return {
         @capabilities: capability,
-        @handler: handler
+        @onFulfilled: onFulfilled,
+        @onRejected: onRejected,
     };
 }
 
+@globalPrivate
 function newPromiseCapability(constructor)
 {
     "use strict";
 
-    // FIXME: Check isConstructor(constructor).
-    if (typeof constructor !== "function")
-        throw new @TypeError("promise capability requires a constructor function");
+    if (!@isConstructor(constructor))
+        @throwTypeError("promise capability requires a constructor function");
 
     var promiseCapability = {
         @promise: @undefined,
@@ -56,81 +60,95 @@ function newPromiseCapability(constructor)
         @reject: @undefined
     };
 
-    function executor(resolve, reject)
+    function @executor(resolve, reject)
     {
         if (promiseCapability.@resolve !== @undefined)
-            throw new @TypeError("resolve function is already set");
+            @throwTypeError("resolve function is already set");
         if (promiseCapability.@reject !== @undefined)
-            throw new @TypeError("reject function is already set");
+            @throwTypeError("reject function is already set");
 
         promiseCapability.@resolve = resolve;
         promiseCapability.@reject = reject;
     }
 
-    var promise = new constructor(executor);
+    var promise = new constructor(@executor);
 
     if (typeof promiseCapability.@resolve !== "function")
-        throw new @TypeError("executor did not take a resolve function");
+        @throwTypeError("executor did not take a resolve function");
 
     if (typeof promiseCapability.@reject !== "function")
-        throw new @TypeError("executor did not take a reject function");
+        @throwTypeError("executor did not take a reject function");
 
     promiseCapability.@promise = promise;
 
     return promiseCapability;
 }
 
-function triggerPromiseReactions(reactions, argument)
+@globalPrivate
+function newHandledRejectedPromise(error)
+{
+    "use strict";
+    let promise = @Promise.@reject(error);
+    @putByIdDirectPrivate(promise, "promiseIsHandled", true);
+    return promise;
+}
+
+@globalPrivate
+function triggerPromiseReactions(state, reactions, argument)
 {
     "use strict";
 
     for (var index = 0, length = reactions.length; index < length; ++index)
-        @enqueueJob(@promiseReactionJob, [reactions[index], argument]);
+        @enqueueJob(@promiseReactionJob, [state, reactions[index], argument]);
 }
 
+@globalPrivate
 function rejectPromise(promise, reason)
 {
     "use strict";
 
-    var reactions = promise.@promiseRejectReactions;
-    promise.@promiseResult = reason;
-    promise.@promiseFulfillReactions = @undefined;
-    promise.@promiseRejectReactions = @undefined;
-    promise.@promiseState = @promiseStateRejected;
+    var reactions = @getByIdDirectPrivate(promise, "promiseReactions");
+    @putByIdDirectPrivate(promise, "promiseResult", reason);
+    @putByIdDirectPrivate(promise, "promiseReactions", @undefined);
+    @putByIdDirectPrivate(promise, "promiseState", @promiseStateRejected);
 
     @InspectorInstrumentation.promiseRejected(promise, reason, reactions);
 
-    @triggerPromiseReactions(reactions, reason);
+    if (!@getByIdDirectPrivate(promise, "promiseIsHandled"))
+        @hostPromiseRejectionTracker(promise, @promiseRejectionReject);
+
+    @triggerPromiseReactions(@promiseStateRejected, reactions, reason);
 }
 
+@globalPrivate
 function fulfillPromise(promise, value)
 {
     "use strict";
 
-    var reactions = promise.@promiseFulfillReactions;
-    promise.@promiseResult = value;
-    promise.@promiseFulfillReactions = @undefined;
-    promise.@promiseRejectReactions = @undefined;
-    promise.@promiseState = @promiseStateFulfilled;
+    var reactions = @getByIdDirectPrivate(promise, "promiseReactions");
+    @putByIdDirectPrivate(promise, "promiseResult", value);
+    @putByIdDirectPrivate(promise, "promiseReactions", @undefined);
+    @putByIdDirectPrivate(promise, "promiseState", @promiseStateFulfilled);
 
     @InspectorInstrumentation.promiseFulfilled(promise, value, reactions);
 
-    @triggerPromiseReactions(reactions, value);
+    @triggerPromiseReactions(@promiseStateFulfilled, reactions, value);
 }
 
+@globalPrivate
 function createResolvingFunctions(promise)
 {
     "use strict";
 
     var alreadyResolved = false;
 
-    var resolve = function (resolution) {
+    function @resolve(resolution) {
         if (alreadyResolved)
             return @undefined;
         alreadyResolved = true;
 
         if (resolution === promise)
-            return @rejectPromise(promise, new @TypeError("Resolve a promise with itself"));
+            return @rejectPromise(promise, @makeTypeError("Resolve a promise with itself"));
 
         if (!@isObject(resolution))
             return @fulfillPromise(promise, resolution);
@@ -148,31 +166,30 @@ function createResolvingFunctions(promise)
         @enqueueJob(@promiseResolveThenableJob, [promise, resolution, then]);
 
         return @undefined;
-    };
+    }
 
-    var reject = function (reason) {
+    function @reject(reason) {
         if (alreadyResolved)
             return @undefined;
         alreadyResolved = true;
 
         return @rejectPromise(promise, reason);
-    };
+    }
 
-    return {
-        @resolve: resolve,
-        @reject: reject
-    };
+    return { @resolve, @reject };
 }
 
-function promiseReactionJob(reaction, argument)
+@globalPrivate
+function promiseReactionJob(state, reaction, argument)
 {
     "use strict";
 
     var promiseCapability = reaction.@capabilities;
 
     var result;
+    var handler = (state === @promiseStateFulfilled) ? reaction.@onFulfilled: reaction.@onRejected;
     try {
-        result = reaction.@handler.@call(@undefined, argument);
+        result = handler(argument);
     } catch (error) {
         return promiseCapability.@reject.@call(@undefined, error);
     }
@@ -180,6 +197,7 @@ function promiseReactionJob(reaction, argument)
     return promiseCapability.@resolve.@call(@undefined, result);
 }
 
+@globalPrivate
 function promiseResolveThenableJob(promiseToResolve, thenable, then)
 {
     "use strict";
@@ -193,16 +211,17 @@ function promiseResolveThenableJob(promiseToResolve, thenable, then)
     }
 }
 
+@globalPrivate
 function initializePromise(executor)
 {
     "use strict";
 
     if (typeof executor !== 'function')
-        throw new @TypeError("Promise constructor takes a function argument");
+        @throwTypeError("Promise constructor takes a function argument");
 
-    this.@promiseState = @promiseStatePending;
-    this.@promiseFulfillReactions = [];
-    this.@promiseRejectReactions = [];
+    @putByIdDirectPrivate(this, "promiseState", @promiseStatePending);
+    @putByIdDirectPrivate(this, "promiseReactions", []);
+    @putByIdDirectPrivate(this, "promiseIsHandled", false);
 
     var resolvingFunctions = @createResolvingFunctions(this);
     try {

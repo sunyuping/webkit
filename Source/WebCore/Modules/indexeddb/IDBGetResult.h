@@ -23,39 +23,23 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IDBGetResult_h
-#define IDBGetResult_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
 #include "IDBKey.h"
 #include "IDBKeyData.h"
 #include "IDBKeyPath.h"
+#include "IDBValue.h"
 #include "SharedBuffer.h"
-#include "ThreadSafeDataBuffer.h"
 
 namespace WebCore {
 
 class IDBGetResult {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     IDBGetResult()
         : m_isDefined(false)
-    {
-    }
-
-    IDBGetResult(PassRefPtr<SharedBuffer> buffer)
-    {
-        if (buffer)
-            dataFromBuffer(*buffer);
-    }
-
-    IDBGetResult(const ThreadSafeDataBuffer& buffer)
-        : m_valueBuffer(buffer)
-    {
-    }
-
-    IDBGetResult(PassRefPtr<IDBKey> key)
-        : m_keyData(key.get())
     {
     }
 
@@ -64,54 +48,98 @@ public:
     {
     }
 
-    IDBGetResult(PassRefPtr<SharedBuffer> buffer, PassRefPtr<IDBKey> key, const IDBKeyPath& path)
-        : m_keyData(key.get())
-        , m_keyPath(path)
-    {
-        if (buffer)
-            dataFromBuffer(*buffer);
-    }
-
     IDBGetResult(const IDBKeyData& keyData, const IDBKeyData& primaryKeyData)
         : m_keyData(keyData)
         , m_primaryKeyData(primaryKeyData)
     {
     }
 
-    IDBGetResult(const IDBKeyData& keyData, const IDBKeyData& primaryKeyData, const ThreadSafeDataBuffer& valueBuffer)
-        : m_valueBuffer(valueBuffer)
+    IDBGetResult(const IDBKeyData& keyData, const ThreadSafeDataBuffer& buffer, const Optional<IDBKeyPath>& keyPath)
+        : m_value(buffer)
         , m_keyData(keyData)
-        , m_primaryKeyData(primaryKeyData)
+        , m_keyPath(keyPath)
     {
     }
 
+    IDBGetResult(const IDBKeyData& keyData, IDBValue&& value, const Optional<IDBKeyPath>& keyPath)
+        : m_value(WTFMove(value))
+        , m_keyData(keyData)
+        , m_keyPath(keyPath)
+    {
+    }
+
+    IDBGetResult(const IDBKeyData& keyData, const IDBKeyData& primaryKeyData, IDBValue&& value, const Optional<IDBKeyPath>& keyPath)
+        : m_value(WTFMove(value))
+        , m_keyData(keyData)
+        , m_primaryKeyData(primaryKeyData)
+        , m_keyPath(keyPath)
+    {
+    }
+
+    enum IsolatedCopyTag { IsolatedCopy };
+    IDBGetResult(const IDBGetResult&, IsolatedCopyTag);
+
     IDBGetResult isolatedCopy() const;
 
-    const ThreadSafeDataBuffer& valueBuffer() const { return m_valueBuffer; }
+    void setValue(IDBValue&&);
+
+    const IDBValue& value() const { return m_value; }
     const IDBKeyData& keyData() const { return m_keyData; }
     const IDBKeyData& primaryKeyData() const { return m_primaryKeyData; }
-    const IDBKeyPath& keyPath() const { return m_keyPath; }
+    const Optional<IDBKeyPath>& keyPath() const { return m_keyPath; }
     bool isDefined() const { return m_isDefined; }
 
-    // FIXME: When removing LegacyIDB, remove these setters.
-    // https://bugs.webkit.org/show_bug.cgi?id=150854
-
-    void setValueBuffer(const ThreadSafeDataBuffer& valueBuffer) { m_valueBuffer = valueBuffer; }
-    void setKeyData(const IDBKeyData& keyData) { m_keyData = keyData; }
-    void setPrimaryKeyData(const IDBKeyData& keyData) { m_primaryKeyData = keyData; }
-    void setKeyPath(const IDBKeyPath& keyPath) { m_keyPath = keyPath; }
+    template<class Encoder> void encode(Encoder&) const;
+    template<class Decoder> static bool decode(Decoder&, IDBGetResult&);
 
 private:
-    WEBCORE_EXPORT void dataFromBuffer(SharedBuffer&);
+    void dataFromBuffer(SharedBuffer&);
 
-    ThreadSafeDataBuffer m_valueBuffer;
+    static void isolatedCopy(const IDBGetResult& source, IDBGetResult& destination);
+
+    IDBValue m_value;
     IDBKeyData m_keyData;
     IDBKeyData m_primaryKeyData;
-    IDBKeyPath m_keyPath;
+    Optional<IDBKeyPath> m_keyPath;
     bool m_isDefined { true };
 };
+
+template<class Encoder>
+void IDBGetResult::encode(Encoder& encoder) const
+{
+    encoder << m_keyData << m_primaryKeyData << m_keyPath << m_isDefined << m_value;
+}
+
+template<class Decoder>
+bool IDBGetResult::decode(Decoder& decoder, IDBGetResult& result)
+{
+    Optional<IDBKeyData> keyData;
+    decoder >> keyData;
+    if (!keyData)
+        return false;
+    result.m_keyData = WTFMove(*keyData);
+
+    Optional<IDBKeyData> primaryKeyData;
+    decoder >> primaryKeyData;
+    if (!primaryKeyData)
+        return false;
+    result.m_primaryKeyData = WTFMove(*primaryKeyData);
+
+    if (!decoder.decode(result.m_keyPath))
+        return false;
+
+    if (!decoder.decode(result.m_isDefined))
+        return false;
+
+    Optional<IDBValue> value;
+    decoder >> value;
+    if (!value)
+        return false;
+    result.m_value = WTFMove(*value);
+
+    return true;
+}
 
 } // namespace WebCore
 
 #endif // ENABLE(INDEXED_DATABASE)
-#endif // IDBGetResult_h

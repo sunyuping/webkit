@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -51,16 +51,25 @@ ValueKey ValueKey::intConstant(Type type, int64_t value)
 
 void ValueKey::dump(PrintStream& out) const
 {
-    out.print(m_type, " ", m_opcode, "(", u.indices[0], ", ", u.indices[1], ", ", u.indices[2], ")");
+    out.print(m_type, " ", m_kind, "(", u.indices[0], ", ", u.indices[1], ", ", u.indices[2], ")");
 }
 
 Value* ValueKey::materialize(Procedure& proc, Origin origin) const
 {
+    // NOTE: We sometimes cannot return a Value* for some key, like for Check and friends. That's because
+    // though those nodes have side exit effects. It would be weird to materialize anything that has a side
+    // exit. We can't possibly know enough about a side exit to know where it would be safe to emit one.
     switch (opcode()) {
     case FramePointer:
-        return proc.add<Value>(opcode(), type(), origin);
+        return proc.add<Value>(kind(), type(), origin);
     case Identity:
+    case Opaque:
+    case Abs:
+    case Floor:
+    case Ceil:
     case Sqrt:
+    case Neg:
+    case Depend:
     case SExt8:
     case SExt16:
     case SExt32:
@@ -68,21 +77,25 @@ Value* ValueKey::materialize(Procedure& proc, Origin origin) const
     case Clz:
     case Trunc:
     case IToD:
+    case IToF:
     case FloatToDouble:
     case DoubleToFloat:
-    case Check:
-        return proc.add<Value>(opcode(), type(), origin, child(proc, 0));
+        return proc.add<Value>(kind(), type(), origin, child(proc, 0));
     case Add:
     case Sub:
     case Mul:
-    case ChillDiv:
+    case Div:
+    case UDiv:
     case Mod:
+    case UMod:
     case BitAnd:
     case BitOr:
     case BitXor:
     case Shl:
     case SShr:
     case ZShr:
+    case RotR:
+    case RotL:
     case Equal:
     case NotEqual:
     case LessThan:
@@ -91,10 +104,10 @@ Value* ValueKey::materialize(Procedure& proc, Origin origin) const
     case Below:
     case AboveEqual:
     case BelowEqual:
-    case Div:
-        return proc.add<Value>(opcode(), type(), origin, child(proc, 0), child(proc, 1));
+    case EqualOrUnordered:
+        return proc.add<Value>(kind(), type(), origin, child(proc, 0), child(proc, 1));
     case Select:
-        return proc.add<Value>(opcode(), type(), origin, child(proc, 0), child(proc, 1), child(proc, 2));
+        return proc.add<Value>(kind(), type(), origin, child(proc, 0), child(proc, 1), child(proc, 2));
     case Const32:
         return proc.add<Const32Value>(origin, static_cast<int32_t>(value()));
     case Const64:

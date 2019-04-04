@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,9 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ParallelHelperPool_h
-#define ParallelHelperPool_h
+#pragma once
 
+#include <wtf/Box.h>
 #include <wtf/Condition.h>
 #include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
@@ -34,8 +34,12 @@
 #include <wtf/Threading.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakRandom.h>
+#include <wtf/text/CString.h>
 
 namespace WTF {
+
+class AutomaticThread;
+class AutomaticThreadCondition;
 
 // A ParallelHelperPool is a shared pool of threads that can be asked to help with some finite-time
 // parallel activity. It's designed to work well when there are multiple concurrent tasks that may
@@ -127,10 +131,10 @@ class ParallelHelperClient {
     WTF_MAKE_NONCOPYABLE(ParallelHelperClient);
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    WTF_EXPORT_PRIVATE ParallelHelperClient(RefPtr<ParallelHelperPool>);
+    WTF_EXPORT_PRIVATE ParallelHelperClient(RefPtr<ParallelHelperPool>&&);
     WTF_EXPORT_PRIVATE ~ParallelHelperClient();
 
-    WTF_EXPORT_PRIVATE void setTask(RefPtr<SharedTask<void ()>>);
+    WTF_EXPORT_PRIVATE void setTask(RefPtr<SharedTask<void ()>>&&);
 
     template<typename Functor>
     void setFunction(const Functor& functor)
@@ -146,7 +150,7 @@ public:
     // client->setTask(task);
     // client->doSomeHelping();
     // client->finish();
-    WTF_EXPORT_PRIVATE void runTaskInParallel(RefPtr<SharedTask<void ()>>);
+    WTF_EXPORT_PRIVATE void runTaskInParallel(RefPtr<SharedTask<void ()>>&&);
 
     // Equivalent to:
     // client->setFunction(functor);
@@ -164,9 +168,9 @@ public:
 private:
     friend class ParallelHelperPool;
 
-    void finish(const LockHolder&);
-    RefPtr<SharedTask<void ()>> claimTask(const LockHolder&);
-    void runTask(RefPtr<SharedTask<void ()>>);
+    void finish(const AbstractLocker&);
+    RefPtr<SharedTask<void ()>> claimTask(const AbstractLocker&);
+    void runTask(const RefPtr<SharedTask<void ()>>&);
     
     RefPtr<ParallelHelperPool> m_pool;
     RefPtr<SharedTask<void ()>> m_task;
@@ -175,7 +179,7 @@ private:
 
 class ParallelHelperPool : public ThreadSafeRefCounted<ParallelHelperPool> {
 public:
-    WTF_EXPORT_PRIVATE ParallelHelperPool();
+    WTF_EXPORT_PRIVATE ParallelHelperPool(CString&& threadName);
     WTF_EXPORT_PRIVATE ~ParallelHelperPool();
 
     WTF_EXPORT_PRIVATE void ensureThreads(unsigned numThreads);
@@ -186,22 +190,24 @@ public:
 
 private:
     friend class ParallelHelperClient;
+    class Thread;
+    friend class Thread;
 
-    void didMakeWorkAvailable(const LockHolder&);
-    void helperThreadBody();
+    void didMakeWorkAvailable(const AbstractLocker&);
 
-    bool hasClientWithTask(const LockHolder&);
-    ParallelHelperClient* getClientWithTask(const LockHolder&);
-    ParallelHelperClient* waitForClientWithTask(const LockHolder&);
+    bool hasClientWithTask(const AbstractLocker&);
+    ParallelHelperClient* getClientWithTask(const AbstractLocker&);
+    ParallelHelperClient* waitForClientWithTask(const AbstractLocker&);
     
-    Lock m_lock;
-    Condition m_workAvailableCondition;
+    Box<Lock> m_lock; // AutomaticThread wants this in a box for safety.
+    Ref<AutomaticThreadCondition> m_workAvailableCondition;
     Condition m_workCompleteCondition;
 
     WeakRandom m_random;
     
     Vector<ParallelHelperClient*> m_clients;
-    Vector<ThreadIdentifier> m_threads;
+    Vector<RefPtr<AutomaticThread>> m_threads;
+    CString m_threadName;
     unsigned m_numThreads { 0 }; // This can be larger than m_threads.size() because we start threads only once there is work.
     bool m_isDying { false };
 };
@@ -210,6 +216,3 @@ private:
 
 using WTF::ParallelHelperClient;
 using WTF::ParallelHelperPool;
-
-#endif // ParallelHelperPool_h
-

@@ -37,27 +37,8 @@
 
 namespace WTR {
 
-static GSource* timeoutSource()
-{
-    static GRefPtr<GSource> source = nullptr;
-    if (!source) {
-        source = adoptGRef(g_timeout_source_new(0));
-        g_source_set_ready_time(source.get(), -1);
-        g_source_set_name(source.get(), "[WTR] Test timeout source");
-        g_source_set_callback(source.get(), [](gpointer userData) -> gboolean {
-            g_source_set_ready_time(static_cast<GSource*>(userData), -1);
-            fprintf(stderr, "FAIL: TestControllerRunLoop timed out.\n");
-            RunLoop::main().stop();
-            return G_SOURCE_CONTINUE;
-        }, source.get(), nullptr);
-        g_source_attach(source.get(), nullptr);
-    }
-    return source.get();
-}
-
 void TestController::notifyDone()
 {
-    g_source_set_ready_time(timeoutSource(), -1);
     RunLoop::main().stop();
 }
 
@@ -74,21 +55,31 @@ void TestController::platformDestroy()
 {
 }
 
-void TestController::platformRunUntil(bool&, double timeout)
+void TestController::platformRunUntil(bool& done, WTF::Seconds timeout)
 {
-    if (timeout > 0) {
-        // FIXME: This conversion is now repeated in several places, it should be moved to a common place in WTF and used everywhere.
-        auto timeoutDuration = std::chrono::duration<double>(timeout);
-        auto safeDuration = std::chrono::microseconds::max();
-        if (timeoutDuration < safeDuration)
-            safeDuration = std::chrono::duration_cast<std::chrono::microseconds>(timeoutDuration);
-        gint64 currentTime = g_get_monotonic_time();
-        gint64 targetTime = currentTime + std::min<gint64>(G_MAXINT64 - currentTime, safeDuration.count());
-        ASSERT(targetTime >= currentTime);
-        g_source_set_ready_time(timeoutSource(), targetTime);
-    } else
-        g_source_set_ready_time(timeoutSource(), -1);
-    RunLoop::main().run();
+    struct TimeoutTimer {
+        TimeoutTimer()
+            : timer(RunLoop::main(), this, &TimeoutTimer::fired)
+        { }
+
+        void fired()
+        {
+            timedOut = true;
+            RunLoop::main().stop();
+        }
+
+        RunLoop::Timer<TimeoutTimer> timer;
+        bool timedOut { false };
+    } timeoutTimer;
+
+    timeoutTimer.timer.setPriority(G_PRIORITY_DEFAULT_IDLE);
+    if (timeout >= 0_s)
+        timeoutTimer.timer.startOneShot(timeout);
+
+    while (!done && !timeoutTimer.timedOut)
+        RunLoop::main().run();
+
+    timeoutTimer.timer.stop();
 }
 
 static char* getEnvironmentVariableAsUTF8String(const char* variableName)
@@ -133,13 +124,19 @@ void TestController::runModal(PlatformWebView*)
     // FIXME: Need to implement this to test showModalDialog.
 }
 
+WKContextRef TestController::platformContext()
+{
+    return m_context.get();
+}
+
 const char* TestController::platformLibraryPathForTesting()
 {
-    return 0;
+    return nullptr;
 }
 
 void TestController::platformConfigureViewForTest(const TestInvocation&)
 {
+    WKPageSetApplicationNameForUserAgent(mainWebView()->page(), WKStringCreateWithUTF8CString("WebKitTestRunnerGTK"));
 }
 
 void TestController::platformResetPreferencesToConsistentValues()
@@ -149,8 +146,9 @@ void TestController::platformResetPreferencesToConsistentValues()
     m_mainWebView->dismissAllPopupMenus();
 }
 
-void TestController::updatePlatformSpecificTestOptionsForTest(TestOptions&, const std::string&) const
+void TestController::updatePlatformSpecificTestOptionsForTest(TestOptions& options, const std::string&) const
 {
+    options.enableModernMediaControls = false;
 }
 
 } // namespace WTR

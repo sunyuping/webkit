@@ -28,129 +28,129 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ICOImageDecoder_h
-#define ICOImageDecoder_h
+#pragma once
 
 #include "BMPImageReader.h"
 
 namespace WebCore {
 
-    class PNGImageDecoder;
+// This class decodes the ICO and CUR image formats.
+class ICOImageDecoder final : public ScalableImageDecoder {
+public:
+    static Ref<ScalableImageDecoder> create(AlphaOption alphaOption, GammaAndColorProfileOption gammaAndColorProfileOption)
+    {
+        return adoptRef(*new ICOImageDecoder(alphaOption, gammaAndColorProfileOption));
+    }
 
-    // This class decodes the ICO and CUR image formats.
-    class ICOImageDecoder : public ImageDecoder {
-    public:
-        ICOImageDecoder(ImageSource::AlphaOption, ImageSource::GammaAndColorProfileOption);
-        virtual ~ICOImageDecoder();
+    virtual ~ICOImageDecoder();
 
-        // ImageDecoder
-        virtual String filenameExtension() const { return "ico"; }
-        virtual void setData(SharedBuffer*, bool allDataReceived);
-        virtual bool isSizeAvailable();
-        virtual IntSize size() const;
-        virtual IntSize frameSizeAtIndex(size_t) const;
-        virtual bool setSize(unsigned width, unsigned height);
-        virtual size_t frameCount();
-        virtual ImageFrame* frameBufferAtIndex(size_t);
-        // CAUTION: setFailed() deletes all readers and decoders.  Be careful to
-        // avoid accessing deleted memory, especially when calling this from
-        // inside BMPImageReader!
-        virtual bool setFailed();
-        virtual bool hotSpot(IntPoint&) const;
+    // ScalableImageDecoder
+    String filenameExtension() const final { return "ico"_s; }
+    void setData(SharedBuffer&, bool allDataReceived) final;
+    IntSize size() const final;
+    IntSize frameSizeAtIndex(size_t, SubsamplingLevel) const final;
+    bool setSize(const IntSize&) final;
+    size_t frameCount() const final;
+    ScalableImageDecoderFrame* frameBufferAtIndex(size_t) final;
+    // CAUTION: setFailed() deletes all readers and decoders. Be careful to
+    // avoid accessing deleted memory, especially when calling this from
+    // inside BMPImageReader!
+    bool setFailed() final;
+    Optional<IntPoint> hotSpot() const final;
 
-    private:
-        enum ImageType {
-            Unknown,
-            BMP,
-            PNG,
-        };
-
-        enum FileType {
-            ICON = 1,
-            CURSOR = 2,
-        };
-
-        struct IconDirectoryEntry {
-            IntSize m_size;
-            uint16_t m_bitCount;
-            IntPoint m_hotSpot;
-            uint32_t m_imageOffset;
-        };
-
-        // Returns true if |a| is a preferable icon entry to |b|.
-        // Larger sizes, or greater bitdepths at the same size, are preferable.
-        static bool compareEntries(const IconDirectoryEntry& a, const IconDirectoryEntry& b);
-
-        inline uint16_t readUint16(int offset) const
-        {
-            return BMPImageReader::readUint16(m_data.get(), m_decodedOffset + offset);
-        }
-
-        inline uint32_t readUint32(int offset) const
-        {
-            return BMPImageReader::readUint32(m_data.get(), m_decodedOffset + offset);
-        }
-
-        // If the desired PNGImageDecoder exists, gives it the appropriate data.
-        void setDataForPNGDecoderAtIndex(size_t);
-
-        // Decodes the entry at |index|.  If |onlySize| is true, stops decoding
-        // after calculating the image size.  If decoding fails but there is no
-        // more data coming, sets the "decode failure" flag.
-        void decode(size_t index, bool onlySize);
-
-        // Decodes the directory and directory entries at the beginning of the
-        // data, and initializes members.  Returns true if all decoding
-        // succeeded.  Once this returns true, all entries' sizes are known.
-        bool decodeDirectory();
-
-        // Decodes the specified entry.
-        bool decodeAtIndex(size_t);
-
-        // Processes the ICONDIR at the beginning of the data.  Returns true if
-        // the directory could be decoded.
-        bool processDirectory();
-
-        // Processes the ICONDIRENTRY records after the directory.  Keeps the
-        // "best" entry as the one we'll decode.  Returns true if the entries
-        // could be decoded.
-        bool processDirectoryEntries();
-
-        // Stores the hot-spot for |index| in |hotSpot| and returns true,
-        // or returns false if there is none.
-        bool hotSpotAtIndex(size_t index, IntPoint& hotSpot) const;
-
-        // Reads and returns a directory entry from the current offset into
-        // |data|.
-        IconDirectoryEntry readDirectoryEntry();
-
-        // Determines whether the desired entry is a BMP or PNG.  Returns true
-        // if the type could be determined.
-        ImageType imageTypeAtIndex(size_t);
-
-        // An index into |m_data| representing how much we've already decoded.
-        // Note that this only tracks data _this_ class decodes; once the
-        // BMPImageReader takes over this will not be updated further.
-        size_t m_decodedOffset;
-
-        // Which type of file (ICO/CUR) this is.
-        FileType m_fileType;
-
-        // The headers for the ICO.
-        typedef Vector<IconDirectoryEntry> IconDirectoryEntries;
-        IconDirectoryEntries m_dirEntries;
-
-        // The image decoders for the various frames.
-        typedef Vector<std::unique_ptr<BMPImageReader>> BMPReaders;
-        BMPReaders m_bmpReaders;
-        typedef Vector<std::unique_ptr<PNGImageDecoder>> PNGDecoders;
-        PNGDecoders m_pngDecoders;
-
-        // Valid only while a BMPImageReader is decoding, this holds the size
-        // for the particular entry being decoded.
-        IntSize m_frameSize;
+private:
+    enum ImageType {
+        Unknown,
+        BMP,
+        PNG,
     };
 
-} // namespace WebCore
+    enum FileType {
+        ICON = 1,
+        CURSOR = 2,
+    };
 
-#endif
+    struct IconDirectoryEntry {
+        IntSize m_size;
+        uint16_t m_bitCount;
+        IntPoint m_hotSpot;
+        uint32_t m_imageOffset;
+    };
+
+    ICOImageDecoder(AlphaOption, GammaAndColorProfileOption);
+    void tryDecodeSize(bool allDataReceived) final { decode(0, true, allDataReceived); }
+
+    // Returns true if |a| is a preferable icon entry to |b|.
+    // Larger sizes, or greater bitdepths at the same size, are preferable.
+    static bool compareEntries(const IconDirectoryEntry& a, const IconDirectoryEntry& b);
+
+    inline uint16_t readUint16(int offset) const
+    {
+        return BMPImageReader::readUint16(m_data.get(), m_decodedOffset + offset);
+    }
+
+    inline uint32_t readUint32(int offset) const
+    {
+        return BMPImageReader::readUint32(m_data.get(), m_decodedOffset + offset);
+    }
+
+    // If the desired PNGImageDecoder exists, gives it the appropriate data.
+    void setDataForPNGDecoderAtIndex(size_t);
+
+    // Decodes the entry at |index|. If |onlySize| is true, stops decoding
+    // after calculating the image size. If decoding fails but there is no
+    // more data coming, sets the "decode failure" flag.
+    void decode(size_t index, bool onlySize, bool allDataReceived);
+
+    // Decodes the directory and directory entries at the beginning of the
+    // data, and initializes members. Returns true if all decoding
+    // succeeded. Once this returns true, all entries' sizes are known.
+    bool decodeDirectory();
+
+    // Decodes the specified entry.
+    bool decodeAtIndex(size_t);
+
+    // Processes the ICONDIR at the beginning of the data. Returns true if
+    // the directory could be decoded.
+    bool processDirectory();
+
+    // Processes the ICONDIRENTRY records after the directory. Keeps the
+    // "best" entry as the one we'll decode. Returns true if the entries
+    // could be decoded.
+    bool processDirectoryEntries();
+
+    // Returns the hot-spot for |index|, returns WTF::nullopt if there is none.
+    Optional<IntPoint> hotSpotAtIndex(size_t) const;
+
+    // Reads and returns a directory entry from the current offset into
+    // |data|.
+    IconDirectoryEntry readDirectoryEntry();
+
+    // Determines whether the desired entry is a BMP or PNG. Returns true
+    // if the type could be determined.
+    ImageType imageTypeAtIndex(size_t);
+
+    // An index into |m_data| representing how much we've already decoded.
+    // Note that this only tracks data _this_ class decodes; once the
+    // BMPImageReader takes over this will not be updated further.
+    size_t m_decodedOffset;
+
+    // Which type of file (ICO/CUR) this is.
+    FileType m_fileType;
+
+    // The headers for the ICO.
+    typedef Vector<IconDirectoryEntry> IconDirectoryEntries;
+    IconDirectoryEntries m_dirEntries;
+
+    // The image decoders for the various frames.
+    typedef Vector<std::unique_ptr<BMPImageReader>> BMPReaders;
+    BMPReaders m_bmpReaders;
+    typedef Vector<RefPtr<ScalableImageDecoder>> PNGDecoders;
+    PNGDecoders m_pngDecoders;
+
+    // Valid only while a BMPImageReader is decoding, this holds the size
+    // for the particular entry being decoded.
+    IntSize m_frameSize;
+};
+
+} // namespace WebCore

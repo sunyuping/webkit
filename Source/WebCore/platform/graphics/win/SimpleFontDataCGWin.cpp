@@ -29,15 +29,17 @@
 #include "config.h"
 #include "Font.h"
 
+#if USE(CG)
+
 #include "FloatRect.h"
 #include "FontCache.h"
+#include "FontCascade.h"
 #include "FontDescription.h"
 #include "GlyphPage.h"
 #include "HWndDC.h"
 #include "OpenTypeCG.h"
-#include <ApplicationServices/ApplicationServices.h>
-#include <WebKitSystemInterface/WebKitSystemInterface.h>
 #include <mlang.h>
+#include <pal/spi/win/CoreTextSPIWin.h>
 #include <unicode/uchar.h>
 #include <unicode/unorm.h>
 #include <winsock2.h>
@@ -46,8 +48,6 @@
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-
-using namespace std;
 
 void Font::platformInit()
 {
@@ -67,7 +67,7 @@ void Font::platformInit()
     // The Open Font Format describes the OS/2 USE_TYPO_METRICS flag as follows:
     // "If set, it is strongly recommended to use OS/2.sTypoAscender - OS/2.sTypoDescender+ OS/2.sTypoLineGap as a value for default line spacing for this font."
     short typoAscent, typoDescent, typoLineGap;
-    if (OpenType::tryGetTypoMetrics(m_platformData.cgFont(), typoAscent, typoDescent, typoLineGap)) {
+    if (OpenType::tryGetTypoMetrics(adoptCF(CTFontCreateWithGraphicsFont(m_platformData.cgFont(), m_platformData.size(), nullptr, nullptr)).get(), typoAscent, typoDescent, typoLineGap)) {
         iAscent = typoAscent;
         iDescent = typoDescent;
         iLineGap = typoLineGap;
@@ -80,13 +80,12 @@ void Font::platformInit()
     float fCapHeight = scaleEmToUnits(iCapHeight, unitsPerEm) * pointSize;
     float fLineGap = scaleEmToUnits(iLineGap, unitsPerEm) * pointSize;
 
-    if (!isCustomFont()) {
+    if (origin() == Origin::Local) {
         HWndDC dc(0);
         HGDIOBJ oldFont = SelectObject(dc, m_platformData.hfont());
         int faceLength = GetTextFace(dc, 0, 0);
         Vector<WCHAR> faceName(faceLength);
         GetTextFace(dc, faceLength, faceName.data());
-        m_platformData.setIsSystemFont(!wcscmp(faceName.data(), L"Lucida Grande"));
         SelectObject(dc, oldFont);
 
         fAscent = ascentConsideringMacAscentHack(faceName.data(), fAscent, fDescent);
@@ -145,11 +144,27 @@ float Font::platformWidthForGlyph(Glyph glyph) const
     CGSize advance;
     CGAffineTransform m = CGAffineTransformMakeScale(pointSize, pointSize);
  
-    // FIXME: Need to add real support for printer fonts.
     bool isPrinterFont = false;
-    wkGetGlyphAdvances(font, m, m_platformData.isSystemFont(), isPrinterFont, glyph, advance);
+    FontCascade::getPlatformGlyphAdvances(font, m, m_platformData.isSystemFont(), isPrinterFont, glyph, advance);
 
     return advance.width + m_syntheticBoldOffset;
 }
 
+Path Font::platformPathForGlyph(Glyph glyph) const
+{
+    auto ctFont = adoptCF(CTFontCreateWithGraphicsFont(platformData().cgFont(), platformData().size(), nullptr, nullptr));
+    auto result = adoptCF(CTFontCreatePathForGlyph(ctFont.get(), glyph, nullptr));
+    auto syntheticBoldOffset = this->syntheticBoldOffset();
+    if (syntheticBoldOffset) {
+        auto newPath = adoptCF(CGPathCreateMutable());
+        CGPathAddPath(newPath.get(), nullptr, result.get());
+        auto translation = CGAffineTransformMakeTranslation(syntheticBoldOffset, 0);
+        CGPathAddPath(newPath.get(), &translation, result.get());
+        return newPath;
+    }
+    return adoptCF(CGPathCreateMutableCopy(result.get()));
 }
+
+}
+
+#endif

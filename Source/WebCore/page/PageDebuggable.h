@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PageDebuggable_h
-#define PageDebuggable_h
+#pragma once
 
 #if ENABLE(REMOTE_INSPECTOR)
 
@@ -40,26 +39,25 @@ class PageDebuggable final : public Inspector::RemoteInspectionTarget {
     WTF_MAKE_NONCOPYABLE(PageDebuggable);
 public:
     PageDebuggable(Page&);
-    ~PageDebuggable() { }
+    ~PageDebuggable() = default;
 
-    virtual Inspector::RemoteControllableTarget::Type type() const override { return Inspector::RemoteControllableTarget::Type::Web; }
+    Inspector::RemoteControllableTarget::Type type() const final { return Inspector::RemoteControllableTarget::Type::Web; }
 
-    virtual String name() const override;
-    virtual String url() const override;
-    virtual bool hasLocalDebugger() const override;
+    String name() const final;
+    String url() const final;
+    bool hasLocalDebugger() const final;
 
-    virtual void connect(Inspector::FrontendChannel*, bool isAutomaticConnection = false) override;
-    virtual void disconnect(Inspector::FrontendChannel*) override;
-    virtual void dispatchMessageFromRemote(const String& message) override;
-    virtual void setIndicating(bool) override;
+    void connect(Inspector::FrontendChannel&, bool isAutomaticConnection = false, bool immediatelyPause = false) final;
+    void disconnect(Inspector::FrontendChannel&) final;
+    void dispatchMessageFromRemote(const String& message) final;
+    void setIndicating(bool) final;
 
-    String nameOverride() const { return m_nameOverride; }
+    const String& nameOverride() const { return m_nameOverride; }
     void setNameOverride(const String&);
 
 private:
     Page& m_page;
     String m_nameOverride;
-    bool m_forcedDeveloperExtrasEnabled;
 };
 
 } // namespace WebCore
@@ -67,5 +65,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_CONTROLLABLE_TARGET(WebCore::PageDebuggable, Web);
 
 #endif // ENABLE(REMOTE_INSPECTOR)
-
-#endif // !defined(PageDebuggable_h)

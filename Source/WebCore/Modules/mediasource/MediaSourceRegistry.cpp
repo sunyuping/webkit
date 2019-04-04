@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012 Google Inc. All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,8 +35,9 @@
 #if ENABLE(MEDIA_SOURCE)
 
 #include "MediaSource.h"
-#include "URL.h"
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/URL.h>
 
 namespace WebCore {
 
@@ -46,26 +48,21 @@ MediaSourceRegistry& MediaSourceRegistry::registry()
     return instance;
 }
 
-void MediaSourceRegistry::registerURL(SecurityOrigin*, const URL& url, URLRegistrable* registrable)
+void MediaSourceRegistry::registerURL(SecurityOrigin*, const URL& url, URLRegistrable& registrable)
 {
-    ASSERT(&registrable->registry() == this);
+    ASSERT(&registrable.registry() == this);
     ASSERT(isMainThread());
 
-    MediaSource* source = static_cast<MediaSource*>(registrable);
-    source->addedToRegistry();
-    m_mediaSources.set(url.string(), source);
+    MediaSource& source = static_cast<MediaSource&>(registrable);
+    source.addedToRegistry();
+    m_mediaSources.set(url.string(), &source);
 }
 
 void MediaSourceRegistry::unregisterURL(const URL& url)
 {
     ASSERT(isMainThread());
-    HashMap<String, RefPtr<MediaSource>>::iterator iter = m_mediaSources.find(url.string());
-    if (iter == m_mediaSources.end())
-        return;
-
-    RefPtr<MediaSource> source = iter->value;
-    m_mediaSources.remove(iter);
-    source->removedFromRegistry();
+    if (auto source = m_mediaSources.take(url.string()))
+        source->removedFromRegistry();
 }
 
 URLRegistrable* MediaSourceRegistry::lookup(const String& url) const

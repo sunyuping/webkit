@@ -7,34 +7,43 @@
 #ifndef COMPILER_TRANSLATOR_EMULATE_PRECISION_H_
 #define COMPILER_TRANSLATOR_EMULATE_PRECISION_H_
 
+#include "GLSLANG/ShaderLang.h"
 #include "common/angleutils.h"
 #include "compiler/translator/Compiler.h"
 #include "compiler/translator/InfoSink.h"
-#include "compiler/translator/IntermNode.h"
-#include "GLSLANG/ShaderLang.h"
+#include "compiler/translator/IntermTraverse.h"
 
 // This class gathers all compound assignments from the AST and can then write
 // the functions required for their precision emulation. This way there is no
 // need to write a huge number of variations of the emulated compound assignment
 // to every translated shader with emulation enabled.
 
-class EmulatePrecision : public TIntermTraverser
+namespace sh
+{
+
+class EmulatePrecision : public TLValueTrackingTraverser
 {
   public:
-    EmulatePrecision();
+    EmulatePrecision(TSymbolTable *symbolTable, int shaderVersion);
 
-    virtual void visitSymbol(TIntermSymbol *node);
-    virtual bool visitBinary(Visit visit, TIntermBinary *node);
-    virtual bool visitUnary(Visit visit, TIntermUnary *node);
-    virtual bool visitAggregate(Visit visit, TIntermAggregate *node);
+    void visitSymbol(TIntermSymbol *node) override;
+    bool visitBinary(Visit visit, TIntermBinary *node) override;
+    bool visitUnary(Visit visit, TIntermUnary *node) override;
+    bool visitAggregate(Visit visit, TIntermAggregate *node) override;
+    bool visitInvariantDeclaration(Visit visit, TIntermInvariantDeclaration *node) override;
+    bool visitDeclaration(Visit visit, TIntermDeclaration *node) override;
+    bool visitFunctionPrototype(Visit visit, TIntermFunctionPrototype *node) override;
 
-    void writeEmulationHelpers(TInfoSinkBase& sink, ShShaderOutput outputLanguage);
+    void writeEmulationHelpers(TInfoSinkBase &sink,
+                               const int shaderVersion,
+                               const ShShaderOutput outputLanguage);
+
+    static bool SupportedInLanguage(const ShShaderOutput outputLanguage);
 
   private:
     struct TypePair
     {
-        TypePair(const char *l, const char *r)
-            : lType(l), rType(r) { }
+        TypePair(const char *l, const char *r) : lType(l), rType(r) {}
 
         const char *lType;
         const char *rType;
@@ -42,7 +51,7 @@ class EmulatePrecision : public TIntermTraverser
 
     struct TypePairComparator
     {
-        bool operator() (const TypePair& l, const TypePair& r) const
+        bool operator()(const TypePair &l, const TypePair &r) const
         {
             if (l.lType == r.lType)
                 return l.rType < r.rType;
@@ -56,20 +65,9 @@ class EmulatePrecision : public TIntermTraverser
     EmulationSet mEmulateCompoundMul;
     EmulationSet mEmulateCompoundDiv;
 
-    // Stack of function call parameter iterators
-    std::vector<TIntermSequence::const_iterator> mSeqIterStack;
-
     bool mDeclaringVariables;
-    bool mInLValue;
-    bool mInFunctionCallOutParameter;
-
-    struct TStringComparator
-    {
-        bool operator() (const TString& a, const TString& b) const { return a.compare(b) < 0; }
-    };
-
-    // Map from function names to their parameter sequences
-    std::map<TString, TIntermSequence*, TStringComparator> mFunctionMap;
 };
+
+}  // namespace sh
 
 #endif  // COMPILER_TRANSLATOR_EMULATE_PRECISION_H_

@@ -34,8 +34,11 @@
 #include "HTMLNames.h"
 #include "HTMLProgressElement.h"
 #include "RenderProgress.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(ProgressShadowElement);
 
 using namespace HTMLNames;
 
@@ -60,7 +63,7 @@ ProgressInnerElement::ProgressInnerElement(Document& document)
 {
 }
 
-RenderPtr<RenderElement> ProgressInnerElement::createElementRenderer(Ref<RenderStyle>&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> ProgressInnerElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderProgress>(*this, WTFMove(style));
 }

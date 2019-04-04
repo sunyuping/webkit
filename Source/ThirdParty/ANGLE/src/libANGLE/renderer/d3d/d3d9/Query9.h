@@ -19,17 +19,24 @@ class Query9 : public QueryImpl
 {
   public:
     Query9(Renderer9 *renderer, GLenum type);
-    virtual ~Query9();
+    ~Query9() override;
 
-    virtual gl::Error begin();
-    virtual gl::Error end();
-    virtual gl::Error getResult(GLuint *params);
-    virtual gl::Error isResultAvailable(GLuint *available);
+    gl::Error begin() override;
+    gl::Error end() override;
+    gl::Error queryCounter() override;
+    gl::Error getResult(GLint *params) override;
+    gl::Error getResult(GLuint *params) override;
+    gl::Error getResult(GLint64 *params) override;
+    gl::Error getResult(GLuint64 *params) override;
+    gl::Error isResultAvailable(bool *available) override;
 
   private:
     gl::Error testQuery();
 
-    GLuint mResult;
+    template <typename T>
+    gl::Error getResultBase(T *params);
+
+    GLuint64 mResult;
     bool mQueryFinished;
 
     Renderer9 *mRenderer;

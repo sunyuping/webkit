@@ -23,30 +23,28 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PerformanceMark_h
-#define PerformanceMark_h
-
-#if ENABLE(USER_TIMING)
+#pragma once
 
 #include "PerformanceEntry.h"
-#include <wtf/PassRefPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class PerformanceMark : public PerformanceEntry {
+class PerformanceMark final : public PerformanceEntry {
 public:
     static Ref<PerformanceMark> create(const String& name, double startTime) { return adoptRef(*new PerformanceMark(name, startTime)); }
 
-    virtual bool isMark() { return true; }
-    
 private:
-    PerformanceMark(const String& name, double startTime) : PerformanceEntry(name, "mark", startTime, startTime) { }
-    ~PerformanceMark() { }
+    PerformanceMark(const String& name, double startTime)
+        : PerformanceEntry(PerformanceEntry::Type::Mark, name, "mark"_s, startTime, startTime)
+    {
+    }
+
+    ~PerformanceMark() = default;
 };
 
-}
+} // namespace WebCore
 
-#endif // ENABLE(USER_TIMING)
-
-#endif // !defined(PerformanceMark_h)
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::PerformanceMark)
+    static bool isType(const WebCore::PerformanceEntry& entry) { return entry.isMark(); }
+SPECIALIZE_TYPE_TRAITS_END()

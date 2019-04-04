@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef TextGranularity_h
-#define TextGranularity_h
+#pragma once
 
 namespace WebCore {
 
@@ -43,6 +42,24 @@ enum TextGranularity {
     DocumentBoundary
 };
 
-}
+} // namespace WebCore
 
-#endif
+namespace WTF {
+
+template<> struct EnumTraits<WebCore::TextGranularity> {
+    using values = EnumValues<
+        WebCore::TextGranularity,
+        WebCore::TextGranularity::CharacterGranularity,
+        WebCore::TextGranularity::WordGranularity,
+        WebCore::TextGranularity::SentenceGranularity,
+        WebCore::TextGranularity::LineGranularity,
+        WebCore::TextGranularity::ParagraphGranularity,
+        WebCore::TextGranularity::DocumentGranularity,
+        WebCore::TextGranularity::SentenceBoundary,
+        WebCore::TextGranularity::LineBoundary,
+        WebCore::TextGranularity::ParagraphBoundary,
+        WebCore::TextGranularity::DocumentBoundary
+    >;
+};
+
+}

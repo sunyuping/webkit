@@ -23,12 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CryptoAlgorithmRSA_OAEP_h
-#define CryptoAlgorithmRSA_OAEP_h
+#pragma once
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
@@ -37,28 +36,24 @@ class CryptoKeyRSA;
 
 class CryptoAlgorithmRSA_OAEP final : public CryptoAlgorithm {
 public:
-    static const char* const s_name;
-    static const CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::RSA_OAEP;
-
-    static std::unique_ptr<CryptoAlgorithm> create();
-
-    virtual CryptoAlgorithmIdentifier identifier() const override;
-
-    virtual void encrypt(const CryptoAlgorithmParameters&, const CryptoKey&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void decrypt(const CryptoAlgorithmParameters&, const CryptoKey&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void generateKey(const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsage, KeyOrKeyPairCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void importKey(const CryptoAlgorithmParameters&, const CryptoKeyData&, bool extractable, CryptoKeyUsage, KeyCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
+    static constexpr const char* s_name = "RSA-OAEP";
+    static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::RSA_OAEP;
+    static Ref<CryptoAlgorithm> create();
 
 private:
-    CryptoAlgorithmRSA_OAEP();
-    virtual ~CryptoAlgorithmRSA_OAEP();
+    CryptoAlgorithmRSA_OAEP() = default;
+    CryptoAlgorithmIdentifier identifier() const final;
 
-    bool keyAlgorithmMatches(const CryptoAlgorithmRsaOaepParams& algorithmParameters, const CryptoKey&) const;
-    void platformEncrypt(const CryptoAlgorithmRsaOaepParams&, const CryptoKeyRSA&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&);
-    void platformDecrypt(const CryptoAlgorithmRsaOaepParams&, const CryptoKeyRSA&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&);
+    void encrypt(const CryptoAlgorithmParameters&, Ref<CryptoKey>&&, Vector<uint8_t>&&, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&) final;
+    void decrypt(const CryptoAlgorithmParameters&, Ref<CryptoKey>&&, Vector<uint8_t>&&, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&) final;
+    void generateKey(const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyOrKeyPairCallback&&, ExceptionCallback&&, ScriptExecutionContext&) final;
+    void importKey(CryptoKeyFormat, KeyData&&, const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyCallback&&, ExceptionCallback&&) final;
+    void exportKey(CryptoKeyFormat, Ref<CryptoKey>&&, KeyDataCallback&&, ExceptionCallback&&) final;
+
+    static ExceptionOr<Vector<uint8_t>> platformEncrypt(const CryptoAlgorithmRsaOaepParams&, const CryptoKeyRSA&, const Vector<uint8_t>&);
+    static ExceptionOr<Vector<uint8_t>> platformDecrypt(const CryptoAlgorithmRsaOaepParams&, const CryptoKeyRSA&, const Vector<uint8_t>&);
 };
 
-}
+} // namespace WebCore
 
-#endif // ENABLE(SUBTLE_CRYPTO)
-#endif // CryptoAlgorithmRSA_OAEP_h
+#endif // ENABLE(WEB_CRYPTO)

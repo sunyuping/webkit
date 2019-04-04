@@ -23,15 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLParserScheduler_h
-#define HTMLParserScheduler_h
+#pragma once
 
 #include "NestingLevelIncrementer.h"
 #include "Timer.h"
-#include <wtf/CurrentTime.h>
 #include <wtf/RefPtr.h>
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #include "WebCoreThread.h"
 #endif
 
@@ -54,9 +52,8 @@ public:
     PumpSession(unsigned& nestingLevel, Document*);
     ~PumpSession();
 
-    int processedTokens;
-    double startTime;
-    bool needsYield;
+    unsigned processedTokens;
+    MonotonicTime startTime;
     bool didSeeScript;
 };
 
@@ -66,50 +63,74 @@ public:
     explicit HTMLParserScheduler(HTMLDocumentParser&);
     ~HTMLParserScheduler();
 
-    // Inline as this is called after every token in the parser.
-    void checkForYieldBeforeToken(PumpSession& session)
+    bool shouldYieldBeforeToken(PumpSession& session)
     {
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
         if (WebThreadShouldYield())
-            session.needsYield = true;
+            return true;
 #endif
-        if (session.processedTokens > m_parserChunkSize || session.didSeeScript) {
-            // monotonicallyIncreasingTime() can be expensive. By delaying, we avoided calling
-            // monotonicallyIncreasingTime() when constructing non-yielding PumpSessions.
-            if (!session.startTime)
-                session.startTime = monotonicallyIncreasingTime();
+        if (UNLIKELY(m_documentHasActiveParserYieldTokens))
+            return true;
 
-            session.processedTokens = 0;
-            session.didSeeScript = false;
+        if (UNLIKELY(session.processedTokens > numberOfTokensBeforeCheckingForYield || session.didSeeScript))
+            return checkForYield(session);
 
-            double elapsedTime = monotonicallyIncreasingTime() - session.startTime;
-            if (elapsedTime > m_parserTimeLimit)
-                session.needsYield = true;
-        }
         ++session.processedTokens;
+        return false;
     }
-    void checkForYieldBeforeScript(PumpSession&);
+    bool shouldYieldBeforeExecutingScript(PumpSession&);
 
     void scheduleForResume();
-    bool isScheduledForResume() const { return m_isSuspendedWithActiveTimer || m_continueNextChunkTimer.isActive(); }
+    bool isScheduledForResume() const { return m_isSuspendedWithActiveTimer || m_continueNextChunkTimer.isActive() || m_documentHasActiveParserYieldTokens; }
 
     void suspend();
     void resume();
 
+    void didBeginYieldingParser()
+    {
+        ASSERT(!m_documentHasActiveParserYieldTokens);
+        m_documentHasActiveParserYieldTokens = true;
+    }
+
+    void didEndYieldingParser()
+    {
+        ASSERT(m_documentHasActiveParserYieldTokens);
+        m_documentHasActiveParserYieldTokens = false;
+
+        if (!isScheduledForResume())
+            scheduleForResume();
+    }
+
 private:
+    static const unsigned numberOfTokensBeforeCheckingForYield = 4096; // Performance optimization
+
     void continueNextChunkTimerFired();
+
+    bool checkForYield(PumpSession& session)
+    {
+        session.processedTokens = 1;
+        session.didSeeScript = false;
+
+        // MonotonicTime::now() can be expensive. By delaying, we avoided calling
+        // MonotonicTime::now() when constructing non-yielding PumpSessions.
+        if (!session.startTime) {
+            session.startTime = MonotonicTime::now();
+            return false;
+        }
+
+        Seconds elapsedTime = MonotonicTime::now() - session.startTime;
+        return elapsedTime > m_parserTimeLimit;
+    }
 
     HTMLDocumentParser& m_parser;
 
-    double m_parserTimeLimit;
-    int m_parserChunkSize;
+    Seconds m_parserTimeLimit;
     Timer m_continueNextChunkTimer;
     bool m_isSuspendedWithActiveTimer;
 #if !ASSERT_DISABLED
     bool m_suspended;
 #endif
+    bool m_documentHasActiveParserYieldTokens { false };
 };
 
-}
-
-#endif
+} // namespace WebCore

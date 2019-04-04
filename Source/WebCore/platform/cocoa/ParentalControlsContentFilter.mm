@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,9 +32,9 @@
 #import "Logging.h"
 #import "ResourceResponse.h"
 #import "SharedBuffer.h"
-#import "SoftLinking.h"
-#import "WebFilterEvaluatorSPI.h"
 #import <objc/runtime.h>
+#import <pal/spi/cocoa/WebFilterEvaluatorSPI.h>
+#import <wtf/SoftLinking.h>
 
 SOFT_LINK_PRIVATE_FRAMEWORK(WebContentAnalysis);
 SOFT_LINK_CLASS(WebContentAnalysis, WebFilterEvaluator);
@@ -55,7 +55,7 @@ std::unique_ptr<ParentalControlsContentFilter> ParentalControlsContentFilter::cr
 
 static inline bool canHandleResponse(const ResourceResponse& response)
 {
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) || PLATFORM(IOSMAC)
     return response.url().protocolIs("https");
 #else
     return response.url().protocolIsInHTTPFamily();
@@ -93,17 +93,19 @@ void ParentalControlsContentFilter::finishedAddingData()
 Ref<SharedBuffer> ParentalControlsContentFilter::replacementData() const
 {
     ASSERT(didBlockData());
-    return adoptRef(*SharedBuffer::wrapNSData(m_replacementData.get()).leakRef());
+    return SharedBuffer::create(m_replacementData.get());
 }
 
+#if ENABLE(CONTENT_FILTERING)
 ContentFilterUnblockHandler ParentalControlsContentFilter::unblockHandler() const
 {
-#if PLATFORM(IOS)
-    return ContentFilterUnblockHandler { ASCIILiteral("unblock"), m_webFilterEvaluator };
+#if HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+    return ContentFilterUnblockHandler { "unblock"_s, m_webFilterEvaluator };
 #else
     return { };
 #endif
 }
+#endif
 
 void ParentalControlsContentFilter::updateFilterState()
 {

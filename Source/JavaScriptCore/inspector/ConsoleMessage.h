@@ -28,12 +28,14 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ConsoleMessage_h
-#define ConsoleMessage_h
+#pragma once
 
 #include "ConsoleTypes.h"
-#include "InspectorFrontendDispatchers.h"
+#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
+#include <wtf/Logger.h>
+#include <wtf/Noncopyable.h>
+#include <wtf/text/WTFString.h>
 
 namespace JSC {
 class ExecState;
@@ -41,6 +43,7 @@ class ExecState;
 
 namespace Inspector {
 
+class ConsoleFrontendDispatcher;
 class InjectedScriptManager;
 class ScriptArguments;
 class ScriptCallStack;
@@ -51,8 +54,9 @@ class JS_EXPORT_PRIVATE ConsoleMessage {
 public:
     ConsoleMessage(MessageSource, MessageType, MessageLevel, const String& message, unsigned long requestIdentifier = 0);
     ConsoleMessage(MessageSource, MessageType, MessageLevel, const String& message, const String& url, unsigned line, unsigned column, JSC::ExecState* = nullptr, unsigned long requestIdentifier = 0);
-    ConsoleMessage(MessageSource, MessageType, MessageLevel, const String& message, PassRefPtr<ScriptCallStack>, unsigned long requestIdentifier = 0);
-    ConsoleMessage(MessageSource, MessageType, MessageLevel, const String& message, PassRefPtr<ScriptArguments>, JSC::ExecState*, unsigned long requestIdentifier = 0);
+    ConsoleMessage(MessageSource, MessageType, MessageLevel, const String& message, Ref<ScriptCallStack>&&, unsigned long requestIdentifier = 0);
+    ConsoleMessage(MessageSource, MessageType, MessageLevel, const String& message, Ref<ScriptArguments>&&, JSC::ExecState* = nullptr, unsigned long requestIdentifier = 0);
+    ConsoleMessage(MessageSource, MessageType, MessageLevel, Vector<JSONLogValue>&&, JSC::ExecState*, unsigned long requestIdentifier = 0);
     ~ConsoleMessage();
 
     void addToFrontend(ConsoleFrontendDispatcher&, InjectedScriptManager&, bool generatePreview);
@@ -85,7 +89,9 @@ private:
     String m_message;
     RefPtr<ScriptArguments> m_arguments;
     RefPtr<ScriptCallStack> m_callStack;
+    Vector<JSONLogValue> m_jsonLogValues;
     String m_url;
+    JSC::ExecState* m_scriptState { nullptr };
     unsigned m_line { 0 };
     unsigned m_column { 0 };
     unsigned m_repeatCount { 1 };
@@ -93,5 +99,3 @@ private:
 };
 
 } // namespace Inspector
-
-#endif // ConsoleMessage_h

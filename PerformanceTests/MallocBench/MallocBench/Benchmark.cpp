@@ -25,6 +25,7 @@
 
 #include "Benchmark.h"
 #include "CPUCount.h"
+#include "alloc_free.h"
 #include "balloon.h"
 #include "big.h"
 #include "churn.h"
@@ -33,23 +34,27 @@
 #include "fragment.h"
 #include "list.h"
 #include "medium.h"
-#include "memalign.h"
 #include "message.h"
+#include "nimlang.h"
 #include "reddit.h"
 #include "realloc.h"
 #include "stress.h"
 #include "stress_aligned.h"
 #include "theverge.h"
 #include "tree.h"
-#include <dispatch/dispatch.h>
+#include <algorithm>
 #include <iostream>
-#include <mach/mach.h>
-#include <mach/task_info.h>
 #include <map>
+#include <stdio.h>
 #include <string>
+#include <strings.h>
 #include <sys/time.h>
 #include <thread>
-#include <unistd.h>
+#include <vector>
+
+#ifdef __APPLE__
+#include <dispatch/dispatch.h>
+#endif
 
 #include "mbmalloc.h"
 
@@ -61,6 +66,7 @@ struct BenchmarkPair {
 };
 
 static const BenchmarkPair benchmarkPairs[] = {
+    { "alloc_free", benchmark_alloc_free },
     { "balloon", benchmark_balloon },
     { "big", benchmark_big },
     { "churn", benchmark_churn },
@@ -72,9 +78,9 @@ static const BenchmarkPair benchmarkPairs[] = {
     { "list_allocate", benchmark_list_allocate },
     { "list_traverse", benchmark_list_traverse },
     { "medium", benchmark_medium },
-    { "memalign", benchmark_memalign },
     { "message_many", benchmark_message_many },
     { "message_one", benchmark_message_one },
+    { "nimlang", benchmark_nimlang },
     { "realloc", benchmark_realloc },
     { "reddit", benchmark_reddit },
     { "reddit_memory_warning", benchmark_reddit_memory_warning },
@@ -127,15 +133,11 @@ static void deallocateHeap(void*** chunks, size_t heapSize, size_t chunkSize, si
     mbfree(chunks, chunkCount * sizeof(void**));
 }
 
-Benchmark::Benchmark(const string& benchmarkName, bool isParallel, size_t runs, size_t heapSize)
-    : m_benchmarkPair()
-    , m_elapsedTime()
-    , m_isParallel(isParallel)
-    , m_heapSize(heapSize)
-    , m_runs(runs)
+Benchmark::Benchmark(CommandLine& commandLine)
+    : m_commandLine(commandLine)
 {
     const BenchmarkPair* benchmarkPair = std::find(
-        benchmarkPairs, benchmarkPairs + benchmarksPairsCount, benchmarkName);
+        benchmarkPairs, benchmarkPairs + benchmarksPairsCount, m_commandLine.benchmarkName());
     if (benchmarkPair == benchmarkPairs + benchmarksPairsCount)
         return;
     
@@ -151,22 +153,33 @@ void Benchmark::printBenchmarks()
 
 void Benchmark::runOnce()
 {
-    if (!m_isParallel) {
-        m_benchmarkPair->function(m_isParallel);
+    if (!m_commandLine.isParallel()) {
+        m_benchmarkPair->function(m_commandLine);
         return;
     }
 
+#ifdef __APPLE__
     dispatch_group_t group = dispatch_group_create();
 
     for (size_t i = 0; i < cpuCount(); ++i) {
         dispatch_group_async(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-            m_benchmarkPair->function(m_isParallel);
+            m_benchmarkPair->function(m_commandLine);
         });
     }
 
     dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
 
     dispatch_release(group);
+#else
+    std::vector<std::thread> threads;
+    for (size_t i = 0; i < cpuCount(); ++i) {
+        threads.emplace_back([&] {
+            m_benchmarkPair->function(m_commandLine);
+        });
+    }
+    for (auto& thread : threads)
+        thread.join();
+#endif
 }
 
 void Benchmark::run()
@@ -174,20 +187,23 @@ void Benchmark::run()
     static const size_t objectSize = 32;
     static const size_t chunkSize = 1024 * 1024;
     
-    void*** heap = allocateHeap(m_heapSize, chunkSize, objectSize);
+    void*** heap = allocateHeap(m_commandLine.heapSize(), chunkSize, objectSize);
 
-    runOnce(); // Warmup run.
+    if (m_commandLine.warmUp())
+        runOnce(); // Warmup run.
 
-    for (size_t i = 0; i < m_runs; ++i) {
+    size_t runs = m_commandLine.runs();
+
+    for (size_t i = 0; i < runs; ++i) {
         double start = currentTimeMS();
         runOnce();
         double end = currentTimeMS();
         double elapsed = end - start;
         m_elapsedTime += elapsed;
     }
-    m_elapsedTime /= m_runs;
+    m_elapsedTime /= runs;
 
-    deallocateHeap(heap, m_heapSize, chunkSize, objectSize);
+    deallocateHeap(heap, m_commandLine.heapSize(), chunkSize, objectSize);
     
     mbscavenge();
     m_memory = currentMemoryBytes();
@@ -198,8 +214,8 @@ void Benchmark::printReport()
     size_t kB = 1024;
 
     cout << "Time:       \t" << m_elapsedTime << "ms" << endl;
-    cout << "Memory:     \t" << m_memory.resident / kB << "kB" << endl;
     cout << "Peak Memory:\t" << m_memory.residentMax / kB << "kB" << endl;
+    cout << "Memory at End:     \t" << m_memory.resident / kB << "kB" << endl;
 }
 
 double Benchmark::currentTimeMS()
@@ -209,18 +225,3 @@ double Benchmark::currentTimeMS()
     return (now.tv_sec * 1000.0) + now.tv_usec / 1000.0;
 }
 
-Benchmark::Memory Benchmark::currentMemoryBytes()
-{
-    Memory memory;
-
-    task_vm_info_data_t vm_info;
-    mach_msg_type_number_t vm_size = TASK_VM_INFO_COUNT;
-    if (KERN_SUCCESS != task_info(mach_task_self(), TASK_VM_INFO_PURGEABLE, (task_info_t)(&vm_info), &vm_size)) {
-        cout << "Failed to get mach task info" << endl;
-        exit(1);
-    }
-
-    memory.resident = vm_info.internal - vm_info.purgeable_volatile_pmap;
-    memory.residentMax = vm_info.resident_size_peak;
-    return memory;
-}

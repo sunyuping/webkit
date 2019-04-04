@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HashableActionList_h
-#define HashableActionList_h
+#pragma once
 
 #include <wtf/Hasher.h>
 #include <wtf/Vector.h>
@@ -54,12 +53,12 @@ struct HashableActionList {
     bool isEmptyValue() const { return state == Empty; }
     bool isDeletedValue() const { return state == Deleted; }
 
-    bool operator==(const HashableActionList other) const
+    bool operator==(const HashableActionList& other) const
     {
         return state == other.state && actions == other.actions;
     }
 
-    bool operator!=(const HashableActionList other) const
+    bool operator!=(const HashableActionList& other) const
     {
         return !(*this == other);
     }
@@ -91,7 +90,4 @@ struct HashableActionListHashTraits : public WTF::CustomHashTraits<HashableActio
 };
 
 } // namespace ContentExtensions
-
 } // namespace WebCore
-
-#endif

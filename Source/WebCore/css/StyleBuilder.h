@@ -24,21 +24,20 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef StyleBuilder_h
-#define StyleBuilder_h
+#pragma once
 
 #include "CSSPropertyNames.h"
 
 namespace WebCore {
 
+struct CSSRegisteredCustomProperty;
 class CSSValue;
 class StyleResolver;
+struct CSSRegisteredCustomProperty;
 
 class StyleBuilder {
 public:
-    static void applyProperty(CSSPropertyID, StyleResolver&, CSSValue&, bool isInitial, bool isInherit);
+    static void applyProperty(CSSPropertyID, StyleResolver&, CSSValue&, bool isInitial, bool isInherit, const CSSRegisteredCustomProperty*);
 };
 
 } // namespace WebCore
-
-#endif // StyleBuilder_h

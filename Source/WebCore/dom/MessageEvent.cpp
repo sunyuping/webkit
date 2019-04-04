@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2007 Henry Mason (hmason@mac.com)
- * Copyright (C) 2003, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,160 +28,95 @@
 #include "config.h"
 #include "MessageEvent.h"
 
-#include <runtime/JSCInlines.h>
+#include "Blob.h"
+#include "EventNames.h"
+#include <JavaScriptCore/JSCInlines.h>
 
 namespace WebCore {
 
-static inline bool isValidSource(EventTarget* source)
-{
-    return !source || source->toDOMWindow() || source->isMessagePort();
-}
+using namespace JSC;
 
-MessageEvent::MessageEvent()
-    : m_dataType(DataTypeScriptValue)
-{
-}
+MessageEvent::MessageEvent() = default;
 
-MessageEvent::MessageEvent(const AtomicString& type, const MessageEventInit& initializer)
-    : Event(type, initializer)
-    , m_dataType(DataTypeScriptValue)
-    , m_dataAsScriptValue(initializer.data)
+inline MessageEvent::MessageEvent(const AtomicString& type, Init&& initializer, IsTrusted isTrusted)
+    : Event(type, initializer, isTrusted)
+    , m_data(JSValueInWrappedObject { initializer.data })
     , m_origin(initializer.origin)
     , m_lastEventId(initializer.lastEventId)
-    , m_source(isValidSource(initializer.source.get()) ? initializer.source : nullptr)
-    , m_ports(std::make_unique<MessagePortArray>(initializer.ports))
+    , m_source(WTFMove(initializer.source))
+    , m_ports(WTFMove(initializer.ports))
 {
 }
 
-MessageEvent::MessageEvent(const Deprecated::ScriptValue& data, const String& origin, const String& lastEventId, PassRefPtr<EventTarget> source, std::unique_ptr<MessagePortArray> ports)
-    : Event(eventNames().messageEvent, false, false)
-    , m_dataType(DataTypeScriptValue)
-    , m_dataAsScriptValue(data)
+inline MessageEvent::MessageEvent(DataType&& data, const String& origin, const String& lastEventId, Optional<MessageEventSource>&& source, Vector<RefPtr<MessagePort>>&& ports)
+    : Event(eventNames().messageEvent, CanBubble::No, IsCancelable::No)
+    , m_data(WTFMove(data))
     , m_origin(origin)
     , m_lastEventId(lastEventId)
-    , m_source(source)
+    , m_source(WTFMove(source))
     , m_ports(WTFMove(ports))
 {
-    ASSERT(isValidSource(m_source.get()));
 }
 
-MessageEvent::MessageEvent(PassRefPtr<SerializedScriptValue> data, const String& origin, const String& lastEventId, PassRefPtr<EventTarget> source, std::unique_ptr<MessagePortArray> ports)
-    : Event(eventNames().messageEvent, false, false)
-    , m_dataType(DataTypeSerializedScriptValue)
-    , m_dataAsSerializedScriptValue(data)
-    , m_origin(origin)
-    , m_lastEventId(lastEventId)
-    , m_source(source)
-    , m_ports(WTFMove(ports))
-{
-    ASSERT(isValidSource(m_source.get()));
-}
-
-MessageEvent::MessageEvent(const AtomicString& type, bool canBubble, bool cancelable, PassRefPtr<SerializedScriptValue> data, const String& origin, const String& lastEventId)
-    : Event(type, canBubble, cancelable)
-    , m_dataType(DataTypeSerializedScriptValue)
-    , m_dataAsSerializedScriptValue(data)
+inline MessageEvent::MessageEvent(const AtomicString& type, Ref<SerializedScriptValue>&& data, const String& origin, const String& lastEventId)
+    : Event(type, CanBubble::No, IsCancelable::No)
+    , m_data(WTFMove(data))
     , m_origin(origin)
     , m_lastEventId(lastEventId)
 {
 }
 
-MessageEvent::MessageEvent(const String& data, const String& origin)
-    : Event(eventNames().messageEvent, false, false)
-    , m_dataType(DataTypeString)
-    , m_dataAsString(data)
-    , m_origin(origin)
+Ref<MessageEvent> MessageEvent::create(Vector<RefPtr<MessagePort>>&& ports, Ref<SerializedScriptValue>&& data, const String& origin, const String& lastEventId, Optional<MessageEventSource>&& source)
 {
+    return adoptRef(*new MessageEvent(WTFMove(data), origin, lastEventId, WTFMove(source), WTFMove(ports)));
 }
 
-MessageEvent::MessageEvent(PassRefPtr<Blob> data, const String& origin)
-    : Event(eventNames().messageEvent, false, false)
-    , m_dataType(DataTypeBlob)
-    , m_dataAsBlob(data)
-    , m_origin(origin)
+Ref<MessageEvent> MessageEvent::create(const AtomicString& type, Ref<SerializedScriptValue>&& data, const String& origin, const String& lastEventId)
 {
+    return adoptRef(*new MessageEvent(type, WTFMove(data), origin, lastEventId));
 }
 
-MessageEvent::MessageEvent(PassRefPtr<ArrayBuffer> data, const String& origin)
-    : Event(eventNames().messageEvent, false, false)
-    , m_dataType(DataTypeArrayBuffer)
-    , m_dataAsArrayBuffer(data)
-    , m_origin(origin)
+Ref<MessageEvent> MessageEvent::create(const String& data, const String& origin)
 {
+    return adoptRef(*new MessageEvent(data, origin));
 }
 
-MessageEvent::~MessageEvent()
+Ref<MessageEvent> MessageEvent::create(Ref<Blob>&& data, const String& origin)
 {
+    return adoptRef(*new MessageEvent(WTFMove(data), origin));
 }
 
-void MessageEvent::initMessageEvent(const AtomicString& type, bool canBubble, bool cancelable, const Deprecated::ScriptValue& data, const String& origin, const String& lastEventId, DOMWindow* source, std::unique_ptr<MessagePortArray> ports)
+Ref<MessageEvent> MessageEvent::create(Ref<ArrayBuffer>&& data, const String& origin)
 {
-    if (dispatched())
+    return adoptRef(*new MessageEvent(WTFMove(data), origin));
+}
+
+Ref<MessageEvent> MessageEvent::createForBindings()
+{
+    return adoptRef(*new MessageEvent);
+}
+
+Ref<MessageEvent> MessageEvent::create(const AtomicString& type, Init&& initializer, IsTrusted isTrusted)
+{
+    return adoptRef(*new MessageEvent(type, WTFMove(initializer), isTrusted));
+}
+
+MessageEvent::~MessageEvent() = default;
+
+void MessageEvent::initMessageEvent(const AtomicString& type, bool canBubble, bool cancelable, JSValue data, const String& origin, const String& lastEventId, Optional<MessageEventSource>&& source, Vector<RefPtr<MessagePort>>&& ports)
+{
+    if (isBeingDispatched())
         return;
 
     initEvent(type, canBubble, cancelable);
 
-    m_dataType = DataTypeScriptValue;
-    m_dataAsScriptValue = data;
-    m_dataAsSerializedScriptValue = nullptr;
-    m_triedToSerialize = false;
+    m_data = JSValueInWrappedObject { data };
+    m_cachedData = { };
     m_origin = origin;
     m_lastEventId = lastEventId;
-    m_source = source;
+    m_source = WTFMove(source);
     m_ports = WTFMove(ports);
-}
-
-void MessageEvent::initMessageEvent(const AtomicString& type, bool canBubble, bool cancelable, PassRefPtr<SerializedScriptValue> data, const String& origin, const String& lastEventId, DOMWindow* source, std::unique_ptr<MessagePortArray> ports)
-{
-    if (dispatched())
-        return;
-
-    initEvent(type, canBubble, cancelable);
-
-    m_dataType = DataTypeSerializedScriptValue;
-    m_dataAsSerializedScriptValue = data;
-    m_origin = origin;
-    m_lastEventId = lastEventId;
-    m_source = source;
-    m_ports = WTFMove(ports);
-}
-    
-RefPtr<SerializedScriptValue> MessageEvent::trySerializeData(JSC::ExecState* exec)
-{
-    ASSERT(!m_dataAsScriptValue.hasNoValue());
-    
-    if (!m_dataAsSerializedScriptValue && !m_triedToSerialize) {
-        m_dataAsSerializedScriptValue = SerializedScriptValue::create(exec, m_dataAsScriptValue.jsValue(), nullptr, nullptr, NonThrowing);
-        m_triedToSerialize = true;
-    }
-    
-    return m_dataAsSerializedScriptValue;
-}
-
-// FIXME: Remove this when we have custom ObjC binding support.
-SerializedScriptValue* MessageEvent::data() const
-{
-    // WebSocket is not exposed in ObjC bindings, thus the data type should always be SerializedScriptValue.
-    ASSERT(m_dataType == DataTypeSerializedScriptValue);
-    return m_dataAsSerializedScriptValue.get();
-}
-
-MessagePort* MessageEvent::messagePort()
-{
-    if (!m_ports)
-        return 0;
-    ASSERT(m_ports->size() == 1);
-    return (*m_ports)[0].get();
-}
-
-void MessageEvent::initMessageEvent(const AtomicString& type, bool canBubble, bool cancelable, PassRefPtr<SerializedScriptValue> data, const String& origin, const String& lastEventId, DOMWindow* source, MessagePort* port)
-{
-    std::unique_ptr<MessagePortArray> ports;
-    if (port) {
-        ports = std::make_unique<MessagePortArray>();
-        ports->append(port);
-    }
-    initMessageEvent(type, canBubble, cancelable, data, origin, lastEventId, source, WTFMove(ports));
+    m_cachedPorts = { };
 }
 
 EventInterface MessageEvent::eventInterface() const

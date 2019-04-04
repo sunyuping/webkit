@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IDBKeyRangeData_h
-#define IDBKeyRangeData_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
@@ -63,15 +62,15 @@ struct IDBKeyRangeData {
         if (isNull)
             return;
 
-        lowerKey = keyRange->lower().get();
-        upperKey = keyRange->upper().get();
+        lowerKey = keyRange->lower();
+        upperKey = keyRange->upper();
         lowerOpen = keyRange->lowerOpen();
         upperOpen = keyRange->upperOpen();
     }
 
     IDBKeyRangeData isolatedCopy() const;
 
-    WEBCORE_EXPORT PassRefPtr<IDBKeyRange> maybeCreateIDBKeyRange() const;
+    WEBCORE_EXPORT RefPtr<IDBKeyRange> maybeCreateIDBKeyRange() const;
 
     WEBCORE_EXPORT bool isExactlyOneKey() const;
     bool containsKey(const IDBKeyData&) const;
@@ -88,7 +87,7 @@ struct IDBKeyRangeData {
     bool lowerOpen;
     bool upperOpen;
 
-#ifndef NDEBUG
+#if !LOG_DISABLED
     String loggingString() const;
 #endif
 };
@@ -112,11 +111,17 @@ bool IDBKeyRangeData::decode(Decoder& decoder, IDBKeyRangeData& keyRange)
     if (keyRange.isNull)
         return true;
 
-    if (!decoder.decode(keyRange.upperKey))
+    Optional<IDBKeyData> upperKey;
+    decoder >> upperKey;
+    if (!upperKey)
         return false;
-
-    if (!decoder.decode(keyRange.lowerKey))
+    keyRange.upperKey = WTFMove(*upperKey);
+    
+    Optional<IDBKeyData> lowerKey;
+    decoder >> lowerKey;
+    if (!lowerKey)
         return false;
+    keyRange.lowerKey = WTFMove(*lowerKey);
 
     if (!decoder.decode(keyRange.upperOpen))
         return false;
@@ -130,4 +135,3 @@ bool IDBKeyRangeData::decode(Decoder& decoder, IDBKeyRangeData& keyRange)
 } // namespace WebCore
 
 #endif // ENABLE(INDEXED_DATABASE)
-#endif // IDBKeyRangeData_h

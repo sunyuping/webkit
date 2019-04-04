@@ -24,8 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DeviceMotionClient_h
-#define DeviceMotionClient_h
+#pragma once
 
 #include "DeviceClient.h"
 #include <wtf/Noncopyable.h>
@@ -39,15 +38,11 @@ class Page;
 class DeviceMotionClient : public DeviceClient {
     WTF_MAKE_NONCOPYABLE(DeviceMotionClient);
 public:
-    DeviceMotionClient() { }
-    virtual ~DeviceMotionClient() { }
+    DeviceMotionClient() = default;
+    virtual ~DeviceMotionClient() = default;
     virtual void setController(DeviceMotionController*) = 0;
     virtual DeviceMotionData* lastMotion() const = 0;
     virtual void deviceMotionControllerDestroyed() = 0;
 };
 
-void provideDeviceMotionTo(Page*, DeviceMotionClient*);
-
 } // namespace WebCore
-
-#endif // DeviceMotionClient_h

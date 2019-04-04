@@ -25,65 +25,77 @@
 
 #import "config.h"
 #import "UTIUtilities.h"
+#import <wtf/MainThread.h>
+#import <wtf/TinyLRUCache.h>
+#import <wtf/text/WTFString.h>
 
-#if PLATFORM(IOS)
-#import "SoftLinking.h"
+#if PLATFORM(IOS_FAMILY)
 #import <MobileCoreServices/MobileCoreServices.h>
-
-SOFT_LINK_FRAMEWORK(MobileCoreServices)
-
-SOFT_LINK(MobileCoreServices, UTTypeCopyDeclaration, CFDictionaryRef, (CFStringRef inUTI), (inUTI))
-SOFT_LINK(MobileCoreServices, UTTypeCopyPreferredTagWithClass, CFStringRef, (CFStringRef inUTI, CFStringRef inTagClass), (inUTI, inTagClass))
-SOFT_LINK(MobileCoreServices, UTTypeCreatePreferredIdentifierForTag, CFStringRef, (CFStringRef inTagClass, CFStringRef inTag, CFStringRef inConformingToUTI), (inTagClass, inTag, inConformingToUTI))
-
-SOFT_LINK_CONSTANT(MobileCoreServices, kUTTypeConformsToKey, CFStringRef)
-SOFT_LINK_CONSTANT(MobileCoreServices, kUTTagClassMIMEType, CFStringRef)
-
-#define kUTTagClassMIMEType getkUTTagClassMIMEType()
-#define kUTTypeConformsToKey getkUTTypeConformsToKey()
 #endif
 
 namespace WebCore {
 
-RetainPtr<CFStringRef> mimeTypeFromUTITree(CFStringRef uti)
+String MIMETypeFromUTI(const String& uti)
 {
+    return adoptCF(UTTypeCopyPreferredTagWithClass(uti.createCFString().get(), kUTTagClassMIMEType)).get();
+}
+
+String MIMETypeFromUTITree(const String& uti)
+{
+    auto utiCF = uti.createCFString();
+
     // Check if this UTI has a MIME type.
-    RetainPtr<CFStringRef> mimeType = adoptCF(UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType));
+    RetainPtr<CFStringRef> mimeType = adoptCF(UTTypeCopyPreferredTagWithClass(utiCF.get(), kUTTagClassMIMEType));
     if (mimeType)
         return mimeType.get();
 
     // If not, walk the ancestory of this UTI via its "ConformsTo" tags and return the first MIME type we find.
-    RetainPtr<CFDictionaryRef> decl = adoptCF(UTTypeCopyDeclaration(uti));
+    RetainPtr<CFDictionaryRef> decl = adoptCF(UTTypeCopyDeclaration(utiCF.get()));
     if (!decl)
-        return nil;
+        return String();
     CFTypeRef value = CFDictionaryGetValue(decl.get(), kUTTypeConformsToKey);
     if (!value)
-        return nil;
+        return String();
     CFTypeID typeID = CFGetTypeID(value);
 
     if (typeID == CFStringGetTypeID())
-        return mimeTypeFromUTITree((CFStringRef)value);
+        return MIMETypeFromUTITree((CFStringRef)value);
 
     if (typeID == CFArrayGetTypeID()) {
         CFArrayRef newTypes = (CFArrayRef)value;
         CFIndex count = CFArrayGetCount(newTypes);
         for (CFIndex i = 0; i < count; ++i) {
-        CFTypeRef object = CFArrayGetValueAtIndex(newTypes, i);
-        if (CFGetTypeID(object) != CFStringGetTypeID())
-            continue;
+            CFTypeRef object = CFArrayGetValueAtIndex(newTypes, i);
+            if (CFGetTypeID(object) != CFStringGetTypeID())
+                continue;
 
-        if (RetainPtr<CFStringRef> mimeType = mimeTypeFromUTITree((CFStringRef)object))
-            return mimeType;
+            String mimeType = MIMETypeFromUTITree((CFStringRef)object);
+            if (!mimeType.isEmpty())
+                return mimeType;
         }
     }
 
-    return nil;
+    return String();
 }
 
-RetainPtr<CFStringRef> UTIFromMIMEType(CFStringRef mime)
+struct UTIFromMIMETypeCachePolicy : TinyLRUCachePolicy<String, String> {
+public:
+    static String createValueForKey(const String& key)
+    {
+        return String(adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, key.createCFString().get(), 0)).get());
+    }
+};
+
+String UTIFromMIMEType(const String& mimeType)
 {
-    RetainPtr<CFStringRef> uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, mime, 0));
-    return uti;
+    ASSERT(isMainThread());
+    static NeverDestroyed<TinyLRUCache<String, String, 16, UTIFromMIMETypeCachePolicy>> cache;
+    return cache.get().get(mimeType);
+}
+
+bool isDeclaredUTI(const String& UTI)
+{
+    return UTTypeIsDeclared(UTI.createCFString().get());
 }
 
 }

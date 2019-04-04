@@ -29,36 +29,18 @@
  */
 
 #include "config.h"
-
-#if ENABLE(TEMPLATE_ELEMENT)
-
 #include "JSHTMLTemplateElement.h"
 
-#include "HTMLTemplateElement.h"
 #include "JSDocumentFragment.h"
-#include <runtime/JSObject.h>
-#include <runtime/PrivateName.h>
 
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
-JSValue JSHTMLTemplateElement::content(ExecState& state) const
+void JSHTMLTemplateElement::visitAdditionalChildren(JSC::SlotVisitor& visitor)
 {
-    JSLockHolder lock(&state);
-
-    DocumentFragment* content = wrapped().content();
-
-    JSObject* wrapper = getCachedWrapper(globalObject()->world(), content);
-    if (wrapper)
-        return wrapper;
-
-    wrapper = CREATE_DOM_WRAPPER(globalObject(), DocumentFragment, content);
-    PrivateName propertyName;
-    const_cast<JSHTMLTemplateElement*>(this)->putDirect(globalObject()->vm(), propertyName, wrapper);
-    return wrapper;
+    if (auto* content = wrapped().contentIfAvailable())
+        visitor.addOpaqueRoot(root(content));
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(TEMPLATE_ELEMENT)

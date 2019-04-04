@@ -18,14 +18,14 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGDescElement_h
-#define SVGDescElement_h
+#pragma once
 
 #include "SVGElement.h"
 
 namespace WebCore {
 
 class SVGDescElement final : public SVGElement {
+    WTF_MAKE_ISO_ALLOCATED(SVGDescElement);
 public:
     static Ref<SVGDescElement> create(const QualifiedName&, Document&);
 
@@ -34,9 +34,7 @@ public:
 private:
     SVGDescElement(const QualifiedName&, Document&);
 
-    virtual bool rendererIsNeeded(const RenderStyle&) override { return false; }
+    bool rendererIsNeeded(const RenderStyle&) final { return false; }
 };
 
 } // namespace WebCore
-
-#endif

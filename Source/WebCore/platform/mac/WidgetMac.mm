@@ -26,8 +26,8 @@
 #import "config.h"
 #import "Widget.h"
 
+#if PLATFORM(MAC)
 
-#import "BlockExceptions.h"
 #import "Chrome.h"
 #import "Cursor.h"
 #import "Document.h"
@@ -40,6 +40,7 @@
 #import "RuntimeApplicationChecks.h"
 #import "WebCoreFrameView.h"
 #import "WebCoreView.h"
+#import <wtf/BlockObjCExceptions.h>
 #import <wtf/Ref.h>
 #import <wtf/RetainPtr.h>
 
@@ -61,7 +62,7 @@ namespace WebCore {
 
 static void safeRemoveFromSuperview(NSView *view)
 {
-    // If the the view is the first responder, then set the window's first responder to nil so
+    // If the view is the first responder, then set the window's first responder to nil so
     // we don't leave the window pointing to a view that's no longer in it.
     NSWindow *window = [view window];
     NSResponder *firstResponder = [window firstResponder];
@@ -90,7 +91,7 @@ void Widget::setFocus(bool focused)
     if (!focused)
         return;
 
-    Frame* frame = Frame::frameForWidget(this);
+    Frame* frame = Frame::frameForWidget(*this);
     if (!frame)
         return;
 
@@ -160,7 +161,7 @@ void Widget::setFrameRect(const IntRect& rect)
 
     // Take a reference to this Widget, because sending messages to outerView can invoke arbitrary
     // code including recalc style/layout, which can deref it.
-    Ref<Widget> protect(*this);
+    Ref<Widget> protectedThis(*this);
 
     NSRect frame = rect;
     if (!NSEqualRects(frame, outerView.frame)) {
@@ -185,7 +186,7 @@ NSView *Widget::getOuterView() const
     return view;
 }
 
-void Widget::paint(GraphicsContext& p, const IntRect& r)
+void Widget::paint(GraphicsContext& p, const IntRect& r, SecurityOriginPaintPolicy)
 {
     if (p.paintingDisabled())
         return;
@@ -194,16 +195,22 @@ void Widget::paint(GraphicsContext& p, const IntRect& r)
     // We don't want to paint the view at all if it's layer backed, because then we'll end up
     // with multiple copies of the view contents, one in the view's layer itself and one in the
     // WebHTMLView's backing store (either a layer or the window backing store).
-    // However, Quicken Essentials has a plug-in that depends on drawing to update the layer (see <rdar://problem/15221231>).
-    if (view.layer && !applicationIsQuickenEssentials())
+    if (view.layer) {
+#if PLATFORM(MAC)
+        // However, Quicken Essentials has a plug-in that depends on drawing to update the layer (see <rdar://problem/15221231>).
+        if (!MacApplication::isQuickenEssentials())
+#endif
         return;
+    }
 
     // Take a reference to this Widget, because sending messages to the views can invoke arbitrary
     // code, which can deref it.
-    Ref<Widget> protect(*this);
+    Ref<Widget> protectedThis(*this);
 
     NSGraphicsContext *currentContext = [NSGraphicsContext currentContext];
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (currentContext == [[view window] graphicsContext] || ![currentContext isDrawingToScreen]) {
+        ALLOW_DEPRECATED_DECLARATIONS_END
         // This is the common case of drawing into a window or an inclusive layer, or printing.
         BEGIN_BLOCK_OBJC_EXCEPTIONS;
         [view displayRectIgnoringOpacity:[view convertRect:r fromView:[view superview]]];
@@ -230,7 +237,9 @@ void Widget::paint(GraphicsContext& p, const IntRect& r)
     }
 
     CGContextRef cgContext = p.platformContext();
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     ASSERT(cgContext == [currentContext graphicsPort]);
+    ALLOW_DEPRECATED_DECLARATIONS_END
     CGContextSaveGState(cgContext);
 
     NSRect viewFrame = [view frame];
@@ -244,7 +253,9 @@ void Widget::paint(GraphicsContext& p, const IntRect& r)
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS;
     {
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         NSGraphicsContext *nsContext = [NSGraphicsContext graphicsContextWithGraphicsPort:cgContext flipped:NO];
+        ALLOW_DEPRECATED_DECLARATIONS_END
         [view displayRectIgnoringOpacity:[view convertRect:r fromView:[view superview]] inContext:nsContext];
     }
     END_BLOCK_OBJC_EXCEPTIONS;
@@ -336,3 +347,5 @@ void Widget::setPlatformWidget(NSView *widget)
 }
 
 } // namespace WebCore
+
+#endif // PLATFORM(MAC)

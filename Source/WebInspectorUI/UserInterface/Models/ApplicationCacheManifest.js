@@ -23,17 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ApplicationCacheManifest = class ApplicationCacheManifest extends WebInspector.Object
+WI.ApplicationCacheManifest = class ApplicationCacheManifest
 {
     constructor(manifestURL)
     {
-        super();
-
         this._manifestURL = manifestURL;
     }
 
-    get manifestURL()
-    {
-        return this._manifestURL;
-    }
+    // Public
+
+    get manifestURL() { return this._manifestURL; }
 };

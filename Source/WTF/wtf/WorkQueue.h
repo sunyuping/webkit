@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2010, 2015 Apple Inc. All rights reserved.
  * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Copyright (C) 2017 Sony Interactive Entertainment Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,35 +25,32 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WorkQueue_h
-#define WorkQueue_h
+#pragma once
 
-#include <chrono>
-#include <functional>
 #include <wtf/Forward.h>
 #include <wtf/FunctionDispatcher.h>
-#include <wtf/RefCounted.h>
+#include <wtf/Seconds.h>
 #include <wtf/Threading.h>
 
-#if OS(DARWIN) && !PLATFORM(GTK)
+#if USE(COCOA_EVENT_LOOP)
 #include <dispatch/dispatch.h>
 #endif
 
-#if PLATFORM(GTK)
+#if USE(WINDOWS_EVENT_LOOP)
+#include <wtf/HashMap.h>
+#include <wtf/ThreadingPrimitives.h>
+#include <wtf/Vector.h>
+#endif
+
+#if USE(GLIB_EVENT_LOOP) || USE(GENERIC_EVENT_LOOP)
 #include <wtf/Condition.h>
 #include <wtf/RunLoop.h>
-#include <wtf/glib/GRefPtr.h>
-#elif PLATFORM(EFL)
-#include <DispatchQueueEfl.h>
-#elif OS(WINDOWS)
-#include <wtf/HashMap.h>
-#include <wtf/Vector.h>
-#include <wtf/win/WorkItemWin.h>
 #endif
 
 namespace WTF {
 
 class WorkQueue final : public FunctionDispatcher {
+
 public:
     enum class Type {
         Serial,
@@ -65,22 +63,19 @@ public:
         Utility,
         Background
     };
-    
+
     WTF_EXPORT_PRIVATE static Ref<WorkQueue> create(const char* name, Type = Type::Serial, QOS = QOS::Default);
     virtual ~WorkQueue();
 
-    WTF_EXPORT_PRIVATE virtual void dispatch(std::function<void ()>) override;
-    WTF_EXPORT_PRIVATE void dispatchAfter(std::chrono::nanoseconds, std::function<void ()>);
+    WTF_EXPORT_PRIVATE void dispatch(Function<void()>&&) override;
+    WTF_EXPORT_PRIVATE void dispatchAfter(Seconds, Function<void()>&&);
 
-    WTF_EXPORT_PRIVATE static void concurrentApply(size_t iterations, const std::function<void (size_t index)>&);
+    WTF_EXPORT_PRIVATE static void concurrentApply(size_t iterations, WTF::Function<void(size_t index)>&&);
 
-#if PLATFORM(GTK)
-    RunLoop& runLoop() const { return *m_runLoop; }
-#elif PLATFORM(EFL)
-    void registerSocketEventHandler(int, std::function<void ()>);
-    void unregisterSocketEventHandler(int);
-#elif OS(DARWIN)
+#if USE(COCOA_EVENT_LOOP)
     dispatch_queue_t dispatchQueue() const { return m_dispatchQueue; }
+#elif USE(GLIB_EVENT_LOOP) || USE(GENERIC_EVENT_LOOP)
+    RunLoop& runLoop() const { return *m_runLoop; }
 #endif
 
 private:
@@ -89,46 +84,30 @@ private:
     void platformInitialize(const char* name, Type, QOS);
     void platformInvalidate();
 
-#if OS(WINDOWS)
-    static void CALLBACK handleCallback(void* context, BOOLEAN timerOrWaitFired);
+#if USE(WINDOWS_EVENT_LOOP)
     static void CALLBACK timerCallback(void* context, BOOLEAN timerOrWaitFired);
     static DWORD WINAPI workThreadCallback(void* context);
 
     bool tryRegisterAsWorkThread();
     void unregisterAsWorkThread();
     void performWorkOnRegisteredWorkThread();
-
-    static void unregisterWaitAndDestroyItemSoon(PassRefPtr<HandleWorkItem>);
-    static DWORD WINAPI unregisterWaitAndDestroyItemCallback(void* context);
 #endif
 
-#if PLATFORM(GTK)
-    ThreadIdentifier m_workQueueThread;
-    Lock m_initializeRunLoopConditionMutex;
-    Condition m_initializeRunLoopCondition;
-    RunLoop* m_runLoop;
-    Lock m_terminateRunLoopConditionMutex;
-    Condition m_terminateRunLoopCondition;
-#elif PLATFORM(EFL)
-    RefPtr<DispatchQueue> m_dispatchQueue;
-#elif OS(DARWIN)
+#if USE(COCOA_EVENT_LOOP)
     static void executeFunction(void*);
     dispatch_queue_t m_dispatchQueue;
-#elif OS(WINDOWS)
+#elif USE(WINDOWS_EVENT_LOOP)
     volatile LONG m_isWorkThreadRegistered;
 
-    Mutex m_workItemQueueLock;
-    Vector<RefPtr<WorkItemWin>> m_workItemQueue;
-
-    Mutex m_handlesLock;
-    HashMap<HANDLE, RefPtr<HandleWorkItem>> m_handles;
+    Lock m_functionQueueLock;
+    Vector<Function<void()>> m_functionQueue;
 
     HANDLE m_timerQueue;
+#elif USE(GLIB_EVENT_LOOP) || USE(GENERIC_EVENT_LOOP)
+    RunLoop* m_runLoop;
 #endif
 };
 
 }
 
 using WTF::WorkQueue;
-
-#endif

@@ -26,8 +26,6 @@
 #import "config.h"
 #import "WKWebViewConfigurationExtras.h"
 
-#if WK_API_ENABLED
-
 #import "PlatformUtilities.h"
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
@@ -35,7 +33,7 @@
 
 @implementation WKWebViewConfiguration (TestWebKitAPIExtras)
 
-+ (instancetype)testwebkitapi_configurationWithTestPlugInClassName:(NSString *)className
++ (instancetype)_test_configurationWithTestPlugInClassName:(NSString *)className
 {
     auto processPoolConfiguration = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
     [processPoolConfiguration setInjectedBundleURL:[[NSBundle mainBundle] URLForResource:@"TestWebKitAPI" withExtension:@"wkbundle"]];
@@ -50,5 +48,3 @@
 }
 
 @end
-
-#endif // WK_API_ENABLED

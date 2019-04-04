@@ -23,14 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ApplicationCacheFrame = class ApplicationCacheFrame extends WebInspector.Object
+WI.ApplicationCacheFrame = class ApplicationCacheFrame
 {
     constructor(frame, manifest, status)
     {
-        super();
-
-        console.assert(frame instanceof WebInspector.Frame);
-        console.assert(manifest instanceof WebInspector.ApplicationCacheManifest);
+        console.assert(frame instanceof WI.Frame);
+        console.assert(manifest instanceof WI.ApplicationCacheManifest);
 
         this._frame = frame;
         this._manifest = manifest;
@@ -39,33 +37,18 @@ WebInspector.ApplicationCacheFrame = class ApplicationCacheFrame extends WebInsp
 
     // Public
 
-    get frame()
-    {
-        return this._frame;
-    }
-
-    get manifest()
-    {
-        return this._manifest;
-    }
-
-    get status()
-    {
-        return this._status;
-    }
-
-    set status(status)
-    {
-        this._status = status;
-    }
+    get frame() { return this._frame; }
+    get manifest() { return this._manifest; }
+    get status() { return this._status; }
+    set status(status) { this._status = status; }
 
     saveIdentityToCookie(cookie)
     {
-        cookie[WebInspector.ApplicationCacheFrame.FrameURLCookieKey] = this.frame.url;
-        cookie[WebInspector.ApplicationCacheFrame.ManifestURLCookieKey] = this.manifest.manifestURL;
+        cookie[WI.ApplicationCacheFrame.FrameURLCookieKey] = this.frame.url;
+        cookie[WI.ApplicationCacheFrame.ManifestURLCookieKey] = this.manifest.manifestURL;
     }
 };
 
-WebInspector.ApplicationCacheFrame.TypeIdentifier = "application-cache-frame";
-WebInspector.ApplicationCacheFrame.FrameURLCookieKey = "application-cache-frame-url";
-WebInspector.ApplicationCacheFrame.ManifestURLCookieKey = "application-cache-frame-manifest-url";
+WI.ApplicationCacheFrame.TypeIdentifier = "application-cache-frame";
+WI.ApplicationCacheFrame.FrameURLCookieKey = "application-cache-frame-url";
+WI.ApplicationCacheFrame.ManifestURLCookieKey = "application-cache-frame-manifest-url";

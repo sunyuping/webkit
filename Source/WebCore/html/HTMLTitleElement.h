@@ -19,8 +19,8 @@
  * Boston, MA 02110-1301, USA.
  *
  */
-#ifndef HTMLTitleElement_h
-#define HTMLTitleElement_h
+
+#pragma once
 
 #include "HTMLElement.h"
 #include "StringWithDirection.h"
@@ -28,20 +28,21 @@
 namespace WebCore {
 
 class HTMLTitleElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLTitleElement);
 public:
     static Ref<HTMLTitleElement> create(const QualifiedName&, Document&);
 
-    String text() const;
-    void setText(const String&);
+    WEBCORE_EXPORT String text() const;
+    WEBCORE_EXPORT void setText(const String&);
 
     const StringWithDirection& textWithDirection() const { return m_title; }
 
 private:
     HTMLTitleElement(const QualifiedName&, Document&);
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    virtual void removedFrom(ContainerNode&) override;
-    virtual void childrenChanged(const ChildChange&) override;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    void childrenChanged(const ChildChange&) final;
 
     StringWithDirection computedTextWithDirection();
 
@@ -49,5 +50,3 @@ private:
 };
 
 } //namespace
-
-#endif

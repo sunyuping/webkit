@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,43 @@
 #ifndef SmallLine_h
 #define SmallLine_h
 
-#include "Line.h"
-#include "SmallTraits.h"
+#include "BAssert.h"
+#include "Mutex.h"
+#include "ObjectType.h"
+#include <mutex>
 
 namespace bmalloc {
 
-typedef Line<SmallTraits> SmallLine;
+class SmallLine {
+public:
+    void ref(std::unique_lock<Mutex>&, unsigned char = 1);
+    bool deref(std::unique_lock<Mutex>&);
+    unsigned refCount(std::unique_lock<Mutex>&) { return m_refCount; }
+    
+    char* begin();
+    char* end();
+
+private:
+    unsigned char m_refCount;
+
+static_assert(
+    smallLineSize / alignment <= std::numeric_limits<decltype(m_refCount)>::max(),
+    "maximum object count must fit in SmallLine::m_refCount");
+
+};
+
+inline void SmallLine::ref(std::unique_lock<Mutex>&, unsigned char refCount)
+{
+    BASSERT(!m_refCount);
+    m_refCount = refCount;
+}
+
+inline bool SmallLine::deref(std::unique_lock<Mutex>&)
+{
+    BASSERT(m_refCount);
+    --m_refCount;
+    return !m_refCount;
+}
 
 } // namespace bmalloc
 

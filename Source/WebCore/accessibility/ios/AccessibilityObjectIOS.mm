@@ -25,32 +25,26 @@
 
 #import "config.h"
 #import "AccessibilityObject.h"
+
+#if HAVE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
+
 #import "AccessibilityRenderObject.h"
+#import "EventNames.h"
 #import "HTMLInputElement.h"
 #import "RenderObject.h"
 #import "WAKView.h"
-
-#if HAVE(ACCESSIBILITY) && PLATFORM(IOS)
-
 #import "WebAccessibilityObjectWrapperIOS.h"
-
-@interface WAKView (iOSAccessibility)
-- (BOOL)accessibilityIsIgnored;
-@end
-
-@implementation WAKView (iOSAccessibility)
-
-- (BOOL)accessibilityIsIgnored
-{
-    return YES;
-}
-
-@end
 
 namespace WebCore {
     
 void AccessibilityObject::detachFromParent()
 {
+}
+
+// On iOS, we don't have to return the value in the title. We can return the actual title, given the API.
+bool AccessibilityObject::fileUploadButtonReturnsValueInTitle() const
+{
+    return false;
 }
 
 void AccessibilityObject::overrideAttachmentParent(AccessibilityObject*)
@@ -78,9 +72,34 @@ bool AccessibilityObject::accessibilityIgnoreAttachment() const
     
 AccessibilityObjectInclusion AccessibilityObject::accessibilityPlatformIncludesObject() const
 {
-    return DefaultBehavior;
+    return AccessibilityObjectInclusion::DefaultBehavior;
 }
     
+bool AccessibilityObject::hasAccessibleDismissEventListener() const
+{
+    for (auto* node = this->node(); node; node = node->parentNode()) {
+        if (node->hasEventListeners(eventNames().accessibledismissEvent))
+            return true;
+    }
+    return false;
+}
+
+bool AccessibilityObject::hasTouchEventListener() const
+{
+    for (auto* node = this->node(); node; node = node->parentNode()) {
+        if (node->hasEventListeners(eventNames().touchstartEvent) || node->hasEventListeners(eventNames().touchendEvent))
+            return true;
+    }
+    return false;
+}
+    
+bool AccessibilityObject::isInputTypePopupButton() const
+{
+    if (is<HTMLInputElement>(node()))
+        return roleValue() == AccessibilityRole::PopUpButton;
+    return false;
+}
+
 } // WebCore
 
-#endif // HAVE(ACCESSIBILITY) && PLATFORM(IOS)
+#endif // HAVE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)

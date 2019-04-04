@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGHeapLocation_h
-#define DFGHeapLocation_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -38,8 +37,9 @@ enum LocationKind {
     InvalidLocationKind,
     
     ArrayLengthLoc,
+    ArrayMaskLoc,
+    VectorLengthLoc,
     ButterflyLoc,
-    ButterflyReadOnlyLoc,
     CheckTypeInfoFlagsLoc,
     OverridesHasInstanceLoc,
     ClosureVariableLoc,
@@ -47,19 +47,30 @@ enum LocationKind {
     GetterLoc,
     GlobalVariableLoc,
     HasIndexedPropertyLoc,
-    IndexedPropertyLoc,
+    IndexedPropertyDoubleLoc,
+    IndexedPropertyDoubleSaneChainLoc,
+    IndexedPropertyInt32Loc,
+    IndexedPropertyInt52Loc,
+    IndexedPropertyJSLoc,
     IndexedPropertyStorageLoc,
-    InstanceOfLoc,
     InvalidationPointLoc,
     IsFunctionLoc,
     IsObjectOrNullLoc,
     NamedPropertyLoc,
+    RegExpObjectLastIndexLoc,
     SetterLoc,
     StructureLoc,
     TypedArrayByteOffsetLoc,
-    VarInjectionWatchpointLoc,
+    PrototypeLoc,
     StackLoc,
-    StackPayloadLoc
+    StackPayloadLoc,
+    MapBucketLoc,
+    MapBucketHeadLoc,
+    MapBucketValueLoc,
+    MapBucketKeyLoc,
+    MapBucketNextLoc,
+    WeakMapGetLoc,
+    DOMStateLoc,
 };
 
 class HeapLocation {
@@ -67,24 +78,25 @@ public:
     HeapLocation(
         LocationKind kind = InvalidLocationKind,
         AbstractHeap heap = AbstractHeap(),
-        Node* base = nullptr, LazyNode index = LazyNode())
+        Node* base = nullptr, LazyNode index = LazyNode(), Node* descriptor = nullptr)
         : m_kind(kind)
         , m_heap(heap)
         , m_base(base)
         , m_index(index)
+        , m_descriptor(descriptor)
     {
         ASSERT((kind == InvalidLocationKind) == !heap);
         ASSERT(!!m_heap || !m_base);
-        ASSERT(m_base || !m_index);
+        ASSERT(m_base || (!m_index && !m_descriptor));
     }
 
-    HeapLocation(LocationKind kind, AbstractHeap heap, Node* base, Node* index)
-        : HeapLocation(kind, heap, base, LazyNode(index))
+    HeapLocation(LocationKind kind, AbstractHeap heap, Node* base, Node* index, Node* descriptor = nullptr)
+        : HeapLocation(kind, heap, base, LazyNode(index), descriptor)
     {
     }
     
-    HeapLocation(LocationKind kind, AbstractHeap heap, Edge base, Edge index = Edge())
-        : HeapLocation(kind, heap, base.node(), index.node())
+    HeapLocation(LocationKind kind, AbstractHeap heap, Edge base, Edge index = Edge(), Edge descriptor = Edge())
+        : HeapLocation(kind, heap, base.node(), index.node(), descriptor.node())
     {
     }
     
@@ -93,6 +105,7 @@ public:
         , m_heap(WTF::HashTableDeletedValue)
         , m_base(nullptr)
         , m_index(nullptr)
+        , m_descriptor(nullptr)
     {
     }
     
@@ -105,7 +118,7 @@ public:
     
     unsigned hash() const
     {
-        return m_kind + m_heap.hash() + m_index.hash() + m_kind;
+        return m_kind + m_heap.hash() + m_index.hash() + static_cast<unsigned>(bitwise_cast<uintptr_t>(m_base)) + static_cast<unsigned>(bitwise_cast<uintptr_t>(m_descriptor));
     }
     
     bool operator==(const HeapLocation& other) const
@@ -113,7 +126,8 @@ public:
         return m_kind == other.m_kind
             && m_heap == other.m_heap
             && m_base == other.m_base
-            && m_index == other.m_index;
+            && m_index == other.m_index
+            && m_descriptor == other.m_descriptor;
     }
     
     bool isHashTableDeletedValue() const
@@ -128,6 +142,7 @@ private:
     AbstractHeap m_heap;
     Node* m_base;
     LazyNode m_index;
+    Node* m_descriptor;
 };
 
 struct HeapLocationHash {
@@ -135,6 +150,31 @@ struct HeapLocationHash {
     static bool equal(const HeapLocation& a, const HeapLocation& b) { return a == b; }
     static const bool safeToCompareToEmptyOrDeleted = true;
 };
+
+LocationKind indexedPropertyLocForResultType(NodeFlags);
+
+inline LocationKind indexedPropertyLocForResultType(NodeFlags canonicalResultRepresentation)
+{
+    if (!canonicalResultRepresentation)
+        return IndexedPropertyJSLoc;
+
+    ASSERT((canonicalResultRepresentation & NodeResultMask) == canonicalResultRepresentation);
+    switch (canonicalResultRepresentation) {
+    case NodeResultDouble:
+        return IndexedPropertyDoubleLoc;
+    case NodeResultInt52:
+        return IndexedPropertyInt52Loc;
+    case NodeResultInt32:
+        return IndexedPropertyInt32Loc;
+    case NodeResultJS:
+        return IndexedPropertyJSLoc;
+    case NodeResultStorage:
+        RELEASE_ASSERT_NOT_REACHED();
+    default:
+        break;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
 
 } } // namespace JSC::DFG
 
@@ -154,13 +194,4 @@ template<> struct HashTraits<JSC::DFG::HeapLocation> : SimpleClassHashTraits<JSC
 
 } // namespace WTF
 
-namespace JSC { namespace DFG {
-
-typedef HashMap<HeapLocation, LazyNode> ImpureMap;
-
-} } // namespace JSC::DFG
-
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGHeapLocation_h
-

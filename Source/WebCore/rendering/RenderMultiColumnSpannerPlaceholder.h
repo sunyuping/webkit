@@ -27,36 +27,36 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RenderMultiColumnSpannerPlaceholder_h
-#define RenderMultiColumnSpannerPlaceholder_h
+#pragma once
 
 #include "RenderBox.h"
 
 namespace WebCore {
 
-class RenderMultiColumnFlowThread;
+class RenderMultiColumnFlow;
 
 class RenderMultiColumnSpannerPlaceholder final : public RenderBox {
+    WTF_MAKE_ISO_ALLOCATED(RenderMultiColumnSpannerPlaceholder);
 public:
-    static RenderMultiColumnSpannerPlaceholder* createAnonymous(RenderMultiColumnFlowThread*, RenderBox* spanner, RenderStyle* parentStyle);
+    static RenderPtr<RenderMultiColumnSpannerPlaceholder> createAnonymous(RenderMultiColumnFlow&, RenderBox& spanner, const RenderStyle& parentStyle);
 
-    RenderBox* spanner() const { return m_spanner; }
-    RenderMultiColumnFlowThread* flowThread() const { return m_flowThread; }
+    RenderBox* spanner() const { return m_spanner.get(); }
+    RenderMultiColumnFlow* fragmentedFlow() const { return m_fragmentedFlow.get(); }
 
 private:
-    RenderMultiColumnSpannerPlaceholder(RenderMultiColumnFlowThread*, RenderBox* spanner, Ref<RenderStyle>&&);
-    virtual bool isRenderMultiColumnSpannerPlaceholder() const override { return true; }
+    template<class T, class... Args> friend RenderPtr<T> createRenderer(Args&&...);
 
-    virtual bool canHaveChildren() const override { return false; }
-    virtual void paint(PaintInfo&, const LayoutPoint&) override { }
-    virtual const char* renderName() const override;
+    RenderMultiColumnSpannerPlaceholder(RenderMultiColumnFlow&, RenderBox& spanner, RenderStyle&&);
+    bool isRenderMultiColumnSpannerPlaceholder() const override { return true; }
 
-    RenderBox* m_spanner;
-    RenderMultiColumnFlowThread* m_flowThread;
+    bool canHaveChildren() const override { return false; }
+    void paint(PaintInfo&, const LayoutPoint&) override { }
+    const char* renderName() const override;
+
+    WeakPtr<RenderBox> m_spanner;
+    WeakPtr<RenderMultiColumnFlow> m_fragmentedFlow;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderMultiColumnSpannerPlaceholder, isRenderMultiColumnSpannerPlaceholder())
-
-#endif // RenderMultiColumnSpannerPlaceholder_h

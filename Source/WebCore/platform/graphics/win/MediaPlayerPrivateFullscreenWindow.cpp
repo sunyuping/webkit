@@ -61,7 +61,7 @@ void MediaPlayerPrivateFullscreenWindow::createWindow(HWND parentHwnd)
     static ATOM windowAtom;
     static LPCWSTR windowClassName = L"MediaPlayerPrivateFullscreenWindowClass";
     if (!windowAtom) {
-        WNDCLASSEX wcex = {0};
+        WNDCLASSEX wcex { };
         wcex.cbSize = sizeof(wcex);
         wcex.style = CS_HREDRAW | CS_VREDRAW;
         wcex.lpfnWndProc = staticWndProc;
@@ -72,7 +72,7 @@ void MediaPlayerPrivateFullscreenWindow::createWindow(HWND parentHwnd)
 
     ASSERT(!m_hwnd);
 
-    MONITORINFO mi = {0};
+    MONITORINFO mi { };
     mi.cbSize = sizeof(MONITORINFO);
     if (!GetMonitorInfo(MonitorFromWindow(parentHwnd, MONITOR_DEFAULTTONEAREST), &mi))
         return;
@@ -93,20 +93,15 @@ void MediaPlayerPrivateFullscreenWindow::createWindow(HWND parentHwnd)
 }
 
 #if USE(CA)
-void MediaPlayerPrivateFullscreenWindow::setRootChildLayer(PassRefPtr<PlatformCALayer> rootChild)
+void MediaPlayerPrivateFullscreenWindow::setRootChildLayer(Ref<PlatformCALayer>&& rootChild)
 {
-    if (m_rootChild == rootChild)
+    if (m_rootChild == rootChild.ptr())
         return;
 
     if (m_rootChild)
         m_rootChild->removeFromSuperlayer();
 
-    m_rootChild = rootChild;
-
-    if (!m_rootChild) {
-        m_layerTreeHost = nullptr;
-        return;
-    }
+    m_rootChild = WTFMove(rootChild);
 
     if (!m_layerTreeHost) {
         m_layerTreeHost = CACFLayerTreeHost::create();

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2016 Apple Inc. All rights reserved.
  * Copyright (C) 2014 Dhi Aurrahman <diorahman@rockybars.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,8 +24,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SelectorCheckerTestFunctions_h
-#define SelectorCheckerTestFunctions_h
+#pragma once
 
 #include "FocusController.h"
 #include "HTMLInputElement.h"
@@ -34,6 +33,10 @@
 #include "ScrollableArea.h"
 #include "ScrollbarTheme.h"
 #include <wtf/Compiler.h>
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+#include "HTMLAttachmentElement.h"
+#endif
 
 #if ENABLE(VIDEO_TRACK)
 #include "WebVTTElement.h"
@@ -46,21 +49,31 @@ ALWAYS_INLINE bool isAutofilled(const Element& element)
     return is<HTMLInputElement>(element) && downcast<HTMLInputElement>(element).isAutoFilled();
 }
 
-ALWAYS_INLINE bool isDefaultButtonForForm(const Element& element)
+ALWAYS_INLINE bool isAutofilledStrongPassword(const Element& element)
 {
-    return element.isDefaultButtonForForm();
+    return is<HTMLInputElement>(element) && downcast<HTMLInputElement>(element).isAutoFilled() && downcast<HTMLInputElement>(element).hasAutoFillStrongPasswordButton();
 }
 
-ALWAYS_INLINE bool isDisabled(const Element& element)
+ALWAYS_INLINE bool matchesDefaultPseudoClass(const Element& element)
 {
-    return (is<HTMLFormControlElement>(element) || is<HTMLOptionElement>(element) || is<HTMLOptGroupElement>(element))
-        && element.isDisabledFormControl();
+    return element.matchesDefaultPseudoClass();
 }
 
-ALWAYS_INLINE bool isEnabled(const Element& element)
+// https://html.spec.whatwg.org/multipage/scripting.html#selector-disabled
+ALWAYS_INLINE bool matchesDisabledPseudoClass(const Element& element)
 {
-    return (is<HTMLFormControlElement>(element) || is<HTMLOptionElement>(element) || is<HTMLOptGroupElement>(element))
-        && !element.isDisabledFormControl();
+    return is<HTMLElement>(element) && downcast<HTMLElement>(element).isActuallyDisabled();
+}
+
+// https://html.spec.whatwg.org/multipage/scripting.html#selector-enabled
+ALWAYS_INLINE bool matchesEnabledPseudoClass(const Element& element)
+{
+    return is<HTMLElement>(element) && downcast<HTMLElement>(element).canBeActuallyDisabled() && !element.isDisabledFormControl();
+}
+
+ALWAYS_INLINE bool isDefinedElement(const Element& element)
+{
+    return !element.isUndefinedCustomElement();
 }
 
 ALWAYS_INLINE bool isMediaDocument(const Element& element)
@@ -120,6 +133,13 @@ ALWAYS_INLINE bool isWindowInactive(const Element& element)
         return false;
     return !page->focusController().isActive();
 }
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+ALWAYS_INLINE bool hasAttachment(const Element& element)
+{
+    return is<HTMLImageElement>(element) && downcast<HTMLImageElement>(element).attachmentElement();
+}
+#endif
 
 ALWAYS_INLINE bool containslanguageSubtagMatchingRange(StringView language, StringView range, unsigned languageLength, unsigned& position)
 {
@@ -214,9 +234,9 @@ ALWAYS_INLINE bool matchesReadWritePseudoClass(const Element& element)
     return element.matchesReadWritePseudoClass();
 }
 
-ALWAYS_INLINE bool shouldAppearIndeterminate(const Element& element)
+ALWAYS_INLINE bool matchesIndeterminatePseudoClass(const Element& element)
 {
-    return element.shouldAppearIndeterminate();
+    return element.matchesIndeterminatePseudoClass();
 }
 
 ALWAYS_INLINE bool scrollbarMatchesEnabledPseudoClass(const SelectorChecker::CheckingContext& context)
@@ -356,6 +376,13 @@ ALWAYS_INLINE bool matchesFullScreenDocumentPseudoClass(const Element& element)
         return false;
     return true;
 }
+
+ALWAYS_INLINE bool matchesFullScreenControlsHiddenPseudoClass(const Element& element)
+{
+    if (&element != element.document().webkitCurrentFullScreenElement())
+        return false;
+    return element.document().areFullscreenControlsHidden();
+}
 #endif
 
 #if ENABLE(VIDEO_TRACK)
@@ -371,5 +398,3 @@ ALWAYS_INLINE bool matchesPastCuePseudoClass(const Element& element)
 #endif
 
 } // namespace WebCore
-
-#endif // SelectorCheckerTestFunctions_h

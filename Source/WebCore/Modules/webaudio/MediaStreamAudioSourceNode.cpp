@@ -45,6 +45,8 @@ MediaStreamAudioSourceNode::MediaStreamAudioSourceNode(AudioContext& context, Me
     , m_mediaStream(mediaStream)
     , m_audioTrack(audioTrack)
 {
+    setNodeType(NodeTypeMediaStreamAudioSource);
+    
     AudioSourceProvider* audioSourceProvider = m_audioTrack->audioSourceProvider();
     ASSERT(audioSourceProvider);
 
@@ -52,8 +54,6 @@ MediaStreamAudioSourceNode::MediaStreamAudioSourceNode(AudioContext& context, Me
     
     // Default to stereo. This could change depending on the format of the MediaStream's audio track.
     addOutput(std::make_unique<AudioNodeOutput>(this, 2));
-
-    setNodeType(NodeTypeMediaStreamAudioSource);
 
     initialize();
 }
@@ -73,7 +73,7 @@ void MediaStreamAudioSourceNode::setFormat(size_t numberOfChannels, float source
         return;
 
     // The sample-rate must be equal to the context's sample-rate.
-    if (!numberOfChannels || numberOfChannels > AudioContext::maxNumberOfChannels() || sourceSampleRate != sampleRate) {
+    if (!numberOfChannels || numberOfChannels > AudioContext::maxNumberOfChannels()) {
         // process() will generate silence for these uninitialized values.
         LOG(Media, "MediaStreamAudioSourceNode::setFormat(%u, %f) - unhandled format change", static_cast<unsigned>(numberOfChannels), sourceSampleRate);
         m_sourceNumberOfChannels = 0;

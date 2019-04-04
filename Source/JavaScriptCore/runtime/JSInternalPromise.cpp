@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,13 +27,11 @@
 #include "JSInternalPromise.h"
 
 #include "BuiltinNames.h"
-#include "JSCJSValueInlines.h"
-#include "JSCellInlines.h"
-#include "StructureInlines.h"
+#include "JSCInlines.h"
 
 namespace JSC {
 
-const ClassInfo JSInternalPromise::s_info = { "InternalPromise", &Base::s_info, nullptr, CREATE_METHOD_TABLE(JSInternalPromise) };
+const ClassInfo JSInternalPromise::s_info = { "InternalPromise", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSInternalPromise) };
 
 JSInternalPromise* JSInternalPromise::create(VM& vm, Structure* structure)
 {
@@ -54,16 +52,21 @@ JSInternalPromise::JSInternalPromise(VM& vm, Structure* structure)
 
 JSInternalPromise* JSInternalPromise::then(ExecState* exec, JSFunction* onFulfilled, JSFunction* onRejected)
 {
-    JSObject* function = jsCast<JSObject*>(get(exec, exec->propertyNames().builtinNames().thenPublicName()));
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSObject* function = jsCast<JSObject*>(get(exec, vm.propertyNames->builtinNames().thenPublicName()));
+    RETURN_IF_EXCEPTION(scope, nullptr);
     CallData callData;
-    CallType callType = JSC::getCallData(function, callData);
-    ASSERT(callType != CallTypeNone);
+    CallType callType = JSC::getCallData(vm, function, callData);
+    ASSERT(callType != CallType::None);
 
     MarkedArgumentBuffer arguments;
     arguments.append(onFulfilled ? onFulfilled : jsUndefined());
     arguments.append(onRejected ? onRejected : jsUndefined());
+    ASSERT(!arguments.hasOverflowed());
 
-    return jsCast<JSInternalPromise*>(call(exec, function, callType, callData, this, arguments));
+    RELEASE_AND_RETURN(scope, jsCast<JSInternalPromise*>(call(exec, function, callType, callData, this, arguments)));
 }
 
 } // namespace JSC

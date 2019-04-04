@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004, 2006, 2009, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef TextIterator_h
-#define TextIterator_h
+#pragma once
 
 // FIXME: Move each iterator class into a separate header file.
 
@@ -39,13 +38,20 @@ namespace WebCore {
 class InlineTextBox;
 class RenderText;
 class RenderTextFragment;
+
 namespace SimpleLineLayout {
 class RunResolver;
 }
 
+WEBCORE_EXPORT String plainText(Position start, Position end, TextIteratorBehavior = TextIteratorDefaultBehavior, bool isDisplayString = false);
+WEBCORE_EXPORT String plainTextReplacingNoBreakSpace(Position start, Position end, TextIteratorBehavior = TextIteratorDefaultBehavior, bool isDisplayString = false);
+
 WEBCORE_EXPORT String plainText(const Range*, TextIteratorBehavior = TextIteratorDefaultBehavior, bool isDisplayString = false);
 WEBCORE_EXPORT String plainTextReplacingNoBreakSpace(const Range*, TextIteratorBehavior = TextIteratorDefaultBehavior, bool isDisplayString = false);
 Ref<Range> findPlainText(const Range&, const String&, FindOptions);
+WEBCORE_EXPORT Ref<Range> findClosestPlainText(const Range&, const String&, FindOptions, unsigned);
+WEBCORE_EXPORT bool hasAnyPlainText(const Range&, TextIteratorBehavior = TextIteratorDefaultBehavior);
+bool findPlainText(const String& document, const String&, FindOptions); // Lets us use the search algorithm on a string.
 
 // FIXME: Move this somewhere else in the editing directory. It doesn't belong here.
 bool isRendererReplacedElement(RenderObject*);
@@ -95,7 +101,9 @@ private:
 // the chunks it's already stored in, to avoid copying any text.
 
 class TextIterator {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
+    WEBCORE_EXPORT explicit TextIterator(Position start, Position end, TextIteratorBehavior = TextIteratorDefaultBehavior);
     WEBCORE_EXPORT explicit TextIterator(const Range*, TextIteratorBehavior = TextIteratorDefaultBehavior);
     WEBCORE_EXPORT ~TextIterator();
 
@@ -112,10 +120,11 @@ public:
     WEBCORE_EXPORT static int rangeLength(const Range*, bool spacesForReplacedElements = false);
     WEBCORE_EXPORT static RefPtr<Range> rangeFromLocationAndLength(ContainerNode* scope, int rangeLocation, int rangeLength, bool spacesForReplacedElements = false);
     WEBCORE_EXPORT static bool getLocationAndLengthFromRange(Node* scope, const Range*, size_t& location, size_t& length);
-    WEBCORE_EXPORT static Ref<Range> subrange(Range* entireRange, int characterOffset, int characterCount);
+    WEBCORE_EXPORT static Ref<Range> subrange(Range& entireRange, int characterOffset, int characterCount);
 
 private:
-    void exitNode();
+    void init();
+    void exitNode(Node*);
     bool shouldRepresentNodeOffsetZero();
     bool shouldEmitSpaceBeforeAndAfterNode(Node&);
     void representNodeOffsetZero();
@@ -127,44 +136,46 @@ private:
     void emitCharacter(UChar, Node& characterNode, Node* offsetBaseNode, int textStartOffset, int textEndOffset);
     void emitText(Text& textNode, RenderText&, int textStartOffset, int textEndOffset);
 
-    const TextIteratorBehavior m_behavior;
+    Node* baseNodeForEmittingNewLine() const;
+
+    const TextIteratorBehavior m_behavior { TextIteratorDefaultBehavior };
 
     // Current position, not necessarily of the text being returned, but position as we walk through the DOM tree.
-    Node* m_node;
-    int m_offset;
-    bool m_handledNode;
-    bool m_handledChildren;
+    Node* m_node { nullptr };
+    int m_offset { 0 };
+    bool m_handledNode { false };
+    bool m_handledChildren { false };
     BitStack m_fullyClippedStack;
 
     // The range.
-    Node* m_startContainer;
-    int m_startOffset;
-    Node* m_endContainer;
-    int m_endOffset;
-    Node* m_pastEndNode;
+    Node* m_startContainer { nullptr };
+    int m_startOffset { 0 };
+    Node* m_endContainer { nullptr };
+    int m_endOffset { 0 };
+    Node* m_pastEndNode { nullptr };
 
     // The current text and its position, in the form to be returned from the iterator.
-    Node* m_positionNode;
-    mutable Node* m_positionOffsetBaseNode;
-    mutable int m_positionStartOffset;
-    mutable int m_positionEndOffset;
+    Node* m_positionNode { nullptr };
+    mutable Node* m_positionOffsetBaseNode { nullptr };
+    mutable int m_positionStartOffset { 0 };
+    mutable int m_positionEndOffset { 0 };
     TextIteratorCopyableText m_copyableText;
     StringView m_text;
 
     // Used when there is still some pending text from the current node; when these are false and null, we go back to normal iterating.
-    bool m_needsAnotherNewline;
-    InlineTextBox* m_textBox;
+    Node* m_nodeForAdditionalNewline { nullptr };
+    InlineTextBox* m_textBox { nullptr };
 
     // Used when iterating over :first-letter text to save pointer to remaining text box.
-    InlineTextBox* m_remainingTextBox;
+    InlineTextBox* m_remainingTextBox { nullptr };
 
     // Used to point to RenderText object for :first-letter.
-    RenderText* m_firstLetterText;
+    RenderText* m_firstLetterText { nullptr };
 
     // Used to do the whitespace collapsing logic.
-    Text* m_lastTextNode;
-    bool m_lastTextNodeEndedWithCollapsedSpace;
-    UChar m_lastCharacter;
+    Text* m_lastTextNode { nullptr };
+    bool m_lastTextNodeEndedWithCollapsedSpace { false };
+    UChar m_lastCharacter { 0 };
 
     // Used to do simple line layout run logic.
     bool m_nextRunNeedsWhitespace { false };
@@ -174,13 +185,13 @@ private:
 
     // Used when text boxes are out of order (Hebrew/Arabic with embedded LTR text)
     Vector<InlineTextBox*> m_sortedTextBoxes;
-    size_t m_sortedTextBoxesPosition;
+    size_t m_sortedTextBoxesPosition { 0 };
 
     // Used when deciding whether to emit a "positioning" (e.g. newline) before any other content
-    bool m_hasEmitted;
+    bool m_hasEmitted { false };
 
     // Used when deciding text fragment created by :first-letter should be looked into.
-    bool m_handledFirstLetter;
+    bool m_handledFirstLetter { false };
 };
 
 // Iterates through the DOM range, returning all the text, and 0-length boundaries
@@ -188,7 +199,7 @@ private:
 // chunks so as to optimize for performance of the iteration.
 class SimplifiedBackwardsTextIterator {
 public:
-    explicit SimplifiedBackwardsTextIterator(const Range&, TextIteratorBehavior = TextIteratorDefaultBehavior);
+    explicit SimplifiedBackwardsTextIterator(const Range&);
 
     bool atEnd() const { return !m_positionNode; }
     void advance();
@@ -206,37 +217,37 @@ private:
     void emitCharacter(UChar, Node&, int startOffset, int endOffset);
     bool advanceRespectingRange(Node*);
 
-    const TextIteratorBehavior m_behavior;
+    const TextIteratorBehavior m_behavior { TextIteratorDefaultBehavior };
 
     // Current position, not necessarily of the text being returned, but position as we walk through the DOM tree.
-    Node* m_node;
-    int m_offset;
-    bool m_handledNode;
-    bool m_handledChildren;
+    Node* m_node { nullptr };
+    int m_offset { 0 };
+    bool m_handledNode { false };
+    bool m_handledChildren { false };
     BitStack m_fullyClippedStack;
 
     // The range.
-    Node* m_startContainer;
-    int m_startOffset;
-    Node* m_endContainer;
-    int m_endOffset;
+    Node* m_startContainer { nullptr };
+    int m_startOffset { 0 };
+    Node* m_endContainer { nullptr };
+    int m_endOffset { 0 };
     
     // The current text and its position, in the form to be returned from the iterator.
-    Node* m_positionNode;
-    int m_positionStartOffset;
-    int m_positionEndOffset;
+    Node* m_positionNode { nullptr };
+    int m_positionStartOffset { 0 };
+    int m_positionEndOffset { 0 };
     TextIteratorCopyableText m_copyableText;
     StringView m_text;
 
     // Used to do the whitespace logic.
-    Text* m_lastTextNode;
-    UChar m_lastCharacter;
+    Text* m_lastTextNode { nullptr };
+    UChar m_lastCharacter { 0 };
 
     // Whether m_node has advanced beyond the iteration range (i.e. m_startContainer).
-    bool m_havePassedStartContainer;
+    bool m_havePassedStartContainer { false };
 
     // Should handle first-letter renderer in the next call to handleTextNode.
-    bool m_shouldHandleFirstLetter;
+    bool m_shouldHandleFirstLetter { false };
 };
 
 // Builds on the text iterator, adding a character position so we can walk one
@@ -244,12 +255,13 @@ private:
 class CharacterIterator {
 public:
     explicit CharacterIterator(const Range&, TextIteratorBehavior = TextIteratorDefaultBehavior);
+    WEBCORE_EXPORT explicit CharacterIterator(Position start, Position end, TextIteratorBehavior = TextIteratorDefaultBehavior);
     
     bool atEnd() const { return m_underlyingIterator.atEnd(); }
-    void advance(int numCharacters);
+    WEBCORE_EXPORT void advance(int numCharacters);
     
     StringView text() const { return m_underlyingIterator.text().substring(m_runOffset); }
-    Ref<Range> range() const;
+    WEBCORE_EXPORT Ref<Range> range() const;
 
     bool atBreak() const { return m_atBreak; }
     int characterOffset() const { return m_offset; }
@@ -257,9 +269,9 @@ public:
 private:
     TextIterator m_underlyingIterator;
 
-    int m_offset;
-    int m_runOffset;
-    bool m_atBreak;
+    int m_offset { 0 };
+    int m_runOffset { 0 };
+    bool m_atBreak { true };
 };
     
 class BackwardsCharacterIterator {
@@ -303,6 +315,4 @@ private:
     bool m_didLookAhead;
 };
 
-}
-
-#endif
+} // namespace WebCore

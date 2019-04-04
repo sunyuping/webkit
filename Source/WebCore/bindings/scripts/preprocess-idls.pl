@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/env perl
 #
 # Copyright (C) 2011 Google Inc.  All rights reserved.
 #
@@ -19,6 +19,9 @@
 #
 
 use strict;
+use warnings;
+use FindBin;
+use lib $FindBin::Bin;
 
 use File::Basename;
 use Getopt::Long;
@@ -32,6 +35,9 @@ my $supplementalDependencyFile;
 my $windowConstructorsFile;
 my $workerGlobalScopeConstructorsFile;
 my $dedicatedWorkerGlobalScopeConstructorsFile;
+my $serviceWorkerGlobalScopeConstructorsFile;
+my $workletGlobalScopeConstructorsFile;
+my $paintWorkletGlobalScopeConstructorsFile;
 my $supplementalMakefileDeps;
 
 GetOptions('defines=s' => \$defines,
@@ -41,6 +47,9 @@ GetOptions('defines=s' => \$defines,
            'windowConstructorsFile=s' => \$windowConstructorsFile,
            'workerGlobalScopeConstructorsFile=s' => \$workerGlobalScopeConstructorsFile,
            'dedicatedWorkerGlobalScopeConstructorsFile=s' => \$dedicatedWorkerGlobalScopeConstructorsFile,
+           'serviceWorkerGlobalScopeConstructorsFile=s' => \$serviceWorkerGlobalScopeConstructorsFile,
+           'workletGlobalScopeConstructorsFile=s' => \$workletGlobalScopeConstructorsFile,
+           'paintWorkletGlobalScopeConstructorsFile=s' => \$paintWorkletGlobalScopeConstructorsFile,
            'supplementalMakefileDeps=s' => \$supplementalMakefileDeps);
 
 die('Must specify #define macros using --defines.') unless defined($defines);
@@ -48,12 +57,18 @@ die('Must specify an output file using --supplementalDependencyFile.') unless de
 die('Must specify an output file using --windowConstructorsFile.') unless defined($windowConstructorsFile);
 die('Must specify an output file using --workerGlobalScopeConstructorsFile.') unless defined($workerGlobalScopeConstructorsFile);
 die('Must specify an output file using --dedicatedWorkerGlobalScopeConstructorsFile.') unless defined($dedicatedWorkerGlobalScopeConstructorsFile);
+die('Must specify an output file using --serviceWorkerGlobalScopeConstructorsFile.') unless defined($serviceWorkerGlobalScopeConstructorsFile);
+die('Must specify an output file using --workletGlobalScopeConstructorsFile.') unless defined($workletGlobalScopeConstructorsFile);
+die('Must specify an output file using --paintWorkletGlobalScopeConstructorsFile.') unless defined($paintWorkletGlobalScopeConstructorsFile);
 die('Must specify the file listing all IDLs using --idlFilesList.') unless defined($idlFilesList);
 
 $supplementalDependencyFile = CygwinPathIfNeeded($supplementalDependencyFile);
 $windowConstructorsFile = CygwinPathIfNeeded($windowConstructorsFile);
 $workerGlobalScopeConstructorsFile = CygwinPathIfNeeded($workerGlobalScopeConstructorsFile);
 $dedicatedWorkerGlobalScopeConstructorsFile = CygwinPathIfNeeded($dedicatedWorkerGlobalScopeConstructorsFile);
+$serviceWorkerGlobalScopeConstructorsFile = CygwinPathIfNeeded($serviceWorkerGlobalScopeConstructorsFile);
+$workletGlobalScopeConstructorsFile = CygwinPathIfNeeded($workletGlobalScopeConstructorsFile);
+$paintWorkletGlobalScopeConstructorsFile = CygwinPathIfNeeded($paintWorkletGlobalScopeConstructorsFile);
 $supplementalMakefileDeps = CygwinPathIfNeeded($supplementalMakefileDeps);
 
 open FH, "< $idlFilesList" or die "Cannot open $idlFilesList\n";
@@ -72,12 +87,15 @@ my %supplementals;
 my $windowConstructorsCode = "";
 my $workerGlobalScopeConstructorsCode = "";
 my $dedicatedWorkerGlobalScopeConstructorsCode = "";
+my $serviceWorkerGlobalScopeConstructorsCode = "";
+my $workletGlobalScopeConstructorsCode = "";
+my $paintWorkletGlobalScopeConstructorsCode = "";
 
 # Get rid of duplicates in idlFiles array.
 my %idlFileHash = map { $_, 1 } @idlFiles;
 
 # Populate $idlFileToInterfaceName and $interfaceNameToIdlFile.
-foreach my $idlFile (keys %idlFileHash) {
+foreach my $idlFile (sort keys %idlFileHash) {
     my $fullPath = Cwd::realpath($idlFile);
     my $interfaceName = fileparse(basename($idlFile), ".idl");
     $idlFileToInterfaceName{$fullPath} = $interfaceName;
@@ -94,6 +112,13 @@ foreach my $idlFile (sort keys %idlFileHash) {
         $supplementalDependencies{$fullPath} = [$partialInterfaceName];
         next;
     }
+
+    $supplementals{$fullPath} = [];
+
+    # Skip if the IDL file does not contain an interface, a callback interface or an exception.
+    # The IDL may contain a dictionary.
+    next unless containsInterfaceOrExceptionFromIDL($idlFileContents);
+
     my $interfaceName = fileparse(basename($idlFile), ".idl");
     # Handle implements statements.
     my $implementedInterfaces = getImplementedInterfacesFromIDL($idlFileContents, $interfaceName);
@@ -113,28 +138,47 @@ foreach my $idlFile (sort keys %idlFileHash) {
     #   property must exist on the ECMAScript environment's global object.
     # See https://heycam.github.io/webidl/#es-interfaces
     my $extendedAttributes = getInterfaceExtendedAttributesFromIDL($idlFileContents);
-    unless ($extendedAttributes->{"NoInterfaceObject"}) {
+    if (shouldExposeInterface($extendedAttributes)) {
         if (!isCallbackInterfaceFromIDL($idlFileContents) || interfaceHasConstantAttribute($idlFileContents)) {
-            my @globalContexts = split("&", $extendedAttributes->{"GlobalContext"} || "DOMWindow");
-            my $attributeCode = GenerateConstructorAttribute($interfaceName, $extendedAttributes);
-            $windowConstructorsCode .= $attributeCode if grep(/^DOMWindow$/, @globalContexts);
-            $workerGlobalScopeConstructorsCode .= $attributeCode if grep(/^WorkerGlobalScope$/, @globalContexts);
-            $dedicatedWorkerGlobalScopeConstructorsCode .= $attributeCode if grep(/^DedicatedWorkerGlobalScope$/, @globalContexts);
+            my $exposedAttribute = $extendedAttributes->{"Exposed"} || "Window";
+            $exposedAttribute = substr($exposedAttribute, 1, -1) if substr($exposedAttribute, 0, 1) eq "(";
+            my @globalContexts = split(",", $exposedAttribute);
+            my ($attributeCode, $windowAliases) = GenerateConstructorAttributes($interfaceName, $extendedAttributes);
+            foreach my $globalContext (@globalContexts) {
+                if ($globalContext eq "Window") {
+                    $windowConstructorsCode .= $attributeCode;
+                } elsif ($globalContext eq "Worker") {
+                    $workerGlobalScopeConstructorsCode .= $attributeCode;
+                } elsif ($globalContext eq "DedicatedWorker") {
+                    $dedicatedWorkerGlobalScopeConstructorsCode .= $attributeCode;
+                } elsif ($globalContext eq "ServiceWorker") {
+                    $serviceWorkerGlobalScopeConstructorsCode .= $attributeCode;
+                } elsif ($globalContext eq "Worklet") {
+                    $workletGlobalScopeConstructorsCode .= $attributeCode;
+                } elsif ($globalContext eq "PaintWorklet") {
+                    $paintWorkletGlobalScopeConstructorsCode .= $attributeCode;
+                } else {
+                    die "Unsupported global context '$globalContext' used in [Exposed] at $idlFile";
+                }
+            }
+            $windowConstructorsCode .= $windowAliases if $windowAliases;
         }
     }
-    $supplementals{$fullPath} = [];
 }
 
 # Generate partial interfaces for Constructors.
 GeneratePartialInterface("DOMWindow", $windowConstructorsCode, $windowConstructorsFile);
 GeneratePartialInterface("WorkerGlobalScope", $workerGlobalScopeConstructorsCode, $workerGlobalScopeConstructorsFile);
 GeneratePartialInterface("DedicatedWorkerGlobalScope", $dedicatedWorkerGlobalScopeConstructorsCode, $dedicatedWorkerGlobalScopeConstructorsFile);
+GeneratePartialInterface("ServiceWorkerGlobalScope", $serviceWorkerGlobalScopeConstructorsCode, $serviceWorkerGlobalScopeConstructorsFile);
+GeneratePartialInterface("WorkletGlobalScope", $workletGlobalScopeConstructorsCode, $workletGlobalScopeConstructorsFile);
+GeneratePartialInterface("PaintWorkletGlobalScope", $paintWorkletGlobalScopeConstructorsCode, $paintWorkletGlobalScopeConstructorsFile);
 
 # Resolves partial interfaces and implements dependencies.
-foreach my $idlFile (keys %supplementalDependencies) {
+foreach my $idlFile (sort keys %supplementalDependencies) {
     my $baseFiles = $supplementalDependencies{$idlFile};
     foreach my $baseFile (@{$baseFiles}) {
-        my $targetIdlFile = $interfaceNameToIdlFile{$baseFile};
+        my $targetIdlFile = $interfaceNameToIdlFile{$baseFile} or die "${baseFile}.idl not found, but it is supplemented by $idlFile";
         push(@{$supplementals{$targetIdlFile}}, $idlFile);
     }
     delete $supplementals{$idlFile};
@@ -220,15 +264,17 @@ sub GeneratePartialInterface
     $supplementalDependencies{$fullPath} = [$interfaceName] if $interfaceNameToIdlFile{$interfaceName};
 }
 
-sub GenerateConstructorAttribute
+sub GenerateConstructorAttributes
 {
     my $interfaceName = shift;
     my $extendedAttributes = shift;
 
     my $code = "    ";
     my @extendedAttributesList;
-    foreach my $attributeName (keys %{$extendedAttributes}) {
-      next unless ($attributeName eq "Conditional" || $attributeName eq "EnabledAtRuntime" || $attributeName eq "EnabledBySetting");
+    foreach my $attributeName (sort keys %{$extendedAttributes}) {
+      next unless ($attributeName eq "Conditional" || $attributeName eq "EnabledAtRuntime" || $attributeName eq "EnabledForWorld"
+        || $attributeName eq "EnabledBySetting" || $attributeName eq "SecureContext" || $attributeName eq "PrivateIdentifier"
+        || $attributeName eq "PublicIdentifier" || $attributeName eq "DisabledByQuirk" || $attributeName eq "EnabledByQuirk");
       my $extendedAttribute = $attributeName;
       $extendedAttribute .= "=" . $extendedAttributes->{$attributeName} unless $extendedAttributes->{$attributeName} eq "VALUE_IS_MISSING";
       push(@extendedAttributesList, $extendedAttribute);
@@ -248,7 +294,20 @@ sub GenerateConstructorAttribute
         $code .= "[" . join(', ', @extendedAttributesList) . "] " if @extendedAttributesList;
         $code .= "attribute " . $originalInterfaceName . "NamedConstructor $constructorName;\n";
     }
-    return $code;
+    
+    my $windowAliasesCode;
+    if ($extendedAttributes->{"LegacyWindowAlias"}) {
+        my $attributeValue = $extendedAttributes->{"LegacyWindowAlias"};
+        $attributeValue = substr($attributeValue, 1, -1) if substr($attributeValue, 0, 1) eq "(";
+        my @windowAliases = split(",", $attributeValue);
+        foreach my $windowAlias (@windowAliases) {
+            $windowAliasesCode .= "    ";
+            $windowAliasesCode .= "[" . join(', ', @extendedAttributesList) . "] " if @extendedAttributesList;
+            $windowAliasesCode .= "attribute " . $originalInterfaceName . "Constructor $windowAlias; // Legacy Window alias.\n";
+        }
+    }
+    
+    return ($code, $windowAliasesCode);
 }
 
 sub getFileContents
@@ -295,6 +354,16 @@ sub isCallbackInterfaceFromIDL
     return ($fileContents =~ /callback\s+interface\s+\w+/gs);
 }
 
+sub containsInterfaceOrExceptionFromIDL
+{
+    my $fileContents = shift;
+
+    return 1 if $fileContents =~ /\bcallback\s+interface\s+\w+/gs;
+    return 1 if $fileContents =~ /\binterface\s+\w+/gs;
+    return 1 if $fileContents =~ /\bexception\s+\w+/gs;
+    return 0;
+}
+
 sub trim
 {
     my $string = shift;
@@ -308,8 +377,13 @@ sub getInterfaceExtendedAttributesFromIDL
 
     my $extendedAttributes = {};
 
+    # Remove comments from fileContents before processing.
+    # FIX: Preference to use Regex::Common::comment, however it is not available on
+    # all build systems.
+    $fileContents =~ s/(?:(?:(?:\/\/)(?:[^\n]*)(?:\n))|(?:(?:\/\*)(?:(?:[^\*]+|\*(?!\/))*)(?:\*\/)))//g;
+
     if ($fileContents =~ /\[(.*)\]\s+(callback interface|interface|exception)\s+(\w+)/gs) {
-        my @parts = split(',', $1);
+        my @parts = split(m/,(?![^()]*\))/, $1);
         foreach my $part (@parts) {
             my @keyValue = split('=', $part);
             my $key = trim($keyValue[0]);
@@ -328,4 +402,11 @@ sub interfaceHasConstantAttribute
     my $fileContents = shift;
 
     return $fileContents =~ /\s+const[\s\w]+=\s+[\w]+;/gs;
+}
+
+sub shouldExposeInterface
+{
+    my $extendedAttributes = shift;
+
+    return !$extendedAttributes->{"NoInterfaceObject"};
 }

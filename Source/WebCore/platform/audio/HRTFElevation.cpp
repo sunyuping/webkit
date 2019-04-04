@@ -74,12 +74,12 @@ static AudioBus* getConcatenatedImpulseResponsesForSubject(const String& subject
     AudioBus* bus;
     AudioBusMap::iterator iterator = audioBusMap.get().find(subjectName);
     if (iterator == audioBusMap.get().end()) {
-        RefPtr<AudioBus> concatenatedImpulseResponses = AudioBus::loadPlatformResource(subjectName.utf8().data(), ResponseSampleRate);
+        auto concatenatedImpulseResponses = AudioBus::loadPlatformResource(subjectName.utf8().data(), ResponseSampleRate);
         ASSERT(concatenatedImpulseResponses);
         if (!concatenatedImpulseResponses)
             return 0;
 
-        bus = concatenatedImpulseResponses.release().leakRef();
+        bus = concatenatedImpulseResponses.leakRef();
         audioBusMap.get().set(subjectName, bus);
     } else
         bus = iterator->value;
@@ -171,12 +171,12 @@ bool HRTFElevation::calculateKernelsForAzimuthElevation(int azimuth, int elevati
     // (hardware) sample-rate.
     unsigned startFrame = index * ResponseFrameSize;
     unsigned stopFrame = startFrame + ResponseFrameSize;
-    RefPtr<AudioBus> preSampleRateConvertedResponse = AudioBus::createBufferFromRange(bus, startFrame, stopFrame);
-    RefPtr<AudioBus> response = AudioBus::createBySampleRateConverting(preSampleRateConvertedResponse.get(), false, sampleRate);
+    auto preSampleRateConvertedResponse = AudioBus::createBufferFromRange(bus, startFrame, stopFrame);
+    auto response = AudioBus::createBySampleRateConverting(preSampleRateConvertedResponse.get(), false, sampleRate);
     AudioChannel* leftEarImpulseResponse = response->channel(AudioBus::ChannelLeft);
     AudioChannel* rightEarImpulseResponse = response->channel(AudioBus::ChannelRight);
 #else
-    String resourceName = String::format("IRC_%s_C_R0195_T%03d_P%03d", subjectName.utf8().data(), azimuth, positiveElevation);
+    String resourceName = makeString("IRC_", subjectName, "_C_R0195_T", pad('0', 3, azimuth), "_P", pad('0', 3, positiveElevation));
 
     RefPtr<AudioBus> impulseResponse(AudioBus::loadPlatformResource(resourceName.utf8().data(), sampleRate));
 

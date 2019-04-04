@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IntRect_h
-#define IntRect_h
+#pragma once
 
 #include "IntPoint.h"
 #include "LayoutUnit.h"
@@ -41,7 +40,7 @@ typedef struct _NSRect NSRect;
 #endif
 #endif
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #ifndef NSRect
 #define NSRect CGRect
 #endif
@@ -49,17 +48,26 @@ typedef struct _NSRect NSRect;
 
 #if PLATFORM(WIN)
 typedef struct tagRECT RECT;
+
+struct D2D_RECT_U;
+typedef D2D_RECT_U D2D1_RECT_U;
+
+struct D2D_RECT_F;
+typedef D2D_RECT_F D2D1_RECT_F;
 #endif
 
 #if USE(CAIRO)
 typedef struct _cairo_rectangle_int cairo_rectangle_int_t;
 #endif
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
 class FloatRect;
 class LayoutRect;
-class TextStream;
 
 class IntRect {
     WTF_MAKE_FAST_ALLOCATED;
@@ -85,6 +93,9 @@ public:
     int maxY() const { return y() + height(); }
     int width() const { return m_size.width(); }
     int height() const { return m_size.height(); }
+
+    template <typename T = WTF::CrashOnOverflow>
+    Checked<unsigned, T> area() const { return m_size.area<T>(); }
 
     void setX(int x) { m_location.setX(x); }
     void setY(int y) { m_location.setY(y); }
@@ -158,6 +169,7 @@ public:
         m_size.setHeight(m_size.height() + dy + dy);
     }
     void inflate(int d) { inflateX(d); inflateY(d); }
+    void inflate(IntSize size) { inflateX(size.width()); inflateY(size.height()); }
     WEBCORE_EXPORT void scale(float s);
 
     IntSize differenceToPoint(const IntPoint&) const;
@@ -168,9 +180,10 @@ public:
 #if PLATFORM(WIN)
     IntRect(const RECT&);
     operator RECT() const;
-#elif PLATFORM(EFL)
-    explicit IntRect(const Eina_Rectangle&);
-    operator Eina_Rectangle() const;
+    explicit IntRect(const D2D1_RECT_F&);
+    IntRect(const D2D1_RECT_U&);
+    operator D2D1_RECT_F() const;
+    operator D2D1_RECT_U() const;
 #endif
 
 #if USE(CAIRO)
@@ -235,8 +248,7 @@ WEBCORE_EXPORT IntRect enclosingIntRect(const CGRect&);
 WEBCORE_EXPORT IntRect enclosingIntRect(const NSRect&);
 #endif
 
-WEBCORE_EXPORT TextStream& operator<<(TextStream&, const IntRect&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const IntRect&);
 
 } // namespace WebCore
 
-#endif // IntRect_h

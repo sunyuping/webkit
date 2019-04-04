@@ -11,20 +11,25 @@
 
 #include "common/angleutils.h"
 #include "libANGLE/Buffer.h"
-#include "libANGLE/VertexAttribute.h"
+#include "libANGLE/VertexArray.h"
 
 namespace rx
 {
+class ContextImpl;
 
 class VertexArrayImpl : angle::NonCopyable
 {
   public:
-    virtual ~VertexArrayImpl() { }
+    VertexArrayImpl(const gl::VertexArrayState &state) : mState(state) {}
+    virtual void syncState(const gl::Context *context, const gl::VertexArray::DirtyBits &dirtyBits)
+    {
+    }
 
-    virtual void setElementArrayBuffer(const gl::Buffer *buffer) = 0;
-    virtual void setAttribute(size_t idx, const gl::VertexAttribute &attr) = 0;
-    virtual void setAttributeDivisor(size_t idx, GLuint divisor) = 0;
-    virtual void enableAttribute(size_t idx, bool enabledState) = 0;
+    virtual void destroy(const gl::Context *context) {}
+    virtual ~VertexArrayImpl() {}
+
+  protected:
+    const gl::VertexArrayState &mState;
 };
 
 }

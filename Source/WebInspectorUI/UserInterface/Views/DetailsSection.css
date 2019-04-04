@@ -25,8 +25,8 @@
 
 .details-section {
     font-size: 10px;
-    background-color: hsl(0, 0%, 94%);
-    border-bottom: 1px solid hsl(0, 0%, 70%);
+    background-color: var(--panel-background-color);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .details-section .details-section {
@@ -39,25 +39,22 @@
 }
 
 .details-section .details-section:first-child {
-    border-top: 1px solid hsl(0, 0%, 70%);
+    border-top: 1px solid var(--border-color);
 }
 
 .details-section > .header {
     position: -webkit-sticky;
     top: -1px;
     height: 23px;
-
-    background-color: hsl(0, 0%, 94%);
-    color: hsl(0, 0%, 22%);
-
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-
+    padding: 4px 0;
+    -webkit-padding-end: 5px;
     font-size: 11px;
     font-weight: bold;
-
-    padding: 4px 5px 4px 0;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: hsl(0, 0%, 22%);
+    background-color: var(--panel-background-color);
+    overflow: hidden;
 
     /* Ensure the headers are displayed above scrollbars. */
     z-index: var(--z-index-header);
@@ -66,8 +63,17 @@
 .details-section > .header > .options > .navigation-bar {
     margin-top: 1px;
     height: 100%;
-    float: right;
     border: none;
+}
+
+body[dir=ltr] .details-section > .header > .options,
+body[dir=rtl] .details-section > .header::before {
+    float: right;
+}
+
+body[dir=ltr] .details-section > .header::before,
+body[dir=rtl] .details-section > .header > .options {
+    float: left;
 }
 
 .details-section > .header > .options > .navigation-bar > .item {
@@ -88,23 +94,19 @@
     border-bottom: 1px solid hsl(0, 0%, 87%);
 }
 
-.details-section.computed-style-properties:not(.collapsed) > .header {
-    background-color: hsl(0, 0%, 100%);
-}
-
 .details-section > .header::before {
     display: block;
-    float: left;
-
     width: 21px;
     height: 100%;
-
+    content: "";
     background-image: url(../Images/DisclosureTriangles.svg#open-normal);
     background-repeat: no-repeat;
     background-position: center;
     background-size: 13px 13px;
+}
 
-    content: "";
+body[dir=rtl] .details-section > .header::before {
+    transform: scaleX(-1);
 }
 
 .details-section > .header:not(.mouse-over-options-element):active::before {
@@ -120,30 +122,26 @@
 }
 
 .details-section > .header > label {
-    float: right;
     font-size: 10px;
     color: hsla(0, 0%, 0%, 0.6);
-    text-align: right;
+    text-align: end;
 }
 
-.details-section.collapsed  > .header > label {
+.details-section.collapsed  > .header > .options {
     display: none;
 }
 
 .details-section > .header > label > input[type="checkbox"] {
-    margin: 0 0 0 5px;
+    margin: 0;
+    -webkit-margin-start: 5px;
     vertical-align: 1px;
     font-size: 10px;
 }
 
-.details-section > .header > :matches(.node-link, .go-to-arrow) {
-    float: right;
-}
-
 .details-section > .header .go-to-arrow {
     width: 10px;
-    height: 12px;
-    margin-left: 3px;
+    height: 15px;
+    -webkit-margin-start: 3px;
 }
 
 .details-section > .content {
@@ -159,7 +157,7 @@
 
 .details-section > .content > .group {
     display: table-row-group;
-    border-bottom: 1px solid hsl(0, 0%, 70%);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .details-section > .content > .group:last-child {
@@ -171,7 +169,7 @@
 }
 
 .details-section > .content > .group:nth-child(even) > .row:matches(.simple:first-child > *, :not(.simple):first-child) {
-    border-top: 1px solid hsl(0, 0%, 70%);
+    border-top: 1px solid var(--border-color);
 }
 
 .details-section > .content > .group > .row.simple {
@@ -214,28 +212,24 @@
 }
 
 .details-section > .content > .group > .row.simple > .label {
-    color: hsl(0, 0%, 20%);
-
-    text-align: right;
-
-    padding-left: 6px;
-
     width: 85px;
+    -webkit-padding-start: 6px;
+    color: hsl(0, 0%, 20%);
+    text-align: end;
 }
 
 .details-section > .content > .group > .row.simple > .value {
+    -webkit-padding-start: 6px;
+    word-break: break-all;
     word-wrap: break-word;
-
-    padding-right: 6px;
-
-    -webkit-user-select: text;
     cursor: text;
+    -webkit-user-select: text;
 }
 
 .details-section > .content > .group > .row.simple > .value .go-to-arrow {
     width: 10px;
     height: 12px;
-    margin-left: 5px;
+    -webkit-margin-start: 5px;
 }
 
 .details-section > .content > .group > .row.simple.data > .value {
@@ -256,31 +250,25 @@
     padding: 4px 6px;
 }
 
+.details-section > .content > .group > .row > .message-text-view {
+    position: static;
+}
+
 .details-section > .content .data-grid {
     border-left: none;
     border-right: none;
     border-bottom: none;
 }
 
-.details-section > .content .data-grid table.data {
-    background-image: none;
-}
-
-.details-section > .content .data-grid tr:nth-child(even) {
-    background-color: white;
-}
-
-.details-section > .content .data-grid tr:nth-child(odd) {
-    background-color: hsl(214, 41%, 96%);
-}
-
-.details-section > .content .data-grid td.value-column {
+.details-section > .content .data-grid tr:not(.editable) td.value-column {
     height: auto;
     line-height: initial;
     white-space: normal;
+    padding-top: 4px;
+    padding-bottom: 4px;
 }
 
-.details-section > .content .data-grid td.value-column > div {
+.details-section > .content .data-grid tr:not(.editable) td.value-column > div {
     white-space: normal;
     word-break: break-all;
 }
@@ -290,5 +278,37 @@
     .details-section .details-section:not(.collapsed) > .header,
     .details-section > .content > .group {
         border-width: 0.5px !important;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    .details-section > .header {
+        color: var(--text-color);
+    }
+
+    .details-section > .header > label {
+        color: var(--text-color-secondary);
+    }
+
+    .details-section .details-section,
+    .details-section .details-section > .header,
+    .details-section.computed-style-properties:not(.collapsed) > .header{
+        background-color: var(--background-color);
+    }
+
+    .details-section .details-section:not(.collapsed) > .header {
+        border-bottom-color: var(--border-color-secondary);
+    }
+
+    .details-section > .content > .group > .row.simple > .label {
+        color: var(--text-color-secondary);
+    }
+
+    .details-section > .content > .group:nth-child(even) {
+        background-color: unset;
+    }
+
+    .details-section > .content > .group > .row:matches(.empty, .text) {
+        color: var(--text-color-secondary);
     }
 }

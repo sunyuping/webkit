@@ -20,14 +20,14 @@
  *
  */
 
-#ifndef HTMLDListElement_h
-#define HTMLDListElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLDListElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLDListElement);
 public:
     static Ref<HTMLDListElement> create(const QualifiedName&, Document&);
 
@@ -35,6 +35,4 @@ private:
     HTMLDListElement(const QualifiedName&, Document&);
 };
 
-} //namespace
-
-#endif
+} // namespace WebCore

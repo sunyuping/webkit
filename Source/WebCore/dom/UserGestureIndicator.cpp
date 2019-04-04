@@ -27,43 +27,87 @@
 #include "UserGestureIndicator.h"
 
 #include "Document.h"
+#include "Frame.h"
+#include "ResourceLoadObserver.h"
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/Optional.h>
 
 namespace WebCore {
 
-static bool isDefinite(ProcessingUserGestureState state)
+static RefPtr<UserGestureToken>& currentToken()
 {
-    return state == DefinitelyProcessingUserGesture || state == DefinitelyNotProcessingUserGesture || state == DefinitelyProcessingPotentialUserGesture;
+    ASSERT(isMainThread());
+    static NeverDestroyed<RefPtr<UserGestureToken>> token;
+    return token;
 }
 
-ProcessingUserGestureState UserGestureIndicator::s_state = DefinitelyNotProcessingUserGesture;
+UserGestureToken::~UserGestureToken()
+{
+    for (auto& observer : m_destructionObservers)
+        observer(*this);
+}
 
-UserGestureIndicator::UserGestureIndicator(ProcessingUserGestureState state, Document* document)
-    : m_previousState(s_state)
+UserGestureIndicator::UserGestureIndicator(Optional<ProcessingUserGestureState> state, Document* document, UserGestureType gestureType, ProcessInteractionStyle processInteractionStyle)
+    : m_previousToken { currentToken() }
+{
+    ASSERT(isMainThread());
+
+    if (state)
+        currentToken() = UserGestureToken::create(state.value(), gestureType);
+
+    if (document && currentToken()->processingUserGesture()) {
+        document->updateLastHandledUserGestureTimestamp(MonotonicTime::now());
+        if (processInteractionStyle == ProcessInteractionStyle::Immediate)
+            ResourceLoadObserver::shared().logUserInteractionWithReducedTimeResolution(document->topDocument());
+        document->topDocument().setUserDidInteractWithPage(true);
+        if (auto* frame = document->frame()) {
+            if (!frame->hasHadUserInteraction()) {
+                for (; frame; frame = frame->tree().parent())
+                    frame->setHasHadUserInteraction();
+            }
+        }
+    }
+}
+
+UserGestureIndicator::UserGestureIndicator(RefPtr<UserGestureToken> token)
 {
     // Silently ignore UserGestureIndicators on non main threads.
     if (!isMainThread())
         return;
-    // We overwrite s_state only if the caller is definite about the gesture state.
-    if (isDefinite(state))
-        s_state = state;
-    ASSERT(isDefinite(s_state));
 
-    if (document && s_state == DefinitelyProcessingUserGesture)
-        document->topDocument().updateLastHandledUserGestureTimestamp();
+    // It is only safe to use currentToken() on the main thread.
+    m_previousToken = currentToken();
+
+    if (token)
+        currentToken() = token;
 }
 
 UserGestureIndicator::~UserGestureIndicator()
 {
     if (!isMainThread())
         return;
-    s_state = m_previousState;
-    ASSERT(isDefinite(s_state));
+    
+    if (auto token = currentToken())
+        token->resetDOMPasteAccess();
+
+    currentToken() = m_previousToken;
+}
+
+RefPtr<UserGestureToken> UserGestureIndicator::currentUserGesture()
+{
+    if (!isMainThread())
+        return nullptr;
+
+    return currentToken();
 }
 
 bool UserGestureIndicator::processingUserGesture()
 {
-    return isMainThread() ? s_state == DefinitelyProcessingUserGesture : false;
+    if (!isMainThread())
+        return false;
+
+    return currentToken() ? currentToken()->processingUserGesture() : false;
 }
 
 bool UserGestureIndicator::processingUserGestureForMedia()
@@ -71,7 +115,7 @@ bool UserGestureIndicator::processingUserGestureForMedia()
     if (!isMainThread())
         return false;
 
-    return s_state == DefinitelyProcessingUserGesture || s_state == DefinitelyProcessingPotentialUserGesture;
+    return currentToken() ? currentToken()->processingUserGestureForMedia() : false;
 }
 
 }

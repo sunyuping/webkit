@@ -31,6 +31,7 @@
 #include "Shape.h"
 
 #include "BasicShapeFunctions.h"
+#include "BasicShapes.h"
 #include "BoxShape.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
@@ -188,6 +189,7 @@ std::unique_ptr<Shape> Shape::createRasterShape(Image* image, float threshold, c
             graphicsContext.drawImage(*image, IntRect(IntPoint(), imageRect.size()));
 
         RefPtr<Uint8ClampedArray> pixelArray = imageBuffer->getUnmultipliedImageData(IntRect(IntPoint(), imageRect.size()));
+        RELEASE_ASSERT(pixelArray);
         unsigned pixelArrayLength = pixelArray->length();
         unsigned pixelArrayOffset = 3; // Each pixel is four bytes: RGBA.
         uint8_t alphaPixelThreshold = threshold * 255;
@@ -195,7 +197,7 @@ std::unique_ptr<Shape> Shape::createRasterShape(Image* image, float threshold, c
         int minBufferY = std::max(0, marginRect.y() - imageRect.y());
         int maxBufferY = std::min(imageRect.height(), marginRect.maxY() - imageRect.y());
 
-        if (static_cast<unsigned>(imageRect.width() * imageRect.height() * 4) == pixelArrayLength) {
+        if ((imageRect.area() * 4).unsafeGet() == pixelArrayLength) {
             for (int y = minBufferY; y < maxBufferY; ++y) {
                 int startX = -1;
                 for (int x = 0; x < imageRect.width(); ++x, pixelArrayOffset += 4) {
@@ -219,7 +221,7 @@ std::unique_ptr<Shape> Shape::createRasterShape(Image* image, float threshold, c
     auto rasterShape = std::make_unique<RasterShape>(WTFMove(intervals), marginRect.size());
     rasterShape->m_writingMode = writingMode;
     rasterShape->m_margin = margin;
-    return WTFMove(rasterShape);
+    return rasterShape;
 }
 
 std::unique_ptr<Shape> Shape::createBoxShape(const RoundedRect& roundedRect, WritingMode writingMode, float margin)
@@ -232,7 +234,7 @@ std::unique_ptr<Shape> Shape::createBoxShape(const RoundedRect& roundedRect, Wri
     shape->m_writingMode = writingMode;
     shape->m_margin = margin;
 
-    return WTFMove(shape);
+    return shape;
 }
 
 } // namespace WebCore

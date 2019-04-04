@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html>
 <body>
-<script src="../w3c/resources/testharness.js"></script>
-<script src="../w3c/resources/testharnessreport.js"></script>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
 <script type="text/javascript">
 test(function()
 {
@@ -36,7 +36,7 @@ test(function()
     });
     xhr.open("GET", "resources/test.ogv", true);
     xhr.abort();
-    assert_equals(xhr.readyState, xhr.UNSENT, "xhr.readyState after abort() call");
+    assert_equals(xhr.readyState, xhr.OPENED, "xhr.readyState after abort() call");
     assert_array_equals(seenStates, [xhr.OPENED]);
 }, "Test onreadystatechange invocation when abort()-ed in OPENED state.");
 

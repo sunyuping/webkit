@@ -25,23 +25,31 @@ class PageRouter {
 
     route()
     {
-        var destinationPage = this._defaultPage;
-        var parsed = this._deserializeFromHash(location.hash);
+        let destinationPage = this._defaultPage;
+        const parsed = this._deserializeFromHash(location.hash);
         if (parsed.route) {
-            var hashUrl = parsed.route;
-            var queryIndex = hashUrl.indexOf('?');
+            let hashUrl = parsed.route;
+            let bestMatchingRouteName = null;
+            const queryIndex = hashUrl.indexOf('?');
             if (queryIndex >= 0)
                 hashUrl = hashUrl.substring(0, queryIndex);
 
-            for (var page of this._pages) {
-                var routeName = page.routeName();
-                if (routeName == hashUrl
-                    || (hashUrl.startsWith(routeName) && hashUrl.charAt(routeName.length) == '/')) {
-                    parsed.state.remainingRoute = hashUrl.substring(routeName.length + 1);
+            for (const page of this._pages) {
+                const routeName = page.routeName();
+
+                if (routeName == hashUrl) {
+                    bestMatchingRouteName = routeName;
                     destinationPage = page;
                     break;
+                } else if (hashUrl.startsWith(routeName) && hashUrl.charAt(routeName.length) == '/'
+                    && (!bestMatchingRouteName || bestMatchingRouteName.length < routeName.length)) {
+                    bestMatchingRouteName = routeName;
+                    destinationPage = page;
                 }
             }
+
+            if (bestMatchingRouteName)
+                parsed.state.remainingRoute = hashUrl.substring(bestMatchingRouteName.length + 1);
         }
 
         if (!destinationPage)
@@ -52,6 +60,7 @@ class PageRouter {
             destinationPage.open(parsed.state);
         } else
             destinationPage.updateFromSerializedState(parsed.state, false);
+        destinationPage.enqueueToRender();
 
         return true;
     }
@@ -59,7 +68,7 @@ class PageRouter {
     pageDidOpen(page)
     {
         console.assert(page instanceof Page);
-        var pageDidChange = this._currentPage != page;
+        const pageDidChange = this._currentPage != page;
         this._currentPage = page;
         if (pageDidChange)
             this.scheduleUrlStateUpdate();
@@ -81,7 +90,7 @@ class PageRouter {
     {
         this._historyTimer = null;
         console.assert(this._currentPage);
-        var currentPage = this._currentPage;
+        const currentPage = this._currentPage;
         this._hash = this._serializeToHash(currentPage.routeName(), currentPage.serializeState());
         location.hash = this._hash;
     }
@@ -96,10 +105,10 @@ class PageRouter {
 
     _serializeToHash(route, state)
     {
-        var params = [];
-        for (var key in state)
+        const params = [];
+        for (const key in state)
             params.push(key + '=' + this._serializeHashQueryValue(state[key]));
-        var query = params.length ? ('?' + params.join('&')) : '';
+        const query = params.length ? ('?' + params.join('&')) : '';
         return `#/${route}${query}`;
     }
     
@@ -110,13 +119,13 @@ class PageRouter {
 
         hash = unescape(hash); // For Firefox.
 
-        var queryIndex = hash.indexOf('?');
-        var route;
-        var state = {};
+        const queryIndex = hash.indexOf('?');
+        let route;
+        const state = {};
         if (queryIndex >= 0) {
             route = hash.substring(2, queryIndex);
-            for (var part of hash.substring(queryIndex + 1).split('&')) {
-                var keyValuePair = part.split('=');
+            for (const part of hash.substring(queryIndex + 1).split('&')) {
+                const keyValuePair = part.split('=');
                 state[keyValuePair[0]] = this._deserializeHashQueryValue(keyValuePair[1]);
             }
         } else
@@ -127,23 +136,55 @@ class PageRouter {
 
     _serializeHashQueryValue(value)
     {
-        if (!(value instanceof Array)) {
-            console.assert(value === null || typeof(value) === 'number' || /[A-Za-z0-9]*/.test(value));
-            return value === null ? 'null' : value;
+        if (value instanceof Array) {
+            const serializedItems = [];
+            for (const item of value)
+                serializedItems.push(this._serializeHashQueryValue(item));
+            return '(' + serializedItems.join('-') + ')';
         }
-
-        var serializedItems = [];
-        for (var item of value)
-            serializedItems.push(this._serializeHashQueryValue(item));
-        return '(' + serializedItems.join('-') + ')';
+        if (value instanceof Set)
+            return Array.from(value).sort().join('|');
+        console.assert(value === null || value === undefined || typeof(value) === 'number' || /[0-9]*/.test(value));
+        return value === null || value === undefined ? 'null' : value;
     }
 
     _deserializeHashQueryValue(value)
     {
-        try {
-            return JSON.parse(value.replace(/\(/g, '[').replace(/\)/g, ']').replace(/-/g, ','));
-        } catch (error) {
-            return value;
+        if (value.charAt(0) == '(') {
+            let nestingLevel = 0;
+            let end = 0;
+            let start = 1;
+            const result = [];
+            for (const character of value) {
+                if (character == '(')
+                    nestingLevel++;
+                else if (character == ')') {
+                    nestingLevel--;
+                    if (!nestingLevel)
+                        break;
+                } else if (nestingLevel == 1 && character == '-') {
+                    result.push(this._deserializeHashQueryValue(value.substring(start, end)));
+                    start = end + 1;
+                }
+                end++;
+            }
+            result.push(this._deserializeHashQueryValue(value.substring(start, end)));
+            return result;
         }
+        if (value == 'true')
+            return true;
+        if (value == 'false')
+            return true;
+        if (value.match(/^[0-9\.]+$/))
+            return parseFloat(value);
+        if (value.match(/^[A-Za-z][A-Za-z0-9|]*$/))
+            return new Set(value.toLowerCase().split('|'));
+        return null;
+    }
+
+    _countOccurrences(string, regex)
+    {
+        const match = string.match(regex);
+        return match ? match.length : 0;
     }
 }

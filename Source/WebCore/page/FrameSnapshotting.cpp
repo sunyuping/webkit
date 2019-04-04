@@ -32,6 +32,7 @@
 #include "FrameSnapshotting.h"
 
 #include "Document.h"
+#include "FloatRect.h"
 #include "Frame.h"
 #include "FrameSelection.h"
 #include "FrameView.h"
@@ -62,11 +63,17 @@ struct ScopedFramePaintingState {
 
     const Frame& frame;
     const Node* node;
-    const PaintBehavior paintBehavior;
+    const OptionSet<PaintBehavior> paintBehavior;
     const Color backgroundColor;
 };
 
 std::unique_ptr<ImageBuffer> snapshotFrameRect(Frame& frame, const IntRect& imageRect, SnapshotOptions options)
+{
+    Vector<FloatRect> clipRects;
+    return snapshotFrameRectWithClip(frame, imageRect, clipRects, options);
+}
+
+std::unique_ptr<ImageBuffer> snapshotFrameRectWithClip(Frame& frame, const IntRect& imageRect, const Vector<FloatRect>& clipRects, SnapshotOptions options)
 {
     if (!frame.page())
         return nullptr;
@@ -83,13 +90,15 @@ std::unique_ptr<ImageBuffer> snapshotFrameRect(Frame& frame, const IntRect& imag
 
     ScopedFramePaintingState state(frame, nullptr);
 
-    PaintBehavior paintBehavior = state.paintBehavior;
+    auto paintBehavior = state.paintBehavior;
     if (options & SnapshotOptionsForceBlackText)
-        paintBehavior |= PaintBehaviorForceBlackText;
+        paintBehavior.add(PaintBehavior::ForceBlackText);
     if (options & SnapshotOptionsPaintSelectionOnly)
-        paintBehavior |= PaintBehaviorSelectionOnly;
+        paintBehavior.add(PaintBehavior::SelectionOnly);
     if (options & SnapshotOptionsPaintSelectionAndBackgroundsOnly)
-        paintBehavior |= PaintBehaviorSelectionAndBackgroundsOnly;
+        paintBehavior.add(PaintBehavior::SelectionAndBackgroundsOnly);
+    if (options & SnapshotOptionsPaintEverythingExcludingSelection)
+        paintBehavior.add(PaintBehavior::ExcludeSelection);
 
     // Other paint behaviors are set by paintContentsForSnapshot.
     frame.view()->setPaintBehavior(paintBehavior);
@@ -103,6 +112,13 @@ std::unique_ptr<ImageBuffer> snapshotFrameRect(Frame& frame, const IntRect& imag
     if (!buffer)
         return nullptr;
     buffer->context().translate(-imageRect.x(), -imageRect.y());
+
+    if (!clipRects.isEmpty()) {
+        Path clipPath;
+        for (auto& rect : clipRects)
+            clipPath.addRect(rect);
+        buffer->context().clipPath(clipPath);
+    }
 
     frame.view()->paintContentsForSnapshot(buffer->context(), imageRect, shouldIncludeSelection, coordinateSpace);
     return buffer;

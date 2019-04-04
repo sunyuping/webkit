@@ -28,18 +28,21 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import atexit
-import os
+import glob
 import logging
+import os
 import re
 import sys
 import time
 
 from webkitpy.common.system.crashlogs import CrashLogs
 from webkitpy.common.system.systemhost import SystemHost
-from webkitpy.common.system.executive import ScriptError, Executive
+from webkitpy.common.system.executive import Executive
 from webkitpy.common.system.path import abspath_to_uri, cygpath
+from webkitpy.common.version import Version
+from webkitpy.common.version_name_map import VersionNameMap
 from webkitpy.port.apple import ApplePort
-
+from webkitpy.port.config import apple_additions
 
 _log = logging.getLogger(__name__)
 
@@ -48,12 +51,14 @@ try:
     import _winreg
     import win32com.client
 except ImportError:
-    _log.warn("Not running on native Windows.")
+    _log.debug("Not running on native Windows.")
+
 
 class WinPort(ApplePort):
     port_name = "win"
 
-    VERSION_FALLBACK_ORDER = ["win-xp", "win-vista", "win-7sp0", "win-win10", "win"]
+    VERSION_MIN = Version(5, 1)
+    VERSION_MAX = Version(10)
 
     ARCHITECTURES = ['x86', 'x86_64']
 
@@ -84,6 +89,13 @@ class WinPort(ApplePort):
     previous_error_reporting_values = {}
     previous_wow64_error_reporting_values = {}
 
+    def __init__(self, host, port_name, **kwargs):
+        ApplePort.__init__(self, host, port_name, **kwargs)
+        if port_name.split('-') > 1:
+            self._os_version = VersionNameMap.map(host.platform).from_name(port_name.split('-')[1])[1]
+        else:
+            self._os_version = self.host.platform.os_version
+
     def do_text_results_differ(self, expected_text, actual_text):
         # Sanity was restored in WK2, so we don't need this hack there.
         if self.get_option('webkit_test_runner'):
@@ -98,12 +110,16 @@ class WinPort(ApplePort):
         actual_text = delegate_regexp.sub("", actual_text)
         return expected_text != actual_text
 
-    def default_baseline_search_path(self):
-        name = self._name.replace('-wk2', '')
-        if name.endswith(self.FUTURE_VERSION):
-            fallback_names = [self.port_name]
+    def default_baseline_search_path(self, **kwargs):
+        version_name_map = VersionNameMap.map(self.host.platform)
+        if self._os_version < self.VERSION_MIN or self._os_version > self.VERSION_MAX:
+            fallback_versions = [self._os_version]
         else:
-            fallback_names = self.VERSION_FALLBACK_ORDER[self.VERSION_FALLBACK_ORDER.index(name):-1] + [self.port_name]
+            sorted_versions = sorted(version_name_map.mapping_for_platform(platform=self.port_name).values())
+            fallback_versions = sorted_versions[sorted_versions.index(self._os_version):]
+        fallback_names = ['win-' + version_name_map.to_name(version, platform=self.port_name).lower().replace(' ', '') for version in fallback_versions]
+        fallback_names.append('win')
+
         # FIXME: The AppleWin port falls back to AppleMac for some results.  Eventually we'll have a shared 'apple' port.
         if self.get_option('webkit_test_runner'):
             fallback_names.insert(0, 'win-wk2')
@@ -111,18 +127,24 @@ class WinPort(ApplePort):
             # Note we do not add 'wk2' here, even though it's included in _skipped_search_paths().
         # FIXME: Perhaps we should get this list from MacPort?
         fallback_names.append('mac')
-        return map(self._webkit_baseline_path, fallback_names)
+        result = map(self._webkit_baseline_path, fallback_names)
+        if apple_additions() and getattr(apple_additions(), "layout_tests_path", None):
+            result.insert(0, self._filesystem.join(apple_additions().layout_tests_path(), self.port_name))
+        return result
 
     def setup_environ_for_server(self, server_name=None):
         env = super(WinPort, self).setup_environ_for_server(server_name)
         env['XML_CATALOG_FILES'] = ''  # work around missing /etc/catalog <rdar://problem/4292995>
         return env
 
+    def environment_for_api_tests(self):
+        env = super(WinPort, self).environment_for_api_tests()
+        for variable in ['SYSTEMROOT', 'WEBKIT_LIBRARIES']:
+            self._copy_value_from_environ_if_set(env, variable)
+        return env
+
     def operating_system(self):
         return 'win'
-
-    def default_child_processes(self):
-        return 1
 
     def _port_flag_for_scripts(self):
         if self.get_option('architecture') == 'x86_64':
@@ -135,8 +157,8 @@ class WinPort(ApplePort):
     def _runtime_feature_list(self):
         supported_features_command = [self._path_to_driver(), '--print-supported-features']
         try:
-            output = self._executive.run_command(supported_features_command, error_handler=Executive.ignore_error)
-        except OSError, e:
+            output = self._executive.run_command(supported_features_command, ignore_errors=True)
+        except OSError as e:
             _log.warn("Exception running driver: %s, %s.  Driver must be built before calling WebKitPort.test_expectations()." % (supported_features_command, e))
             return None
 
@@ -159,15 +181,20 @@ class WinPort(ApplePort):
 
         return self._filesystem.join(root_directory, *comps)
 
+    def is_cygwin(self):
+        """Return whether current platform is Cygwin or not"""
+        return self.host.platform.is_cygwin()
+
     # Note: These are based on the stock XAMPP locations for these files.
     def _uses_apache(self):
         return True
 
     def _path_to_apache(self):
-        httpdPath = os.path.join('C:', 'xampp', 'apache', 'bin', 'httpd.exe')
-        if self._filesystem.exists(httpdPath):
-            return httpdPath
-        _log.error("Could not find apache. Not installed or unknown path.")
+        root = os.environ.get('XAMPP_ROOT', 'C:\\xampp')
+        path = self._filesystem.join(root, 'apache', 'bin', 'httpd.exe')
+        if self._filesystem.exists(path):
+            return path
+        _log.error('Could not find apache in the expected location. (path=%s)' % path)
         return None
 
     def _path_to_lighttpd(self):
@@ -179,7 +206,18 @@ class WinPort(ApplePort):
     def _path_to_lighttpd_php(self):
         return "/usr/bin/php-cgi"
 
-    def test_search_path(self):
+    def _path_to_image_diff(self):
+        if self.is_cygwin():
+            return super(WinPort, self)._path_to_image_diff()
+
+        return self._build_path('ImageDiff.exe')
+
+    API_TEST_BINARY_NAMES = ['TestWTF.exe', 'TestWebCore.exe', 'TestWebKitLegacy.exe']
+
+    def path_to_api_test_binaries(self):
+        return {binary.split('.')[0]: self._build_path(binary) for binary in self.API_TEST_BINARY_NAMES}
+
+    def test_search_path(self, **kwargs):
         test_fallback_names = [path for path in self.baseline_search_path() if not path.startswith(self._webkit_baseline_path('mac'))]
         return map(self._webkit_baseline_path, test_fallback_names)
 
@@ -235,7 +273,7 @@ class WinPort(ApplePort):
             registry_key = reg_path % (root, key)
             _log.debug("Reading %s" % (registry_key))
             read_registry_command = ["regtool", arch, "get", registry_key]
-            int_value = self._executive.run_command(read_registry_command, error_handler=Executive.ignore_error)
+            int_value = self._executive.run_command(read_registry_command, ignore_errors=True)
             # regtool doesn't return the type of the entry, so need this ugly hack:
             if reg_path in (self.WINDOWS_ERROR_REPORTING_KEY, self.WOW64_WINDOWS_ERROR_REPORTING_KEY):
                 _log.debug("I got {0}".format(int_value))
@@ -298,6 +336,10 @@ class WinPort(ApplePort):
         if '_NT_SYMBOL_PATH' not in os.environ:
             _log.warning("The _NT_SYMBOL_PATH environment variable is not set. Using Microsoft Symbol Server.")
             os.environ['_NT_SYMBOL_PATH'] = 'SRV*http://msdl.microsoft.com/download/symbols'
+
+        # Add build path to symbol path
+        os.environ['_NT_SYMBOL_PATH'] += ";" + self._build_path()
+
         ntsd_path = self._ntsd_location()
         if not ntsd_path:
             _log.warning("Can't find ntsd.exe. Crash logs will not be saved.")
@@ -344,19 +386,32 @@ class WinPort(ApplePort):
     def delete_sem_locks(self):
         os.system("rm -rf /dev/shm/sem.*")
 
-    def setup_test_run(self):
+    def delete_preference_files(self):
+        try:
+            preferences_files = self._filesystem.join(os.environ['APPDATA'], "Apple Computer/Preferences", "com.apple.DumpRenderTree*")
+            filelist = glob.glob(preferences_files)
+            for file in filelist:
+                self._filesystem.remove(file)
+        except:
+            _log.warn("Failed to delete preference files.")
+
+    def setup_test_run(self, device_type=None):
         atexit.register(self.restore_crash_log_saving)
         self.setup_crash_log_saving()
         self.prevent_error_dialogs()
         self.delete_sem_locks()
-        super(WinPort, self).setup_test_run()
+        self.delete_preference_files()
+        super(WinPort, self).setup_test_run(device_type)
 
     def clean_up_test_run(self):
         self.allow_error_dialogs()
         self.restore_crash_log_saving()
         super(WinPort, self).clean_up_test_run()
 
-    def _get_crash_log(self, name, pid, stdout, stderr, newer_than, time_fn=None, sleep_fn=None, wait_for_log=True):
+    def path_to_crash_logs(self):
+        return self.results_directory()
+
+    def _get_crash_log(self, name, pid, stdout, stderr, newer_than, time_fn=None, sleep_fn=None, wait_for_log=True, target_host=None):
         # Note that we do slow-spin here and wait, since it appears the time
         # ReportCrash takes to actually write and flush the file varies when there are
         # lots of simultaneous crashes going on.
@@ -364,7 +419,7 @@ class WinPort(ApplePort):
         time_fn = time_fn or time.time
         sleep_fn = sleep_fn or time.sleep
         crash_log = ''
-        crash_logs = CrashLogs(self.host, self.results_directory())
+        crash_logs = CrashLogs(target_host or self.host, self.path_to_crash_logs(), crash_logs_to_skip=self._crash_logs_to_skip_for_host.get(target_host or self.host, []))
         now = time_fn()
         # FIXME: delete this after we're sure this code is working ...
         _log.debug('looking for crash log for %s:%s' % (name, str(pid)))
@@ -402,47 +457,55 @@ class WinPort(ApplePort):
                 crash_logs[test_name] = crash_log
         return crash_logs
 
-    def find_system_pid(self, name, pid):
-        system_pid = int(pid)
+    def check_httpd(self):
+        if not super(WinPort, self).check_httpd():
+            return False
 
-        if sys.platform == "cygwin":
-            # Windows and Cygwin PIDs are not the same.  We need to find the Windows
-            # PID for our Cygwin process so we can match it later to any crash
-            # files we end up creating (which will be tagged with the Windows PID)
-            ps_process = self._executive.run_command(['ps', '-e'], error_handler=Executive.ignore_error)
-            for line in ps_process.splitlines():
-                tokens = line.strip().split()
-                try:
-                    cpid, ppid, pgid, winpid, tty, uid, stime, process_name = tokens
-                    if process_name.endswith(name):
-                        self._executive.pid_to_system_pid[int(cpid)] = int(winpid)
-                        if int(pid) == int(cpid):
-                            system_pid = int(winpid)
-                        break
-                except ValueError, e:
-                    pass
-        else:
-            wmi = win32com.client.GetObject('winmgmts:')
-            _log.debug('Querying WMI with "%{0}%"'.format(name))
-            procs = wmi.ExecQuery('Select * from win32_process where name like "%{0}%"'.format(name))
-            for proc in procs:
-                self._executive.pid_to_system_pid[int(proc.ProcessId)] = int(proc.ProcessId)
-                _log.debug("I see {0}: {1}".format(proc.Name, proc.ProcessId))
-                if int(pid) == int(proc.ProcessId):
-                    system_pid = int(proc.ProcessId)
-                break
+        path = self._path_to_apache()
+        if not path:
+            return False
 
-        return system_pid
+        # To launch Apache as a daemon, service installation is required.
+        exit_code = self._executive.run_command([path, '-k', 'install', '-T'], return_exit_code=True)
+        # 0=success, 2=already installed, 720005=permission error, etc.
+        if exit_code not in (0, 2):
+            _log.error('Could not install httpd as a service. Perhaps you forgot to run as adminstrator? (exit code={})'.format(exit_code))
+            return False
+
+        return True
 
 
 class WinCairoPort(WinPort):
     port_name = "wincairo"
 
-    VERSION_FALLBACK_ORDER = ["wincairo-xp", "wincairo-vista", "wincairo-7sp0", "wincairo-win10", "wincairo"]
+    DEFAULT_ARCHITECTURE = 'x86_64'
 
-    def default_baseline_search_path(self):
-        name = self._name.replace('-wk2', '')
-        fallback_names = self.VERSION_FALLBACK_ORDER[self.VERSION_FALLBACK_ORDER.index(name):-1] + [self.port_name]
-        fallback_names.append('win')
-        fallback_names.append('mac')
-        return map(self._webkit_baseline_path, fallback_names)
+    def default_baseline_search_path(self, **kwargs):
+        return map(self._webkit_baseline_path, self._search_paths())
+
+    def _port_specific_expectations_files(self, **kwargs):
+        return map(lambda x: self._filesystem.join(self._webkit_baseline_path(x), 'TestExpectations'), reversed(self._search_paths()))
+
+    def _search_paths(self):
+        paths = []
+        version_name_map = VersionNameMap.map(self.host.platform)
+        if self._os_version < self.VERSION_MIN or self._os_version > self.VERSION_MAX:
+            versions = [self._os_version]
+        else:
+            sorted_versions = sorted(version_name_map.mapping_for_platform(platform=self.port_name).values())
+            versions = sorted_versions[sorted_versions.index(self._os_version):]
+
+        normalize = lambda version: version.lower().replace(' ', '')
+        to_name = lambda version: version_name_map.to_name(version, platform=self.port_name)
+
+        wk_version = 'wk2' if self.get_option('webkit_test_runner') else 'wk1'
+
+        for version in versions:
+            name = self.port_name + '-' + normalize(to_name(version))
+            paths.append(name + '-' + wk_version)
+            paths.append(name)
+
+        paths.append(self.port_name + '-' + wk_version)
+        paths.append(self.port_name)
+
+        return paths

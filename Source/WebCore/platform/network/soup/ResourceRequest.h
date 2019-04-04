@@ -27,16 +27,15 @@
 #ifndef ResourceRequest_h
 #define ResourceRequest_h
 
-#include "GUniquePtrSoup.h"
 #include "ResourceRequestBase.h"
-#include <libsoup/soup.h>
+#include "URLSoup.h"
 
 namespace WebCore {
 
     class ResourceRequest : public ResourceRequestBase {
     public:
         ResourceRequest(const String& url)
-            : ResourceRequestBase(URL(ParsedURLString, url), UseProtocolCachePolicy)
+            : ResourceRequestBase(URL({ }, url), ResourceRequestCachePolicy::UseProtocolCachePolicy)
             , m_acceptEncoding(true)
             , m_soupFlags(static_cast<SoupMessageFlags>(0))
             , m_initiatingPageID(0)
@@ -44,14 +43,14 @@ namespace WebCore {
         }
 
         ResourceRequest(const URL& url)
-            : ResourceRequestBase(url, UseProtocolCachePolicy)
+            : ResourceRequestBase(url, ResourceRequestCachePolicy::UseProtocolCachePolicy)
             , m_acceptEncoding(true)
             , m_soupFlags(static_cast<SoupMessageFlags>(0))
             , m_initiatingPageID(0)
         {
         }
 
-        ResourceRequest(const URL& url, const String& referrer, ResourceRequestCachePolicy policy = UseProtocolCachePolicy)
+        ResourceRequest(const URL& url, const String& referrer, ResourceRequestCachePolicy policy = ResourceRequestCachePolicy::UseProtocolCachePolicy)
             : ResourceRequestBase(url, policy)
             , m_acceptEncoding(true)
             , m_soupFlags(static_cast<SoupMessageFlags>(0))
@@ -61,7 +60,7 @@ namespace WebCore {
         }
 
         ResourceRequest()
-            : ResourceRequestBase(URL(), UseProtocolCachePolicy)
+            : ResourceRequestBase(URL(), ResourceRequestCachePolicy::UseProtocolCachePolicy)
             , m_acceptEncoding(true)
             , m_soupFlags(static_cast<SoupMessageFlags>(0))
             , m_initiatingPageID(0)
@@ -69,7 +68,7 @@ namespace WebCore {
         }
 
         ResourceRequest(SoupMessage* soupMessage)
-            : ResourceRequestBase(URL(), UseProtocolCachePolicy)
+            : ResourceRequestBase(URL(), ResourceRequestCachePolicy::UseProtocolCachePolicy)
             , m_acceptEncoding(true)
             , m_soupFlags(static_cast<SoupMessageFlags>(0))
             , m_initiatingPageID(0)
@@ -78,7 +77,7 @@ namespace WebCore {
         }
 
         ResourceRequest(SoupRequest* soupRequest)
-            : ResourceRequestBase(URL(soup_request_get_uri(soupRequest)), UseProtocolCachePolicy)
+            : ResourceRequestBase(soupURIToURL(soup_request_get_uri(soupRequest)), ResourceRequestCachePolicy::UseProtocolCachePolicy)
             , m_acceptEncoding(true)
             , m_soupFlags(static_cast<SoupMessageFlags>(0))
             , m_initiatingPageID(0)
@@ -94,7 +93,6 @@ namespace WebCore {
         void updateSoupMessageHeaders(SoupMessageHeaders*) const;
         void updateFromSoupMessageHeaders(SoupMessageHeaders*);
         void updateSoupMessage(SoupMessage*) const;
-        SoupMessage* toSoupMessage() const;
         void updateFromSoupMessage(SoupMessage*);
         void updateSoupRequest(SoupRequest*) const;
         void updateFromSoupRequest(SoupRequest*);
@@ -107,6 +105,9 @@ namespace WebCore {
 
         GUniquePtr<SoupURI> createSoupURI() const;
 
+        template<class Encoder> void encodeWithPlatformData(Encoder&) const;
+        template<class Decoder> bool decodeWithPlatformData(Decoder&);
+
     private:
         friend class ResourceRequestBase;
 
@@ -115,17 +116,60 @@ namespace WebCore {
         uint64_t m_initiatingPageID;
 
         void updateSoupMessageMembers(SoupMessage*) const;
+        void updateSoupMessageBody(SoupMessage*) const;
         void doUpdatePlatformRequest() { }
         void doUpdateResourceRequest() { }
         void doUpdatePlatformHTTPBody() { }
         void doUpdateResourceHTTPBody() { }
 
-        std::unique_ptr<CrossThreadResourceRequestData> doPlatformCopyData(std::unique_ptr<CrossThreadResourceRequestData> data) const { return data; }
-        void doPlatformAdopt(std::unique_ptr<CrossThreadResourceRequestData>) { }
+        void doPlatformSetAsIsolatedCopy(const ResourceRequest&) { }
     };
 
-    struct CrossThreadResourceRequestData : public CrossThreadResourceRequestDataBase {
-    };
+template<class Encoder>
+void ResourceRequest::encodeWithPlatformData(Encoder& encoder) const
+{
+    encodeBase(encoder);
+
+    // FIXME: Do not encode HTTP message body.
+    // 1. It can be large and thus costly to send across.
+    // 2. It is misleading to provide a body with some requests, while others use body streams, which cannot be serialized at all.
+    encoder << static_cast<bool>(m_httpBody);
+    if (m_httpBody)
+        encoder << m_httpBody->flattenToString();
+
+    encoder << static_cast<uint32_t>(m_soupFlags);
+    encoder << m_initiatingPageID;
+}
+
+template<class Decoder>
+bool ResourceRequest::decodeWithPlatformData(Decoder& decoder)
+{
+    if (!decodeBase(decoder))
+        return false;
+
+    bool hasHTTPBody;
+    if (!decoder.decode(hasHTTPBody))
+        return false;
+    if (hasHTTPBody) {
+        String httpBody;
+        if (!decoder.decode(httpBody))
+            return false;
+        setHTTPBody(FormData::create(httpBody.utf8()));
+    }
+
+    uint32_t soupMessageFlags;
+    if (!decoder.decode(soupMessageFlags))
+        return false;
+    m_soupFlags = static_cast<SoupMessageFlags>(soupMessageFlags);
+
+    uint64_t initiatingPageID;
+    if (!decoder.decode(initiatingPageID))
+        return false;
+    m_initiatingPageID = initiatingPageID;
+
+    return true;
+}
+
 
 #if SOUP_CHECK_VERSION(2, 43, 1)
 inline SoupMessagePriority toSoupMessagePriority(ResourceLoadPriority priority)

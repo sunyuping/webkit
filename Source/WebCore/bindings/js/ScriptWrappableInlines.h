@@ -29,12 +29,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ScriptWrappableInlines_h
-#define ScriptWrappableInlines_h
+#pragma once
 
 #include "JSDOMWrapper.h"
-#include <heap/Weak.h>
-#include <heap/WeakInlines.h>
+#include <JavaScriptCore/Weak.h>
+#include <JavaScriptCore/WeakInlines.h>
 
 namespace WebCore {
 
@@ -55,5 +54,3 @@ inline void ScriptWrappable::clearWrapper(JSDOMObject* wrapper)
 }
 
 } // namespace WebCore
-
-#endif // ScriptWrappableInlines_h

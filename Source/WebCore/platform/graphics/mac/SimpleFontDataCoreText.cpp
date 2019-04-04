@@ -27,35 +27,28 @@
 #include "config.h"
 #include "Font.h"
 
-#if !PLATFORM(IOS)
-#include <ApplicationServices/ApplicationServices.h>
-#else
 #include <CoreText/CoreText.h>
-#endif
 
 namespace WebCore {
 
 CFDictionaryRef Font::getCFStringAttributes(bool enableKerning, FontOrientation orientation) const
 {
-    unsigned key = static_cast<unsigned>(enableKerning) + 1;
-    HashMap<unsigned, RetainPtr<CFDictionaryRef>>::AddResult addResult = m_CFStringAttributes.add(key, RetainPtr<CFDictionaryRef>());
-    RetainPtr<CFDictionaryRef>& attributesDictionary = addResult.iterator->value;
-    if (!addResult.isNewEntry)
+    auto& attributesDictionary = enableKerning ? m_kernedCFStringAttributes : m_nonKernedCFStringAttributes;
+    if (attributesDictionary)
         return attributesDictionary.get();
 
     attributesDictionary = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 4, &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-    CFMutableDictionaryRef mutableAttributes = (CFMutableDictionaryRef)attributesDictionary.get();
 
-    CFDictionarySetValue(mutableAttributes, kCTFontAttributeName, platformData().ctFont());
+    CFDictionarySetValue(attributesDictionary.get(), kCTFontAttributeName, platformData().ctFont());
 
     if (!enableKerning) {
         const float zero = 0;
         static CFNumberRef zeroKerningValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &zero);
-        CFDictionarySetValue(mutableAttributes, kCTKernAttributeName, zeroKerningValue);
+        CFDictionarySetValue(attributesDictionary.get(), kCTKernAttributeName, zeroKerningValue);
     }
 
-    if (orientation == Vertical)
-        CFDictionarySetValue(mutableAttributes, kCTVerticalFormsAttributeName, kCFBooleanTrue);
+    if (orientation == FontOrientation::Vertical)
+        CFDictionarySetValue(attributesDictionary.get(), kCTVerticalFormsAttributeName, kCFBooleanTrue);
 
     return attributesDictionary.get();
 }

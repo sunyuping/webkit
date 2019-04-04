@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,11 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WeakGCMapInlines_h
-#define WeakGCMapInlines_h
+#pragma once
 
 #include "HeapInlines.h"
 #include "WeakGCMap.h"
+#include "WeakInlines.h"
 
 namespace JSC {
 
@@ -35,15 +35,35 @@ template<typename KeyArg, typename ValueArg, typename HashArg, typename KeyTrait
 inline WeakGCMap<KeyArg, ValueArg, HashArg, KeyTraitsArg>::WeakGCMap(VM& vm)
     : m_vm(vm)
 {
-    vm.heap.registerWeakGCMap(this, [this]() {
-        pruneStaleEntries();
-    });
+    vm.heap.registerWeakGCMap(this);
 }
 
 template<typename KeyArg, typename ValueArg, typename HashArg, typename KeyTraitsArg>
 inline WeakGCMap<KeyArg, ValueArg, HashArg, KeyTraitsArg>::~WeakGCMap()
 {
     m_vm.heap.unregisterWeakGCMap(this);
+}
+
+template<typename KeyArg, typename ValueArg, typename HashArg, typename KeyTraitsArg>
+inline typename WeakGCMap<KeyArg, ValueArg, HashArg, KeyTraitsArg>::iterator WeakGCMap<KeyArg, ValueArg, HashArg, KeyTraitsArg>::find(const KeyType& key)
+{
+    iterator it = m_map.find(key);
+    iterator end = m_map.end();
+    if (it != end && !it->value) // Found a zombie value.
+        return end;
+    return it;
+}
+
+template<typename KeyArg, typename ValueArg, typename HashArg, typename KeyTraitsArg>
+inline typename WeakGCMap<KeyArg, ValueArg, HashArg, KeyTraitsArg>::const_iterator WeakGCMap<KeyArg, ValueArg, HashArg, KeyTraitsArg>::find(const KeyType& key) const
+{
+    return const_cast<WeakGCMap*>(this)->find(key);
+}
+
+template<typename KeyArg, typename ValueArg, typename HashArg, typename KeyTraitsArg>
+inline bool WeakGCMap<KeyArg, ValueArg, HashArg, KeyTraitsArg>::contains(const KeyType& key) const
+{
+    return find(key) != m_map.end();
 }
 
 template<typename KeyArg, typename ValueArg, typename HashArg, typename KeyTraitsArg>
@@ -55,5 +75,3 @@ NEVER_INLINE void WeakGCMap<KeyArg, ValueArg, HashArg, KeyTraitsArg>::pruneStale
 }
 
 } // namespace JSC
-
-#endif // WeakGCMapInlines_h

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,27 +23,25 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef Exception_h
-#define Exception_h
+#pragma once
 
-#include "Interpreter.h"
-#include <wtf/RefCountedArray.h>
+#include "JSDestructibleObject.h"
+#include "StackFrame.h"
+#include <wtf/Vector.h>
 
 namespace JSC {
     
-class Exception : public JSNonFinalObject {
+class Exception final : public JSCell {
 public:
-    typedef JSNonFinalObject Base;
-    static const unsigned StructureFlags = StructureIsImmortal | Base::StructureFlags;
+    using Base = JSCell;
+    static const unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
+    static const bool needsDestruction = true;
 
     enum StackCaptureAction {
         CaptureStack,
         DoNotCaptureStack
     };
     JS_EXPORT_PRIVATE static Exception* create(VM&, JSValue thrownValue, StackCaptureAction = CaptureStack);
-
-    static const bool needsDestruction = true;
-    static void destroy(JSCell*);
 
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 
@@ -57,7 +55,7 @@ public:
     }
 
     JSValue value() const { return m_value.get(); }
-    const RefCountedArray<StackFrame>& stack() const { return m_stack; }
+    const Vector<StackFrame>& stack() const { return m_stack; }
 
     bool didNotifyInspectorOfThrow() const { return m_didNotifyInspectorOfThrow; }
     void setDidNotifyInspectorOfThrow() { m_didNotifyInspectorOfThrow = true; }
@@ -67,14 +65,13 @@ public:
 private:
     Exception(VM&);
     void finishCreation(VM&, JSValue thrownValue, StackCaptureAction);
+    static void destroy(JSCell*);
 
     WriteBarrier<Unknown> m_value;
-    RefCountedArray<StackFrame> m_stack;
+    Vector<StackFrame> m_stack;
     bool m_didNotifyInspectorOfThrow { false };
 
     friend class LLIntOffsetsExtractor;
 };
 
 } // namespace JSC
-
-#endif // Exception_h

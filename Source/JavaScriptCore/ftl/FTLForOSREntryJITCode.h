@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef FTLForOSREntryJITCode_h
-#define FTLForOSREntryJITCode_h
+#pragma once
 
 #if ENABLE(FTL_JIT)
 
@@ -65,7 +64,4 @@ private:
 
 } } // namespace JSC::FTL
 
-#endif // ENABLE(FLT_JIT)
-
-#endif // FTLForOSREntryJITCode_h
-
+#endif // ENABLE(FTL_JIT)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2012, 2014-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,22 +26,20 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSSymbolTableObject_h
-#define JSSymbolTableObject_h
+#pragma once
 
 #include "JSScope.h"
 #include "PropertyDescriptor.h"
 #include "SymbolTable.h"
+#include "ThrowScope.h"
 #include "VariableWriteFireDetail.h"
 
 namespace JSC {
 
-class JSSymbolTableObject;
-
 class JSSymbolTableObject : public JSScope {
 public:
     typedef JSScope Base;
-    static const unsigned StructureFlags = Base::StructureFlags | IsEnvironmentRecord | OverridesGetPropertyNames;
+    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetPropertyNames;
     
     SymbolTable* symbolTable() const { return m_symbolTable.get(); }
     
@@ -49,7 +47,9 @@ public:
     JS_EXPORT_PRIVATE static void getOwnNonIndexPropertyNames(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
     
     static ptrdiff_t offsetOfSymbolTable() { return OBJECT_OFFSETOF(JSSymbolTableObject, m_symbolTable); }
-    
+
+    DECLARE_EXPORT_INFO;
+
 protected:
     JSSymbolTableObject(VM& vm, Structure* structure, JSScope* scope)
         : Base(vm, structure, scope)
@@ -66,7 +66,8 @@ protected:
     void setSymbolTable(VM& vm, SymbolTable* symbolTable)
     {
         ASSERT(!m_symbolTable);
-        symbolTable->singletonScope()->notifyWrite(vm, this, "Allocated a scope");
+        if (auto* singletonScope = symbolTable->singletonScope())
+            singletonScope->notifyWrite(vm, this, "Allocated a scope");
         m_symbolTable.set(vm, this, symbolTable);
     }
     
@@ -81,7 +82,7 @@ inline bool symbolTableGet(
     SymbolTableObjectType* object, PropertyName propertyName, PropertySlot& slot)
 {
     SymbolTable& symbolTable = *object->symbolTable();
-    ConcurrentJITLocker locker(symbolTable.m_lock);
+    ConcurrentJSLocker locker(symbolTable.m_lock);
     SymbolTable::Map::iterator iter = symbolTable.find(locker, propertyName.uid());
     if (iter == symbolTable.end(locker))
         return false;
@@ -93,7 +94,7 @@ inline bool symbolTableGet(
     if (!object->isValidScopeOffset(offset))
         return false;
 
-    slot.setValue(object, entry.getAttributes() | DontDelete, object->variableAt(offset).get());
+    slot.setValue(object, entry.getAttributes() | PropertyAttribute::DontDelete, object->variableAt(offset).get());
     return true;
 }
 
@@ -102,7 +103,7 @@ inline bool symbolTableGet(
     SymbolTableObjectType* object, PropertyName propertyName, PropertyDescriptor& descriptor)
 {
     SymbolTable& symbolTable = *object->symbolTable();
-    ConcurrentJITLocker locker(symbolTable.m_lock);
+    ConcurrentJSLocker locker(symbolTable.m_lock);
     SymbolTable::Map::iterator iter = symbolTable.find(locker, propertyName.uid());
     if (iter == symbolTable.end(locker))
         return false;
@@ -114,7 +115,7 @@ inline bool symbolTableGet(
     if (!object->isValidScopeOffset(offset))
         return false;
 
-    descriptor.setDescriptor(object->variableAt(offset).get(), entry.getAttributes() | DontDelete);
+    descriptor.setDescriptor(object->variableAt(offset).get(), entry.getAttributes() | PropertyAttribute::DontDelete);
     return true;
 }
 
@@ -124,7 +125,7 @@ inline bool symbolTableGet(
     bool& slotIsWriteable)
 {
     SymbolTable& symbolTable = *object->symbolTable();
-    ConcurrentJITLocker locker(symbolTable.m_lock);
+    ConcurrentJSLocker locker(symbolTable.m_lock);
     SymbolTable::Map::iterator iter = symbolTable.find(locker, propertyName.uid());
     if (iter == symbolTable.end(locker))
         return false;
@@ -136,31 +137,45 @@ inline bool symbolTableGet(
     if (!object->isValidScopeOffset(offset))
         return false;
 
-    slot.setValue(object, entry.getAttributes() | DontDelete, object->variableAt(offset).get());
+    slot.setValue(object, entry.getAttributes() | PropertyAttribute::DontDelete, object->variableAt(offset).get());
     slotIsWriteable = !entry.isReadOnly();
     return true;
 }
 
+template<typename SymbolTableObjectType>
+ALWAYS_INLINE void symbolTablePutTouchWatchpointSet(VM& vm, SymbolTableObjectType* object, PropertyName propertyName, JSValue value, WriteBarrierBase<Unknown>* reg, WatchpointSet* set)
+{
+    reg->set(vm, object, value);
+    if (set)
+        VariableWriteFireDetail::touch(vm, set, object, propertyName);
+}
+
+template<typename SymbolTableObjectType>
+ALWAYS_INLINE void symbolTablePutInvalidateWatchpointSet(VM& vm, SymbolTableObjectType* object, PropertyName propertyName, JSValue value, WriteBarrierBase<Unknown>* reg, WatchpointSet* set)
+{
+    reg->set(vm, object, value);
+    if (set)
+        set->invalidate(vm, VariableWriteFireDetail(object, propertyName)); // Don't mess around - if we had found this statically, we would have invalidated it.
+}
+
 enum class SymbolTablePutMode {
-    WithAttributes,
-    WithoutAttributes
+    Touch,
+    Invalidate
 };
 
 template<SymbolTablePutMode symbolTablePutMode, typename SymbolTableObjectType>
-inline bool symbolTablePut(
-    SymbolTableObjectType* object, ExecState* exec, PropertyName propertyName, JSValue value, unsigned attributes,
-    bool shouldThrowReadOnlyError, bool ignoreReadOnlyErrors, WatchpointSet*& set)
+inline bool symbolTablePut(SymbolTableObjectType* object, ExecState* exec, PropertyName propertyName, JSValue value, bool shouldThrowReadOnlyError, bool ignoreReadOnlyErrors, bool& putResult)
 {
-    ASSERT(!Heap::heap(value) || Heap::heap(value) == Heap::heap(object));
-
     VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
+    WatchpointSet* set = nullptr;
     WriteBarrierBase<Unknown>* reg;
     {
         SymbolTable& symbolTable = *object->symbolTable();
         // FIXME: This is very suspicious. We shouldn't need a GC-safe lock here.
         // https://bugs.webkit.org/show_bug.cgi?id=134601
-        GCSafeConcurrentJITLocker locker(symbolTable.m_lock, vm.heap);
+        GCSafeConcurrentJSLocker locker(symbolTable.m_lock, vm.heap);
         SymbolTable::Map::iterator iter = symbolTable.find(locker, propertyName.uid());
         if (iter == symbolTable.end(locker))
             return false;
@@ -169,7 +184,8 @@ inline bool symbolTablePut(
         ASSERT(!fastEntry.isNull());
         if (fastEntry.isReadOnly() && !ignoreReadOnlyErrors) {
             if (shouldThrowReadOnlyError)
-                throwTypeError(exec, StrictModeReadonlyPropertyWriteError);
+                throwTypeError(exec, scope, ReadonlyPropertyWriteError);
+            putResult = false;
             return true;
         }
 
@@ -180,58 +196,35 @@ inline bool symbolTablePut(
             return false;
 
         set = iter->value.watchpointSet();
-        if (symbolTablePutMode == SymbolTablePutMode::WithAttributes)
-            iter->value.setAttributes(attributes);
         reg = &object->variableAt(offset);
     }
     // I'd prefer we not hold lock while executing barriers, since I prefer to reserve
     // the right for barriers to be able to trigger GC. And I don't want to hold VM
     // locks while GC'ing.
-    reg->set(vm, object, value);
+    if (symbolTablePutMode == SymbolTablePutMode::Invalidate)
+        symbolTablePutInvalidateWatchpointSet(vm, object, propertyName, value, reg, set);
+    else
+        symbolTablePutTouchWatchpointSet(vm, object, propertyName, value, reg, set);
+    putResult = true;
     return true;
 }
 
 template<typename SymbolTableObjectType>
 inline bool symbolTablePutTouchWatchpointSet(
     SymbolTableObjectType* object, ExecState* exec, PropertyName propertyName, JSValue value,
-    bool shouldThrowReadOnlyError, bool ignoreReadOnlyErrors)
+    bool shouldThrowReadOnlyError, bool ignoreReadOnlyErrors, bool& putResult)
 {
-    WatchpointSet* set = nullptr;
-    unsigned attributes = 0;
-    bool result = symbolTablePut<SymbolTablePutMode::WithoutAttributes>(object, exec, propertyName, value, attributes, shouldThrowReadOnlyError, ignoreReadOnlyErrors, set);
-    if (set)
-        VariableWriteFireDetail::touch(set, object, propertyName);
-    return result;
+    ASSERT(!Heap::heap(value) || Heap::heap(value) == Heap::heap(object));
+    return symbolTablePut<SymbolTablePutMode::Touch>(object, exec, propertyName, value, shouldThrowReadOnlyError, ignoreReadOnlyErrors, putResult);
 }
 
 template<typename SymbolTableObjectType>
 inline bool symbolTablePutInvalidateWatchpointSet(
     SymbolTableObjectType* object, ExecState* exec, PropertyName propertyName, JSValue value,
-    bool shouldThrowReadOnlyError, bool ignoreReadOnlyErrors)
+    bool shouldThrowReadOnlyError, bool ignoreReadOnlyErrors, bool& putResult)
 {
-    WatchpointSet* set = nullptr;
-    unsigned attributes = 0;
-    bool result = symbolTablePut<SymbolTablePutMode::WithoutAttributes>(object, exec, propertyName, value, attributes, shouldThrowReadOnlyError, ignoreReadOnlyErrors, set);
-    if (set)
-        set->invalidate(VariableWriteFireDetail(object, propertyName)); // Don't mess around - if we had found this statically, we would have invalidated it.
-    return result;
-}
-
-template<typename SymbolTableObjectType>
-inline bool symbolTablePutWithAttributesTouchWatchpointSet(
-    SymbolTableObjectType* object, ExecState* exec, PropertyName propertyName,
-    JSValue value, unsigned attributes)
-{
-    WatchpointSet* set = nullptr;
-    bool shouldThrowReadOnlyError = false;
-    bool ignoreReadOnlyErrors = true;
-    bool result = symbolTablePut<SymbolTablePutMode::WithAttributes>(object, exec, propertyName, value, attributes, shouldThrowReadOnlyError, ignoreReadOnlyErrors, set);
-    if (set)
-        VariableWriteFireDetail::touch(set, object, propertyName);
-    return result;
+    ASSERT(!Heap::heap(value) || Heap::heap(value) == Heap::heap(object));
+    return symbolTablePut<SymbolTablePutMode::Invalidate>(object, exec, propertyName, value, shouldThrowReadOnlyError, ignoreReadOnlyErrors, putResult);
 }
 
 } // namespace JSC
-
-#endif // JSSymbolTableObject_h
-

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,44 +23,42 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ThemeMac_h
-#define ThemeMac_h
+#pragma once
 
 #include "ThemeCocoa.h"
 
-@interface NSFont(WebCoreTheme)
-- (NSString*)webCoreFamilyName;
-@end
+#if PLATFORM(MAC)
 
 namespace WebCore {
 
-class ThemeMac : public ThemeCocoa {
-    WTF_MAKE_FAST_ALLOCATED;
+class ThemeMac final : public ThemeCocoa {
 public:
-    ThemeMac() { }
-    virtual ~ThemeMac() { }
-    
-    virtual int baselinePositionAdjustment(ControlPart) const override;
-
-    virtual Optional<FontCascadeDescription> controlFont(ControlPart, const FontCascade&, float zoomFactor) const override;
-    
-    virtual LengthSize controlSize(ControlPart, const FontCascade&, const LengthSize&, float zoomFactor) const override;
-    virtual LengthSize minimumControlSize(ControlPart, const FontCascade&, float zoomFactor) const override;
-
-    virtual LengthBox controlPadding(ControlPart, const FontCascade&, const LengthBox& zoomedBox, float zoomFactor) const override;
-    virtual LengthBox controlBorder(ControlPart, const FontCascade&, const LengthBox& zoomedBox, float zoomFactor) const override;
-
-    virtual bool controlRequiresPreWhiteSpace(ControlPart part) const override { return part == PushButtonPart; }
-
-    virtual void paint(ControlPart, ControlStates&, GraphicsContext&, const FloatRect&, float zoomFactor, ScrollView*, float deviceScaleFactor, float pageScaleFactor) override;
-    virtual void inflateControlPaintRect(ControlPart, const ControlStates&, FloatRect&, float zoomFactor) const override;
-
-    // FIXME: Once RenderThemeMac is converted over to use Theme then this can be internal to ThemeMac.
-    static NSView* ensuredView(ScrollView*, const ControlStates&, bool useUnparentedView = false);
+    static NSView *ensuredView(ScrollView*, const ControlStates&, bool useUnparentedView = false);
     static void setFocusRingClipRect(const FloatRect&);
-    static bool drawCellOrFocusRingWithViewIntoContext(NSCell*, GraphicsContext&, const FloatRect&, NSView*, bool /* drawButtonCell */, bool /* drawFocusRing */, bool /* useImageBuffer */, float /* deviceScaleFactor */);
+    static bool drawCellOrFocusRingWithViewIntoContext(NSCell *, GraphicsContext&, const FloatRect&, NSView *, bool drawButtonCell, bool drawFocusRing, bool useImageBuffer, float deviceScaleFactor);
+
+private:
+    friend NeverDestroyed<ThemeMac>;
+    ThemeMac() = default;
+
+    int baselinePositionAdjustment(ControlPart) const final;
+
+    Optional<FontCascadeDescription> controlFont(ControlPart, const FontCascade&, float zoomFactor) const final;
+
+    LengthSize controlSize(ControlPart, const FontCascade&, const LengthSize&, float zoomFactor) const final;
+    LengthSize minimumControlSize(ControlPart, const FontCascade&, float zoomFactor) const final;
+
+    LengthBox controlPadding(ControlPart, const FontCascade&, const LengthBox& zoomedBox, float zoomFactor) const final;
+    LengthBox controlBorder(ControlPart, const FontCascade&, const LengthBox& zoomedBox, float zoomFactor) const final;
+
+    bool controlRequiresPreWhiteSpace(ControlPart part) const final { return part == PushButtonPart; }
+
+    void paint(ControlPart, ControlStates&, GraphicsContext&, const FloatRect&, float zoomFactor, ScrollView*, float deviceScaleFactor, float pageScaleFactor, bool useSystemAppearance, bool useDarkAppearance) final;
+    void inflateControlPaintRect(ControlPart, const ControlStates&, FloatRect&, float zoomFactor) const final;
+
+    bool userPrefersReducedMotion() const final;
 };
 
 } // namespace WebCore
 
-#endif // ThemeMac_h
+#endif // PLATFORM(MAC)

@@ -32,6 +32,7 @@
 #include "IDBKeyRangeData.h"
 #include "Logging.h"
 #include "MemoryIndex.h"
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 namespace IDBServer {
@@ -48,6 +49,19 @@ const IDBKeyData* IndexValueStore::lowestValueForKey(const IDBKeyData& key) cons
         return nullptr;
 
     return entry->getLowest();
+}
+
+Vector<IDBKeyData> IndexValueStore::allValuesForKey(const IDBKeyData& key, uint32_t limit) const
+{
+    const auto& entry = m_records.get(key);
+    if (!entry)
+        return { };
+
+    Vector<IDBKeyData> results;
+    for (auto iterator = entry->begin(); results.size() < limit && iterator.isValid(); ++iterator)
+        results.append(iterator.key());
+
+    return results;
 }
 
 uint64_t IndexValueStore::countForKey(const IDBKeyData& key) const
@@ -75,7 +89,7 @@ IDBError IndexValueStore::addRecord(const IDBKeyData& indexKey, const IDBKeyData
     auto result = m_records.add(indexKey, nullptr);
 
     if (!result.isNewEntry && m_unique)
-        return IDBError(IDBDatabaseException::ConstraintError);
+        return IDBError(ConstraintError);
 
     if (result.isNewEntry)
         result.iterator->value = std::make_unique<IndexValueEntry>(m_unique);
@@ -83,7 +97,7 @@ IDBError IndexValueStore::addRecord(const IDBKeyData& indexKey, const IDBKeyData
     result.iterator->value->addKey(valueKey);
     m_orderedKeys.insert(indexKey);
 
-    return { };
+    return IDBError { };
 }
 
 void IndexValueStore::removeRecord(const IDBKeyData& indexKey, const IDBKeyData& valueKey)
@@ -128,7 +142,7 @@ IDBKeyData IndexValueStore::lowestKeyWithRecordInRange(const IDBKeyRangeData& ra
     return *iterator;
 }
 
-std::set<IDBKeyData>::iterator IndexValueStore::lowestIteratorInRange(const IDBKeyRangeData& range) const
+IDBKeyDataSet::iterator IndexValueStore::lowestIteratorInRange(const IDBKeyRangeData& range) const
 {
     auto lowestInRange = m_orderedKeys.lower_bound(range.lowerKey);
 
@@ -152,9 +166,9 @@ std::set<IDBKeyData>::iterator IndexValueStore::lowestIteratorInRange(const IDBK
     return lowestInRange;
 }
 
-std::set<IDBKeyData>::reverse_iterator IndexValueStore::highestReverseIteratorInRange(const IDBKeyRangeData& range) const
+IDBKeyDataSet::reverse_iterator IndexValueStore::highestReverseIteratorInRange(const IDBKeyRangeData& range) const
 {
-    auto highestInRange = std::set<IDBKeyData>::reverse_iterator(m_orderedKeys.upper_bound(range.upperKey));
+    auto highestInRange = IDBKeyDataSet::reverse_iterator(m_orderedKeys.upper_bound(range.upperKey));
 
     if (highestInRange == m_orderedKeys.rend())
         return highestInRange;
@@ -298,14 +312,14 @@ IndexValueStore::Iterator IndexValueStore::reverseFind(const IDBKeyData& key, co
 }
 
 
-IndexValueStore::Iterator::Iterator(IndexValueStore& store, std::set<IDBKeyData>::iterator iterator, IndexValueEntry::Iterator primaryIterator)
+IndexValueStore::Iterator::Iterator(IndexValueStore& store, IDBKeyDataSet::iterator iterator, IndexValueEntry::Iterator primaryIterator)
     : m_store(&store)
     , m_forwardIterator(iterator)
     , m_primaryKeyIterator(primaryIterator)
 {
 }
 
-IndexValueStore::Iterator::Iterator(IndexValueStore& store, CursorDuplicity duplicity, std::set<IDBKeyData>::reverse_iterator iterator, IndexValueEntry::Iterator primaryIterator)
+IndexValueStore::Iterator::Iterator(IndexValueStore& store, CursorDuplicity duplicity, IDBKeyDataSet::reverse_iterator iterator, IndexValueEntry::Iterator primaryIterator)
     : m_store(&store)
     , m_forward(false)
     , m_duplicity(duplicity)
@@ -384,15 +398,18 @@ const IDBKeyData& IndexValueStore::Iterator::primaryKey()
     return m_primaryKeyIterator.key();
 }
 
-#ifndef NDEBUG
+#if !LOG_DISABLED
 String IndexValueStore::loggingString() const
 {
-    String result;
+    StringBuilder builder;
     for (auto& key : m_orderedKeys) {
-        result.append(makeString("Key: ", key.loggingString()));
-        result.append(makeString("  Entry has ", String::number(m_records.get(key)->getCount()), " entries"));
+        builder.appendLiteral("Key: ");
+        builder.append(key.loggingString());
+        builder.appendLiteral("  Entry has ");
+        builder.appendNumber(m_records.get(key)->getCount());
+        builder.appendLiteral(" entries");
     }
-    return result;
+    return builder.toString();
 }
 #endif
 

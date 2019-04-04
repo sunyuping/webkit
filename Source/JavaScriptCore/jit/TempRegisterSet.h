@@ -23,10 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef TempRegisterSet_h
-#define TempRegisterSet_h
+#pragma once
 
-#if ENABLE(JIT)
+#if ENABLE(ASSEMBLER)
 
 #include "FPRInfo.h"
 #include "GPRInfo.h"
@@ -206,7 +205,7 @@ private:
 
 } // namespace JSC
 
-#else // ENABLE(JIT) -> so if JIT is disabled
+#else // ENABLE(ASSEMBLER) -> so if JIT is disabled
 
 namespace JSC {
 
@@ -217,7 +216,4 @@ struct TempRegisterSet { };
 
 } // namespace JSC
 
-#endif // ENABLE(JIT)
-
-#endif // TempRegisterSet_h
-
+#endif // ENABLE(ASSEMBLER)

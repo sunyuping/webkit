@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGCFG_h
-#define DFGCFG_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -32,6 +31,7 @@
 #include "DFGBlockMapInlines.h"
 #include "DFGBlockSet.h"
 #include "DFGGraph.h"
+#include <wtf/SingleRootGraph.h>
 
 namespace JSC { namespace DFG {
 
@@ -49,7 +49,19 @@ public:
     {
     }
 
-    Node root() { return m_graph.block(0); }
+    Node root()
+    {
+        ASSERT(m_graph.m_form == SSA || m_graph.m_isInSSAConversion);
+        return m_graph.block(0);
+    }
+
+    List roots()
+    {
+        List result;
+        for (BasicBlock* root : m_graph.m_roots)
+            result.append(root);
+        return result;
+    }
 
     template<typename T>
     Map<T> newMap() { return BlockMap<T>(m_graph); }
@@ -60,7 +72,7 @@ public:
     unsigned index(Node node) const { return node->index; }
     Node node(unsigned index) const { return m_graph.block(index); }
     unsigned numNodes() const { return m_graph.numBlocks(); }
-
+    
     PointerDump<BasicBlock> dump(Node node) const { return pointerDump(node); }
 
     void dump(PrintStream& out) const
@@ -72,9 +84,30 @@ private:
     Graph& m_graph;
 };
 
+class CPSCFG : public SingleRootGraph<CFG> {
+public:
+    CPSCFG(Graph& graph)
+        : SingleRootGraph<CFG>(*graph.m_ssaCFG)
+    {
+        ASSERT(graph.m_roots.size());
+    }
+};
+
+using SSACFG = CFG;
+
+template <typename T, typename = typename std::enable_if<std::is_same<T, CPSCFG>::value>::type>
+CPSCFG& selectCFG(Graph& graph)
+{
+    return graph.ensureCPSCFG();
+}
+
+template <typename T, typename = typename std::enable_if<std::is_same<T, SSACFG>::value>::type>
+SSACFG& selectCFG(Graph& graph)
+{
+    RELEASE_ASSERT(graph.m_ssaCFG);
+    return *graph.m_ssaCFG;
+}
+
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGCFG_h
-

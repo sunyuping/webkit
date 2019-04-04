@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGBasicBlockInlines_h
-#define DFGBasicBlockInlines_h
+#pragma once
 
 #include "DFGBasicBlock.h"
 #include "DFGGraph.h"
@@ -53,13 +52,10 @@ template<typename... Params>
 Node* BasicBlock::replaceTerminal(Graph& graph, SpeculatedType type, Params... params)
 {
     Node* result = graph.addNode(type, params...);
-    replaceTerminal(result);
+    replaceTerminal(graph, result);
     return result;
 }
 
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGBasicBlockInlines_h
-

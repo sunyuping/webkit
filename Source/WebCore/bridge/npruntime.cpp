@@ -32,16 +32,13 @@
 #include "npruntime_priv.h"
 
 #include "c_utility.h"
-#include <runtime/Identifier.h>
-#include <runtime/JSLock.h>
+#include <JavaScriptCore/Identifier.h>
 #include <wtf/Assertions.h>
-#include <wtf/HashMap.h>
 
 #pragma GCC visibility push(default)
 #include "npruntime_impl.h"
 #pragma GCC visibility pop
 
-using namespace JSC::Bindings;
 using namespace WebCore;
 
 NPIdentifier _NPN_GetStringIdentifier(const NPUTF8* name)

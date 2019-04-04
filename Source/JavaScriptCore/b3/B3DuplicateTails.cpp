@@ -30,22 +30,23 @@
 
 #include "B3BasicBlockInlines.h"
 #include "B3BreakCriticalEdges.h"
-#include "B3ControlValue.h"
 #include "B3Dominators.h"
 #include "B3FixSSA.h"
-#include "B3IndexSet.h"
 #include "B3InsertionSetInlines.h"
 #include "B3PhaseScope.h"
 #include "B3ProcedureInlines.h"
 #include "B3SwitchValue.h"
 #include "B3UpsilonValue.h"
 #include "B3ValueInlines.h"
+#include <wtf/IndexSet.h>
 
 namespace JSC { namespace B3 {
 
 namespace {
 
-const bool verbose = false;
+namespace B3DuplicateTailsInternal {
+static const bool verbose = false;
+}
 
 class DuplicateTails {
 public:
@@ -69,17 +70,21 @@ public:
 
         m_proc.resetValueOwners();
 
-        IndexSet<BasicBlock> candidates;
+        IndexSet<BasicBlock*> candidates;
 
         for (BasicBlock* block : m_proc) {
-            if (block->size() > m_maxSize || block->numSuccessors() > m_maxSuccessors)
+            if (block->size() > m_maxSize)
+                continue;
+            if (block->numSuccessors() > m_maxSuccessors)
+                continue;
+            if (block->last()->type() != Void) // Demoting doesn't handle terminals with values.
                 continue;
 
             candidates.add(block);
         }
 
         // Collect the set of values that must be de-SSA'd.
-        IndexSet<Value> valuesToDemote;
+        IndexSet<Value*> valuesToDemote;
         for (BasicBlock* block : m_proc) {
             for (Value* value : *block) {
                 if (value->opcode() == Phi && candidates.contains(block))
@@ -91,17 +96,16 @@ public:
             }
         }
         demoteValues(m_proc, valuesToDemote);
-        if (verbose) {
+        if (B3DuplicateTailsInternal::verbose) {
             dataLog("Procedure after value demotion:\n");
             dataLog(m_proc);
         }
 
         for (BasicBlock* block : m_proc) {
-            ControlValue* jump = block->last()->as<ControlValue>();
-            if (jump->opcode() != Jump)
+            if (block->last()->opcode() != Jump)
                 continue;
 
-            BasicBlock* tail = jump->successorBlock(0);
+            BasicBlock* tail = block->successorBlock(0);
             if (!candidates.contains(tail))
                 continue;
 
@@ -114,7 +118,7 @@ public:
             // point.
             candidates.remove(block);
 
-            if (verbose)
+            if (B3DuplicateTailsInternal::verbose)
                 dataLog("Duplicating ", *tail, " into ", *block, "\n");
 
             block->removeLast(m_proc);
@@ -130,6 +134,7 @@ public:
                     map.add(value, clone);
                 block->append(clone);
             }
+            block->successors() = tail->successors();
         }
 
         m_proc.resetReachability();

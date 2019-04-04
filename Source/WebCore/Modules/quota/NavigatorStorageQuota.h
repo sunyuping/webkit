@@ -28,8 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NavigatorStorageQuota_h
-#define NavigatorStorageQuota_h
+#pragma once
 
 #if ENABLE(QUOTA)
 
@@ -38,13 +37,13 @@
 
 namespace WebCore {
 
-class Frame;
 class StorageQuota;
 class Navigator;
 
 class NavigatorStorageQuota : public Supplement<Navigator>, public DOMWindowProperty {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit NavigatorStorageQuota(Frame*);
+    explicit NavigatorStorageQuota(DOMWindow*);
     virtual ~NavigatorStorageQuota();
     static NavigatorStorageQuota* from(Navigator*);
 
@@ -63,5 +62,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(QUOTA)
-
-#endif // NavigatorStorageQuota_h

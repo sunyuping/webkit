@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGAdaptiveStructureWatchpoint_h
-#define DFGAdaptiveStructureWatchpoint_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -33,16 +32,16 @@
 
 namespace JSC { namespace DFG {
 
-class AdaptiveStructureWatchpoint : public Watchpoint {
+class AdaptiveStructureWatchpoint final : public Watchpoint {
 public:
     AdaptiveStructureWatchpoint(const ObjectPropertyCondition&, CodeBlock*);
     
     const ObjectPropertyCondition& key() const { return m_key; }
     
-    void install();
+    void install(VM&);
 
 protected:
-    virtual void fireInternal(const FireDetail&) override;
+    void fireInternal(VM&, const FireDetail&) override;
 
 private:
     ObjectPropertyCondition m_key;
@@ -52,6 +51,3 @@ private:
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGAdaptiveStructureWatchpoint_h
-

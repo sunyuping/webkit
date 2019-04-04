@@ -23,17 +23,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef JSGlobalLexicalEnvironment_h
-#define JSGlobalLexicalEnvironment_h
+#pragma once
 
 #include "JSSegmentedVariableObject.h"
 
 namespace JSC {
 
-class JSGlobalLexicalEnvironment : public JSSegmentedVariableObject {
+class JSGlobalLexicalEnvironment final : public JSSegmentedVariableObject {
 
 public:
-    typedef JSSegmentedVariableObject Base;
+    using Base = JSSegmentedVariableObject;
 
     static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot;
 
@@ -47,15 +46,20 @@ public:
     }
 
     static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
-    static void put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
+    static bool put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
+
+    static void destroy(JSCell*);
+    // We don't need a destructor because we use a finalizer instead.
+    static const bool needsDestruction = false;
 
     bool isEmpty() const { return !symbolTable()->size(); }
-    
+    bool isConstVariable(UniquedStringImpl*);
+
     DECLARE_INFO;
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject)
     {
-        return Structure::create(vm, globalObject, jsNull(), TypeInfo(ClosureObjectType, StructureFlags), info());
+        return Structure::create(vm, globalObject, jsNull(), TypeInfo(GlobalLexicalEnvironmentType, StructureFlags), info());
     }
 
 protected:
@@ -66,6 +70,3 @@ protected:
 };
 
 } // namespace JSC
-
-#endif // JSGlobalLexicalEnvironment_h
-

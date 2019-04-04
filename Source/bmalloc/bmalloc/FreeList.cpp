@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,118 +23,61 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "LargeChunk.h"
 #include "FreeList.h"
-#include "Vector.h"
+
+#include "FreeListInlines.h"
 
 namespace bmalloc {
 
-// We don't eagerly remove invalidated entries from the free list when we merge
-// large objects. This means that the free list can contain invalid and/or
-// duplicate entries. (Repeating a merge-and-then-split produces a duplicate.)
-
-// To avoid infinite growth in invalid entries, we incrementally remove
-// invalid entries as we discover them during allocation, and we also garbage
-// collect the free list as it grows.
-
-LargeObject FreeList::takeGreedy(Owner owner)
+FreeList::FreeList()
 {
-    for (size_t i = 0; i < m_vector.size(); ++i) {
-        LargeObject largeObject(LargeObject::DoNotValidate, m_vector[i].begin());
-        if (!largeObject.isValidAndFree(owner, m_vector[i].size())) {
-            m_vector.pop(i--);
-            continue;
-        }
-
-        m_vector.pop(i--);
-        return largeObject;
-    }
-
-    return LargeObject();
 }
 
-LargeObject FreeList::take(Owner owner, size_t size)
+FreeList::~FreeList()
 {
-    LargeObject candidate;
-    size_t candidateIndex;
-    size_t begin = m_vector.size() > freeListSearchDepth ? m_vector.size() - freeListSearchDepth : 0;
-    for (size_t i = begin; i < m_vector.size(); ++i) {
-        LargeObject largeObject(LargeObject::DoNotValidate, m_vector[i].begin());
-        if (!largeObject.isValidAndFree(owner, m_vector[i].size())) {
-            m_vector.pop(i--);
-            continue;
-        }
-
-        if (largeObject.size() < size)
-            continue;
-
-        if (!!candidate && candidate.begin() < largeObject.begin())
-            continue;
-
-        candidate = largeObject;
-        candidateIndex = i;
-    }
-
-    if (!!candidate)
-        m_vector.pop(candidateIndex);
-    return candidate;
 }
 
-LargeObject FreeList::take(Owner owner, size_t alignment, size_t size, size_t unalignedSize)
+void FreeList::clear()
 {
-    BASSERT(isPowerOfTwo(alignment));
-    size_t alignmentMask = alignment - 1;
-
-    LargeObject candidate;
-    size_t candidateIndex;
-    size_t begin = m_vector.size() > freeListSearchDepth ? m_vector.size() - freeListSearchDepth : 0;
-    for (size_t i = begin; i < m_vector.size(); ++i) {
-        LargeObject largeObject(LargeObject::DoNotValidate, m_vector[i].begin());
-        if (!largeObject.isValidAndFree(owner, m_vector[i].size())) {
-            m_vector.pop(i--);
-            continue;
-        }
-
-        if (largeObject.size() < size)
-            continue;
-
-        if (test(largeObject.begin(), alignmentMask) && largeObject.size() < unalignedSize)
-            continue;
-
-        if (!!candidate && candidate.begin() < largeObject.begin())
-            continue;
-
-        candidate = largeObject;
-        candidateIndex = i;
-    }
-    
-    if (!!candidate)
-        m_vector.pop(candidateIndex);
-    return candidate;
+    *this = FreeList();
 }
 
-void FreeList::removeInvalidAndDuplicateEntries(Owner owner)
+void FreeList::initializeList(FreeCell* head, uintptr_t secret, unsigned bytes)
 {
-    for (size_t i = 0; i < m_vector.size(); ++i) {
-        LargeObject largeObject(LargeObject::DoNotValidate, m_vector[i].begin());
-        if (!largeObject.isValidAndFree(owner, m_vector[i].size())) {
-            m_vector.pop(i--);
-            continue;
-        }
-        
-        largeObject.setMarked(false);
-    }
-
-    for (size_t i = 0; i < m_vector.size(); ++i) {
-        LargeObject largeObject(LargeObject::DoNotValidate, m_vector[i].begin());
-        if (largeObject.isMarked()) {
-            m_vector.pop(i--);
-            continue;
-        }
-
-        largeObject.setMarked(true);
-    }
+    // It's *slightly* more optimal to use a scrambled head. It saves a register on the fast path.
+    m_scrambledHead = FreeCell::scramble(head, secret);
+    m_secret = secret;
+    m_payloadEnd = nullptr;
+    m_remaining = 0;
+    m_originalSize = bytes;
 }
 
+void FreeList::initializeBump(char* payloadEnd, unsigned remaining)
+{
+    m_scrambledHead = 0;
+    m_secret = 0;
+    m_payloadEnd = payloadEnd;
+    m_remaining = remaining;
+    m_originalSize = remaining;
+}
 
-} // namespace bmalloc
+bool FreeList::contains(void* target) const
+{
+    if (m_remaining) {
+        const void* start = (m_payloadEnd - m_remaining);
+        const void* end = m_payloadEnd;
+        return (start <= target) && (target < end);
+    }
+
+    FreeCell* candidate = head();
+    while (candidate) {
+        if (static_cast<void*>(candidate) == target)
+            return true;
+        candidate = candidate->next(m_secret);
+    }
+
+    return false;
+}
+
+} // namespace JSC
+

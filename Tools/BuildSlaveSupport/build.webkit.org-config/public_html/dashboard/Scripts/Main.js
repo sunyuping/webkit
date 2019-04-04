@@ -26,7 +26,8 @@
 var hasBubbles = typeof bubbleQueueServer != "undefined";
 var BubblesCategory = "bubbles";
 
-var categorizedQueuesByPlatformAndBuildType = {};
+if (!categorizedQueuesByPlatformAndBuildType)
+    var categorizedQueuesByPlatformAndBuildType = {};
 var platformsByFamily = {};
 
 for (var i = 0; i < buildbots.length; ++i) {
@@ -129,6 +130,8 @@ function updateHiddenPlatforms()
 
     for (var i = 0; i < hiddenPlatformFamilies.length; ++i) {
         var platformFamily = hiddenPlatformFamilies[i];
+        if (!(platformFamily in platformsByFamily))
+            continue;
         for (var j = 0; j < platformsByFamily[platformFamily].length; ++j) {
             var name = platformsByFamily[platformFamily][j];
             var platformRow = document.querySelector("tr.platform." + name);
@@ -257,6 +260,9 @@ function documentReady()
             var view = new BuildbotLeaksQueueView(platformQueues.leaks);
             cell.appendChild(view.element);
         }
+
+        if (platformQueues.customView)
+            cell.appendChild(platformQueues.customView.element);
 
         if (platformQueues[BubblesCategory]) {
             var view = new BubbleQueueView(platformQueues[BubblesCategory]);

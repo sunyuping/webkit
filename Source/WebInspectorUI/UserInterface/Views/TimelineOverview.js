@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013, 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,49 +23,69 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
+WI.TimelineOverview = class TimelineOverview extends WI.View
 {
     constructor(timelineRecording)
     {
         super();
 
-        console.assert(timelineRecording instanceof WebInspector.TimelineRecording);
+        console.assert(timelineRecording instanceof WI.TimelineRecording);
 
-        this._timelinesViewModeSettings = this._createViewModeSettings(WebInspector.TimelineOverview.ViewMode.Timelines, 0.0001, 60, 0.01, 0, 15);
+        this._timelinesViewModeSettings = this._createViewModeSettings(WI.TimelineOverview.ViewMode.Timelines, WI.TimelineOverview.MinimumDurationPerPixel, WI.TimelineOverview.MaximumDurationPerPixel, 0.01, 0, 15);
+        this._instrumentTypes = WI.TimelineManager.availableTimelineTypes();
 
-        if (WebInspector.FPSInstrument.supported()) {
-            let minimumDurationPerPixel = 1 / WebInspector.TimelineRecordFrame.MaximumWidthPixels;
-            let maximumDurationPerPixel = 1 / WebInspector.TimelineRecordFrame.MinimumWidthPixels;
-            this._renderingFramesViewModeSettings = this._createViewModeSettings(WebInspector.TimelineOverview.ViewMode.RenderingFrames, minimumDurationPerPixel, maximumDurationPerPixel, minimumDurationPerPixel, 0, 100);
+        if (WI.FPSInstrument.supported()) {
+            let minimumDurationPerPixel = 1 / WI.TimelineRecordFrame.MaximumWidthPixels;
+            let maximumDurationPerPixel = 1 / WI.TimelineRecordFrame.MinimumWidthPixels;
+            this._renderingFramesViewModeSettings = this._createViewModeSettings(WI.TimelineOverview.ViewMode.RenderingFrames, minimumDurationPerPixel, maximumDurationPerPixel, minimumDurationPerPixel, 0, 100);
         }
 
         this._recording = timelineRecording;
-        this._recording.addEventListener(WebInspector.TimelineRecording.Event.InstrumentAdded, this._instrumentAdded, this);
-        this._recording.addEventListener(WebInspector.TimelineRecording.Event.InstrumentRemoved, this._instrumentRemoved, this);
-        this._recording.addEventListener(WebInspector.TimelineRecording.Event.MarkerAdded, this._markerAdded, this);
-        this._recording.addEventListener(WebInspector.TimelineRecording.Event.Reset, this._recordingReset, this);
+        this._recording.addEventListener(WI.TimelineRecording.Event.InstrumentAdded, this._instrumentAdded, this);
+        this._recording.addEventListener(WI.TimelineRecording.Event.InstrumentRemoved, this._instrumentRemoved, this);
+        this._recording.addEventListener(WI.TimelineRecording.Event.MarkerAdded, this._markerAdded, this);
+        this._recording.addEventListener(WI.TimelineRecording.Event.Reset, this._recordingReset, this);
 
         this.element.classList.add("timeline-overview");
-        this.element.addEventListener("wheel", this._handleWheelEvent.bind(this));
-        this.element.addEventListener("gesturestart", this._handleGestureStart.bind(this));
-        this.element.addEventListener("gesturechange", this._handleGestureChange.bind(this));
-        this.element.addEventListener("gestureend", this._handleGestureEnd.bind(this));
+        this._updateWheelAndGestureHandlers();
 
-        this._graphsContainerView = new WebInspector.View;
+        this._graphsContainerView = new WI.View;
         this._graphsContainerView.element.classList.add("graphs-container");
+        this._graphsContainerView.element.addEventListener("click", this._handleGraphsContainerClick.bind(this));
         this.addSubview(this._graphsContainerView);
 
+        this._selectedTimelineRecord = null;
         this._overviewGraphsByTypeMap = new Map;
 
-        this._timelineRuler = new WebInspector.TimelineRuler;
+        this._editInstrumentsButton = new WI.ActivateButtonNavigationItem("toggle-edit-instruments", WI.UIString("Edit configuration"), WI.UIString("Save configuration"));
+        this._editInstrumentsButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._toggleEditingInstruments, this);
+        this._editingInstruments = false;
+        this._updateEditInstrumentsButton();
+
+        let instrumentsNavigationBar = new WI.NavigationBar;
+        instrumentsNavigationBar.element.classList.add("timelines");
+        instrumentsNavigationBar.addNavigationItem(new WI.FlexibleSpaceNavigationItem);
+        instrumentsNavigationBar.addNavigationItem(this._editInstrumentsButton);
+        this.addSubview(instrumentsNavigationBar);
+
+        this._timelinesTreeOutline = new WI.TreeOutline;
+        this._timelinesTreeOutline.element.classList.add("timelines");
+        this._timelinesTreeOutline.disclosureButtons = false;
+        this._timelinesTreeOutline.large = true;
+        this._timelinesTreeOutline.addEventListener(WI.TreeOutline.Event.SelectionDidChange, this._timelinesTreeSelectionDidChange, this);
+        this.element.appendChild(this._timelinesTreeOutline.element);
+
+        this._treeElementsByTypeMap = new Map;
+
+        this._timelineRuler = new WI.TimelineRuler;
         this._timelineRuler.allowsClippedLabels = true;
         this._timelineRuler.allowsTimeRangeSelection = true;
         this._timelineRuler.element.addEventListener("mousedown", this._timelineRulerMouseDown.bind(this));
         this._timelineRuler.element.addEventListener("click", this._timelineRulerMouseClicked.bind(this));
-        this._timelineRuler.addEventListener(WebInspector.TimelineRuler.Event.TimeRangeSelectionChanged, this._timeRangeSelectionChanged, this);
+        this._timelineRuler.addEventListener(WI.TimelineRuler.Event.TimeRangeSelectionChanged, this._timeRangeSelectionChanged, this);
         this.addSubview(this._timelineRuler);
 
-        this._currentTimeMarker = new WebInspector.TimelineMarker(0, WebInspector.TimelineMarker.Type.CurrentTime);
+        this._currentTimeMarker = new WI.TimelineMarker(0, WI.TimelineMarker.Type.CurrentTime);
         this._timelineRuler.addMarker(this._currentTimeMarker);
 
         this._scrollContainerElement = document.createElement("div");
@@ -85,17 +105,70 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         this._mouseWheelDelta = 0;
         this._cachedScrollContainerWidth = NaN;
         this._timelineRulerSelectionChanged = false;
+        this._viewMode = WI.TimelineOverview.ViewMode.Timelines;
+        this._selectedTimeline = null;
 
         for (let instrument of this._recording.instruments)
             this._instrumentAdded(instrument);
 
-        if (!WebInspector.timelineManager.isCapturingPageReload())
+        if (!WI.timelineManager.isCapturingPageReload())
             this._resetSelection();
 
-        this.viewMode = WebInspector.TimelineOverview.ViewMode.Timelines;
+        this._viewModeDidChange();
+
+        WI.timelineManager.addEventListener(WI.TimelineManager.Event.RecordingImported, this._recordingImported, this);
+        WI.timelineManager.addEventListener(WI.TimelineManager.Event.CapturingStarted, this._capturingStarted, this);
+        WI.timelineManager.addEventListener(WI.TimelineManager.Event.CapturingStopped, this._capturingStopped, this);
+    }
+
+    // Import / Export
+
+    exportData()
+    {
+        let json = {
+            secondsPerPixel: this.secondsPerPixel,
+            scrollStartTime: this.scrollStartTime,
+            selectionStartTime: this.selectionStartTime,
+            selectionDuration: this.selectionDuration,
+        };
+
+        if (this._selectedTimeline)
+            json.selectedTimelineType = this._selectedTimeline.type;
+
+        return json;
     }
 
     // Public
+
+    get selectedTimeline()
+    {
+        return this._selectedTimeline;
+    }
+
+    set selectedTimeline(x)
+    {
+        if (this._editingInstruments)
+            return;
+
+        if (this._selectedTimeline === x)
+            return;
+
+        this._selectedTimeline = x;
+        if (this._selectedTimeline) {
+            let treeElement = this._treeElementsByTypeMap.get(this._selectedTimeline.type);
+            console.assert(treeElement, "Missing tree element for timeline", this._selectedTimeline);
+
+            let omitFocus = true;
+            let wasSelectedByUser = false;
+            treeElement.select(omitFocus, wasSelectedByUser);
+        } else if (this._timelinesTreeOutline.selectedTreeElement)
+            this._timelinesTreeOutline.selectedTreeElement.deselect();
+    }
+
+    get editingInstruments()
+    {
+        return this._editingInstruments;
+    }
 
     get viewMode()
     {
@@ -104,6 +177,9 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
 
     set viewMode(x)
     {
+        if (this._editingInstruments)
+            return;
+
         if (this._viewMode === x)
             return;
 
@@ -123,7 +199,7 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         if (this._startTime === x)
             return;
 
-        if (this._viewMode !== WebInspector.TimelineOverview.ViewMode.RenderingFrames) {
+        if (this._viewMode !== WI.TimelineOverview.ViewMode.RenderingFrames) {
             let selectionOffset = this.selectionStartTime - this._startTime;
             this.selectionStartTime = selectionOffset + x;
         }
@@ -293,7 +369,7 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
                 overviewGraph.shown();
         }
 
-        this.updateLayout(WebInspector.View.LayoutReason.Resize);
+        this.updateLayout(WI.View.LayoutReason.Resize);
     }
 
     hidden()
@@ -302,10 +378,20 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
 
         for (let overviewGraph of this._overviewGraphsByTypeMap.values())
             overviewGraph.hidden();
+
+        this.hideScanner();
+    }
+
+    closed()
+    {
+        WI.timelineManager.removeEventListener(null, null, this);
+
+        super.closed();
     }
 
     reset()
     {
+        this._selectedTimelineRecord = null;
         for (let overviewGraph of this._overviewGraphsByTypeMap.values())
             overviewGraph.reset();
 
@@ -343,19 +429,34 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         overviewGraph.selectedRecord = record;
     }
 
-    updateLayoutIfNeeded()
+    showScanner(time)
+    {
+        this._timelineRuler.showScanner(time);
+    }
+
+    hideScanner()
+    {
+        this._timelineRuler.hideScanner();
+    }
+
+    updateLayoutIfNeeded(layoutReason)
     {
         if (this.layoutPending) {
-            super.updateLayoutIfNeeded();
+            super.updateLayoutIfNeeded(layoutReason);
             return;
         }
 
-        this._timelineRuler.updateLayoutIfNeeded();
+        this._timelineRuler.updateLayoutIfNeeded(layoutReason);
 
         for (let overviewGraph of this._overviewGraphsByTypeMap.values()) {
             if (overviewGraph.visible)
-                overviewGraph.updateLayoutIfNeeded();
+                overviewGraph.updateLayoutIfNeeded(layoutReason);
         }
+    }
+
+    discontinuitiesInTimeRange(startTime, endTime)
+    {
+        return this._recording.discontinuitiesInTimeRange(startTime, endTime);
     }
 
     // Protected
@@ -365,16 +466,13 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         return this._timelineRuler;
     }
 
-    layout(layoutReason)
+    layout()
     {
-        if (layoutReason === WebInspector.View.LayoutReason.Resize)
-            this._cachedScrollContainerWidth = NaN;
-
         let startTime = this._startTime;
         let endTime = this._endTime;
         let currentTime = this._currentTime;
-        if (this._viewMode === WebInspector.TimelineOverview.ViewMode.RenderingFrames) {
-            let renderingFramesTimeline = this._recording.timelines.get(WebInspector.TimelineRecord.Type.RenderingFrame);
+        if (this._viewMode === WI.TimelineOverview.ViewMode.RenderingFrames) {
+            let renderingFramesTimeline = this._recording.timelines.get(WI.TimelineRecord.Type.RenderingFrame);
             console.assert(renderingFramesTimeline, "Recoring missing rendering frames timeline");
 
             startTime = 0;
@@ -424,6 +522,11 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         }
     }
 
+    sizeDidChange()
+    {
+        this._cachedScrollContainerWidth = NaN;
+    }
+
     // Private
 
     _updateElementWidth(element, newWidth)
@@ -443,12 +546,17 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         this._dontUpdateScrollLeft = true;
 
         let scrollOffset = this._scrollContainerElement.scrollLeft;
-        this.scrollStartTime = this._startTime + (scrollOffset * this.secondsPerPixel);
+        if (WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL)
+            this.scrollStartTime = this._startTime - (scrollOffset * this.secondsPerPixel);
+        else
+            this.scrollStartTime = this._startTime + (scrollOffset * this.secondsPerPixel);
 
         // Force layout so we can update with the scroll position synchronously.
         this.updateLayoutIfNeeded();
 
         this._dontUpdateScrollLeft = false;
+
+        this.element.classList.toggle("has-scrollbar", this._scrollContainerElement.clientHeight <= 1);
     }
 
     _handleWheelEvent(event)
@@ -473,10 +581,10 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         }
 
         // Remember the mouse position in time.
-        let mouseOffset = event.pageX - this.element.totalOffsetLeft;
+        let mouseOffset = event.pageX - this._graphsContainerView.element.totalOffsetLeft;
         let mousePositionTime = this._currentSettings.scrollStartTime + (mouseOffset * this.secondsPerPixel);
         let deviceDirection = event.webkitDirectionInvertedFromDevice ? 1 : -1;
-        let delta = event.deltaY * (this.secondsPerPixel / WebInspector.TimelineOverview.ScrollDeltaDenominator) * deviceDirection;
+        let delta = event.deltaY * (this.secondsPerPixel / WI.TimelineOverview.ScrollDeltaDenominator) * deviceDirection;
 
         // Reset accumulated wheel delta when direction changes.
         if (this._pixelAlignDuration && (delta < 0 && this._mouseWheelDelta >= 0 || delta >= 0 && this._mouseWheelDelta < 0))
@@ -494,6 +602,8 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         // Center the zoom around the mouse based on the remembered mouse position time.
         this.scrollStartTime = mousePositionTime - (mouseOffset * this.secondsPerPixel);
 
+        this.element.classList.toggle("has-scrollbar", this._scrollContainerElement.clientHeight <= 1);
+
         event.preventDefault();
         event.stopPropagation();
     }
@@ -505,12 +615,14 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
             return;
         }
 
-        let mouseOffset = event.pageX - this.element.totalOffsetLeft;
+        let mouseOffset = event.pageX - this._graphsContainerView.element.totalOffsetLeft;
         let mousePositionTime = this._currentSettings.scrollStartTime + (mouseOffset * this.secondsPerPixel);
 
         this._handlingGesture = true;
         this._gestureStartStartTime = mousePositionTime;
         this._gestureStartDurationPerPixel = this.secondsPerPixel;
+
+        this.element.classList.toggle("has-scrollbar", this._scrollContainerElement.clientHeight <= 1);
 
         event.preventDefault();
         event.stopPropagation();
@@ -519,9 +631,9 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
     _handleGestureChange(event)
     {
         // Cap zooming out at 5x.
-        let scale = Math.max(1/5, event.scale);
+        let scale = Math.max(1 / 5, event.scale);
 
-        let mouseOffset = event.pageX - this.element.totalOffsetLeft;
+        let mouseOffset = event.pageX - this._graphsContainerView.element.totalOffsetLeft;
         let newSecondsPerPixel = this._gestureStartDurationPerPixel / scale;
 
         this.secondsPerPixel = newSecondsPerPixel;
@@ -540,38 +652,66 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
 
     _instrumentAdded(instrumentOrEvent)
     {
-        let instrument = instrumentOrEvent instanceof WebInspector.Instrument ? instrumentOrEvent : instrumentOrEvent.data.instrument;
-        console.assert(instrument instanceof WebInspector.Instrument, instrument);
+        let instrument = instrumentOrEvent instanceof WI.Instrument ? instrumentOrEvent : instrumentOrEvent.data.instrument;
+        console.assert(instrument instanceof WI.Instrument, instrument);
 
         let timeline = this._recording.timelineForInstrument(instrument);
         console.assert(!this._overviewGraphsByTypeMap.has(timeline.type), timeline);
+        console.assert(!this._treeElementsByTypeMap.has(timeline.type), timeline);
 
-        let overviewGraph = WebInspector.TimelineOverviewGraph.createForTimeline(timeline, this);
-        overviewGraph.addEventListener(WebInspector.TimelineOverviewGraph.Event.RecordSelected, this._recordSelected, this);
+        let treeElement = new WI.TimelineTreeElement(timeline);
+        let insertionIndex = insertionIndexForObjectInListSortedByFunction(treeElement, this._timelinesTreeOutline.children, this._compareTimelineTreeElements.bind(this));
+        this._timelinesTreeOutline.insertChild(treeElement, insertionIndex);
+        this._treeElementsByTypeMap.set(timeline.type, treeElement);
+
+        let overviewGraph = WI.TimelineOverviewGraph.createForTimeline(timeline, this);
+        overviewGraph.addEventListener(WI.TimelineOverviewGraph.Event.RecordSelected, this._handleOverviewGraphRecordSelected, this);
         this._overviewGraphsByTypeMap.set(timeline.type, overviewGraph);
+        this._graphsContainerView.insertSubviewBefore(overviewGraph, this._graphsContainerView.subviews[insertionIndex]);
 
-        this._graphsContainerView.addSubview(overviewGraph);
+        treeElement.element.style.height = overviewGraph.height + "px";
 
-        if (!this._canShowTimelineType(timeline.type))
+        if (!this._canShowTimelineType(timeline.type)) {
             overviewGraph.hidden();
+            treeElement.hidden = true;
+        }
+
+        this.needsLayout();
     }
 
     _instrumentRemoved(event)
     {
         let instrument = event.data.instrument;
-        console.assert(instrument instanceof WebInspector.Instrument, instrument);
+        console.assert(instrument instanceof WI.Instrument, instrument);
 
         let timeline = this._recording.timelineForInstrument(instrument);
-        console.assert(this._overviewGraphsByTypeMap.has(timeline.type), timeline);
+        let overviewGraph = this._overviewGraphsByTypeMap.get(timeline.type);
+        console.assert(overviewGraph, "Missing overview graph for timeline type", timeline.type);
 
-        let overviewGraph = this._overviewGraphsByTypeMap.take(timeline.type);
-        overviewGraph.removeEventListener(WebInspector.TimelineOverviewGraph.Event.RecordSelected, this._recordSelected, this);
+        let treeElement = this._treeElementsByTypeMap.get(timeline.type);
+        let shouldSuppressOnDeselect = false;
+        let shouldSuppressSelectSibling = true;
+        this._timelinesTreeOutline.removeChild(treeElement, shouldSuppressOnDeselect, shouldSuppressSelectSibling);
+
+        overviewGraph.removeEventListener(WI.TimelineOverviewGraph.Event.RecordSelected, this._handleOverviewGraphRecordSelected, this);
         this._graphsContainerView.removeSubview(overviewGraph);
+
+        this._overviewGraphsByTypeMap.delete(timeline.type);
+        this._treeElementsByTypeMap.delete(timeline.type);
     }
 
     _markerAdded(event)
     {
         this._timelineRuler.addMarker(event.data.marker);
+    }
+
+    _handleGraphsContainerClick(event)
+    {
+        // Set when a WI.TimelineRecordBar receives the "click" first and is about to be selected.
+        if (event.__timelineRecordClickEventHandled)
+            return;
+
+        this._recordSelected(null, null);
     }
 
     _timelineRulerMouseDown(event)
@@ -585,6 +725,9 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
             return;
 
         for (let overviewGraph of this._overviewGraphsByTypeMap.values()) {
+            if (!overviewGraph.visible)
+                continue;
+
             let graphRect = overviewGraph.element.getBoundingClientRect();
             if (!(event.pageX >= graphRect.left && event.pageX <= graphRect.right && event.pageY >= graphRect.top && event.pageY <= graphRect.bottom))
                 continue;
@@ -600,24 +743,61 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
     {
         this._timelineRulerSelectionChanged = true;
 
-        let startTime = this._viewMode === WebInspector.TimelineOverview.ViewMode.Timelines ? this._startTime : 0;
+        let startTime = this._viewMode === WI.TimelineOverview.ViewMode.Timelines ? this._startTime : 0;
         this._currentSettings.selectionStartValueSetting.value = this.selectionStartTime - startTime;
         this._currentSettings.selectionDurationSetting.value = this.selectionDuration;
 
-        this.dispatchEventToListeners(WebInspector.TimelineOverview.Event.TimeRangeSelectionChanged);
+        this.dispatchEventToListeners(WI.TimelineOverview.Event.TimeRangeSelectionChanged);
     }
 
-    _recordSelected(event)
+    _handleOverviewGraphRecordSelected(event)
     {
-        for (let [type, overviewGraph] of this._overviewGraphsByTypeMap) {
-            if (overviewGraph !== event.target)
-                continue;
+        let {record, recordBar} = event.data;
 
-            let timeline = this._recording.timelines.get(type);
-            console.assert(timeline, "Timeline recording missing timeline type", type);
-            this.dispatchEventToListeners(WebInspector.TimelineOverview.Event.RecordSelected, {timeline, record: event.data.record});
+        // Ignore deselection events, as they are handled by the newly selected record's timeline.
+        if (!record)
             return;
+
+        this._recordSelected(record, recordBar);
+    }
+
+    _recordSelected(record, recordBar)
+    {
+        if (record === this._selectedTimelineRecord)
+            return;
+
+        if (this._selectedTimelineRecord && (!record || this._selectedTimelineRecord.type !== record.type)) {
+            let timelineOverviewGraph = this._overviewGraphsByTypeMap.get(this._selectedTimelineRecord.type);
+            console.assert(timelineOverviewGraph);
+            if (timelineOverviewGraph)
+                timelineOverviewGraph.selectedRecord = null;
         }
+
+        this._selectedTimelineRecord = record;
+
+        if (this._selectedTimelineRecord) {
+            let firstRecord = this._selectedTimelineRecord;
+            let lastRecord = this._selectedTimelineRecord;
+            if (recordBar) {
+                firstRecord = recordBar.records[0];
+                lastRecord = recordBar.records.lastValue;
+            }
+
+            let startTime = firstRecord instanceof WI.RenderingFrameTimelineRecord ? firstRecord.frameIndex : firstRecord.startTime;
+            let endTime = lastRecord instanceof WI.RenderingFrameTimelineRecord ? lastRecord.frameIndex : lastRecord.endTime;
+
+            if (firstRecord instanceof WI.CPUTimelineRecord) {
+                let selectionPadding = WI.CPUTimelineOverviewGraph.samplingRatePerSecond * 2.25;
+                this.selectionStartTime = startTime - selectionPadding - (WI.CPUTimelineOverviewGraph.samplingRatePerSecond / 2);
+                this.selectionDuration = endTime - startTime + (selectionPadding * 2);
+            } else if (startTime < this.selectionStartTime || endTime > this.selectionStartTime + this.selectionDuration) {
+                let selectionPadding = this.secondsPerPixel * 10;
+                this.selectionStartTime = startTime - selectionPadding;
+                this.selectionDuration = endTime - startTime + (selectionPadding * 2);
+            }
+        }
+
+        this.dispatchEventToListeners(WI.TimelineOverview.Event.RecordSelected, {record: this._selectedTimelineRecord});
     }
 
     _resetSelection()
@@ -646,9 +826,9 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
 
     _canShowTimelineType(type)
     {
-        let timelineViewMode = WebInspector.TimelineOverview.ViewMode.Timelines;
-        if (type === WebInspector.TimelineRecord.Type.RenderingFrame)
-            timelineViewMode = WebInspector.TimelineOverview.ViewMode.RenderingFrames;
+        let timelineViewMode = WI.TimelineOverview.ViewMode.Timelines;
+        if (type === WI.TimelineRecord.Type.RenderingFrame)
+            timelineViewMode = WI.TimelineOverview.ViewMode.RenderingFrames;
 
         return timelineViewMode === this._viewMode;
     }
@@ -656,11 +836,11 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
     _viewModeDidChange()
     {
         let startTime = 0;
-        let isRenderingFramesMode = this._viewMode === WebInspector.TimelineOverview.ViewMode.RenderingFrames;
+        let isRenderingFramesMode = this._viewMode === WI.TimelineOverview.ViewMode.RenderingFrames;
         if (isRenderingFramesMode) {
             this._timelineRuler.minimumSelectionDuration = 1;
             this._timelineRuler.snapInterval = 1;
-            this._timelineRuler.formatLabelCallback = (value) => value.toFixed(0);
+            this._timelineRuler.formatLabelCallback = (value) => value.maxDecimals(0).toLocaleString();
         } else {
             this._timelineRuler.minimumSelectionDuration = 0.01;
             this._timelineRuler.snapInterval = NaN;
@@ -674,22 +854,28 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
         this.selectionDuration = this._currentSettings.selectionDurationSetting.value;
 
         for (let [type, overviewGraph] of this._overviewGraphsByTypeMap) {
-            if (this._canShowTimelineType(type))
-                overviewGraph.shown();
-            else
+            let treeElement = this._treeElementsByTypeMap.get(type);
+            console.assert(treeElement, "Missing tree element for timeline type", type);
+
+            treeElement.hidden = !this._canShowTimelineType(type);
+            if (treeElement.hidden)
                 overviewGraph.hidden();
+            else
+                overviewGraph.shown();
         }
 
         this.element.classList.toggle("frames", isRenderingFramesMode);
+
+        this.updateLayout(WI.View.LayoutReason.Resize);
     }
 
     _createViewModeSettings(viewMode, minimumDurationPerPixel, maximumDurationPerPixel, durationPerPixel, selectionStartValue, selectionDuration)
     {
         durationPerPixel = Math.min(maximumDurationPerPixel, Math.max(minimumDurationPerPixel, durationPerPixel));
 
-        let durationPerPixelSetting = new WebInspector.Setting(viewMode + "-duration-per-pixel", durationPerPixel);
-        let selectionStartValueSetting = new WebInspector.Setting(viewMode + "-selection-start-value", selectionStartValue);
-        let selectionDurationSetting = new WebInspector.Setting(viewMode + "-selection-duration", selectionDuration);
+        let durationPerPixelSetting = new WI.Setting(viewMode + "-duration-per-pixel", durationPerPixel);
+        let selectionStartValueSetting = new WI.Setting(viewMode + "-selection-start-value", selectionStartValue);
+        let selectionDurationSetting = new WI.Setting(viewMode + "-selection-duration", selectionDuration);
 
         return {
             scrollStartTime: 0,
@@ -703,18 +889,228 @@ WebInspector.TimelineOverview = class TimelineOverview extends WebInspector.View
 
     get _currentSettings()
     {
-        return this._viewMode === WebInspector.TimelineOverview.ViewMode.Timelines ? this._timelinesViewModeSettings : this._renderingFramesViewModeSettings;
+        return this._viewMode === WI.TimelineOverview.ViewMode.Timelines ? this._timelinesViewModeSettings : this._renderingFramesViewModeSettings;
+    }
+
+    _timelinesTreeSelectionDidChange(event)
+    {
+        let timeline = null;
+        let selectedTreeElement = this._timelinesTreeOutline.selectedTreeElement;
+        if (selectedTreeElement) {
+            timeline = selectedTreeElement.representedObject;
+            console.assert(timeline instanceof WI.Timeline, timeline);
+            console.assert(this._recording.timelines.get(timeline.type) === timeline, timeline);
+
+            for (let [type, overviewGraph] of this._overviewGraphsByTypeMap)
+                overviewGraph.selected = type === timeline.type;
+        }
+
+        this._selectedTimeline = timeline;
+        this.dispatchEventToListeners(WI.TimelineOverview.Event.TimelineSelected);
+    }
+
+    _toggleEditingInstruments(event)
+    {
+        if (this._editingInstruments)
+            this._stopEditingInstruments();
+        else
+            this._startEditingInstruments();
+    }
+
+    _editingInstrumentsDidChange()
+    {
+        this.element.classList.toggle(WI.TimelineOverview.EditInstrumentsStyleClassName, this._editingInstruments);
+        this._timelineRuler.enabled = !this._editingInstruments;
+
+        this._updateWheelAndGestureHandlers();
+        this._updateEditInstrumentsButton();
+
+        this.dispatchEventToListeners(WI.TimelineOverview.Event.EditingInstrumentsDidChange);
+    }
+
+    _updateEditInstrumentsButton()
+    {
+        let newLabel = this._editingInstruments ? WI.UIString("Done") : WI.UIString("Edit");
+        this._editInstrumentsButton.label = newLabel;
+        this._editInstrumentsButton.activated = this._editingInstruments;
+        this._editInstrumentsButton.enabled = !WI.timelineManager.isCapturing();
+    }
+
+    _updateWheelAndGestureHandlers()
+    {
+        if (this._editingInstruments) {
+            this.element.removeEventListener("wheel", this._handleWheelEventListener);
+            this.element.removeEventListener("gesturestart", this._handleGestureStartEventListener);
+            this.element.removeEventListener("gesturechange", this._handleGestureChangeEventListener);
+            this.element.removeEventListener("gestureend", this._handleGestureEndEventListener);
+            this._handleWheelEventListener = null;
+            this._handleGestureStartEventListener = null;
+            this._handleGestureChangeEventListener = null;
+            this._handleGestureEndEventListener = null;
+        } else {
+            this._handleWheelEventListener = this._handleWheelEvent.bind(this);
+            this._handleGestureStartEventListener = this._handleGestureStart.bind(this);
+            this._handleGestureChangeEventListener = this._handleGestureChange.bind(this);
+            this._handleGestureEndEventListener = this._handleGestureEnd.bind(this);
+            this.element.addEventListener("wheel", this._handleWheelEventListener);
+            this.element.addEventListener("gesturestart", this._handleGestureStartEventListener);
+            this.element.addEventListener("gesturechange", this._handleGestureChangeEventListener);
+            this.element.addEventListener("gestureend", this._handleGestureEndEventListener);
+        }
+    }
+
+    _startEditingInstruments()
+    {
+        console.assert(this._viewMode === WI.TimelineOverview.ViewMode.Timelines);
+
+        if (this._editingInstruments)
+            return;
+
+        this._editingInstruments = true;
+
+        for (let type of this._instrumentTypes) {
+            let treeElement = this._treeElementsByTypeMap.get(type);
+            if (!treeElement) {
+                let timeline = this._recording.timelines.get(type);
+                console.assert(timeline, "Missing timeline for type " + type);
+
+                const placeholder = true;
+                treeElement = new WI.TimelineTreeElement(timeline, placeholder);
+
+                let insertionIndex = insertionIndexForObjectInListSortedByFunction(treeElement, this._timelinesTreeOutline.children, this._compareTimelineTreeElements.bind(this));
+                this._timelinesTreeOutline.insertChild(treeElement, insertionIndex);
+
+                let placeholderGraph = new WI.View;
+                placeholderGraph.element.classList.add("timeline-overview-graph");
+                treeElement[WI.TimelineOverview.PlaceholderOverviewGraph] = placeholderGraph;
+                this._graphsContainerView.insertSubviewBefore(placeholderGraph, this._graphsContainerView.subviews[insertionIndex]);
+            }
+
+            treeElement.editing = true;
+            treeElement.addEventListener(WI.TimelineTreeElement.Event.EnabledDidChange, this._timelineTreeElementEnabledDidChange, this);
+        }
+
+        this._editingInstrumentsDidChange();
+    }
+
+    _stopEditingInstruments()
+    {
+        if (!this._editingInstruments)
+            return;
+
+        this._editingInstruments = false;
+
+        let instruments = this._recording.instruments;
+        for (let treeElement of this._treeElementsByTypeMap.values()) {
+            if (treeElement.status.checked) {
+                treeElement.editing = false;
+                treeElement.removeEventListener(WI.TimelineTreeElement.Event.EnabledDidChange, this._timelineTreeElementEnabledDidChange, this);
+                continue;
+            }
+
+            let timelineInstrument = instruments.find((instrument) => instrument.timelineRecordType === treeElement.representedObject.type);
+            this._recording.removeInstrument(timelineInstrument);
+        }
+
+        let placeholderTreeElements = this._timelinesTreeOutline.children.filter((treeElement) => treeElement.placeholder);
+        for (let treeElement of placeholderTreeElements) {
+            this._timelinesTreeOutline.removeChild(treeElement);
+
+            let placeholderGraph = treeElement[WI.TimelineOverview.PlaceholderOverviewGraph];
+            console.assert(placeholderGraph);
+            this._graphsContainerView.removeSubview(placeholderGraph);
+
+            if (treeElement.status.checked) {
+                let instrument = WI.Instrument.createForTimelineType(treeElement.representedObject.type);
+                this._recording.addInstrument(instrument);
+            }
+        }
+
+        let instrumentTypes = instruments.map((instrument) => instrument.timelineRecordType);
+        WI.timelineManager.enabledTimelineTypes = instrumentTypes;
+
+        this._editingInstrumentsDidChange();
+    }
+
+    _recordingImported(event)
+    {
+        let {overviewData} = event.data;
+
+        if (overviewData.secondsPerPixel !== undefined)
+            this.secondsPerPixel = overviewData.secondsPerPixel;
+        if (overviewData.scrollStartTime !== undefined)
+            this.scrollStartTime = overviewData.scrollStartTime;
+        if (overviewData.selectionStartTime !== undefined)
+            this.selectionStartTime = overviewData.selectionStartTime;
+        if (overviewData.selectionDuration !== undefined) {
+            if (overviewData.selectionDuration === Number.MAX_VALUE)
+                this._timelineRuler.selectEntireRange();
+            else
+                this.selectionDuration = overviewData.selectionDuration;
+        }
+        if (overviewData.selectedTimelineType !== undefined) {
+            let timeline = this._recording.timelineForRecordType(overviewData.selectedTimelineType);
+            if (timeline)
+                this.selectedTimeline = timeline;
+        }
+    }
+
+    _capturingStarted(event)
+    {
+        this._editInstrumentsButton.enabled = false;
+        this._stopEditingInstruments();
+    }
+
+    _capturingStopped(event)
+    {
+        this._editInstrumentsButton.enabled = true;
+    }
+
+    _compareTimelineTreeElements(a, b)
+    {
+        let aTimelineType = a.representedObject.type;
+        let bTimelineType = b.representedObject.type;
+
+        // Always sort the Rendering Frames timeline last.
+        if (aTimelineType === WI.TimelineRecord.Type.RenderingFrame)
+            return 1;
+        if (bTimelineType === WI.TimelineRecord.Type.RenderingFrame)
+            return -1;
+
+        if (a.placeholder !== b.placeholder)
+            return a.placeholder ? 1 : -1;
+
+        let aTimelineIndex = this._instrumentTypes.indexOf(aTimelineType);
+        let bTimelineIndex = this._instrumentTypes.indexOf(bTimelineType);
+        return aTimelineIndex - bTimelineIndex;
+    }
+
+    _timelineTreeElementEnabledDidChange(event)
+    {
+        let enabled = this._timelinesTreeOutline.children.some((treeElement) => {
+            let timelineType = treeElement.representedObject.type;
+            return this._canShowTimelineType(timelineType) && treeElement.status.checked;
+        });
+
+        this._editInstrumentsButton.enabled = enabled;
     }
 };
 
-WebInspector.TimelineOverview.ScrollDeltaDenominator = 500;
+WI.TimelineOverview.PlaceholderOverviewGraph = Symbol("placeholder-overview-graph");
 
-WebInspector.TimelineOverview.ViewMode = {
+WI.TimelineOverview.ScrollDeltaDenominator = 500;
+WI.TimelineOverview.EditInstrumentsStyleClassName = "edit-instruments";
+WI.TimelineOverview.MinimumDurationPerPixel = 0.0001;
+WI.TimelineOverview.MaximumDurationPerPixel = 60;
+
+WI.TimelineOverview.ViewMode = {
     Timelines: "timeline-overview-view-mode-timelines",
     RenderingFrames: "timeline-overview-view-mode-rendering-frames"
 };
 
-WebInspector.TimelineOverview.Event = {
+WI.TimelineOverview.Event = {
+    EditingInstrumentsDidChange: "editing-instruments-did-change",
     RecordSelected: "timeline-overview-record-selected",
+    TimelineSelected: "timeline-overview-timeline-selected",
     TimeRangeSelectionChanged: "timeline-overview-time-range-selection-changed"
 };

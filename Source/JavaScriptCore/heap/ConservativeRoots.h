@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2009, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,59 +23,54 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ConservativeRoots_h
-#define ConservativeRoots_h
+#pragma once
 
 #include "Heap.h"
 
 namespace JSC {
 
 class CodeBlockSet;
+class HeapCell;
 class JITStubRoutineSet;
-class JSCell;
 
 class ConservativeRoots {
 public:
-    ConservativeRoots(MarkedBlockSet*, CopiedSpace*);
+    ConservativeRoots(Heap&);
     ~ConservativeRoots();
 
     void add(void* begin, void* end);
-    void add(void* begin, void* end, JITStubRoutineSet&);
     void add(void* begin, void* end, JITStubRoutineSet&, CodeBlockSet&);
     
-    size_t size();
-    JSCell** roots();
+    size_t size() const;
+    HeapCell** roots() const;
 
 private:
     static const size_t inlineCapacity = 128;
-    static const size_t nonInlineCapacity = 8192 / sizeof(JSCell*);
+    static const size_t nonInlineCapacity = 8192 / sizeof(HeapCell*);
     
     template<typename MarkHook>
-    void genericAddPointer(void*, TinyBloomFilter, MarkHook&);
+    void genericAddPointer(void*, HeapVersion markingVersion, HeapVersion newlyAllocatedVersion, TinyBloomFilter, MarkHook&);
 
     template<typename MarkHook>
     void genericAddSpan(void*, void* end, MarkHook&);
     
     void grow();
 
-    JSCell** m_roots;
+    HeapCell** m_roots;
     size_t m_size;
     size_t m_capacity;
-    MarkedBlockSet* m_blocks;
-    CopiedSpace* m_copiedSpace;
-    JSCell* m_inlineRoots[inlineCapacity];
+    Heap& m_heap;
+    HeapCell* m_inlineRoots[inlineCapacity];
 };
 
-inline size_t ConservativeRoots::size()
+inline size_t ConservativeRoots::size() const
 {
     return m_size;
 }
 
-inline JSCell** ConservativeRoots::roots()
+inline HeapCell** ConservativeRoots::roots() const
 {
     return m_roots;
 }
 
 } // namespace JSC
-
-#endif // ConservativeRoots_h

@@ -31,8 +31,10 @@ import os
 import sys
 import unittest
 
-from webkitpy.port.linux_get_crash_log import GDBCrashLogGenerator
+from webkitpy.common.system.executive_mock import MockExecutive
+from webkitpy.common.system.executive_mock import MockProcess
 from webkitpy.common.system.filesystem_mock import MockFileSystem
+from webkitpy.port.linux_get_crash_log import GDBCrashLogGenerator
 
 
 class GDBCrashLogGeneratorTest(unittest.TestCase):
@@ -41,14 +43,17 @@ class GDBCrashLogGeneratorTest(unittest.TestCase):
         if sys.platform.startswith('win'):
             return
 
-        generator = GDBCrashLogGenerator('DumpRenderTree', 28529, newer_than=None, filesystem=MockFileSystem({'/path/to/coredumps': ''}), path_to_driver=None)
+        executive = MockExecutive()
+        executive._proc = MockProcess()
+        executive._proc.stdout = 'STDERR: <empty>'
+        generator = GDBCrashLogGenerator(executive, 'DumpRenderTree', 28529, newer_than=None, filesystem=MockFileSystem({'/path/to/coredumps': ''}), path_to_driver=None)
 
         core_directory = os.environ.get('WEBKIT_CORE_DUMPS_DIRECTORY', '/path/to/coredumps')
-        core_pattern = os.path.join(core_directory, "core-pid_%p-_-process_%E")
+        core_pattern = generator._filesystem.join(core_directory, "core-pid_%p.dump")
         mock_empty_crash_log = """\
 crash log for DumpRenderTree (pid 28529):
 
-Coredump core-pid_28529-_-process_DumpRenderTree not found. To enable crash logs:
+Coredump core-pid_28529.dump not found. To enable crash logs:
 
 - run this command as super-user: echo "%(core_pattern)s" > /proc/sys/kernel/core_pattern
 - enable core dumps: ulimit -c unlimited

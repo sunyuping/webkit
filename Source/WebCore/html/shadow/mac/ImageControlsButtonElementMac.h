@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ImageControlsButtonElementMac_h
-#define ImageControlsButtonElementMac_h
+#pragma once
 
 #include "HTMLDivElement.h"
 
@@ -33,22 +32,21 @@
 namespace WebCore {
 
 class ImageControlsButtonElementMac final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(ImageControlsButtonElementMac);
 public:
     virtual ~ImageControlsButtonElementMac();
 
-    static PassRefPtr<ImageControlsButtonElementMac> maybeCreate(Document&);
+    static RefPtr<ImageControlsButtonElementMac> tryCreate(Document&);
 
 private:
     ImageControlsButtonElementMac(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    void defaultEventHandler(Event&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
 
-    virtual bool isImageControlsButtonElement() const override { return true; }
+    bool isImageControlsButtonElement() const override { return true; }
 };
 
 } // namespace WebCore
 
 #endif // ENABLE(SERVICE_CONTROLS)
-
-#endif // ImageControlsButtonElementMac_h

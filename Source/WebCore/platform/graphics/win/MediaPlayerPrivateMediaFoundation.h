@@ -24,12 +24,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MediaPlayerPrivateMediaFoundation_h
-#define MediaPlayerPrivateMediaFoundation_h
+#pragma once
 
 #include "COMPtr.h"
 #include "MediaPlayerPrivate.h"
-#include "Win32Handle.h"
 
 #include <D3D9.h>
 #include <Dxva2api.h>
@@ -44,10 +42,11 @@
 #include <wtf/Lock.h>
 #include <wtf/ThreadingPrimitives.h>
 #include <wtf/WeakPtr.h>
+#include <wtf/win/Win32Handle.h>
 
 namespace WebCore {
 
-class MediaPlayerPrivateMediaFoundation : public MediaPlayerPrivateInterface {
+class MediaPlayerPrivateMediaFoundation : public MediaPlayerPrivateInterface, public CanMakeWeakPtr<MediaPlayerPrivateMediaFoundation> {
 public:
     explicit MediaPlayerPrivateMediaFoundation(MediaPlayer*);
     ~MediaPlayerPrivateMediaFoundation();
@@ -57,44 +56,51 @@ public:
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
     static bool isAvailable();
 
-    virtual void load(const String& url);
-    virtual void cancelLoad();
+    void load(const String& url) override;
+    void cancelLoad() override;
 
-    virtual void play();
-    virtual void pause();
+    void prepareToPlay() override;
 
-    virtual bool supportsFullscreen() const;
+    void play() override;
+    void pause() override;
 
-    virtual FloatSize naturalSize() const;
+    bool supportsFullscreen() const override;
 
-    virtual bool hasVideo() const;
-    virtual bool hasAudio() const;
+    FloatSize naturalSize() const override;
 
-    virtual void setVisible(bool);
+    bool hasVideo() const override;
+    bool hasAudio() const override;
 
-    virtual bool seeking() const;
-    virtual void seekDouble(double) override;
+    void setVisible(bool) override;
 
-    virtual void setRateDouble(double) override;
+    bool seeking() const override;
+    void seek(float) override;
 
-    virtual double durationDouble() const override;
+    void setRate(float) override;
 
-    virtual float currentTime() const override;
+    float duration() const override;
 
-    virtual bool paused() const;
+    float currentTime() const override;
 
-    virtual MediaPlayer::NetworkState networkState() const;
-    virtual MediaPlayer::ReadyState readyState() const;
+    bool paused() const override;
 
-    virtual float maxTimeSeekable() const override;
+    void setVolume(float) override;
 
-    virtual std::unique_ptr<PlatformTimeRanges> buffered() const;
+    bool supportsMuting() const override;
+    void setMuted(bool) override;
 
-    virtual bool didLoadingProgress() const;
+    MediaPlayer::NetworkState networkState() const override;
+    MediaPlayer::ReadyState readyState() const override;
 
-    virtual void setSize(const IntSize&);
+    float maxTimeSeekable() const override;
 
-    virtual void paint(GraphicsContext&, const FloatRect&) override;
+    std::unique_ptr<PlatformTimeRanges> buffered() const override;
+
+    bool didLoadingProgress() const override;
+
+    void setSize(const IntSize&) override;
+
+    void paint(GraphicsContext&, const FloatRect&) override;
 
 private:
     MediaPlayer* m_player;
@@ -104,7 +110,10 @@ private:
     bool m_paused;
     bool m_hasAudio;
     bool m_hasVideo;
+    bool m_preparingToPlay;
+    float m_volume;
     HWND m_hwndVideo;
+    MediaPlayer::NetworkState m_networkState;
     MediaPlayer::ReadyState m_readyState;
     FloatRect m_lastPaintRect;
 
@@ -112,7 +121,9 @@ private:
     HashSet<MediaPlayerListener*> m_listeners;
     Lock m_mutexListeners;
 
-    WeakPtrFactory<MediaPlayerPrivateMediaFoundation> m_weakPtrFactory;
+    FloatSize m_cachedNaturalSize;
+    mutable Lock m_cachedNaturalSizeLock;
+
     COMPtr<IMFMediaSession> m_mediaSession;
     COMPtr<IMFSourceResolver> m_sourceResolver;
     COMPtr<IMFMediaSource> m_mediaSource;
@@ -121,6 +132,7 @@ private:
     COMPtr<IMFVideoDisplayControl> m_videoDisplay;
 
     bool createSession();
+    bool startSession();
     bool endSession();
     bool startCreateMediaSource(const String& url);
     bool endCreatedMediaSource(IMFAsyncResult*);
@@ -130,8 +142,16 @@ private:
     bool createOutputNode(COMPtr<IMFStreamDescriptor> sourceSD, COMPtr<IMFTopologyNode>&);
     bool createSourceStreamNode(COMPtr<IMFStreamDescriptor> sourceSD, COMPtr<IMFTopologyNode>&);
 
+    void updateReadyState();
+
+    COMPtr<IMFVideoDisplayControl> videoDisplay();
+
     void onCreatedMediaSource();
     void onTopologySet();
+    void onBufferingStarted();
+    void onBufferingStopped();
+    void onSessionStarted();
+    void onSessionEnded();
 
     LPCWSTR registerVideoWindowClass();
     void createVideoWindow();
@@ -141,14 +161,17 @@ private:
 
     void addListener(MediaPlayerListener*);
     void removeListener(MediaPlayerListener*);
+    void setNaturalSize(const FloatSize&);
     void notifyDeleted();
 
     static LRESULT CALLBACK VideoViewWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
+    bool setAllChannelVolumes(float);
+
     class MediaPlayerListener {
     public:
-        MediaPlayerListener() { }
-        virtual ~MediaPlayerListener() { }
+        MediaPlayerListener() = default;
+        virtual ~MediaPlayerListener() = default;
 
         virtual void onMediaPlayerDeleted() { }
     };
@@ -158,14 +181,14 @@ private:
         AsyncCallback(MediaPlayerPrivateMediaFoundation*, bool event);
         ~AsyncCallback();
 
-        virtual HRESULT STDMETHODCALLTYPE QueryInterface(_In_ REFIID riid, __RPC__deref_out void __RPC_FAR *__RPC_FAR *ppvObject) override;
-        virtual ULONG STDMETHODCALLTYPE AddRef() override;
-        virtual ULONG STDMETHODCALLTYPE Release() override;
+        HRESULT STDMETHODCALLTYPE QueryInterface(_In_ REFIID riid, __RPC__deref_out void __RPC_FAR *__RPC_FAR *ppvObject) override;
+        ULONG STDMETHODCALLTYPE AddRef() override;
+        ULONG STDMETHODCALLTYPE Release() override;
 
-        virtual HRESULT STDMETHODCALLTYPE GetParameters(__RPC__out DWORD *pdwFlags, __RPC__out DWORD *pdwQueue) override;
-        virtual HRESULT STDMETHODCALLTYPE Invoke(__RPC__in_opt IMFAsyncResult *pAsyncResult) override;
+        HRESULT STDMETHODCALLTYPE GetParameters(__RPC__out DWORD *pdwFlags, __RPC__out DWORD *pdwQueue) override;
+        HRESULT STDMETHODCALLTYPE Invoke(__RPC__in_opt IMFAsyncResult *pAsyncResult) override;
 
-        virtual void onMediaPlayerDeleted() override;
+        void onMediaPlayerDeleted() override;
 
     private:
         ULONG m_refCount;
@@ -178,8 +201,8 @@ private:
 
     class VideoSamplePool {
     public:
-        VideoSamplePool() { }
-        virtual ~VideoSamplePool() { }
+        VideoSamplePool() = default;
+        virtual ~VideoSamplePool() = default;
 
         HRESULT initialize(VideoSampleList& samples);
         void clear();
@@ -199,8 +222,8 @@ private:
 
     class VideoScheduler {
     public:
-        VideoScheduler() { }
-        virtual ~VideoScheduler() { }
+        VideoScheduler() = default;
+        virtual ~VideoScheduler() = default;
 
         void setPresenter(Direct3DPresenter* presenter) { m_presenter = presenter; }
 
@@ -229,9 +252,9 @@ private:
         Direct3DPresenter* m_presenter { nullptr };
 
         DWORD m_threadID { 0 };
-        Win32Handle m_schedulerThread;
-        Win32Handle m_threadReadyEvent;
-        Win32Handle m_flushEvent;
+        WTF::Win32Handle m_schedulerThread;
+        WTF::Win32Handle m_threadReadyEvent;
+        WTF::Win32Handle m_flushEvent;
 
         float m_playbackRate { 1.0f };
         MFTIME m_frameDuration { 0 };
@@ -312,92 +335,92 @@ private:
         CustomVideoPresenter(MediaPlayerPrivateMediaFoundation*);
         ~CustomVideoPresenter();
 
-        virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, __RPC__deref_out void __RPC_FAR *__RPC_FAR *ppvObject) override;
-        virtual ULONG STDMETHODCALLTYPE AddRef() override;
-        virtual ULONG STDMETHODCALLTYPE Release() override;
+        HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, __RPC__deref_out void __RPC_FAR *__RPC_FAR *ppvObject) override;
+        ULONG STDMETHODCALLTYPE AddRef() override;
+        ULONG STDMETHODCALLTYPE Release() override;
 
         // IMFClockStateSink
-        virtual HRESULT STDMETHODCALLTYPE OnClockStart(MFTIME hnsSystemTime, LONGLONG llClockStartOffset) override;
-        virtual HRESULT STDMETHODCALLTYPE OnClockStop(MFTIME hnsSystemTime) override;
-        virtual HRESULT STDMETHODCALLTYPE OnClockPause(MFTIME hnsSystemTime) override;
-        virtual HRESULT STDMETHODCALLTYPE OnClockRestart(MFTIME hnsSystemTime) override;
-        virtual HRESULT STDMETHODCALLTYPE OnClockSetRate(MFTIME hnsSystemTime, float flRate) override;
+        HRESULT STDMETHODCALLTYPE OnClockStart(MFTIME hnsSystemTime, LONGLONG llClockStartOffset) override;
+        HRESULT STDMETHODCALLTYPE OnClockStop(MFTIME hnsSystemTime) override;
+        HRESULT STDMETHODCALLTYPE OnClockPause(MFTIME hnsSystemTime) override;
+        HRESULT STDMETHODCALLTYPE OnClockRestart(MFTIME hnsSystemTime) override;
+        HRESULT STDMETHODCALLTYPE OnClockSetRate(MFTIME hnsSystemTime, float flRate) override;
 
         // IMFVideoPresenter
-        virtual HRESULT STDMETHODCALLTYPE ProcessMessage(MFVP_MESSAGE_TYPE eMessage, ULONG_PTR ulParam) override;
-        virtual HRESULT STDMETHODCALLTYPE GetCurrentMediaType(_Outptr_  IMFVideoMediaType **ppMediaType) override;
+        HRESULT STDMETHODCALLTYPE ProcessMessage(MFVP_MESSAGE_TYPE eMessage, ULONG_PTR ulParam) override;
+        HRESULT STDMETHODCALLTYPE GetCurrentMediaType(_Outptr_  IMFVideoMediaType **ppMediaType) override;
 
         // IMFVideoDeviceID
-        virtual HRESULT STDMETHODCALLTYPE GetDeviceID(IID* pDeviceID) override;
+        HRESULT STDMETHODCALLTYPE GetDeviceID(IID* pDeviceID) override;
 
         // IMFTopologyServiceLookupClient
-        virtual HRESULT STDMETHODCALLTYPE InitServicePointers(_In_  IMFTopologyServiceLookup *pLookup) override;
-        virtual HRESULT STDMETHODCALLTYPE ReleaseServicePointers(void) override;
+        HRESULT STDMETHODCALLTYPE InitServicePointers(_In_  IMFTopologyServiceLookup *pLookup) override;
+        HRESULT STDMETHODCALLTYPE ReleaseServicePointers(void) override;
 
         // IMFGetService
-        virtual HRESULT STDMETHODCALLTYPE GetService(REFGUID guidService, REFIID riid, LPVOID *ppvObject);
+        HRESULT STDMETHODCALLTYPE GetService(REFGUID guidService, REFIID riid, LPVOID *ppvObject) override;
 
         // IMFActivate
-        virtual HRESULT STDMETHODCALLTYPE ActivateObject(REFIID riid, void **ppv);
-        virtual HRESULT STDMETHODCALLTYPE DetachObject();
-        virtual HRESULT STDMETHODCALLTYPE ShutdownObject();
+        HRESULT STDMETHODCALLTYPE ActivateObject(REFIID riid, void **ppv) override;
+        HRESULT STDMETHODCALLTYPE DetachObject() override;
+        HRESULT STDMETHODCALLTYPE ShutdownObject() override;
 
         // IMFAttributes
-        virtual HRESULT STDMETHODCALLTYPE GetItem(__RPC__in REFGUID guidKey, __RPC__inout_opt PROPVARIANT *pValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetItemType(__RPC__in REFGUID guidKey, __RPC__out MF_ATTRIBUTE_TYPE *pType) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE CompareItem(__RPC__in REFGUID guidKey, __RPC__in REFPROPVARIANT Value, __RPC__out BOOL *pbResult) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE Compare(__RPC__in_opt IMFAttributes *pTheirs, MF_ATTRIBUTES_MATCH_TYPE MatchType, __RPC__out BOOL *pbResult) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetUINT32(__RPC__in REFGUID guidKey, __RPC__out UINT32 *punValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetUINT64(__RPC__in REFGUID guidKey, __RPC__out UINT64 *punValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetDouble(__RPC__in REFGUID guidKey, __RPC__out double *pfValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetGUID(__RPC__in REFGUID guidKey, __RPC__out GUID *pguidValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetStringLength(__RPC__in REFGUID guidKey, __RPC__out UINT32 *pcchLength) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetString(__RPC__in REFGUID guidKey, __RPC__out_ecount_full(cchBufSize) LPWSTR pwszValue, UINT32 cchBufSize, __RPC__inout_opt UINT32 *pcchLength) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetAllocatedString(__RPC__in REFGUID guidKey, __RPC__deref_out_ecount_full_opt((*pcchLength + 1)) LPWSTR *ppwszValue, __RPC__out UINT32 *pcchLength) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetBlobSize(__RPC__in REFGUID guidKey, __RPC__out UINT32 *pcbBlobSize) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetBlob(__RPC__in REFGUID guidKey, __RPC__out_ecount_full(cbBufSize) UINT8 *pBuf, UINT32 cbBufSize, __RPC__inout_opt UINT32 *pcbBlobSize) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetAllocatedBlob(__RPC__in REFGUID guidKey, __RPC__deref_out_ecount_full_opt(*pcbSize) UINT8 **ppBuf, __RPC__out UINT32 *pcbSize) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetUnknown(__RPC__in REFGUID guidKey, __RPC__in REFIID riid, __RPC__deref_out_opt LPVOID *ppv) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetItem(__RPC__in REFGUID guidKey, __RPC__in REFPROPVARIANT Value) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE DeleteItem(__RPC__in REFGUID guidKey) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE DeleteAllItems(void) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetUINT32(__RPC__in REFGUID guidKey, UINT32 unValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetUINT64(__RPC__in REFGUID guidKey, UINT64 unValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetDouble(__RPC__in REFGUID guidKey, double fValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetGUID(__RPC__in REFGUID guidKey, __RPC__in REFGUID guidValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetString(__RPC__in REFGUID guidKey, __RPC__in_string LPCWSTR wszValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetBlob(__RPC__in REFGUID guidKey, __RPC__in_ecount_full(cbBufSize) const UINT8 *pBuf, UINT32 cbBufSize) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetUnknown(__RPC__in REFGUID guidKey, __RPC__in_opt IUnknown *pUnknown) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE LockStore(void) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE UnlockStore(void) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetCount(__RPC__out UINT32 *pcItems) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetItemByIndex(UINT32 unIndex, __RPC__out GUID *pguidKey, __RPC__inout_opt PROPVARIANT *pValue) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE CopyAllItems(__RPC__in_opt IMFAttributes *pDest) { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetItem(__RPC__in REFGUID guidKey, __RPC__inout_opt PROPVARIANT *pValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetItemType(__RPC__in REFGUID guidKey, __RPC__out MF_ATTRIBUTE_TYPE *pType) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE CompareItem(__RPC__in REFGUID guidKey, __RPC__in REFPROPVARIANT Value, __RPC__out BOOL *pbResult) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE Compare(__RPC__in_opt IMFAttributes *pTheirs, MF_ATTRIBUTES_MATCH_TYPE MatchType, __RPC__out BOOL *pbResult) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetUINT32(__RPC__in REFGUID guidKey, __RPC__out UINT32 *punValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetUINT64(__RPC__in REFGUID guidKey, __RPC__out UINT64 *punValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetDouble(__RPC__in REFGUID guidKey, __RPC__out double *pfValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetGUID(__RPC__in REFGUID guidKey, __RPC__out GUID *pguidValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetStringLength(__RPC__in REFGUID guidKey, __RPC__out UINT32 *pcchLength) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetString(__RPC__in REFGUID guidKey, __RPC__out_ecount_full(cchBufSize) LPWSTR pwszValue, UINT32 cchBufSize, __RPC__inout_opt UINT32 *pcchLength) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetAllocatedString(__RPC__in REFGUID guidKey, __RPC__deref_out_ecount_full_opt((*pcchLength + 1)) LPWSTR *ppwszValue, __RPC__out UINT32 *pcchLength) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetBlobSize(__RPC__in REFGUID guidKey, __RPC__out UINT32 *pcbBlobSize) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetBlob(__RPC__in REFGUID guidKey, __RPC__out_ecount_full(cbBufSize) UINT8 *pBuf, UINT32 cbBufSize, __RPC__inout_opt UINT32 *pcbBlobSize) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetAllocatedBlob(__RPC__in REFGUID guidKey, __RPC__deref_out_ecount_full_opt(*pcbSize) UINT8 **ppBuf, __RPC__out UINT32 *pcbSize) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetUnknown(__RPC__in REFGUID guidKey, __RPC__in REFIID riid, __RPC__deref_out_opt LPVOID *ppv) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetItem(__RPC__in REFGUID guidKey, __RPC__in REFPROPVARIANT Value) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE DeleteItem(__RPC__in REFGUID guidKey) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE DeleteAllItems(void) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetUINT32(__RPC__in REFGUID guidKey, UINT32 unValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetUINT64(__RPC__in REFGUID guidKey, UINT64 unValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetDouble(__RPC__in REFGUID guidKey, double fValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetGUID(__RPC__in REFGUID guidKey, __RPC__in REFGUID guidValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetString(__RPC__in REFGUID guidKey, __RPC__in_string LPCWSTR wszValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetBlob(__RPC__in REFGUID guidKey, __RPC__in_ecount_full(cbBufSize) const UINT8 *pBuf, UINT32 cbBufSize) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetUnknown(__RPC__in REFGUID guidKey, __RPC__in_opt IUnknown *pUnknown) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE LockStore(void) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE UnlockStore(void) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetCount(__RPC__out UINT32 *pcItems) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetItemByIndex(UINT32 unIndex, __RPC__out GUID *pguidKey, __RPC__inout_opt PROPVARIANT *pValue) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE CopyAllItems(__RPC__in_opt IMFAttributes *pDest) override { return E_NOTIMPL; }
 
         // IMFVideoDisplayControl
-        virtual HRESULT STDMETHODCALLTYPE GetNativeVideoSize(SIZE* pszVideo, SIZE* pszARVideo) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetIdealVideoSize(SIZE* pszMin, SIZE* pszMax) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetVideoPosition(const MFVideoNormalizedRect* pnrcSource, const LPRECT prcDest);
-        virtual HRESULT STDMETHODCALLTYPE GetVideoPosition(MFVideoNormalizedRect* pnrcSource, LPRECT prcDest);
-        virtual HRESULT STDMETHODCALLTYPE SetAspectRatioMode(DWORD dwAspectRatioMode) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetAspectRatioMode(DWORD* pdwAspectRatioMode) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetVideoWindow(HWND hwndVideo);
-        virtual HRESULT STDMETHODCALLTYPE GetVideoWindow(HWND* phwndVideo);
-        virtual HRESULT STDMETHODCALLTYPE RepaintVideo();
-        virtual HRESULT STDMETHODCALLTYPE GetCurrentImage(BITMAPINFOHEADER* pBih, BYTE** pDib, DWORD* pcbDib, LONGLONG* pTimeStamp) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetBorderColor(COLORREF Clr) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetBorderColor(COLORREF* pClr) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetRenderingPrefs(DWORD dwRenderFlags) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetRenderingPrefs(DWORD* pdwRenderFlags) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE SetFullscreen(BOOL bFullscreen) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE GetFullscreen(BOOL* pbFullscreen) { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetNativeVideoSize(SIZE* pszVideo, SIZE* pszARVideo) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetIdealVideoSize(SIZE* pszMin, SIZE* pszMax) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetVideoPosition(const MFVideoNormalizedRect* pnrcSource, const LPRECT prcDest) override;
+        HRESULT STDMETHODCALLTYPE GetVideoPosition(MFVideoNormalizedRect* pnrcSource, LPRECT prcDest) override;
+        HRESULT STDMETHODCALLTYPE SetAspectRatioMode(DWORD dwAspectRatioMode) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetAspectRatioMode(DWORD* pdwAspectRatioMode) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetVideoWindow(HWND hwndVideo) override;
+        HRESULT STDMETHODCALLTYPE GetVideoWindow(HWND* phwndVideo) override;
+        HRESULT STDMETHODCALLTYPE RepaintVideo() override;
+        HRESULT STDMETHODCALLTYPE GetCurrentImage(BITMAPINFOHEADER* pBih, BYTE** pDib, DWORD* pcbDib, LONGLONG* pTimeStamp) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetBorderColor(COLORREF Clr) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetBorderColor(COLORREF* pClr) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetRenderingPrefs(DWORD dwRenderFlags) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetRenderingPrefs(DWORD* pdwRenderFlags) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE SetFullscreen(BOOL bFullscreen) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE GetFullscreen(BOOL* pbFullscreen) override { return E_NOTIMPL; }
 
         // IMFAsyncCallback methods
-        virtual HRESULT STDMETHODCALLTYPE GetParameters(DWORD*, DWORD*) { return E_NOTIMPL; }
-        virtual HRESULT STDMETHODCALLTYPE Invoke(IMFAsyncResult* pAsyncResult);
+        HRESULT STDMETHODCALLTYPE GetParameters(DWORD*, DWORD*) override { return E_NOTIMPL; }
+        HRESULT STDMETHODCALLTYPE Invoke(IMFAsyncResult* pAsyncResult) override;
 
         // MediaPlayerListener
-        virtual void onMediaPlayerDeleted() override;
+        void onMediaPlayerDeleted() override;
 
         void paintCurrentFrame(GraphicsContext&, const FloatRect&);
 
@@ -466,5 +489,3 @@ private:
 };
 
 }
-
-#endif

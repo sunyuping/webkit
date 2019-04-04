@@ -23,17 +23,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ArrayIteratorPrototype_h
-#define ArrayIteratorPrototype_h
+#pragma once
 
 #include "JSObject.h"
 
 namespace JSC {
 
-class ArrayIteratorPrototype : public JSNonFinalObject {
+class ArrayIteratorPrototype final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
-    static const unsigned StructureFlags = OverridesGetOwnPropertySlot | Base::StructureFlags;
+    static const unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
     static ArrayIteratorPrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
     {
@@ -56,9 +55,6 @@ private:
     }
 
     void finishCreation(VM&, JSGlobalObject*);
-    static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
 };
 
-}
-
-#endif // !defined(ArrayIteratorPrototype_h)
+} // namespcae JSc

@@ -29,14 +29,14 @@
 
     function loadSamples() {
         samples = concatenateSamples([
-            makeASample(0, 0, 1, 1, SAMPLE_FLAG.SYNC),
-            makeASample(1, 1, 1, 1, SAMPLE_FLAG.NONE),
-            makeASample(2, 2, 1, 1, SAMPLE_FLAG.NONE),
-            makeASample(3, 3, 1, 1, SAMPLE_FLAG.NONE),
-            makeASample(4, 4, 1, 1, SAMPLE_FLAG.SYNC),
-            makeASample(5, 5, 1, 1, SAMPLE_FLAG.NONE),
-            makeASample(6, 6, 1, 1, SAMPLE_FLAG.NONE),
-            makeASample(7, 7, 1, 1, SAMPLE_FLAG.NONE),
+            makeASample(0, 0, 1, 1, 1, SAMPLE_FLAG.SYNC),
+            makeASample(1, 1, 1, 1, 1, SAMPLE_FLAG.NONE),
+            makeASample(2, 2, 1, 1, 1, SAMPLE_FLAG.NONE),
+            makeASample(3, 3, 1, 1, 1, SAMPLE_FLAG.NONE),
+            makeASample(4, 4, 1, 1, 1, SAMPLE_FLAG.SYNC),
+            makeASample(5, 5, 1, 1, 1, SAMPLE_FLAG.NONE),
+            makeASample(6, 6, 1, 1, 1, SAMPLE_FLAG.NONE),
+            makeASample(7, 7, 1, 1, 1, SAMPLE_FLAG.NONE),
         ]);
         waitForEventOn(sourceBuffer, 'updateend', remove, false, true);
         run('sourceBuffer.appendBuffer(samples)');
@@ -48,7 +48,7 @@
     }
 
     function checkRemoved() {
-        testExpected('sourceBuffer.buffered.start(0).toFixed(1)', 4);
+        testExpected('sourceBuffer.buffered.start(0)', 4);
         endTest();
     }
 

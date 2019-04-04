@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DOMWindowSpeechSynthesis_h
-#define DOMWindowSpeechSynthesis_h
+#pragma once
 
 #if ENABLE(SPEECH_SYNTHESIS)
 
@@ -37,6 +36,7 @@ namespace WebCore {
 class DOMWindow;
 
 class DOMWindowSpeechSynthesis : public Supplement<DOMWindow>, public DOMWindowProperty {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit DOMWindowSpeechSynthesis(DOMWindow*);
     virtual ~DOMWindowSpeechSynthesis();
@@ -54,5 +54,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(SPEECH_SYNTHESIS)
-
-#endif // DOMWindowSpeechSynthesis_h

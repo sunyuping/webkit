@@ -50,7 +50,7 @@ inline WKRetainPtr<WKStringRef> toWK(JSStringRef string)
     return adoptWK(WKStringCreateWithJSString(string));
 }
 
-inline WKRetainPtr<WKStringRef> toWK(JSRetainPtr<JSStringRef> string)
+inline WKRetainPtr<WKStringRef> toWK(const JSRetainPtr<JSStringRef>& string)
 {
     return toWK(string.get());
 }
@@ -62,7 +62,7 @@ inline WKRetainPtr<WKStringRef> toWK(const WTF::String& string)
 
 inline JSRetainPtr<JSStringRef> toJS(WKStringRef string)
 {
-    return JSRetainPtr<JSStringRef>(Adopt, WKStringCopyJSString(string));
+    return adopt(WKStringCopyJSString(string));
 }
 
 inline JSRetainPtr<JSStringRef> toJS(const WKRetainPtr<WKStringRef>& string)
@@ -87,7 +87,7 @@ inline WTF::String toWTFString(WKStringRef string)
 {
     size_t bufferSize = WKStringGetMaximumUTF8CStringSize(string);
     auto buffer = std::make_unique<char[]>(bufferSize);
-    size_t stringLength = WKStringGetUTF8CString(string, buffer.get(), bufferSize);
+    size_t stringLength = WKStringGetUTF8CStringNonStrict(string, buffer.get(), bufferSize);
     return WTF::String::fromUTF8WithLatin1Fallback(buffer.get(), stringLength - 1);
 }
     

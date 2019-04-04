@@ -28,8 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CheckboxInputType_h
-#define CheckboxInputType_h
+#pragma once
 
 #include "BaseCheckableInputType.h"
 
@@ -40,16 +39,15 @@ public:
     explicit CheckboxInputType(HTMLInputElement& element) : BaseCheckableInputType(element) { }
 
 private:
-    virtual const AtomicString& formControlType() const override;
-    virtual bool valueMissing(const String&) const override;
-    virtual String valueMissingText() const override;
-    virtual void handleKeyupEvent(KeyboardEvent*) override;
-    virtual void willDispatchClick(InputElementClickState&) override;
-    virtual void didDispatchClick(Event*, const InputElementClickState&) override;
-    virtual bool isCheckbox() const override;
-    virtual bool supportsIndeterminateAppearance() const override;
+    const AtomicString& formControlType() const final;
+    bool valueMissing(const String&) const final;
+    String valueMissingText() const final;
+    void handleKeyupEvent(KeyboardEvent&) final;
+    void willDispatchClick(InputElementClickState&) final;
+    void didDispatchClick(Event&, const InputElementClickState&) final;
+    bool isCheckbox() const final;
+    bool matchesIndeterminatePseudoClass() const final;
+    bool shouldAppearIndeterminate() const final;
 };
 
 } // namespace WebCore
-
-#endif // CheckboxInputType_h

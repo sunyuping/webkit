@@ -30,8 +30,6 @@
 #import "InjectedBundle.h"
 #import "InjectedBundlePage.h"
 
-#import <JavaScriptCore/JSRetainPtr.h>
-#import <JavaScriptCore/JSStringRef.h>
 #import <JavaScriptCore/JSStringRefCF.h>
 #import <UIKit/UIAccessibility.h>
 #import <WebKit/WKBundle.h>
@@ -64,12 +62,7 @@ bool AccessibilityController::removeNotificationListener()
 
 JSRetainPtr<JSStringRef> AccessibilityController::platformName()
 {
-    JSRetainPtr<JSStringRef> platformName(Adopt, JSStringCreateWithUTF8CString("ios"));
-    return platformName;
-}
-
-void AccessibilityController::logAccessibilityEvents()
-{
+    return adopt(JSStringCreateWithUTF8CString("ios"));
 }
 
 void AccessibilityController::resetToConsistentState()
@@ -94,7 +87,7 @@ static id findAccessibleObjectById(id obj, NSString *idAttribute)
     return nil;
 }
 
-PassRefPtr<AccessibilityUIElement> AccessibilityController::accessibleElementById(JSStringRef idAttribute)
+RefPtr<AccessibilityUIElement> AccessibilityController::accessibleElementById(JSStringRef idAttribute)
 {
     WKBundlePageRef page = InjectedBundle::singleton().page()->page();
     id root = static_cast<PlatformUIElement>(WKAccessibilityRootObject(page));
@@ -103,7 +96,7 @@ PassRefPtr<AccessibilityUIElement> AccessibilityController::accessibleElementByI
     if (result)
         return AccessibilityUIElement::create(result);
 
-    return 0;
+    return nullptr;
 }
 
 } // namespace WTR

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,17 +23,22 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SecuritySPI_h
-#define SecuritySPI_h
+#pragma once
 
 #if USE(APPLE_INTERNAL_SDK)
 
 #include <Security/SecCertificatePriv.h>
 #include <Security/SecTask.h>
+#include <Security/SecTrustPriv.h>
+
+#if PLATFORM(MAC)
+#include <Security/keyTemplates.h>
+#endif
 
 #else
 
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100) || PLATFORM(IOS)
+#include <Security/SecBase.h>
+
 typedef uint32_t SecSignatureHashAlgorithm;
 enum {
     kSecSignatureHashAlgorithmUnknown = 0,
@@ -47,14 +52,40 @@ enum {
     kSecSignatureHashAlgorithmSHA512 = 8
 };
 
-EXTERN_C SecSignatureHashAlgorithm SecCertificateGetSignatureHashAlgorithm(SecCertificateRef);
-#endif
+WTF_EXTERN_C_BEGIN
+
+SecSignatureHashAlgorithm SecCertificateGetSignatureHashAlgorithm(SecCertificateRef);
+
+WTF_EXTERN_C_END
 
 #endif
 
 typedef struct __SecTask *SecTaskRef;
-EXTERN_C SecTaskRef SecTaskCreateWithAuditToken(CFAllocatorRef, audit_token_t);
-EXTERN_C SecTaskRef SecTaskCreateFromSelf(CFAllocatorRef);
-EXTERN_C CFTypeRef SecTaskCopyValueForEntitlement(SecTaskRef, CFStringRef entitlement, CFErrorRef *);
+typedef struct __SecTrust *SecTrustRef;
 
-#endif // SecuritySPI_h
+WTF_EXTERN_C_BEGIN
+
+SecTaskRef SecTaskCreateWithAuditToken(CFAllocatorRef, audit_token_t);
+SecTaskRef SecTaskCreateFromSelf(CFAllocatorRef);
+CFTypeRef SecTaskCopyValueForEntitlement(SecTaskRef, CFStringRef entitlement, CFErrorRef *);
+
+#if PLATFORM(MAC)
+#include <Security/SecAsn1Types.h>
+CFStringRef SecTaskCopySigningIdentifier(SecTaskRef, CFErrorRef *);
+extern const SecAsn1Template kSecAsn1AlgorithmIDTemplate[];
+extern const SecAsn1Template kSecAsn1SubjectPublicKeyInfoTemplate[];
+uint32_t SecTaskGetCodeSignStatus(SecTaskRef);
+#endif
+
+#if HAVE(SEC_TRUST_SERIALIZATION)
+CF_RETURNS_RETAINED CFDataRef SecTrustSerialize(SecTrustRef, CFErrorRef *);
+CF_RETURNS_RETAINED SecTrustRef SecTrustDeserialize(CFDataRef serializedTrust, CFErrorRef *);
+#endif
+
+CF_RETURNS_RETAINED CFDictionaryRef SecTrustCopyInfo(SecTrustRef);
+
+extern const CFStringRef kSecTrustInfoExtendedValidationKey;
+extern const CFStringRef kSecTrustInfoCompanyNameKey;
+extern const CFStringRef kSecTrustInfoRevocationKey;
+
+WTF_EXTERN_C_END

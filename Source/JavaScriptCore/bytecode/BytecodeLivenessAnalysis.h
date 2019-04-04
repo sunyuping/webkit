@@ -23,47 +23,56 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BytecodeLivenessAnalysis_h
-#define BytecodeLivenessAnalysis_h
+#pragma once
 
 #include "BytecodeBasicBlock.h"
+#include "BytecodeGraph.h"
+#include "CodeBlock.h"
 #include <wtf/FastBitVector.h>
-#include <wtf/HashMap.h>
-#include <wtf/Vector.h>
 
 namespace JSC {
 
 class BytecodeKills;
-class CodeBlock;
 class FullBytecodeLiveness;
 
-class BytecodeLivenessAnalysis {
+class BytecodeLivenessPropagation {
+protected:
+    template<typename CodeBlockType, typename UseFunctor, typename DefFunctor> void stepOverInstruction(CodeBlockType*, const InstructionStream&, BytecodeGraph&, InstructionStream::Offset bytecodeOffset, const UseFunctor&, const DefFunctor&);
+
+    template<typename CodeBlockType> void stepOverInstruction(CodeBlockType*, const InstructionStream&, BytecodeGraph&, InstructionStream::Offset bytecodeOffset, FastBitVector& out);
+
+    template<typename CodeBlockType, typename Instructions> bool computeLocalLivenessForBytecodeOffset(CodeBlockType*, const Instructions&, BytecodeGraph&, BytecodeBasicBlock*, unsigned targetOffset, FastBitVector& result);
+
+    template<typename CodeBlockType, typename Instructions> bool computeLocalLivenessForBlock(CodeBlockType*, const Instructions&, BytecodeGraph&, BytecodeBasicBlock*);
+
+    template<typename CodeBlockType, typename Instructions> FastBitVector getLivenessInfoAtBytecodeOffset(CodeBlockType*, const Instructions&, BytecodeGraph&, unsigned bytecodeOffset);
+
+    template<typename CodeBlockType, typename Instructions> void runLivenessFixpoint(CodeBlockType*, const Instructions&, BytecodeGraph&);
+};
+
+class BytecodeLivenessAnalysis : private BytecodeLivenessPropagation {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(BytecodeLivenessAnalysis);
 public:
+    friend class BytecodeLivenessPropagation;
     BytecodeLivenessAnalysis(CodeBlock*);
     
-    bool operandIsLiveAtBytecodeOffset(int operand, unsigned bytecodeOffset);
-    FastBitVector getLivenessInfoAtBytecodeOffset(unsigned bytecodeOffset);
+    FastBitVector getLivenessInfoAtBytecodeOffset(CodeBlock*, unsigned bytecodeOffset);
     
-    void computeFullLiveness(FullBytecodeLiveness& result);
-    void computeKills(BytecodeKills& result);
+    void computeFullLiveness(CodeBlock*, FullBytecodeLiveness& result);
+    void computeKills(CodeBlock*, BytecodeKills& result);
 
 private:
-    void compute();
-    void runLivenessFixpoint();
-    void dumpResults();
+    void dumpResults(CodeBlock*);
 
-    void getLivenessInfoAtBytecodeOffset(unsigned bytecodeOffset, FastBitVector&);
+    void getLivenessInfoAtBytecodeOffset(CodeBlock*, unsigned bytecodeOffset, FastBitVector&);
 
-    CodeBlock* m_codeBlock;
-    Vector<std::unique_ptr<BytecodeBasicBlock>> m_basicBlocks;
+    BytecodeGraph m_graph;
 };
 
 inline bool operandIsAlwaysLive(int operand);
 inline bool operandThatIsNotAlwaysLiveIsLive(const FastBitVector& out, int operand);
 inline bool operandIsLive(const FastBitVector& out, int operand);
+inline bool isValidRegisterForLiveness(int operand);
 
 } // namespace JSC
-
-#endif // BytecodeLivenessAnalysis_h

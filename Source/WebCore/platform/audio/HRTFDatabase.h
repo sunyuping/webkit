@@ -33,7 +33,6 @@
 #include <memory>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/PassRefPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -41,6 +40,7 @@ namespace WebCore {
 class HRTFKernel;
 
 class HRTFDatabase {
+    WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(HRTFDatabase);
 public:
     explicit HRTFDatabase(float sampleRate);

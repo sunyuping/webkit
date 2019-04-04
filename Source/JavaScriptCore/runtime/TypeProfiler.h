@@ -23,10 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TypeProfiler_h
-#define TypeProfiler_h
+#pragma once
 
-#include "CodeBlock.h"
 #include "TypeLocation.h"
 #include "TypeLocationCache.h"
 #include <wtf/Bag.h>
@@ -126,7 +124,7 @@ public:
     TypeLocation* findLocation(unsigned divot, intptr_t sourceID, TypeProfilerSearchDescriptor, VM&);
     GlobalVariableID getNextUniqueVariableID() { return m_nextUniqueVariableID++; }
     TypeLocation* nextTypeLocation();
-    void invalidateTypeSetCache();
+    void invalidateTypeSetCache(VM&);
     void dumpTypeProfilerData(VM&);
     
 private:
@@ -140,5 +138,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // TypeProfiler_h

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2008, 2016 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -34,6 +34,11 @@ namespace WebCore {
 class FontDescription;
 class FontPlatformData;
 class SharedBuffer;
+struct FontSelectionSpecifiedCapabilities;
+struct FontVariantSettings;
+
+template <typename T> class FontTaggedSettings;
+typedef FontTaggedSettings<int> FontFeatureSettings;
 
 struct FontCustomPlatformData {
     WTF_MAKE_NONCOPYABLE(FontCustomPlatformData);
@@ -46,7 +51,7 @@ public:
 
     ~FontCustomPlatformData();
 
-    FontPlatformData fontPlatformData(const FontDescription&, bool bold, bool italic);
+    FontPlatformData fontPlatformData(const FontDescription&, bool bold, bool italic, const FontFeatureSettings&, const FontVariantSettings&, FontSelectionSpecifiedCapabilities);
 
     static bool supportsFormat(const String&);
 
@@ -54,7 +59,7 @@ public:
     String m_name;
 };
 
-std::unique_ptr<FontCustomPlatformData> createFontCustomPlatformData(SharedBuffer&);
+std::unique_ptr<FontCustomPlatformData> createFontCustomPlatformData(SharedBuffer&, const String&);
 
 }
 

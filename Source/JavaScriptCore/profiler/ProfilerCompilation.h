@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2013, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ProfilerCompilation_h
-#define ProfilerCompilation_h
+#pragma once
 
 #include "ExitKind.h"
 #include "JSCJSValue.h"
@@ -36,6 +35,7 @@
 #include "ProfilerOSRExitSite.h"
 #include "ProfilerOriginStack.h"
 #include "ProfilerProfiledBytecodes.h"
+#include "ProfilerUID.h"
 #include <wtf/RefCounted.h>
 #include <wtf/SegmentedVector.h>
 
@@ -70,18 +70,19 @@ public:
     void addDescription(const CompiledBytecode&);
     void addDescription(const OriginStack&, const CString& description);
     ExecutionCounter* executionCounterFor(const OriginStack&);
-    void addOSRExitSite(const Vector<const void*>& codeAddresses);
+    void addOSRExitSite(const Vector<MacroAssemblerCodePtr<JSInternalPtrTag>>& codeAddresses);
     OSRExit* addOSRExit(unsigned id, const OriginStack&, ExitKind, bool isWatchpoint);
     
     void setJettisonReason(JettisonReason, const FireDetail*);
     
+    UID uid() const { return m_uid; }
+    
+    void dump(PrintStream&) const;
     JSValue toJS(ExecState*) const;
     
 private:
-    Bytecodes* m_bytecodes;
     CompilationKind m_kind;
-    JettisonReason m_jettisonReason;
-    CString m_additionalJettisonReason;
+    Bytecodes* m_bytecodes;
     Vector<ProfiledBytecodes> m_profiledBytecodes;
     Vector<CompiledBytecode> m_descriptions;
     HashMap<OriginStack, std::unique_ptr<ExecutionCounter>> m_counters;
@@ -90,9 +91,9 @@ private:
     unsigned m_numInlinedGetByIds;
     unsigned m_numInlinedPutByIds;
     unsigned m_numInlinedCalls;
+    JettisonReason m_jettisonReason;
+    CString m_additionalJettisonReason;
+    UID m_uid;
 };
 
 } } // namespace JSC::Profiler
-
-#endif // ProfilerCompilation_h
-

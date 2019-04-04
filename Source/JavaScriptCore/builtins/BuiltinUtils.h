@@ -24,23 +24,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BuiltinUtils_h
-#define BuiltinUtils_h
+#pragma once
 
 #include "ConstructAbility.h"
 
 namespace JSC {
 
-#define INITIALIZE_BUILTIN_NAMES(name) , m_##name(JSC::Identifier::fromString(vm, #name)), m_##name##PrivateName(JSC::Identifier::fromUid(JSC::PrivateName(JSC::PrivateName::Description, ASCIILiteral("PrivateSymbol." #name))))
+#define INITIALIZE_BUILTIN_NAMES(name) , m_##name(JSC::Identifier::fromString(vm, #name)), m_##name##PrivateName(JSC::Identifier::fromUid(JSC::PrivateName(JSC::PrivateName::PrivateSymbol, #name ""_s)))
 #define DECLARE_BUILTIN_NAMES(name) const JSC::Identifier m_##name; const JSC::Identifier m_##name##PrivateName;
 #define DECLARE_BUILTIN_IDENTIFIER_ACCESSOR(name) \
     const JSC::Identifier& name##PublicName() const { return m_##name; } \
     const JSC::Identifier& name##PrivateName() const { return m_##name##PrivateName; }
-
-#define INITIALIZE_BUILTIN_SYMBOLS(name) , m_##name##Symbol(JSC::Identifier::fromUid(JSC::PrivateName(JSC::PrivateName::Description, ASCIILiteral("Symbol." #name))))
-#define DECLARE_BUILTIN_SYMBOLS(name) const JSC::Identifier m_##name##Symbol;
-#define DECLARE_BUILTIN_SYMBOL_ACCESSOR(name) \
-    const JSC::Identifier& name##Symbol() const { return m_##name##Symbol; }
 
 class Identifier;
 class SourceCode;
@@ -49,6 +43,4 @@ class VM;
 
 JS_EXPORT_PRIVATE UnlinkedFunctionExecutable* createBuiltinExecutable(VM&, const SourceCode&, const Identifier&, ConstructAbility);
     
-}
-
-#endif
+} // namespace JSC

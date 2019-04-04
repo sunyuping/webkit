@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2017 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,92 +20,81 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
- *
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WorkerMessagingProxy_h
-#define WorkerMessagingProxy_h
+#pragma once
 
-#include "ScriptExecutionContext.h"
 #include "WorkerGlobalScopeProxy.h"
+#include "WorkerDebuggerProxy.h"
 #include "WorkerLoaderProxy.h"
 #include "WorkerObjectProxy.h"
-#include <memory>
-#include <wtf/Forward.h>
-#include <wtf/Noncopyable.h>
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefPtr.h>
-#include <wtf/Vector.h>
+#include <wtf/MonotonicTime.h>
+#include <wtf/ThreadSafeRefCounted.h>
 
 namespace WebCore {
 
-    class ContentSecurityPolicyResponseHeaders;
-    class DedicatedWorkerThread;
-    class ScriptExecutionContext;
-    class Worker;
+class DedicatedWorkerThread;
+class WorkerInspectorProxy;
 
-    class WorkerMessagingProxy : public WorkerGlobalScopeProxy, public WorkerObjectProxy, public WorkerLoaderProxy {
-        WTF_MAKE_NONCOPYABLE(WorkerMessagingProxy); WTF_MAKE_FAST_ALLOCATED;
-    public:
-        explicit WorkerMessagingProxy(Worker*);
+class WorkerMessagingProxy final : public ThreadSafeRefCounted<WorkerMessagingProxy>, public WorkerGlobalScopeProxy, public WorkerObjectProxy, public WorkerLoaderProxy, public WorkerDebuggerProxy {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    explicit WorkerMessagingProxy(Worker&);
+    virtual ~WorkerMessagingProxy();
 
-        // Implementations of WorkerGlobalScopeProxy.
-        // (Only use these methods in the worker object thread.)
-        virtual void startWorkerGlobalScope(const URL& scriptURL, const String& userAgent, const String& sourceCode, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, WorkerThreadStartMode) override;
-        virtual void terminateWorkerGlobalScope() override;
-        virtual void postMessageToWorkerGlobalScope(PassRefPtr<SerializedScriptValue>, std::unique_ptr<MessagePortChannelArray>) override;
-        virtual bool hasPendingActivity() const override;
-        virtual void workerObjectDestroyed() override;
-        virtual void notifyNetworkStateChange(bool isOnline) override;
+private:
+    // Implementations of WorkerGlobalScopeProxy.
+    // (Only use these functions in the worker object thread.)
+    void startWorkerGlobalScope(const URL& scriptURL, const String& name, const String& userAgent, bool isOnline, const String& sourceCode, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, MonotonicTime timeOrigin, JSC::RuntimeFlags, PAL::SessionID) final;
+    void terminateWorkerGlobalScope() final;
+    void postMessageToWorkerGlobalScope(MessageWithMessagePorts&&) final;
+    bool hasPendingActivity() const final;
+    void workerObjectDestroyed() final;
+    void notifyNetworkStateChange(bool isOnline) final;
 
-        // Implementations of WorkerObjectProxy.
-        // (Only use these methods in the worker context thread.)
-        virtual void postMessageToWorkerObject(PassRefPtr<SerializedScriptValue>, std::unique_ptr<MessagePortChannelArray>) override;
-        virtual void postExceptionToWorkerObject(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL) override;
-        virtual void postConsoleMessageToWorkerObject(MessageSource, MessageLevel, const String& message, int lineNumber, int columnNumber, const String& sourceURL) override;
-        virtual void confirmMessageFromWorkerObject(bool hasPendingActivity) override;
-        virtual void reportPendingActivity(bool hasPendingActivity) override;
-        virtual void workerGlobalScopeClosed() override;
-        virtual void workerGlobalScopeDestroyed() override;
+    // Implementation of WorkerObjectProxy.
+    // (Only use these functions in the worker context thread.)
+    void postMessageToWorkerObject(MessageWithMessagePorts&&) final;
+    void postExceptionToWorkerObject(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL) final;
+    void confirmMessageFromWorkerObject(bool hasPendingActivity) final;
+    void reportPendingActivity(bool hasPendingActivity) final;
+    void workerGlobalScopeClosed() final;
+    void workerGlobalScopeDestroyed() final;
 
-        // Implementation of WorkerLoaderProxy.
-        // These methods are called on different threads to schedule loading
-        // requests and to send callbacks back to WorkerGlobalScope.
-        virtual void postTaskToLoader(ScriptExecutionContext::Task) override;
-        virtual bool postTaskForModeToWorkerGlobalScope(ScriptExecutionContext::Task, const String& mode) override;
+    // Implementation of WorkerDebuggerProxy.
+    // (Only use these functions in the worker context thread.)
+    void postMessageToDebugger(const String&) final;
+    void setResourceCachingDisabled(bool) final;
 
-        void workerThreadCreated(PassRefPtr<DedicatedWorkerThread>);
+    // Implementation of WorkerLoaderProxy.
+    // These functions are called on different threads to schedule loading
+    // requests and to send callbacks back to WorkerGlobalScope.
+    void postTaskToLoader(ScriptExecutionContext::Task&&) final;
+    bool postTaskForModeToWorkerGlobalScope(ScriptExecutionContext::Task&&, const String& mode) final;
+    Ref<CacheStorageConnection> createCacheStorageConnection() final;
 
-        // Only use this method on the worker object thread.
-        bool askedToTerminate() const { return m_askedToTerminate; }
+    void workerThreadCreated(DedicatedWorkerThread&);
 
-    protected:
-        virtual ~WorkerMessagingProxy();
+    // Only use this method on the worker object thread.
+    bool askedToTerminate() const { return m_askedToTerminate; }
 
-    private:
-        friend class MessageWorkerTask;
-        friend class WorkerGlobalScopeDestroyedTask;
-        friend class WorkerExceptionTask;
-        friend class WorkerThreadActivityReportTask;
+    void workerGlobalScopeDestroyedInternal();
+    void reportPendingActivityInternal(bool confirmingMessage, bool hasPendingActivity);
+    Worker* workerObject() const { return m_workerObject; }
 
-        void workerGlobalScopeDestroyedInternal();
-        void reportPendingActivityInternal(bool confirmingMessage, bool hasPendingActivity);
-        Worker* workerObject() const { return m_workerObject; }
+    RefPtr<ScriptExecutionContext> m_scriptExecutionContext;
+    std::unique_ptr<WorkerInspectorProxy> m_inspectorProxy;
+    Worker* m_workerObject;
+    bool m_mayBeDestroyed { false };
+    RefPtr<DedicatedWorkerThread> m_workerThread;
 
-        RefPtr<ScriptExecutionContext> m_scriptExecutionContext;
-        Worker* m_workerObject;
-        bool m_mayBeDestroyed;
-        RefPtr<DedicatedWorkerThread> m_workerThread;
+    unsigned m_unconfirmedMessageCount { 0 }; // Unconfirmed messages from worker object to worker thread.
+    bool m_workerThreadHadPendingActivity { false }; // The latest confirmation from worker thread reported that it was still active.
 
-        unsigned m_unconfirmedMessageCount; // Unconfirmed messages from worker object to worker thread.
-        bool m_workerThreadHadPendingActivity; // The latest confirmation from worker thread reported that it was still active.
+    bool m_askedToTerminate { false };
 
-        bool m_askedToTerminate;
-
-        Vector<std::unique_ptr<ScriptExecutionContext::Task>> m_queuedEarlyTasks; // Tasks are queued here until there's a thread object created.
-    };
+    Vector<std::unique_ptr<ScriptExecutionContext::Task>> m_queuedEarlyTasks; // Tasks are queued here until there's a thread object created.
+};
 
 } // namespace WebCore
-
-#endif // WorkerMessagingProxy_h

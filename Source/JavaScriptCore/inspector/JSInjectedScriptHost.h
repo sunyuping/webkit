@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSInjectedScriptHost_h
-#define JSInjectedScriptHost_h
+#pragma once
 
 #include "JSDestructibleObject.h"
 
@@ -32,7 +31,7 @@ namespace Inspector {
 
 class InjectedScriptHost;
 
-class JSInjectedScriptHost : public JSC::JSDestructibleObject {
+class JSInjectedScriptHost final : public JSC::JSDestructibleObject {
 public:
     typedef JSC::JSDestructibleObject Base;
     static const unsigned StructureFlags = Base::StructureFlags;
@@ -54,22 +53,25 @@ public:
     static JSC::JSObject* createPrototype(JSC::VM&, JSC::JSGlobalObject*);
     static void destroy(JSC::JSCell*);
 
-    InjectedScriptHost& impl() const { return const_cast<InjectedScriptHost&>(m_wrapped.get()); }
+    InjectedScriptHost& impl() const { return m_wrapped; }
 
     // Attributes.
     JSC::JSValue evaluate(JSC::ExecState*) const;
 
     // Functions.
+    JSC::JSValue evaluateWithScopeExtension(JSC::ExecState*);
     JSC::JSValue internalConstructorName(JSC::ExecState*);
     JSC::JSValue isHTMLAllCollection(JSC::ExecState*);
     JSC::JSValue subtype(JSC::ExecState*);
     JSC::JSValue functionDetails(JSC::ExecState*);
     JSC::JSValue getInternalProperties(JSC::ExecState*);
+    JSC::JSValue proxyTargetValue(JSC::ExecState*);
     JSC::JSValue weakMapSize(JSC::ExecState*);
     JSC::JSValue weakMapEntries(JSC::ExecState*);
     JSC::JSValue weakSetSize(JSC::ExecState*);
     JSC::JSValue weakSetEntries(JSC::ExecState*);
     JSC::JSValue iteratorEntries(JSC::ExecState*);
+    JSC::JSValue queryObjects(JSC::ExecState*);
 
 protected:
     void finishCreation(JSC::VM&);
@@ -81,5 +83,3 @@ private:
 };
 
 } // namespace Inspector
-
-#endif // !defined(JSInjectedScriptHost_h)

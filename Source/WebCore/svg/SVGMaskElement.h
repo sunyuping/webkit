@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2005 Alexander Kellett <lypanov@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -17,12 +18,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGMaskElement_h
-#define SVGMaskElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedEnumeration.h"
-#include "SVGAnimatedLength.h"
 #include "SVGElement.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGNames.h"
@@ -31,43 +28,48 @@
 
 namespace WebCore {
 
-class SVGMaskElement final : public SVGElement,
-                             public SVGTests,
-                             public SVGExternalResourcesRequired {
+class SVGMaskElement final : public SVGElement, public SVGExternalResourcesRequired, public SVGTests {
+    WTF_MAKE_ISO_ALLOCATED(SVGMaskElement);
 public:
     static Ref<SVGMaskElement> create(const QualifiedName&, Document&);
+
+    const SVGLengthValue& x() const { return m_x->currentValue(); }
+    const SVGLengthValue& y() const { return m_y->currentValue(); }
+    const SVGLengthValue& width() const { return m_width->currentValue(); }
+    const SVGLengthValue& height() const { return m_height->currentValue(); }
+    SVGUnitTypes::SVGUnitType maskUnits() const { return m_maskUnits->currentValue<SVGUnitTypes::SVGUnitType>(); }
+    SVGUnitTypes::SVGUnitType maskContentUnits() const { return m_maskContentUnits->currentValue<SVGUnitTypes::SVGUnitType>(); }
+
+    SVGAnimatedLength& xAnimated() { return m_x; }
+    SVGAnimatedLength& yAnimated() { return m_y; }
+    SVGAnimatedLength& widthAnimated() { return m_width; }
+    SVGAnimatedLength& heightAnimated() { return m_height; }
+    SVGAnimatedEnumeration& maskUnitsAnimated() { return m_maskUnits; }
+    SVGAnimatedEnumeration& maskContentUnitsAnimated() { return m_maskContentUnits; }
 
 private:
     SVGMaskElement(const QualifiedName&, Document&);
 
-    virtual bool isValid() const override { return SVGTests::isValid(); }
-    virtual bool needsPendingResourceHandling() const override { return false; }
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGMaskElement, SVGElement, SVGExternalResourcesRequired, SVGTests>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    static bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-    virtual void childrenChanged(const ChildChange&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void svgAttributeChanged(const QualifiedName&) final;
+    void childrenChanged(const ChildChange&) final;
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
 
-    virtual bool selfHasRelativeLengths() const override { return true; }
+    bool isValid() const final { return SVGTests::isValid(); }
+    bool needsPendingResourceHandling() const final { return false; }
+    bool selfHasRelativeLengths() const final { return true; }
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGMaskElement)
-        DECLARE_ANIMATED_ENUMERATION(MaskUnits, maskUnits, SVGUnitTypes::SVGUnitType)
-        DECLARE_ANIMATED_ENUMERATION(MaskContentUnits, maskContentUnits, SVGUnitTypes::SVGUnitType)
-        DECLARE_ANIMATED_LENGTH(X, x)
-        DECLARE_ANIMATED_LENGTH(Y, y)
-        DECLARE_ANIMATED_LENGTH(Width, width)
-        DECLARE_ANIMATED_LENGTH(Height, height)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
-
-    // SVGTests
-    virtual void synchronizeRequiredFeatures() override { SVGTests::synchronizeRequiredFeatures(this); }
-    virtual void synchronizeRequiredExtensions() override { SVGTests::synchronizeRequiredExtensions(this); }
-    virtual void synchronizeSystemLanguage() override { SVGTests::synchronizeSystemLanguage(this); }
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, LengthModeWidth, "-10%") };
+    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, LengthModeHeight, "-10%") };
+    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, LengthModeWidth, "120%") };
+    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, LengthModeHeight, "120%") };
+    Ref<SVGAnimatedEnumeration> m_maskUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) };
+    Ref<SVGAnimatedEnumeration> m_maskContentUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_USERSPACEONUSE) };
 };
 
-}
-
-#endif
+} // namespace WebCore

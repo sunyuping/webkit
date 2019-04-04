@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +24,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef FocusEvent_h
-#define FocusEvent_h
+#pragma once
 
 #include "EventTarget.h"
 #include "UIEvent.h"
@@ -33,32 +33,38 @@ namespace WebCore {
 
 class Node;
 
-struct FocusEventInit : public UIEventInit {
-    RefPtr<EventTarget> relatedTarget;
-};
-
 class FocusEvent final : public UIEvent {
 public:
-    static Ref<FocusEvent> create(const AtomicString& type, bool canBubble, bool cancelable, AbstractView* view, int detail, RefPtr<EventTarget>&& relatedTarget)
+    static Ref<FocusEvent> create(const AtomicString& type, CanBubble canBubble, IsCancelable cancelable, RefPtr<WindowProxy>&& view, int detail, RefPtr<EventTarget>&& relatedTarget)
     {
-        return adoptRef(*new FocusEvent(type, canBubble, cancelable, view, detail, WTFMove(relatedTarget)));
+        return adoptRef(*new FocusEvent(type, canBubble, cancelable, WTFMove(view), detail, WTFMove(relatedTarget)));
     }
 
-    static Ref<FocusEvent> createForBindings(const AtomicString& type, const FocusEventInit& initializer)
+    static Ref<FocusEvent> createForBindings()
+    {
+        return adoptRef(*new FocusEvent);
+    }
+
+    struct Init : UIEventInit {
+        RefPtr<EventTarget> relatedTarget;
+    };
+
+    static Ref<FocusEvent> create(const AtomicString& type, const Init& initializer)
     {
         return adoptRef(*new FocusEvent(type, initializer));
     }
 
-    virtual EventTarget* relatedTarget() const override { return m_relatedTarget.get(); }
-    void setRelatedTarget(RefPtr<EventTarget>&& relatedTarget) { m_relatedTarget = WTFMove(relatedTarget); }
-
-    virtual EventInterface eventInterface() const override;
+    EventTarget* relatedTarget() const final { return m_relatedTarget.get(); }
 
 private:
-    FocusEvent(const AtomicString& type, bool canBubble, bool cancelable, AbstractView*, int, RefPtr<EventTarget>&&);
-    FocusEvent(const AtomicString& type, const FocusEventInit&);
+    FocusEvent() = default;
+    FocusEvent(const AtomicString& type, CanBubble, IsCancelable, RefPtr<WindowProxy>&&, int, RefPtr<EventTarget>&&);
+    FocusEvent(const AtomicString& type, const Init&);
 
-    virtual bool isFocusEvent() const override;
+    EventInterface eventInterface() const final;
+    bool isFocusEvent() const final;
+
+    void setRelatedTarget(EventTarget& relatedTarget) final { m_relatedTarget = &relatedTarget; }
 
     RefPtr<EventTarget> m_relatedTarget;
 };
@@ -66,5 +72,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_EVENT(FocusEvent)
-
-#endif // FocusEvent_h

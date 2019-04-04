@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef JITStubRoutineSet_h
-#define JITStubRoutineSet_h
+#pragma once
 
 #include "JITStubRoutine.h"
 #include <wtf/FastMalloc.h>
@@ -52,7 +51,7 @@ public:
     
     void mark(void* candidateAddress)
     {
-        uintptr_t address = reinterpret_cast<uintptr_t>(candidateAddress);
+        uintptr_t address = removeCodePtrTag<uintptr_t>(candidateAddress);
         if (!JITStubRoutine::passesFilter(address))
             return;
         
@@ -93,6 +92,3 @@ public:
 #endif // !ENABLE(JIT)
 
 } // namespace JSC
-
-#endif // JITStubRoutineSet_h
-

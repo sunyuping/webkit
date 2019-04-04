@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSInternalPromiseDeferred_h
-#define JSInternalPromiseDeferred_h
+#pragma once
 
 #include "JSPromiseDeferred.h"
 
@@ -37,7 +36,7 @@ public:
     typedef JSPromiseDeferred Base;
     static const unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
-    JS_EXPORT_PRIVATE static JSInternalPromiseDeferred* create(ExecState*, JSGlobalObject*);
+    JS_EXPORT_PRIVATE static JSInternalPromiseDeferred* tryCreate(ExecState*, JSGlobalObject*);
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
@@ -49,11 +48,10 @@ public:
     JS_EXPORT_PRIVATE JSInternalPromise* promise() const;
     JS_EXPORT_PRIVATE JSInternalPromise* resolve(ExecState*, JSValue);
     JS_EXPORT_PRIVATE JSInternalPromise* reject(ExecState*, JSValue);
+    JS_EXPORT_PRIVATE JSInternalPromise* reject(ExecState*, Exception*);
 
 private:
     JSInternalPromiseDeferred(VM&);
 };
 
 } // namespace JSC
-
-#endif // JSInternalPromiseDeferred_h

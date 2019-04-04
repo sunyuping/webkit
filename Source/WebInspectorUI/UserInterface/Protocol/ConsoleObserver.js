@@ -23,33 +23,38 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ConsoleObserver = class ConsoleObserver
+WI.ConsoleObserver = class ConsoleObserver
 {
     // Events defined by the "Console" domain.
 
     messageAdded(message)
     {
-        if (message.type === "assert" && !message.text)
-            message.text = WebInspector.UIString("Assertion");
-
-        if (message.level === "warning" || message.level === "error") {
-            // FIXME: <https://webkit.org/b/142553> Web Inspector: Merge IssueMessage/ConsoleMessage - both attempt to modify the Console Messages parameter independently
-            WebInspector.issueManager.issueWasAdded(message.source, message.level, message.text, message.url, message.line, message.column || 0);
-        }
-
         if (message.source === "console-api" && message.type === "clear")
             return;
 
-        WebInspector.logManager.messageWasAdded(message.source, message.level, message.text, message.type, message.url, message.line, message.column || 0, message.repeatCount, message.parameters, message.stackTrace, message.networkRequestId);
+        if (message.type === "assert" && !message.text)
+            message.text = WI.UIString("Assertion");
+
+        WI.consoleManager.messageWasAdded(this.target, message.source, message.level, message.text, message.type, message.url, message.line, message.column || 0, message.repeatCount, message.parameters, message.stackTrace, message.networkRequestId);
     }
 
     messageRepeatCountUpdated(count)
     {
-        WebInspector.logManager.messageRepeatCountUpdated(count);
+        WI.consoleManager.messageRepeatCountUpdated(count);
     }
 
     messagesCleared()
     {
-        WebInspector.logManager.messagesCleared();
+        WI.consoleManager.messagesCleared();
+    }
+
+    heapSnapshot(timestamp, snapshotStringData, title)
+    {
+        let workerProxy = WI.HeapSnapshotWorkerProxy.singleton();
+        workerProxy.createSnapshot(snapshotStringData, title || null, ({objectId, snapshot: serializedSnapshot}) => {
+            let snapshot = WI.HeapSnapshotProxy.deserialize(objectId, serializedSnapshot);
+            snapshot.snapshotStringData = snapshotStringData;
+            WI.timelineManager.heapSnapshotAdded(timestamp, snapshot);
+        });
     }
 };

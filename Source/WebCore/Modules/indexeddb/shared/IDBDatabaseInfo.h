@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IDBDatabaseInfo_h
-#define IDBDatabaseInfo_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
@@ -33,11 +32,13 @@
 
 namespace WebCore {
 
-class IDBKeyPath;
-
 class IDBDatabaseInfo {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     IDBDatabaseInfo(const String& name, uint64_t version);
+
+    enum IsolatedCopyTag { IsolatedCopy };
+    IDBDatabaseInfo(const IDBDatabaseInfo&, IsolatedCopyTag);
 
     IDBDatabaseInfo isolatedCopy() const;
 
@@ -47,25 +48,30 @@ public:
     uint64_t version() const { return m_version; }
 
     bool hasObjectStore(const String& name) const;
-    IDBObjectStoreInfo createNewObjectStore(const String& name, const IDBKeyPath&, bool autoIncrement);
+    IDBObjectStoreInfo createNewObjectStore(const String& name, Optional<IDBKeyPath>&&, bool autoIncrement);
     void addExistingObjectStore(const IDBObjectStoreInfo&);
     IDBObjectStoreInfo* infoForExistingObjectStore(uint64_t objectStoreIdentifier);
     IDBObjectStoreInfo* infoForExistingObjectStore(const String& objectStoreName);
     const IDBObjectStoreInfo* infoForExistingObjectStore(uint64_t objectStoreIdentifier) const;
     const IDBObjectStoreInfo* infoForExistingObjectStore(const String& objectStoreName) const;
 
+    void renameObjectStore(uint64_t objectStoreIdentifier, const String& newName);
+
     Vector<String> objectStoreNames() const;
 
     void deleteObjectStore(const String& objectStoreName);
     void deleteObjectStore(uint64_t objectStoreIdentifier);
 
-#ifndef NDEBUG
+    WEBCORE_EXPORT IDBDatabaseInfo();
+
+    template<class Encoder> void encode(Encoder&) const;
+    template<class Decoder> static bool decode(Decoder&, IDBDatabaseInfo&);
+
+#if !LOG_DISABLED
     String loggingString() const;
 #endif
 
 private:
-    IDBDatabaseInfo();
-
     IDBObjectStoreInfo* getInfoForExistingObjectStore(const String& objectStoreName);
     IDBObjectStoreInfo* getInfoForExistingObjectStore(uint64_t objectStoreIdentifier);
 
@@ -77,7 +83,30 @@ private:
 
 };
 
+template<class Encoder>
+void IDBDatabaseInfo::encode(Encoder& encoder) const
+{
+    encoder << m_name << m_version << m_maxObjectStoreID << m_objectStoreMap;
+}
+
+template<class Decoder>
+bool IDBDatabaseInfo::decode(Decoder& decoder, IDBDatabaseInfo& info)
+{
+    if (!decoder.decode(info.m_name))
+        return false;
+
+    if (!decoder.decode(info.m_version))
+        return false;
+
+    if (!decoder.decode(info.m_maxObjectStoreID))
+        return false;
+
+    if (!decoder.decode(info.m_objectStoreMap))
+        return false;
+
+    return true;
+}
+
 } // namespace WebCore
 
 #endif // ENABLE(INDEXED_DATABASE)
-#endif // IDBDatabaseInfo_h

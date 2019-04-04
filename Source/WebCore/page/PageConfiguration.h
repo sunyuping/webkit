@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,74 +20,100 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PageConfiguration_h
-#define PageConfiguration_h
+#pragma once
 
 #include <wtf/Noncopyable.h>
+#include <wtf/Optional.h>
 #include <wtf/RefPtr.h>
+#include <wtf/UniqueRef.h>
 
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/PageConfigurationIncludes.h>
+#if ENABLE(APPLICATION_MANIFEST)
+#include "ApplicationManifest.h"
 #endif
 
 namespace WebCore {
 
 class AlternativeTextClient;
 class ApplicationCacheStorage;
+class AuthenticatorCoordinatorClient;
 class BackForwardClient;
+class CacheStorageProvider;
+class CookieJar;
 class ChromeClient;
+class ContextMenuClient;
 class DatabaseProvider;
 class DiagnosticLoggingClient;
 class DragClient;
 class EditorClient;
 class FrameLoaderClient;
 class InspectorClient;
+class LibWebRTCProvider;
+class PaymentCoordinatorClient;
+class PerformanceLoggingClient;
 class PlugInClient;
+class PluginInfoProvider;
 class ProgressTrackerClient;
+class SocketProvider;
 class StorageNamespaceProvider;
-class UserContentController;
+class UserContentProvider;
 class ValidationMessageClient;
 class VisitedLinkStore;
-
-#if ENABLE(CONTEXT_MENUS)
-class ContextMenuClient;
-#endif
+class WebGLStateTracker;
+class SpeechSynthesisClient;
 
 class PageConfiguration {
     WTF_MAKE_NONCOPYABLE(PageConfiguration); WTF_MAKE_FAST_ALLOCATED;
 public:
-    WEBCORE_EXPORT PageConfiguration();
+    WEBCORE_EXPORT PageConfiguration(UniqueRef<EditorClient>&&, Ref<SocketProvider>&&, UniqueRef<LibWebRTCProvider>&&, Ref<CacheStorageProvider>&&, Ref<BackForwardClient>&&, Ref<CookieJar>&&);
     WEBCORE_EXPORT ~PageConfiguration();
+    PageConfiguration(PageConfiguration&&);
 
     AlternativeTextClient* alternativeTextClient { nullptr };
     ChromeClient* chromeClient { nullptr };
 #if ENABLE(CONTEXT_MENUS)
     ContextMenuClient* contextMenuClient { nullptr };
 #endif
-    EditorClient* editorClient { nullptr };
+    UniqueRef<EditorClient> editorClient;
+    Ref<SocketProvider> socketProvider;
     DragClient* dragClient { nullptr };
     InspectorClient* inspectorClient { nullptr };
+#if ENABLE(APPLE_PAY)
+    PaymentCoordinatorClient* paymentCoordinatorClient { nullptr };
+#endif
+
+#if ENABLE(WEB_AUTHN)
+    std::unique_ptr<AuthenticatorCoordinatorClient> authenticatorCoordinatorClient;
+#endif
+
+#if ENABLE(APPLICATION_MANIFEST)
+    Optional<ApplicationManifest> applicationManifest;
+#endif
+
+    UniqueRef<LibWebRTCProvider> libWebRTCProvider;
+
     PlugInClient* plugInClient { nullptr };
     ProgressTrackerClient* progressTrackerClient { nullptr };
-    RefPtr<BackForwardClient> backForwardClient;
-    ValidationMessageClient* validationMessageClient { nullptr };
+    Ref<BackForwardClient> backForwardClient;
+    Ref<CookieJar> cookieJar;
+    std::unique_ptr<ValidationMessageClient> validationMessageClient;
     FrameLoaderClient* loaderClientForMainFrame { nullptr };
-    DiagnosticLoggingClient* diagnosticLoggingClient { nullptr };
-
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/PageConfigurationMembers.h>
+    std::unique_ptr<DiagnosticLoggingClient> diagnosticLoggingClient;
+    std::unique_ptr<PerformanceLoggingClient> performanceLoggingClient;
+    std::unique_ptr<WebGLStateTracker> webGLStateTracker;
+#if ENABLE(SPEECH_SYNTHESIS)
+    std::unique_ptr<SpeechSynthesisClient> speechSynthesisClient;
 #endif
 
     RefPtr<ApplicationCacheStorage> applicationCacheStorage;
     RefPtr<DatabaseProvider> databaseProvider;
+    Ref<CacheStorageProvider> cacheStorageProvider;
+    RefPtr<PluginInfoProvider> pluginInfoProvider;
     RefPtr<StorageNamespaceProvider> storageNamespaceProvider;
-    RefPtr<UserContentController> userContentController;
+    RefPtr<UserContentProvider> userContentProvider;
     RefPtr<VisitedLinkStore> visitedLinkStore;
 };
 
 }
-
-#endif

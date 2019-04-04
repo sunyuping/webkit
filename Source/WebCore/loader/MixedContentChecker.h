@@ -28,8 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MixedContentChecker_h
-#define MixedContentChecker_h
+#pragma once
 
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
@@ -38,7 +37,6 @@ namespace WebCore {
 
 class Frame;
 class FrameLoaderClient;
-class URL;
 class SecurityOrigin;
 
 class MixedContentChecker {
@@ -51,10 +49,15 @@ public:
 
     MixedContentChecker(Frame&);
 
-    bool canDisplayInsecureContent(SecurityOrigin*, ContentType, const URL&) const;
-    bool canRunInsecureContent(SecurityOrigin*, const URL&) const;
-    void checkFormForMixedContent(SecurityOrigin*, const URL&) const;
-    static bool isMixedContent(SecurityOrigin*, const URL&);
+    enum class AlwaysDisplayInNonStrictMode {
+        No,
+        Yes,
+    };
+
+    bool canDisplayInsecureContent(SecurityOrigin&, ContentType, const URL&, AlwaysDisplayInNonStrictMode = AlwaysDisplayInNonStrictMode::No) const;
+    bool canRunInsecureContent(SecurityOrigin&, const URL&) const;
+    void checkFormForMixedContent(SecurityOrigin&, const URL&) const;
+    static bool isMixedContent(SecurityOrigin&, const URL&);
 
 private:
     // FIXME: This should probably have a separate client from FrameLoader.
@@ -66,6 +69,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // MixedContentChecker_h
-

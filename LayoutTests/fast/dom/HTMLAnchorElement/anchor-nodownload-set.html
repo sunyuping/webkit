@@ -1,10 +1,13 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!-- webkit-test-runner [ useFlexibleViewport=true ] -->
 <html>
 <head>
-<script type='text/javascript'>
+<meta name="viewport" content="width=device-width">
+<script src="../../../resources/ui-helper.js"></script>
+<script>
 if (window.testRunner) {
   testRunner.dumpAsText();
-  testRunner.waitUntilDone();
+  testRunner.setShouldLogDownloadCallbacks(true);
+  testRunner.waitUntilDownloadFinished();
 }
 </script>
 </head>
@@ -17,18 +20,16 @@ function click(elmt)
         alert('Click the link to run the test.');
         return;
     }
-    eventSender.mouseMoveTo(elmt.offsetLeft + 5, elmt.offsetTop + 5);
-    eventSender.mouseDown();
-    eventSender.mouseUp();
+    UIHelper.activateAt(elmt.offsetLeft + 5, elmt.offsetTop + 5);
 }
 
 function runTest()
 {
-    var string = "<!doctype html><html><head><title>Title</title><script>if (window.testRunner) testRunner.dumpAsText(); </" + "script></head><body>PASS</body><script>if (window.testRunner) testRunner.notifyDone();</scr" + "ipt></html>";
+    var string = "<!doctype html><html><head><title>Title</title><script>if (window.testRunner) testRunner.dumpAsText(); </" + "script></head><body>FAIL</body><script>if (window.testRunner) testRunner.notifyDone();</scr" + "ipt></html>";
     var blob = new Blob([string], {type: "text/html"});
     var link = document.getElementById("blob-url");
     link.href = window.URL.createObjectURL(blob);
-    link.setAttribute('download');
+    link.setAttribute('download', '');
     click(link);
 }
 runTest();

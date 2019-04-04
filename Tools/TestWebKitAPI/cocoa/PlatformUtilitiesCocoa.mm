@@ -32,17 +32,6 @@
 namespace TestWebKitAPI {
 namespace Util {
 
-void run(bool* done)
-{
-    while (!*done)
-        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantPast]];
-}
-
-void sleep(double seconds)
-{
-    usleep(seconds * 1000000);
-}
-
 std::string toSTD(NSString *string)
 {
     if (!string)
@@ -55,8 +44,16 @@ std::string toSTD(NSString *string)
     return std::string(buffer.get(), stringLength);
 }
 
-#if WK_API_ENABLED
+bool jsonMatchesExpectedValues(NSString *jsonString, NSDictionary *expected)
+{
+    NSError *error = nil;
+    id result = [NSJSONSerialization JSONObjectWithData:[jsonString dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&error];
+    if (error)
+        NSLog(@"Encountered error: %@ while serializing JSON string.", error);
+    return [expected isEqualToDictionary:result];
+}
+
 NSString * const TestPlugInClassNameParameter = @"TestPlugInPrincipalClassName";
-#endif
+
 } // namespace Util
 } // namespace TestWebKitAPI

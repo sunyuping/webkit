@@ -21,8 +21,7 @@
  *
  */
 
-#ifndef StyleGeneratedImage_h
-#define StyleGeneratedImage_h
+#pragma once
 
 #include "StyleImage.h"
 
@@ -41,20 +40,24 @@ public:
     CSSImageGeneratorValue& imageValue() { return m_imageGeneratorValue; }
 
 private:
-    virtual WrappedImagePtr data() const override { return m_imageGeneratorValue.ptr(); }
+    bool operator==(const StyleImage& other) const final { return data() == other.data(); }
 
-    virtual PassRefPtr<CSSValue> cssValue() const override;
+    WrappedImagePtr data() const final { return m_imageGeneratorValue.ptr(); }
 
-    virtual FloatSize imageSize(const RenderElement*, float multiplier) const override;
-    virtual bool imageHasRelativeWidth() const override { return !m_fixedSize; }
-    virtual bool imageHasRelativeHeight() const override { return !m_fixedSize; }
-    virtual void computeIntrinsicDimensions(const RenderElement*, Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override;
-    virtual bool usesImageContainerSize() const override { return !m_fixedSize; }
-    virtual void setContainerSizeForRenderer(const RenderElement*, const FloatSize& containerSize, float) override { m_containerSize = containerSize; }
-    virtual void addClient(RenderElement*) override;
-    virtual void removeClient(RenderElement*) override;
-    virtual RefPtr<Image> image(RenderElement*, const FloatSize&) const override;
-    virtual bool knownToBeOpaque(const RenderElement*) const override;
+    Ref<CSSValue> cssValue() const final;
+
+    bool isPending() const override;
+    void load(CachedResourceLoader&, const ResourceLoaderOptions&) final;
+    FloatSize imageSize(const RenderElement*, float multiplier) const final;
+    bool imageHasRelativeWidth() const final { return !m_fixedSize; }
+    bool imageHasRelativeHeight() const final { return !m_fixedSize; }
+    void computeIntrinsicDimensions(const RenderElement*, Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) final;
+    bool usesImageContainerSize() const final { return !m_fixedSize; }
+    void setContainerContextForRenderer(const RenderElement&, const FloatSize& containerSize, float) final { m_containerSize = containerSize; }
+    void addClient(RenderElement*) final;
+    void removeClient(RenderElement*) final;
+    RefPtr<Image> image(RenderElement*, const FloatSize&) const final;
+    bool knownToBeOpaque(const RenderElement*) const final;
 
     explicit StyleGeneratedImage(Ref<CSSImageGeneratorValue>&&);
     
@@ -66,5 +69,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_STYLE_IMAGE(StyleGeneratedImage, isGeneratedImage)
-
-#endif // StyleGeneratedImage_h

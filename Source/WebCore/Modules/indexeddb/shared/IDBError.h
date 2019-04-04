@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,38 +23,80 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IDBError_h
-#define IDBError_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
-#include "IDBDatabaseException.h"
+#include "DOMException.h"
+#include "ExceptionCode.h"
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class IDBError {
 public:
-    IDBError() { }
-    IDBError(ExceptionCode);
-    IDBError(ExceptionCode, const String& message);
+    WEBCORE_EXPORT explicit IDBError(Optional<ExceptionCode> = WTF::nullopt, const String& message = { });
 
-    IDBError& operator=(const IDBError&);
+    static IDBError userDeleteError()
+    {
+        return IDBError { UnknownError, "Database deleted by request of the user"_s };
+    }
+    
+    static IDBError serverConnectionLostError()
+    {
+        return IDBError { UnknownError, "Connection to Indexed Database server lost. Refresh the page to try again"_s };
+    }
 
-    ExceptionCode code() const { return m_code; }
+    RefPtr<DOMException> toDOMException() const;
+
+    Optional<ExceptionCode> code() const { return m_code; }
     String name() const;
     String message() const;
 
-    bool isNull() const { return m_code == IDBDatabaseException::NoError; }
+    bool isNull() const { return !m_code; }
 
     IDBError isolatedCopy() const;
 
+    template<class Encoder> void encode(Encoder&) const;
+    template<class Decoder> static bool decode(Decoder&, IDBError&);
+
 private:
-    ExceptionCode m_code { IDBDatabaseException::NoError };
+    Optional<ExceptionCode> m_code;
     String m_message;
 };
+
+template<class Encoder>
+void IDBError::encode(Encoder& encoder) const
+{
+    if (m_code) {
+        encoder << true;
+        encoder.encodeEnum(m_code.value());
+    } else
+        encoder << false;
+    encoder << m_message;
+}
+    
+template<class Decoder>
+bool IDBError::decode(Decoder& decoder, IDBError& error)
+{
+    bool hasCode = false;
+    if (!decoder.decode(hasCode))
+        return false;
+
+    if (hasCode) {
+        ExceptionCode ec;
+        if (!decoder.decodeEnum(ec))
+            return false;
+        error.m_code = ec;
+    } else
+        error.m_code = WTF::nullopt;
+
+    if (!decoder.decode(error.m_message))
+        return false;
+
+    return true;
+}
 
 } // namespace WebCore
 
 #endif // ENABLE(INDEXED_DATABASE)
-#endif // IDBError_h

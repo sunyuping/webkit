@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef GeneratorFunctionConstructor_h
-#define GeneratorFunctionConstructor_h
+#pragma once
 
 #include "InternalFunction.h"
 
@@ -36,7 +35,9 @@ namespace JSC {
 
 class GeneratorFunctionPrototype;
 
-class GeneratorFunctionConstructor : public InternalFunction {
+// %GeneratorFunction% intrinsic.
+// https://tc39.github.io/ecma262/#sec-generatorfunction-constructor
+class GeneratorFunctionConstructor final : public InternalFunction {
 public:
     typedef InternalFunction Base;
 
@@ -51,16 +52,12 @@ public:
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
     }
 
 private:
     GeneratorFunctionConstructor(VM&, Structure*);
     void finishCreation(VM&, GeneratorFunctionPrototype*);
-    static ConstructType getConstructData(JSCell*, ConstructData&);
-    static CallType getCallData(JSCell*, CallData&);
 };
 
 } // namespace JSC
-
-#endif // GeneratorFunctionConstructor_h

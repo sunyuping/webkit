@@ -28,28 +28,49 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RTCRtpReceiver_h
-#define RTCRtpReceiver_h
+#pragma once
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(WEB_RTC)
 
-#include "RTCRtpSenderReceiverBase.h"
+#include "MediaStreamTrack.h"
+#include "RTCRtpReceiverBackend.h"
+#include "RTCRtpSynchronizationSource.h"
+#include "ScriptWrappable.h"
 
 namespace WebCore {
 
-class RTCRtpReceiver : public RTCRtpSenderReceiverBase {
+class PeerConnectionBackend;
+struct RTCRtpCapabilities;
+
+class RTCRtpReceiver : public RefCounted<RTCRtpReceiver>, public ScriptWrappable  {
 public:
-    static Ref<RTCRtpReceiver> create(RefPtr<MediaStreamTrack>&& track)
+    static Ref<RTCRtpReceiver> create(PeerConnectionBackend& connection, Ref<MediaStreamTrack>&& track, std::unique_ptr<RTCRtpReceiverBackend>&& backend)
     {
-        return adoptRef(*new RTCRtpReceiver(WTFMove(track)));
+        return adoptRef(*new RTCRtpReceiver(connection, WTFMove(track), WTFMove(backend)));
     }
 
+    static Optional<RTCRtpCapabilities> getCapabilities(ScriptExecutionContext&, const String& kind);
+
+    void stop();
+
+    void setBackend(std::unique_ptr<RTCRtpReceiverBackend>&& backend) { m_backend = WTFMove(backend); }
+    RTCRtpParameters getParameters() { return m_backend ? m_backend->getParameters() : RTCRtpParameters(); }
+    Vector<RTCRtpContributingSource> getContributingSources() const { return m_backend ? m_backend->getContributingSources() : Vector<RTCRtpContributingSource> { }; }
+    Vector<RTCRtpSynchronizationSource> getSynchronizationSources() const { return m_backend ? m_backend->getSynchronizationSources() : Vector<RTCRtpSynchronizationSource> { }; }
+
+    MediaStreamTrack& track() { return m_track.get(); }
+
+    RTCRtpReceiverBackend* backend() { return m_backend.get(); }
+    void getStats(Ref<DeferredPromise>&&);
+
 private:
-    explicit RTCRtpReceiver(RefPtr<MediaStreamTrack>&&);
+    RTCRtpReceiver(PeerConnectionBackend&, Ref<MediaStreamTrack>&&, std::unique_ptr<RTCRtpReceiverBackend>&&);
+
+    Ref<MediaStreamTrack> m_track;
+    std::unique_ptr<RTCRtpReceiverBackend> m_backend;
+    WeakPtr<PeerConnectionBackend> m_connection;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
-
-#endif // RTCRtpReceiver_h
+#endif // ENABLE(WEB_RTC)

@@ -23,16 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ObjectPreview = class ObjectPreview extends WebInspector.Object
+WI.ObjectPreview = class ObjectPreview
 {
     constructor(type, subtype, description, lossless, overflow, properties, entries, size)
     {
-        super();
-
         console.assert(type);
         console.assert(typeof lossless === "boolean");
-        console.assert(!properties || !properties.length || properties[0] instanceof WebInspector.PropertyPreview);
-        console.assert(!entries || !entries.length || entries[0] instanceof WebInspector.CollectionEntryPreview);
+        console.assert(!properties || !properties.length || properties[0] instanceof WI.PropertyPreview);
+        console.assert(!entries || !entries.length || entries[0] instanceof WI.CollectionEntryPreview);
 
         this._type = type;
         this._subtype = subtype;
@@ -51,9 +49,9 @@ WebInspector.ObjectPreview = class ObjectPreview extends WebInspector.Object
     static fromPayload(payload)
     {
         if (payload.properties)
-            payload.properties = payload.properties.map(WebInspector.PropertyPreview.fromPayload);
+            payload.properties = payload.properties.map(WI.PropertyPreview.fromPayload);
         if (payload.entries)
-            payload.entries = payload.entries.map(WebInspector.CollectionEntryPreview.fromPayload);
+            payload.entries = payload.entries.map(WI.CollectionEntryPreview.fromPayload);
 
         if (payload.subtype === "array") {
             // COMPATIBILITY (iOS 8): Runtime.ObjectPreview did not have size property,
@@ -65,50 +63,19 @@ WebInspector.ObjectPreview = class ObjectPreview extends WebInspector.Object
             }
         }
 
-        return new WebInspector.ObjectPreview(payload.type, payload.subtype, payload.description, payload.lossless, payload.overflow, payload.properties, payload.entries, payload.size);
+        return new WI.ObjectPreview(payload.type, payload.subtype, payload.description, payload.lossless, payload.overflow, payload.properties, payload.entries, payload.size);
     }
 
     // Public
 
-    get type()
-    {
-        return this._type;
-    }
-
-    get subtype()
-    {
-        return this._subtype;
-    }
-
-    get description()
-    {
-        return this._description;
-    }
-
-    get lossless()
-    {
-        return this._lossless;
-    }
-
-    get overflow()
-    {
-        return this._overflow;
-    }
-
-    get propertyPreviews()
-    {
-        return this._properties;
-    }
-
-    get collectionEntryPreviews()
-    {
-        return this._entries;
-    }
-
-    get size()
-    {
-        return this._size;
-    }
+    get type() { return this._type; }
+    get subtype() { return this._subtype; }
+    get description() { return this._description; }
+    get lossless() { return this._lossless; }
+    get overflow() { return this._overflow; }
+    get propertyPreviews() { return this._properties; }
+    get collectionEntryPreviews() { return this._entries; }
+    get size() { return this._size; }
 
     hasSize()
     {

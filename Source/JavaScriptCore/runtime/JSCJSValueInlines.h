@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,16 +23,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef JSValueInlines_h
-#define JSValueInlines_h
+#pragma once
 
+#include "CatchScope.h"
+#include "Error.h"
 #include "ExceptionHelpers.h"
 #include "Identifier.h"
 #include "InternalFunction.h"
+#include "JSBigInt.h"
 #include "JSCJSValue.h"
 #include "JSCellInlines.h"
-#include "JSObject.h"
 #include "JSFunction.h"
+#include "JSObject.h"
+#include "JSProxy.h"
+#include "JSStringInlines.h"
+#include "MathCommon.h"
+#include <wtf/Variant.h>
 #include <wtf/text/StringImpl.h>
 
 namespace JSC {
@@ -48,6 +54,27 @@ inline uint32_t JSValue::toUInt32(ExecState* exec) const
 {
     // See comment on JSC::toUInt32, in JSCJSValue.h.
     return toInt32(exec);
+}
+
+inline uint32_t JSValue::toIndex(ExecState* exec, const char* errorName) const
+{
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    double d = toNumber(exec);
+    RETURN_IF_EXCEPTION(scope, 0);
+    if (d <= -1) {
+        throwException(exec, scope, createRangeError(exec, makeString(errorName, " cannot be negative")));
+        return 0;
+    }
+    if (d > std::numeric_limits<unsigned>::max()) {
+        throwException(exec, scope, createRangeError(exec, makeString(errorName, " too large")));
+        return 0;
+    }
+
+    if (isInt32())
+        return asInt32();
+    RELEASE_AND_RETURN(scope, JSC::toInt32(d));
 }
 
 inline bool JSValue::isUInt32() const
@@ -69,7 +96,7 @@ inline double JSValue::asNumber() const
 
 inline JSValue jsNaN()
 {
-    return JSValue(PNaN);
+    return JSValue(JSValue::EncodeAsDouble, PNaN);
 }
 
 inline JSValue::JSValue(char i)
@@ -139,12 +166,11 @@ inline JSValue::JSValue(unsigned long long i)
 
 inline JSValue::JSValue(double d)
 {
-    const int32_t asInt32 = static_cast<int32_t>(d);
-    if (asInt32 != d || (!asInt32 && std::signbit(d))) { // true for -0.0
-        *this = JSValue(EncodeAsDouble, d);
+    if (canBeStrictInt32(d)) {
+        *this = JSValue(static_cast<int32_t>(d));
         return;
     }
-    *this = JSValue(static_cast<int32_t>(d));
+    *this = JSValue(EncodeAsDouble, d);
 }
 
 inline EncodedJSValue JSValue::encode(JSValue value)
@@ -315,13 +341,11 @@ inline JSValue::JSValue(int i)
     u.asBits.payload = i;
 }
 
-#if !ENABLE(JIT)
 inline JSValue::JSValue(int32_t tag, int32_t payload)
 {
     u.asBits.tag = tag;
     u.asBits.payload = payload;
 }
-#endif
 
 inline bool JSValue::isNumber() const
 {
@@ -530,7 +554,7 @@ inline bool isInt52(double number)
     return tryConvertToInt52(number) != JSValue::notInt52;
 }
 
-inline bool JSValue::isMachineInt() const
+inline bool JSValue::isAnyInt() const
 {
     if (isInt32())
         return true;
@@ -539,9 +563,9 @@ inline bool JSValue::isMachineInt() const
     return isInt52(asDouble());
 }
 
-inline int64_t JSValue::asMachineInt() const
+inline int64_t JSValue::asAnyInt() const
 {
-    ASSERT(isMachineInt());
+    ASSERT(isAnyInt());
     if (isInt32())
         return asInt32();
     return static_cast<int64_t>(asDouble());
@@ -552,6 +576,11 @@ inline bool JSValue::isString() const
     return isCell() && asCell()->isString();
 }
 
+inline bool JSValue::isBigInt() const
+{
+    return isCell() && asCell()->isBigInt();
+}
+
 inline bool JSValue::isSymbol() const
 {
     return isCell() && asCell()->isSymbol();
@@ -559,7 +588,7 @@ inline bool JSValue::isSymbol() const
 
 inline bool JSValue::isPrimitive() const
 {
-    return !isCell() || asCell()->isString() || asCell()->isSymbol();
+    return !isCell() || asCell()->isString() || asCell()->isSymbol() || asCell()->isBigInt();
 }
 
 inline bool JSValue::isGetterSetter() const
@@ -614,18 +643,47 @@ ALWAYS_INLINE bool JSValue::getUInt32(uint32_t& v) const
 
 ALWAYS_INLINE Identifier JSValue::toPropertyKey(ExecState* exec) const
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     if (isString())
-        return asString(*this)->toIdentifier(exec);
+        RELEASE_AND_RETURN(scope, asString(*this)->toIdentifier(exec));
 
     JSValue primitive = toPrimitive(exec, PreferString);
+    RETURN_IF_EXCEPTION(scope, vm.propertyNames->emptyIdentifier);
     if (primitive.isSymbol())
-        return Identifier::fromUid(asSymbol(primitive)->privateName());
-    return primitive.toString(exec)->toIdentifier(exec);
+        RELEASE_AND_RETURN(scope, Identifier::fromUid(asSymbol(primitive)->privateName()));
+
+    RELEASE_AND_RETURN(scope, primitive.toString(exec)->toIdentifier(exec));
 }
 
 inline JSValue JSValue::toPrimitive(ExecState* exec, PreferredPrimitiveType preferredType) const
 {
     return isCell() ? asCell()->toPrimitive(exec, preferredType) : asValue();
+}
+
+inline PreferredPrimitiveType toPreferredPrimitiveType(ExecState* exec, JSValue value)
+{
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (!value.isString()) {
+        throwTypeError(exec, scope, "Primitive hint is not a string."_s);
+        return NoPreference;
+    }
+
+    StringImpl* hintString = asString(value)->value(exec).impl();
+    RETURN_IF_EXCEPTION(scope, NoPreference);
+
+    if (WTF::equal(hintString, "default"))
+        return NoPreference;
+    if (WTF::equal(hintString, "number"))
+        return PreferNumber;
+    if (WTF::equal(hintString, "string"))
+        return PreferString;
+
+    throwTypeError(exec, scope, "Expected primitive hint to match one of 'default', 'number', 'string'."_s);
+    return NoPreference;
 }
 
 inline bool JSValue::getPrimitiveNumber(ExecState* exec, double& number, JSValue& value)
@@ -667,6 +725,46 @@ ALWAYS_INLINE double JSValue::toNumber(ExecState* exec) const
     return toNumberSlowCase(exec);
 }
 
+ALWAYS_INLINE Variant<JSBigInt*, double> JSValue::toNumeric(ExecState* exec) const
+{
+    if (isInt32())
+        return asInt32();
+    if (isDouble())
+        return asDouble();
+    if (isBigInt())
+        return asBigInt(*this);
+
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    JSValue primValue = this->toPrimitive(exec, PreferNumber);
+    RETURN_IF_EXCEPTION(scope, 0);
+    if (primValue.isBigInt())
+        return asBigInt(primValue);
+    double value = primValue.toNumber(exec);
+    RETURN_IF_EXCEPTION(scope, 0);
+    return value;
+}
+
+ALWAYS_INLINE Variant<JSBigInt*, int32_t> JSValue::toBigIntOrInt32(ExecState* exec) const
+{
+    if (isInt32())
+        return asInt32();
+    if (isDouble() && canBeInt32(asDouble()))
+        return static_cast<int32_t>(asDouble());
+    if (isBigInt())
+        return asBigInt(*this);
+
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    JSValue primValue = this->toPrimitive(exec, PreferNumber);
+    RETURN_IF_EXCEPTION(scope, 0);
+    if (primValue.isBigInt())
+        return asBigInt(primValue);
+    int32_t value = primValue.toInt32(exec);
+    RETURN_IF_EXCEPTION(scope, 0);
+    return value;
+}
+
 inline JSObject* JSValue::toObject(ExecState* exec) const
 {
     return isCell() ? asCell()->toObject(exec, exec->lexicalGlobalObject()) : toObjectSlowCase(exec, exec->lexicalGlobalObject());
@@ -677,25 +775,49 @@ inline JSObject* JSValue::toObject(ExecState* exec, JSGlobalObject* globalObject
     return isCell() ? asCell()->toObject(exec, globalObject) : toObjectSlowCase(exec, globalObject);
 }
 
-inline bool JSValue::isFunction() const
+inline bool JSValue::isFunction(VM& vm) const
 {
-    return isCell() && (asCell()->inherits(JSFunction::info()) || asCell()->inherits(InternalFunction::info()));
+    if (!isCell())
+        return false;
+    return asCell()->isFunction(vm);
 }
 
-// FIXME: We could do this in a smarter way. See: https://bugs.webkit.org/show_bug.cgi?id=153670
-inline bool JSValue::isConstructor() const
+inline bool JSValue::isCallable(VM& vm, CallType& callType, CallData& callData) const
 {
-    if (isFunction()) {
-        ConstructData data;
-        return getConstructData(*this, data) != ConstructTypeNone;
-    }
-    return false;
+    if (!isCell())
+        return false;
+    return asCell()->isCallable(vm, callType, callData);
+}
+
+inline bool JSValue::isConstructor(VM& vm) const
+{
+    if (!isCell())
+        return false;
+    return asCell()->isConstructor(vm);
+}
+
+inline bool JSValue::isConstructor(VM& vm, ConstructType& constructType, ConstructData& constructData) const
+{
+    if (!isCell())
+        return false;
+    return asCell()->isConstructor(vm, constructType, constructData);
 }
 
 // this method is here to be after the inline declaration of JSCell::inherits
-inline bool JSValue::inherits(const ClassInfo* classInfo) const
+inline bool JSValue::inherits(VM& vm, const ClassInfo* classInfo) const
 {
-    return isCell() && asCell()->inherits(classInfo);
+    return isCell() && asCell()->inherits(vm, classInfo);
+}
+
+template<typename Target>
+inline bool JSValue::inherits(VM& vm) const
+{
+    return isCell() && asCell()->inherits<Target>(vm);
+}
+
+inline const ClassInfo* JSValue::classInfoOrNull(VM& vm) const
+{
+    return isCell() ? asCell()->classInfo(vm) : nullptr;
 }
 
 inline JSValue JSValue::toThis(ExecState* exec, ECMAMode ecmaMode) const
@@ -705,88 +827,143 @@ inline JSValue JSValue::toThis(ExecState* exec, ECMAMode ecmaMode) const
 
 ALWAYS_INLINE JSValue JSValue::get(ExecState* exec, PropertyName propertyName) const
 {
-    PropertySlot slot(asValue());
+    PropertySlot slot(asValue(), PropertySlot::InternalMethodType::Get);
     return get(exec, propertyName, slot);
 }
 
 ALWAYS_INLINE JSValue JSValue::get(ExecState* exec, PropertyName propertyName, PropertySlot& slot) const
 {
-    return getPropertySlot(exec, propertyName, slot) ? 
-        slot.getValue(exec, propertyName) : jsUndefined();
+    auto scope = DECLARE_THROW_SCOPE(exec->vm());
+    bool hasSlot = getPropertySlot(exec, propertyName, slot);
+    EXCEPTION_ASSERT(!scope.exception() || !hasSlot);
+    if (!hasSlot)
+        return jsUndefined();
+    RELEASE_AND_RETURN(scope, slot.getValue(exec, propertyName));
+}
+
+template<typename CallbackWhenNoException>
+ALWAYS_INLINE typename std::result_of<CallbackWhenNoException(bool, PropertySlot&)>::type JSValue::getPropertySlot(ExecState* exec, PropertyName propertyName, CallbackWhenNoException callback) const
+{
+    PropertySlot slot(asValue(), PropertySlot::InternalMethodType::Get);
+    return getPropertySlot(exec, propertyName, slot, callback);
+}
+
+template<typename CallbackWhenNoException>
+ALWAYS_INLINE typename std::result_of<CallbackWhenNoException(bool, PropertySlot&)>::type JSValue::getPropertySlot(ExecState* exec, PropertyName propertyName, PropertySlot& slot, CallbackWhenNoException callback) const
+{
+    auto scope = DECLARE_THROW_SCOPE(exec->vm());
+    bool found = getPropertySlot(exec, propertyName, slot);
+    RETURN_IF_EXCEPTION(scope, { });
+    RELEASE_AND_RETURN(scope, callback(found, slot));
 }
 
 ALWAYS_INLINE bool JSValue::getPropertySlot(ExecState* exec, PropertyName propertyName, PropertySlot& slot) const
 {
+    auto scope = DECLARE_THROW_SCOPE(exec->vm());
     // If this is a primitive, we'll need to synthesize the prototype -
     // and if it's a string there are special properties to check first.
     JSObject* object;
     if (UNLIKELY(!isObject())) {
-        if (isString() && asString(*this)->getStringPropertySlot(exec, propertyName, slot))
-            return true;
+        if (isString()) {
+            bool hasProperty = asString(*this)->getStringPropertySlot(exec, propertyName, slot);
+            RETURN_IF_EXCEPTION(scope, false);
+            if (hasProperty)
+                return true;
+        }
         object = synthesizePrototype(exec);
+        EXCEPTION_ASSERT(!!scope.exception() == !object);
+        if (UNLIKELY(!object))
+            return false;
     } else
         object = asObject(asCell());
-    
-    return object->getPropertySlot(exec, propertyName, slot);
+
+    RELEASE_AND_RETURN(scope, object->getPropertySlot(exec, propertyName, slot));
+}
+
+ALWAYS_INLINE bool JSValue::getOwnPropertySlot(ExecState* exec, PropertyName propertyName, PropertySlot& slot) const
+{
+    // If this is a primitive, we'll need to synthesize the prototype -
+    // and if it's a string there are special properties to check first.
+    auto scope = DECLARE_THROW_SCOPE(exec->vm());
+    if (UNLIKELY(!isObject())) {
+        if (isString())
+            RELEASE_AND_RETURN(scope, asString(*this)->getStringPropertySlot(exec, propertyName, slot));
+
+        if (isUndefinedOrNull())
+            throwException(exec, scope, createNotAnObjectError(exec, *this));
+        return false;
+    }
+    RELEASE_AND_RETURN(scope, asObject(asCell())->getOwnPropertySlotInline(exec, propertyName, slot));
 }
 
 ALWAYS_INLINE JSValue JSValue::get(ExecState* exec, unsigned propertyName) const
 {
-    PropertySlot slot(asValue());
+    PropertySlot slot(asValue(), PropertySlot::InternalMethodType::Get);
     return get(exec, propertyName, slot);
 }
 
 ALWAYS_INLINE JSValue JSValue::get(ExecState* exec, unsigned propertyName, PropertySlot& slot) const
 {
+    auto scope = DECLARE_THROW_SCOPE(exec->vm());
     // If this is a primitive, we'll need to synthesize the prototype -
     // and if it's a string there are special properties to check first.
     JSObject* object;
     if (UNLIKELY(!isObject())) {
-        if (isString() && asString(*this)->getStringPropertySlot(exec, propertyName, slot))
-            return slot.getValue(exec, propertyName);
+        if (isString()) {
+            bool hasProperty = asString(*this)->getStringPropertySlot(exec, propertyName, slot);
+            RETURN_IF_EXCEPTION(scope, { });
+            if (hasProperty)
+                RELEASE_AND_RETURN(scope, slot.getValue(exec, propertyName));
+        }
         object = synthesizePrototype(exec);
+        EXCEPTION_ASSERT(!!scope.exception() == !object);
+        if (UNLIKELY(!object))
+            return JSValue();
     } else
         object = asObject(asCell());
     
-    if (object->getPropertySlot(exec, propertyName, slot))
-        return slot.getValue(exec, propertyName);
-    return jsUndefined();
+    bool hasSlot = object->getPropertySlot(exec, propertyName, slot);
+    EXCEPTION_ASSERT(!scope.exception() || !hasSlot);
+    if (!hasSlot)
+        return jsUndefined();
+    RELEASE_AND_RETURN(scope, slot.getValue(exec, propertyName));
 }
 
-inline void JSValue::put(ExecState* exec, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
+ALWAYS_INLINE JSValue JSValue::get(ExecState* exec, uint64_t propertyName) const
 {
-    if (UNLIKELY(!isCell())) {
-        putToPrimitive(exec, propertyName, value, slot);
-        return;
-    }
-    asCell()->methodTable(exec->vm())->put(asCell(), exec, propertyName, value, slot);
+    if (LIKELY(propertyName <= std::numeric_limits<unsigned>::max()))
+        return get(exec, static_cast<unsigned>(propertyName));
+    return get(exec, Identifier::from(exec, static_cast<double>(propertyName)));
 }
 
-ALWAYS_INLINE void JSValue::putInline(ExecState* exec, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
+inline bool JSValue::put(ExecState* exec, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
 {
-    if (UNLIKELY(!isCell())) {
-        putToPrimitive(exec, propertyName, value, slot);
-        return;
-    }
-    JSCell* cell = asCell();
-    auto putMethod = cell->methodTable(exec->vm())->put;
-    if (LIKELY(putMethod == JSObject::put)) {
-        JSObject::putInline(cell, exec, propertyName, value, slot);
-        return;
-    }
+    if (UNLIKELY(!isCell()))
+        return putToPrimitive(exec, propertyName, value, slot);
 
-    PutPropertySlot otherSlot = slot;
-    putMethod(cell, exec, propertyName, value, otherSlot);
-    slot = otherSlot;
+    return asCell()->methodTable(exec->vm())->put(asCell(), exec, propertyName, value, slot);
 }
 
-inline void JSValue::putByIndex(ExecState* exec, unsigned propertyName, JSValue value, bool shouldThrow)
+ALWAYS_INLINE bool JSValue::putInline(ExecState* exec, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
 {
-    if (UNLIKELY(!isCell())) {
-        putToPrimitiveByIndex(exec, propertyName, value, shouldThrow);
-        return;
-    }
-    asCell()->methodTable(exec->vm())->putByIndex(asCell(), exec, propertyName, value, shouldThrow);
+    if (UNLIKELY(!isCell()))
+        return putToPrimitive(exec, propertyName, value, slot);
+    return asCell()->putInline(exec, propertyName, value, slot);
+}
+
+inline bool JSValue::putByIndex(ExecState* exec, unsigned propertyName, JSValue value, bool shouldThrow)
+{
+    if (UNLIKELY(!isCell()))
+        return putToPrimitiveByIndex(exec, propertyName, value, shouldThrow);
+
+    return asCell()->methodTable(exec->vm())->putByIndex(asCell(), exec, propertyName, value, shouldThrow);
+}
+
+inline Structure* JSValue::structureOrNull() const
+{
+    if (isCell())
+        return asCell()->structure();
+    return nullptr;
 }
 
 inline JSValue JSValue::structureOrUndefined() const
@@ -808,6 +985,7 @@ inline bool JSValue::equal(ExecState* exec, JSValue v1, JSValue v2)
 ALWAYS_INLINE bool JSValue::equalSlowCaseInline(ExecState* exec, JSValue v1, JSValue v2)
 {
     VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
     do {
         if (v1.isNumber() && v2.isNumber())
             return v1.asNumber() == v2.asNumber();
@@ -815,7 +993,27 @@ ALWAYS_INLINE bool JSValue::equalSlowCaseInline(ExecState* exec, JSValue v1, JSV
         bool s1 = v1.isString();
         bool s2 = v2.isString();
         if (s1 && s2)
-            return WTF::equal(*asString(v1)->value(exec).impl(), *asString(v2)->value(exec).impl());
+            RELEASE_AND_RETURN(scope, asString(v1)->equal(exec, asString(v2)));
+
+        if (v1.isBigInt() && s2) {
+            JSBigInt* n = JSBigInt::stringToBigInt(exec, asString(v2)->value(exec));
+            RETURN_IF_EXCEPTION(scope, false);
+            if (!n)
+                return false;
+            
+            v2 = JSValue(n);
+            continue;
+        }
+
+        if (s1 && v2.isBigInt()) {
+            JSBigInt* n = JSBigInt::stringToBigInt(exec, asString(v1)->value(exec));
+            RETURN_IF_EXCEPTION(scope, false);
+            if (!n)
+                return false;
+            
+            v1 = JSValue(n);
+            continue;
+        }
 
         if (v1.isUndefinedOrNull()) {
             if (v2.isUndefinedOrNull())
@@ -835,8 +1033,7 @@ ALWAYS_INLINE bool JSValue::equalSlowCaseInline(ExecState* exec, JSValue v1, JSV
             if (v2.isObject())
                 return v1 == v2;
             JSValue p1 = v1.toPrimitive(exec);
-            if (exec->hadException())
-                return false;
+            RETURN_IF_EXCEPTION(scope, false);
             v1 = p1;
             if (v1.isInt32() && v2.isInt32())
                 return v1 == v2;
@@ -845,8 +1042,7 @@ ALWAYS_INLINE bool JSValue::equalSlowCaseInline(ExecState* exec, JSValue v1, JSV
 
         if (v2.isObject()) {
             JSValue p2 = v2.toPrimitive(exec);
-            if (exec->hadException())
-                return false;
+            RETURN_IF_EXCEPTION(scope, false);
             v2 = p2;
             if (v1.isInt32() && v2.isInt32())
                 return v1 == v2;
@@ -857,23 +1053,42 @@ ALWAYS_INLINE bool JSValue::equalSlowCaseInline(ExecState* exec, JSValue v1, JSV
         bool sym2 = v2.isSymbol();
         if (sym1 || sym2) {
             if (sym1 && sym2)
-                return asSymbol(v1)->privateName() == asSymbol(v2)->privateName();
+                return asSymbol(v1) == asSymbol(v2);
             return false;
         }
 
         if (s1 || s2) {
             double d1 = v1.toNumber(exec);
+            RETURN_IF_EXCEPTION(scope, false);
             double d2 = v2.toNumber(exec);
+            RETURN_IF_EXCEPTION(scope, false);
             return d1 == d2;
         }
 
         if (v1.isBoolean()) {
             if (v2.isNumber())
                 return static_cast<double>(v1.asBoolean()) == v2.asNumber();
+            else if (v2.isBigInt()) {
+                v1 = JSValue(v1.toNumber(exec));
+                continue;
+            }
         } else if (v2.isBoolean()) {
             if (v1.isNumber())
                 return v1.asNumber() == static_cast<double>(v2.asBoolean());
+            else if (v1.isBigInt()) {
+                v2 = JSValue(v2.toNumber(exec));
+                continue;
+            }
         }
+        
+        if (v1.isBigInt() && v2.isBigInt())
+            return JSBigInt::equals(asBigInt(v1), asBigInt(v2));
+        
+        if (v1.isBigInt() && v2.isNumber())
+            return asBigInt(v1)->equalsToNumber(v2);
+
+        if (v2.isBigInt() && v1.isNumber())
+            return asBigInt(v2)->equalsToNumber(v1);
 
         return v1 == v2;
     } while (true);
@@ -885,10 +1100,9 @@ ALWAYS_INLINE bool JSValue::strictEqualSlowCaseInline(ExecState* exec, JSValue v
     ASSERT(v1.isCell() && v2.isCell());
 
     if (v1.asCell()->isString() && v2.asCell()->isString())
-        return WTF::equal(*asString(v1)->value(exec).impl(), *asString(v2)->value(exec).impl());
-    if (v1.asCell()->isSymbol() && v2.asCell()->isSymbol())
-        return asSymbol(v1)->privateName() == asSymbol(v2)->privateName();
-
+        return asString(v1)->equal(exec, asString(v2));
+    if (v1.isBigInt() && v2.isBigInt())
+        return JSBigInt::equals(asBigInt(v1), asBigInt(v2));
     return v1 == v2;
 }
 
@@ -948,13 +1162,44 @@ inline TriState JSValue::pureToBoolean() const
 
 ALWAYS_INLINE bool JSValue::requireObjectCoercible(ExecState* exec) const
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     if (!isUndefinedOrNull())
         return true;
-    exec->vm().throwException(exec, createNotAnObjectError(exec, *this));
+    throwException(exec, scope, createNotAnObjectError(exec, *this));
     return false;
 }
 
+ALWAYS_INLINE bool isThisValueAltered(const PutPropertySlot& slot, JSObject* baseObject)
+{
+    JSValue thisValue = slot.thisValue();
+    if (LIKELY(thisValue == baseObject))
+        return false;
+
+    if (!thisValue.isObject())
+        return true;
+    JSObject* thisObject = asObject(thisValue);
+    // Only PureForwardingProxyType can be seen as the same to the original target object.
+    if (thisObject->type() == PureForwardingProxyType && jsCast<JSProxy*>(thisObject)->target() == baseObject)
+        return false;
+    return true;
+}
+
+// See section 7.2.9: https://tc39.github.io/ecma262/#sec-samevalue
+ALWAYS_INLINE bool sameValue(ExecState* exec, JSValue a, JSValue b)
+{
+    if (!a.isNumber())
+        return JSValue::strictEqual(exec, a, b);
+    if (!b.isNumber())
+        return false;
+    double x = a.asNumber();
+    double y = b.asNumber();
+    bool xIsNaN = std::isnan(x);
+    bool yIsNaN = std::isnan(y);
+    if (xIsNaN || yIsNaN)
+        return xIsNaN && yIsNaN;
+    return bitwise_cast<uint64_t>(x) == bitwise_cast<uint64_t>(y);
+}
+
 } // namespace JSC
-
-#endif // JSValueInlines_h
-

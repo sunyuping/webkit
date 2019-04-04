@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2003, 2004, 2005, 2006, 2008 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2019 Apple Inc. All rights reserved.
  *  Copyright (C) 2007 Eric Seidel (eric@webkit.org)
  *
  *  This library is free software; you can redistribute it and/or
@@ -28,21 +28,19 @@
 #include "ErrorConstructor.h"
 #include "ExceptionHelpers.h"
 #include "FunctionPrototype.h"
+#include "Interpreter.h"
 #include "JSArray.h"
+#include "JSCInlines.h"
 #include "JSFunction.h"
 #include "JSGlobalObject.h"
 #include "JSObject.h"
 #include "JSString.h"
 #include "NativeErrorConstructor.h"
-#include "JSCInlines.h"
 #include "SourceCode.h"
-
-#include <wtf/text/StringBuilder.h>
+#include "StackFrame.h"
+#include "SuperSampler.h"
 
 namespace JSC {
-
-static const char* linePropertyName = "line";
-static const char* sourceURLPropertyName = "sourceURL";
 
 JSObject* createError(ExecState* exec, const String& message, ErrorInstance::SourceAppender appender)
 {
@@ -55,54 +53,75 @@ JSObject* createEvalError(ExecState* exec, const String& message, ErrorInstance:
 {
     ASSERT(!message.isEmpty());
     JSGlobalObject* globalObject = exec->lexicalGlobalObject();
-    return ErrorInstance::create(exec, globalObject->vm(), globalObject->evalErrorConstructor()->errorStructure(), message, appender, TypeNothing, true);
+    return ErrorInstance::create(exec, globalObject->vm(), globalObject->errorStructure(ErrorType::EvalError), message, appender, TypeNothing, true);
 }
 
 JSObject* createRangeError(ExecState* exec, const String& message, ErrorInstance::SourceAppender appender)
 {
-    ASSERT(!message.isEmpty());
     JSGlobalObject* globalObject = exec->lexicalGlobalObject();
-    return ErrorInstance::create(exec, globalObject->vm(), globalObject->rangeErrorConstructor()->errorStructure(), message, appender, TypeNothing, true);
+    return createRangeError(exec, globalObject, message, appender);
+}
+
+JSObject* createRangeError(ExecState* exec, JSGlobalObject* globalObject, const String& message, ErrorInstance::SourceAppender appender)
+{
+    ASSERT(!message.isEmpty());
+    return ErrorInstance::create(exec, globalObject->vm(), globalObject->errorStructure(ErrorType::RangeError), message, appender, TypeNothing, true);
 }
 
 JSObject* createReferenceError(ExecState* exec, const String& message, ErrorInstance::SourceAppender appender)
 {
     ASSERT(!message.isEmpty());
     JSGlobalObject* globalObject = exec->lexicalGlobalObject();
-    return ErrorInstance::create(exec, globalObject->vm(), globalObject->referenceErrorConstructor()->errorStructure(), message, appender, TypeNothing, true);
+    return ErrorInstance::create(exec, globalObject->vm(), globalObject->errorStructure(ErrorType::ReferenceError), message, appender, TypeNothing, true);
 }
 
 JSObject* createSyntaxError(ExecState* exec, const String& message, ErrorInstance::SourceAppender appender)
 {
     ASSERT(!message.isEmpty());
     JSGlobalObject* globalObject = exec->lexicalGlobalObject();
-    return ErrorInstance::create(exec, globalObject->vm(), globalObject->syntaxErrorConstructor()->errorStructure(), message, appender, TypeNothing, true);
+    return ErrorInstance::create(exec, globalObject->vm(), globalObject->errorStructure(ErrorType::SyntaxError), message, appender, TypeNothing, true);
 }
 
 JSObject* createTypeError(ExecState* exec, const String& message, ErrorInstance::SourceAppender appender, RuntimeType type)
 {
     ASSERT(!message.isEmpty());
     JSGlobalObject* globalObject = exec->lexicalGlobalObject();
-    return ErrorInstance::create(exec, globalObject->vm(), globalObject->typeErrorConstructor()->errorStructure(), message, appender, type, true);
+    return ErrorInstance::create(exec, globalObject->vm(), globalObject->errorStructure(ErrorType::TypeError), message, appender, type, true);
 }
 
 JSObject* createNotEnoughArgumentsError(ExecState* exec, ErrorInstance::SourceAppender appender)
 {
-    return createTypeError(exec, ASCIILiteral("Not enough arguments"), appender, TypeNothing);
+    return createTypeError(exec, "Not enough arguments"_s, appender, TypeNothing);
 }
 
 JSObject* createURIError(ExecState* exec, const String& message, ErrorInstance::SourceAppender appender)
 {
     ASSERT(!message.isEmpty());
     JSGlobalObject* globalObject = exec->lexicalGlobalObject();
-    return ErrorInstance::create(exec, globalObject->vm(), globalObject->URIErrorConstructor()->errorStructure(), message, appender, TypeNothing, true);
+    return ErrorInstance::create(exec, globalObject->vm(), globalObject->errorStructure(ErrorType::URIError), message, appender, TypeNothing, true);
 }
 
-JSObject* createOutOfMemoryError(ExecState* exec, ErrorInstance::SourceAppender appender) 
+JSObject* createError(ExecState* exec, ErrorType errorType, const String& message)
 {
-    return createError(exec, ASCIILiteral("Out of memory"), appender);
+    switch (errorType) {
+    case ErrorType::Error:
+        return createError(exec, message);
+    case ErrorType::EvalError:
+        return createEvalError(exec, message);
+    case ErrorType::RangeError:
+        return createRangeError(exec, message);
+    case ErrorType::ReferenceError:
+        return createReferenceError(exec, message);
+    case ErrorType::SyntaxError:
+        return createSyntaxError(exec, message);
+    case ErrorType::TypeError:
+        return createTypeError(exec, message);
+    case ErrorType::URIError:
+        return createURIError(exec, message);
+    }
+    ASSERT_NOT_REACHED();
+    return nullptr;
 }
-
 
 class FindFirstCallerFrameWithCodeblockFunctor {
 public:
@@ -113,7 +132,7 @@ public:
         , m_index(0)
     { }
 
-    StackVisitor::Status operator()(StackVisitor& visitor)
+    StackVisitor::Status operator()(StackVisitor& visitor) const
     {
         if (!m_foundStartCallFrame && (visitor->callFrame() == m_startCallFrame))
             m_foundStartCallFrame = true;
@@ -134,94 +153,146 @@ public:
 
 private:
     CallFrame* m_startCallFrame;
-    CallFrame* m_foundCallFrame;
-    bool m_foundStartCallFrame;
-    unsigned m_index;
+    mutable CallFrame* m_foundCallFrame;
+    mutable bool m_foundStartCallFrame;
+    mutable unsigned m_index;
 };
 
-bool addErrorInfoAndGetBytecodeOffset(ExecState* exec, VM& vm, JSObject* obj, bool useCurrentFrame, CallFrame*& callFrame, unsigned &bytecodeOffset) 
+std::unique_ptr<Vector<StackFrame>> getStackTrace(ExecState* exec, VM& vm, JSObject* obj, bool useCurrentFrame)
 {
-    Vector<StackFrame> stackTrace = Vector<StackFrame>();
+    JSGlobalObject* globalObject = obj->globalObject(vm);
+    if (!globalObject->stackTraceLimit())
+        return nullptr;
 
-    if (exec && stackTrace.isEmpty())
-        vm.interpreter->getStackTrace(stackTrace);
+    size_t framesToSkip = useCurrentFrame ? 0 : 1;
+    std::unique_ptr<Vector<StackFrame>> stackTrace = std::make_unique<Vector<StackFrame>>();
+    vm.interpreter->getStackTrace(obj, *stackTrace, framesToSkip, globalObject->stackTraceLimit().value());
+    if (!stackTrace->isEmpty())
+        ASSERT_UNUSED(exec, exec == vm.topCallFrame || exec->isGlobalExec());
+    return stackTrace;
+}
 
-    if (!stackTrace.isEmpty()) {
+void getBytecodeOffset(ExecState* exec, VM& vm, Vector<StackFrame>* stackTrace, CallFrame*& callFrame, unsigned& bytecodeOffset)
+{
+    FindFirstCallerFrameWithCodeblockFunctor functor(exec);
+    StackVisitor::visit(vm.topCallFrame, &vm, functor);
+    callFrame = functor.foundCallFrame();
+    unsigned stackIndex = functor.index();
+    bytecodeOffset = 0;
+    if (stackTrace && stackIndex < stackTrace->size() && stackTrace->at(stackIndex).hasBytecodeOffset())
+        bytecodeOffset = stackTrace->at(stackIndex).bytecodeOffset();
+}
 
-        ASSERT(exec == vm.topCallFrame || exec == exec->lexicalGlobalObject()->globalExec() || exec == exec->vmEntryGlobalObject()->globalExec());
-
-        StackFrame* stackFrame;
-        for (unsigned i = 0 ; i < stackTrace.size(); ++i) {
-            stackFrame = &stackTrace.at(i);
-            if (stackFrame->bytecodeOffset)
-                break;
+bool getLineColumnAndSource(Vector<StackFrame>* stackTrace, unsigned& line, unsigned& column, String& sourceURL)
+{
+    line = 0;
+    column = 0;
+    sourceURL = String();
+    
+    if (!stackTrace)
+        return false;
+    
+    for (unsigned i = 0 ; i < stackTrace->size(); ++i) {
+        StackFrame& frame = stackTrace->at(i);
+        if (frame.hasLineAndColumnInfo()) {
+            frame.computeLineAndColumn(line, column);
+            sourceURL = frame.sourceURL();
+            return true;
         }
+    }
+    
+    return false;
+}
 
-        if (bytecodeOffset) {
-            FindFirstCallerFrameWithCodeblockFunctor functor(exec);
-            vm.topCallFrame->iterate(functor);
-            callFrame = functor.foundCallFrame();
-            unsigned stackIndex = functor.index();
-            bytecodeOffset = stackTrace.at(stackIndex).bytecodeOffset;
-        }
-        
+bool addErrorInfo(VM& vm, Vector<StackFrame>* stackTrace, JSObject* obj)
+{
+    if (!stackTrace)
+        return false;
+
+    if (!stackTrace->isEmpty()) {
         unsigned line;
         unsigned column;
-        stackFrame->computeLineAndColumn(line, column);
-        obj->putDirect(vm, vm.propertyNames->line, jsNumber(line), ReadOnly | DontDelete);
-        obj->putDirect(vm, vm.propertyNames->column, jsNumber(column), ReadOnly | DontDelete);
+        String sourceURL;
+        getLineColumnAndSource(stackTrace, line, column, sourceURL);
+        obj->putDirect(vm, vm.propertyNames->line, jsNumber(line));
+        obj->putDirect(vm, vm.propertyNames->column, jsNumber(column));
+        if (!sourceURL.isEmpty())
+            obj->putDirect(vm, vm.propertyNames->sourceURL, jsString(&vm, sourceURL));
 
-        if (!stackFrame->sourceURL.isEmpty())
-            obj->putDirect(vm, vm.propertyNames->sourceURL, jsString(&vm, stackFrame->sourceURL), ReadOnly | DontDelete);
-    
-        if (!useCurrentFrame)
-            stackTrace.remove(0);
-        obj->putDirect(vm, vm.propertyNames->stack, vm.interpreter->stackTraceAsString(vm.topCallFrame, stackTrace), DontEnum);
+        obj->putDirect(vm, vm.propertyNames->stack, jsString(&vm, Interpreter::stackTraceAsString(vm, *stackTrace)), static_cast<unsigned>(PropertyAttribute::DontEnum));
 
         return true;
     }
+
+    obj->putDirect(vm, vm.propertyNames->stack, vm.smallStrings.emptyString(), static_cast<unsigned>(PropertyAttribute::DontEnum));
     return false;
 }
 
 void addErrorInfo(ExecState* exec, JSObject* obj, bool useCurrentFrame)
 {
-    CallFrame* callFrame = nullptr;
-    unsigned bytecodeOffset = 0;
-    addErrorInfoAndGetBytecodeOffset(exec, exec->vm(), obj, useCurrentFrame, callFrame, bytecodeOffset);
+    VM& vm = exec->vm();
+    std::unique_ptr<Vector<StackFrame>> stackTrace = getStackTrace(exec, vm, obj, useCurrentFrame);
+    addErrorInfo(vm, stackTrace.get(), obj);
 }
 
 JSObject* addErrorInfo(CallFrame* callFrame, JSObject* error, int line, const SourceCode& source)
 {
-    VM* vm = &callFrame->vm();
+    VM& vm = callFrame->vm();
     const String& sourceURL = source.provider()->url();
-
+    
+    // The putDirect() calls below should really be put() so that they trigger materialization of
+    // the line/sourceURL properties. Otherwise, what we set here will just be overwritten later.
+    // But calling put() would be bad because we'd rather not do effectful things here. Luckily, we
+    // know that this will get called on some kind of error - so we can just directly ask the
+    // ErrorInstance to materialize whatever it needs to. There's a chance that we get passed some
+    // other kind of object, which also has materializable properties. But this code is heuristic-ey
+    // enough that if we're wrong in such corner cases, it's not the end of the world.
+    if (ErrorInstance* errorInstance = jsDynamicCast<ErrorInstance*>(vm, error))
+        errorInstance->materializeErrorInfoIfNeeded(vm);
+    
+    // FIXME: This does not modify the column property, which confusingly continues to reflect
+    // the column at which the exception was thrown.
+    // https://bugs.webkit.org/show_bug.cgi?id=176673
     if (line != -1)
-        error->putDirect(*vm, Identifier::fromString(vm, linePropertyName), jsNumber(line), ReadOnly | DontDelete);
+        error->putDirect(vm, vm.propertyNames->line, jsNumber(line));
     if (!sourceURL.isNull())
-        error->putDirect(*vm, Identifier::fromString(vm, sourceURLPropertyName), jsString(vm, sourceURL), ReadOnly | DontDelete);
+        error->putDirect(vm, vm.propertyNames->sourceURL, jsString(&vm, sourceURL));
     return error;
 }
 
-
-bool hasErrorInfo(ExecState* exec, JSObject* error)
+Exception* throwConstructorCannotBeCalledAsFunctionTypeError(ExecState* exec, ThrowScope& scope, const char* constructorName)
 {
-    return error->hasProperty(exec, Identifier::fromString(exec, linePropertyName))
-        || error->hasProperty(exec, Identifier::fromString(exec, sourceURLPropertyName));
+    return throwTypeError(exec, scope, makeString("calling ", constructorName, " constructor without new is invalid"));
 }
 
-JSObject* throwTypeError(ExecState* exec)
+Exception* throwTypeError(ExecState* exec, ThrowScope& scope)
 {
-    return exec->vm().throwException(exec, createTypeError(exec));
+    return throwException(exec, scope, createTypeError(exec));
 }
 
-JSObject* throwSyntaxError(ExecState* exec)
+Exception* throwTypeError(ExecState* exec, ThrowScope& scope, ASCIILiteral errorMessage)
 {
-    return exec->vm().throwException(exec, createSyntaxError(exec, ASCIILiteral("Syntax error")));
+    return throwTypeError(exec, scope, String(errorMessage));
 }
 
-JSObject* throwSyntaxError(ExecState* exec, const String& message)
+Exception* throwTypeError(ExecState* exec, ThrowScope& scope, const String& message)
 {
-    return exec->vm().throwException(exec, createSyntaxError(exec, message));
+    return throwException(exec, scope, createTypeError(exec, message));
+}
+
+Exception* throwSyntaxError(ExecState* exec, ThrowScope& scope)
+{
+    return throwException(exec, scope, createSyntaxError(exec, "Syntax error"_s));
+}
+
+Exception* throwSyntaxError(ExecState* exec, ThrowScope& scope, const String& message)
+{
+    return throwException(exec, scope, createSyntaxError(exec, message));
+}
+
+JSValue throwDOMAttributeGetterTypeError(ExecState* exec, ThrowScope& scope, const ClassInfo* classInfo, PropertyName propertyName)
+{
+    return throwTypeError(exec, scope, makeString("The ", classInfo->className, '.', String(propertyName.uid()), " getter can only be used on instances of ", classInfo->className));
 }
 
 JSObject* createError(ExecState* exec, const String& message)
@@ -239,6 +310,11 @@ JSObject* createRangeError(ExecState* exec, const String& message)
     return createRangeError(exec, message, nullptr);
 }
 
+JSObject* createRangeError(ExecState* exec, JSGlobalObject* globalObject, const String& message)
+{
+    return createRangeError(exec, globalObject, message, nullptr);
+}
+
 JSObject* createReferenceError(ExecState* exec, const String& message)
 {
     return createReferenceError(exec, message, nullptr);
@@ -251,7 +327,7 @@ JSObject* createSyntaxError(ExecState* exec, const String& message)
 
 JSObject* createTypeError(ExecState* exec)
 {
-    return createTypeError(exec, ASCIILiteral("Type error"));
+    return createTypeError(exec, "Type error"_s);
 }
 
 JSObject* createTypeError(ExecState* exec, const String& message)
@@ -271,15 +347,17 @@ JSObject* createURIError(ExecState* exec, const String& message)
 
 JSObject* createOutOfMemoryError(ExecState* exec)
 {
-    return createOutOfMemoryError(exec, nullptr);
+    auto* error = createError(exec, "Out of memory"_s, nullptr);
+    jsCast<ErrorInstance*>(error)->setOutOfMemoryError();
+    return error;
 }
 
-
-const ClassInfo StrictModeTypeErrorFunction::s_info = { "Function", &Base::s_info, 0, CREATE_METHOD_TABLE(StrictModeTypeErrorFunction) };
-
-void StrictModeTypeErrorFunction::destroy(JSCell* cell)
+JSObject* createOutOfMemoryError(ExecState* exec, const String& message)
 {
-    static_cast<StrictModeTypeErrorFunction*>(cell)->StrictModeTypeErrorFunction::~StrictModeTypeErrorFunction();
+    
+    auto* error = createError(exec, makeString("Out of memory: ", message), nullptr);
+    jsCast<ErrorInstance*>(error)->setOutOfMemoryError();
+    return error;
 }
 
 } // namespace JSC

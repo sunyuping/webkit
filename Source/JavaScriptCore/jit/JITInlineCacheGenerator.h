@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef JITInlineCacheGenerator_h
-#define JITInlineCacheGenerator_h
+#pragma once
 
 #if ENABLE(JIT)
 
@@ -33,23 +32,44 @@
 #include "JSCJSValue.h"
 #include "PutKind.h"
 #include "RegisterSet.h"
-#include "StructureStubInfo.h"
 
 namespace JSC {
 
 class CodeBlock;
+class StructureStubInfo;
+
+struct CallSiteIndex;
+
+enum class AccessType : int8_t;
 
 class JITInlineCacheGenerator {
 protected:
     JITInlineCacheGenerator() { }
-    JITInlineCacheGenerator(CodeBlock*, CodeOrigin, CallSiteIndex, AccessType);
+    JITInlineCacheGenerator(
+        CodeBlock*, CodeOrigin, CallSiteIndex, AccessType, const RegisterSet& usedRegisters);
     
 public:
     StructureStubInfo* stubInfo() const { return m_stubInfo; }
 
+    void reportSlowPathCall(MacroAssembler::Label slowPathBegin, MacroAssembler::Call call)
+    {
+        m_slowPathBegin = slowPathBegin;
+        m_slowPathCall = call;
+    }
+    
+    MacroAssembler::Label slowPathBegin() const { return m_slowPathBegin; }
+
+    void finalize(
+        LinkBuffer& fastPathLinkBuffer, LinkBuffer& slowPathLinkBuffer,
+        CodeLocationLabel<JITStubRoutinePtrTag> start);
+    
 protected:
     CodeBlock* m_codeBlock;
     StructureStubInfo* m_stubInfo;
+
+    MacroAssembler::Label m_done;
+    MacroAssembler::Label m_slowPathBegin;
+    MacroAssembler::Call m_slowPathCall;
 };
 
 class JITByIdGenerator : public JITInlineCacheGenerator {
@@ -57,37 +77,28 @@ protected:
     JITByIdGenerator() { }
 
     JITByIdGenerator(
-        CodeBlock*, CodeOrigin, CallSiteIndex, AccessType, const RegisterSet&, JSValueRegs base,
-        JSValueRegs value);
-    
-public:
-    void reportSlowPathCall(MacroAssembler::Label slowPathBegin, MacroAssembler::Call call)
-    {
-        m_slowPathBegin = slowPathBegin;
-        m_call = call;
-    }
-    
-    MacroAssembler::Label slowPathBegin() const { return m_slowPathBegin; }
-    MacroAssembler::Jump slowPathJump() const { return m_structureCheck.m_jump; }
+        CodeBlock*, CodeOrigin, CallSiteIndex, AccessType, const RegisterSet& usedRegisters,
+        JSValueRegs base, JSValueRegs value);
 
-    void finalize(LinkBuffer& fastPathLinkBuffer, LinkBuffer& slowPathLinkBuffer);
-    void finalize(LinkBuffer&);
+public:
+    MacroAssembler::Jump slowPathJump() const
+    {
+        ASSERT(m_slowPathJump.isSet());
+        return m_slowPathJump;
+    }
+
+    void finalize(
+        LinkBuffer& fastPathLinkBuffer, LinkBuffer& slowPathLinkBuffer);
     
 protected:
-    void generateFastPathChecks(MacroAssembler&);
+    
+    void generateFastCommon(MacroAssembler&, size_t size);
     
     JSValueRegs m_base;
     JSValueRegs m_value;
-    
-    MacroAssembler::DataLabel32 m_structureImm;
-    MacroAssembler::PatchableJump m_structureCheck;
-    AssemblerLabel m_loadOrStore;
-#if USE(JSVALUE32_64)
-    AssemblerLabel m_tagLoadOrStore;
-#endif
-    MacroAssembler::Label m_done;
-    MacroAssembler::Label m_slowPathBegin;
-    MacroAssembler::Call m_call;
+
+    MacroAssembler::Label m_start;
+    MacroAssembler::Jump m_slowPathJump;
 };
 
 class JITGetByIdGenerator : public JITByIdGenerator {
@@ -95,9 +106,23 @@ public:
     JITGetByIdGenerator() { }
 
     JITGetByIdGenerator(
-        CodeBlock*, CodeOrigin, CallSiteIndex, const RegisterSet& usedRegisters, JSValueRegs base,
-        JSValueRegs value);
+        CodeBlock*, CodeOrigin, CallSiteIndex, const RegisterSet& usedRegisters, UniquedStringImpl* propertyName,
+        JSValueRegs base, JSValueRegs value, AccessType);
     
+    void generateFastPath(MacroAssembler&);
+
+private:
+    bool m_isLengthAccess;
+};
+
+class JITGetByIdWithThisGenerator : public JITByIdGenerator {
+public:
+    JITGetByIdWithThisGenerator() { }
+
+    JITGetByIdWithThisGenerator(
+        CodeBlock*, CodeOrigin, CallSiteIndex, const RegisterSet& usedRegisters, UniquedStringImpl* propertyName,
+        JSValueRegs value, JSValueRegs base, JSValueRegs thisRegs, AccessType);
+
     void generateFastPath(MacroAssembler&);
 };
 
@@ -107,7 +132,7 @@ public:
 
     JITPutByIdGenerator(
         CodeBlock*, CodeOrigin, CallSiteIndex, const RegisterSet& usedRegisters, JSValueRegs base,
-        JSValueRegs, GPRReg scratch, ECMAMode, PutKind);
+        JSValueRegs value, GPRReg scratch, ECMAMode, PutKind);
     
     void generateFastPath(MacroAssembler&);
     
@@ -118,9 +143,47 @@ private:
     PutKind m_putKind;
 };
 
+class JITInByIdGenerator : public JITByIdGenerator {
+public:
+    JITInByIdGenerator() { }
+
+    JITInByIdGenerator(
+        CodeBlock*, CodeOrigin, CallSiteIndex, const RegisterSet& usedRegisters, UniquedStringImpl* propertyName,
+        JSValueRegs base, JSValueRegs value);
+
+    void generateFastPath(MacroAssembler&);
+};
+
+class JITInstanceOfGenerator : public JITInlineCacheGenerator {
+public:
+    JITInstanceOfGenerator() { }
+    
+    JITInstanceOfGenerator(
+        CodeBlock*, CodeOrigin, CallSiteIndex, const RegisterSet& usedRegisters, GPRReg result,
+        GPRReg value, GPRReg prototype, GPRReg scratch1, GPRReg scratch2,
+        bool prototypeIsKnownObject = false);
+    
+    void generateFastPath(MacroAssembler&);
+
+    void finalize(LinkBuffer& fastPathLinkBuffer, LinkBuffer& slowPathLinkBuffer);
+
+private:
+    MacroAssembler::PatchableJump m_jump;
+};
+
+template<typename VectorType>
+void finalizeInlineCaches(VectorType& vector, LinkBuffer& fastPath, LinkBuffer& slowPath)
+{
+    for (auto& entry : vector)
+        entry.finalize(fastPath, slowPath);
+}
+
+template<typename VectorType>
+void finalizeInlineCaches(VectorType& vector, LinkBuffer& linkBuffer)
+{
+    finalizeInlineCaches(vector, linkBuffer, linkBuffer);
+}
+
 } // namespace JSC
 
 #endif // ENABLE(JIT)
-
-#endif // JITInlineCacheGenerator_h
-

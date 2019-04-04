@@ -23,31 +23,27 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef WorkerNavigator_h
-#define WorkerNavigator_h
+#pragma once
 
 #include "NavigatorBase.h"
 #include "Supplementable.h"
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class WorkerNavigator : public NavigatorBase, public RefCounted<WorkerNavigator>, public Supplementable<WorkerNavigator> {
+class WorkerNavigator final : public NavigatorBase, public Supplementable<WorkerNavigator> {
 public:
-    static Ref<WorkerNavigator> create(const String& userAgent) { return adoptRef(*new WorkerNavigator(userAgent)); }
-    virtual ~WorkerNavigator();
+    static Ref<WorkerNavigator> create(ScriptExecutionContext& context, const String& userAgent, bool isOnline) { return adoptRef(*new WorkerNavigator(context, userAgent, isOnline)); }
 
-    virtual String userAgent() const;
+    const String& userAgent() const final;
+    bool onLine() const final;
+    void setIsOnline(bool isOnline) { m_isOnline = isOnline; }
 
 private:
-    explicit WorkerNavigator(const String&);
+    explicit WorkerNavigator(ScriptExecutionContext&, const String&, bool isOnline);
 
     String m_userAgent;
+    bool m_isOnline;
 };
 
 } // namespace WebCore
-
-#endif // WorkerNavigator_h

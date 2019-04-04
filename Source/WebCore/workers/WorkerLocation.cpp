@@ -21,7 +21,6 @@
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
- *
  */
 
 #include "config.h"
@@ -39,22 +38,22 @@ String WorkerLocation::href() const
 
 String WorkerLocation::protocol() const
 {
-    return m_url.protocol() + ":";
+    return makeString(m_url.protocol(), ":");
 }
 
 String WorkerLocation::host() const
 {
-    return m_url.port() ? m_url.host() + ":" + String::number(m_url.port()) : m_url.host();
+    return m_url.hostAndPort();
 }
 
 String WorkerLocation::hostname() const
 {
-    return m_url.host();
+    return m_url.host().toString();
 }
 
 String WorkerLocation::port() const
 {
-    return m_url.port() ? String::number(m_url.port()) : "";
+    return m_url.port() ? String::number(m_url.port().value()) : emptyString();
 }
 
 String WorkerLocation::pathname() const
@@ -74,7 +73,7 @@ String WorkerLocation::hash() const
 
 String WorkerLocation::origin() const
 {
-    return SecurityOrigin::create(m_url)->toString();
+    return SecurityOriginData::fromURL(m_url).toString();
 }
 
 } // namespace WebCore

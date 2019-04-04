@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DictionaryPopupInfo_h
-#define DictionaryPopupInfo_h
+#pragma once
 
 #include "FloatPoint.h"
 #include "TextIndicator.h"
@@ -41,9 +40,11 @@ struct DictionaryPopupInfo {
 #if PLATFORM(COCOA)
     RetainPtr<NSDictionary> options;
     RetainPtr<NSAttributedString> attributedString;
+
+    bool encodingRequiresPlatformData() const { return true; }
+#else
+    bool encodingRequiresPlatformData() const { return false; }
 #endif
 };
 
 } // namespace WebCore
-
-#endif // DictionaryPopupInfo_h

@@ -28,23 +28,26 @@
 
 #if ENABLE(ASYNC_SCROLLING)
 
+#include "FrameView.h"
+#include "Logging.h"
+#include "ScrollingStateFrameScrollingNode.h"
 #include "ScrollingStateTree.h"
 #include "ScrollingTree.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-ScrollingTreeFrameScrollingNode::ScrollingTreeFrameScrollingNode(ScrollingTree& scrollingTree, ScrollingNodeID nodeID)
-    : ScrollingTreeScrollingNode(scrollingTree, FrameScrollingNode, nodeID)
+ScrollingTreeFrameScrollingNode::ScrollingTreeFrameScrollingNode(ScrollingTree& scrollingTree, ScrollingNodeType nodeType, ScrollingNodeID nodeID)
+    : ScrollingTreeScrollingNode(scrollingTree, nodeType, nodeID)
 {
+    ASSERT(isFrameScrollingNode());
 }
 
-ScrollingTreeFrameScrollingNode::~ScrollingTreeFrameScrollingNode()
-{
-}
+ScrollingTreeFrameScrollingNode::~ScrollingTreeFrameScrollingNode() = default;
 
-void ScrollingTreeFrameScrollingNode::updateBeforeChildren(const ScrollingStateNode& stateNode)
+void ScrollingTreeFrameScrollingNode::commitStateBeforeChildren(const ScrollingStateNode& stateNode)
 {
-    ScrollingTreeScrollingNode::updateBeforeChildren(stateNode);
+    ScrollingTreeScrollingNode::commitStateBeforeChildren(stateNode);
     
     const ScrollingStateFrameScrollingNode& state = downcast<ScrollingStateFrameScrollingNode>(stateNode);
 
@@ -68,28 +71,95 @@ void ScrollingTreeFrameScrollingNode::updateBeforeChildren(const ScrollingStateN
 
     if (state.hasChangedProperty(ScrollingStateFrameScrollingNode::FixedElementsLayoutRelativeToFrame))
         m_fixedElementsLayoutRelativeToFrame = state.fixedElementsLayoutRelativeToFrame();
+
+    if (state.hasChangedProperty(ScrollingStateFrameScrollingNode::LayoutViewport)) {
+        m_layoutViewport = state.layoutViewport();
+        updateViewportForCurrentScrollPosition({ });
+    }
+
+    if (state.hasChangedProperty(ScrollingStateFrameScrollingNode::MinLayoutViewportOrigin))
+        m_minLayoutViewportOrigin = state.minLayoutViewportOrigin();
+
+    if (state.hasChangedProperty(ScrollingStateFrameScrollingNode::MaxLayoutViewportOrigin))
+        m_maxLayoutViewportOrigin = state.maxLayoutViewportOrigin();
 }
 
-void ScrollingTreeFrameScrollingNode::scrollBy(const FloatSize& delta)
+bool ScrollingTreeFrameScrollingNode::scrollPositionAndLayoutViewportMatch(const FloatPoint& position, Optional<FloatRect> overrideLayoutViewport)
 {
-    setScrollPosition(scrollPosition() + delta);
+    return position == currentScrollPosition() && (!overrideLayoutViewport || overrideLayoutViewport.value() == m_layoutViewport);
 }
 
-void ScrollingTreeFrameScrollingNode::scrollByWithoutContentEdgeConstraints(const FloatSize& offset)
+FloatRect ScrollingTreeFrameScrollingNode::layoutViewportForScrollPosition(const FloatPoint& visibleContentOrigin, float scale) const
 {
-    setScrollPositionWithoutContentEdgeConstraints(scrollPosition() + offset);
+    FloatRect visibleContentRect(visibleContentOrigin, scrollableAreaSize());
+    LayoutRect visualViewport(FrameView::visibleDocumentRect(visibleContentRect, headerHeight(), footerHeight(), totalContentsSize(), scale));
+    LayoutRect layoutViewport(m_layoutViewport);
+
+    LOG_WITH_STREAM(Scrolling, stream << "\nScrolling thread: " << "(visibleContentOrigin " << visibleContentOrigin << ") fixed behavior " << m_behaviorForFixed);
+    LOG_WITH_STREAM(Scrolling, stream << "  layoutViewport: " << layoutViewport);
+    LOG_WITH_STREAM(Scrolling, stream << "  visualViewport: " << visualViewport);
+    LOG_WITH_STREAM(Scrolling, stream << "  scroll positions: min: " << minLayoutViewportOrigin() << " max: "<< maxLayoutViewportOrigin());
+
+    LayoutPoint newLocation = FrameView::computeLayoutViewportOrigin(LayoutRect(visualViewport), LayoutPoint(minLayoutViewportOrigin()), LayoutPoint(maxLayoutViewportOrigin()), layoutViewport, m_behaviorForFixed);
+
+    if (layoutViewport.location() != newLocation) {
+        layoutViewport.setLocation(newLocation);
+        LOG_WITH_STREAM(Scrolling, stream << " new layoutViewport " << layoutViewport);
+    }
+
+    return layoutViewport;
 }
 
-void ScrollingTreeFrameScrollingNode::setScrollPosition(const FloatPoint& scrollPosition)
+void ScrollingTreeFrameScrollingNode::updateViewportForCurrentScrollPosition(Optional<FloatRect> overrideLayoutViewport)
 {
-    FloatPoint newScrollPosition = scrollPosition.constrainedBetween(minimumScrollPosition(), maximumScrollPosition());
-    setScrollPositionWithoutContentEdgeConstraints(newScrollPosition);
+    if (overrideLayoutViewport)
+        setLayoutViewport(overrideLayoutViewport.value());
+    else
+        setLayoutViewport(layoutViewportForScrollPosition(currentScrollPosition(), frameScaleFactor()));
 }
 
 FloatSize ScrollingTreeFrameScrollingNode::viewToContentsOffset(const FloatPoint& scrollPosition) const
 {
     return toFloatSize(scrollPosition) - FloatSize(0, headerHeight() + topContentInset());
 }
+
+LayoutPoint ScrollingTreeFrameScrollingNode::parentToLocalPoint(LayoutPoint point) const
+{
+    return point - LayoutSize(0, headerHeight() + topContentInset());
+}
+
+LayoutPoint ScrollingTreeFrameScrollingNode::localToContentsPoint(LayoutPoint point) const
+{
+    auto scrolledPoint = point + LayoutPoint(currentScrollPosition());
+    return scrolledPoint.scaled(1 / frameScaleFactor());
+}
+
+void ScrollingTreeFrameScrollingNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
+{
+    ts << "frame scrolling node";
+    ScrollingTreeScrollingNode::dumpProperties(ts, behavior);
+
+    ts.dumpProperty("layout viewport", m_layoutViewport);
+    ts.dumpProperty("min layoutViewport origin", m_minLayoutViewportOrigin);
+    ts.dumpProperty("max layoutViewport origin", m_maxLayoutViewportOrigin);
+
+    if (m_frameScaleFactor != 1)
+        ts.dumpProperty("frame scale factor", m_frameScaleFactor);
+    if (m_topContentInset)
+        ts.dumpProperty("top content inset", m_topContentInset);
+
+    if (m_headerHeight)
+        ts.dumpProperty("header height", m_headerHeight);
+    if (m_footerHeight)
+        ts.dumpProperty("footer height", m_footerHeight);
+    if (m_synchronousScrollingReasons)
+        ts.dumpProperty("synchronous scrolling reasons", ScrollingCoordinator::synchronousScrollingReasonsAsText(m_synchronousScrollingReasons));
+
+    ts.dumpProperty("behavior for fixed", m_behaviorForFixed);
+    if (m_fixedElementsLayoutRelativeToFrame)
+        ts.dumpProperty("fixed elements lay out relative to frame", m_fixedElementsLayoutRelativeToFrame);
+}
+
 
 } // namespace WebCore
 

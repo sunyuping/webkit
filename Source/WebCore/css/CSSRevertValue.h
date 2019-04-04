@@ -23,27 +23,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CSSRevertValue_h
-#define CSSRevertValue_h
+#pragma once
 
 #include "CSSValue.h"
-#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
-class CSSRevertValue : public CSSValue {
+class CSSRevertValue final : public CSSValue {
 public:
     String customCSSText() const;
 
     bool equals(const CSSRevertValue&) const { return true; }
 
-#if COMPILER(MSVC)
-    // FIXME: This should be private, but for some reason MSVC then fails to invoke it from LazyNeverDestroyed::construct.
-public:
-#else
 private:
-    friend class LazyNeverDestroyed<CSSRevertValue>;
-#endif
+    friend LazyNeverDestroyed<CSSRevertValue>;
     CSSRevertValue()
         : CSSValue(RevertClass)
     {
@@ -53,5 +46,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSRevertValue, isRevertValue())
-
-#endif // CSSRevertValue_h

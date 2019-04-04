@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -53,6 +53,11 @@ void StackmapValue::appendSomeRegister(Value* value)
     append(ConstrainedValue(value, ValueRep::SomeRegister));
 }
 
+void StackmapValue::appendSomeRegisterWithClobber(Value* value)
+{
+    append(ConstrainedValue(value, ValueRep::SomeRegisterWithClobber));
+}
+
 void StackmapValue::setConstrainedChild(unsigned index, const ConstrainedValue& constrainedValue)
 {
     child(index) = constrainedValue.value();
@@ -83,10 +88,10 @@ void StackmapValue::dumpMeta(CommaPrinter& comma, PrintStream& out) const
         ", lateClobbered = ", m_lateClobbered, ", usedRegisters = ", m_usedRegisters);
 }
 
-StackmapValue::StackmapValue(CheckedOpcodeTag, Opcode opcode, Type type, Origin origin)
-    : Value(CheckedOpcode, opcode, type, origin)
+StackmapValue::StackmapValue(CheckedOpcodeTag, Kind kind, Type type, Origin origin)
+    : Value(CheckedOpcode, kind, type, origin)
 {
-    ASSERT(accepts(opcode));
+    ASSERT(accepts(kind));
 }
 
 } } // namespace JSC::B3

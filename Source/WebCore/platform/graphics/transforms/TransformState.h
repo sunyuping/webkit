@@ -29,10 +29,8 @@
 #include "AffineTransform.h"
 #include "FloatPoint.h"
 #include "FloatQuad.h"
-#include "IntSize.h"
 #include "LayoutSize.h"
 #include "TransformationMatrix.h"
-#include <wtf/Optional.h>
 
 namespace WebCore {
 

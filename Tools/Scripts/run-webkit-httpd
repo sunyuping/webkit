@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env python
 
 # Copyright (C) 2005, 2006, 2007, 2015 Apple Inc.  All rights reserved.
 # Copyright (C) 2006 Alexey Proskuryakov (ap@nypop.com)
@@ -9,13 +9,13 @@
 # are met:
 #
 # 1.  Redistributions of source code must retain the above copyright
-#     notice, this list of conditions and the following disclaimer. 
+#     notice, this list of conditions and the following disclaimer.
 # 2.  Redistributions in binary form must reproduce the above copyright
 #     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution. 
+#     documentation and/or other materials provided with the distribution.
 # 3.  Neither the name of Apple Inc. ("Apple") nor the names of
 #     its contributors may be used to endorse or promote products derived
-#     from this software without specific prior written permission. 
+#     from this software without specific prior written permission.
 #
 # THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
 # EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -28,73 +28,15 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Script to run Apache with the same configuration as used in http layout tests.
+import sys
 
-use strict;
-use warnings;
+from webkitpy.layout_tests.servers.run_webkit_httpd import parse_args, run_server
 
-use Cwd;
-use File::Path;
-use File::Basename;
-use Getopt::Long;
-use FindBin;
 
-use lib $FindBin::Bin;
-use webkitperl::httpd;
-use webkitdirs;
+def main(argv, stdout, stderr):
+    options, args = parse_args(argv)
+    run_server(options, args, stdout, stderr)
 
-# FIXME: Dynamic HTTP-port configuration in this file is wrong.  The various
-# apache config files in LayoutTests/http/config govern the port numbers.
-# Dynamic configuration as-written will also cause random failures in
-# an IPv6 environment.  See https://bugs.webkit.org/show_bug.cgi?id=37104.
-# Argument handling
-my $httpdPort = 8000;
-my $allInterfaces = 0;
-my $showHelp;
 
-my $result = GetOptions(
-    'all-interfaces|a' => \$allInterfaces,
-    'help|h' => \$showHelp,
-    'port=i' => \$httpdPort,
-);
-
-if (!$result || @ARGV || $showHelp) {
-    print "Usage: " . basename($0) . " [options]\n";
-    print "  -a|--all-interfaces  Bind to all interfaces\n";
-    print "  -h|--help            Show this help message\n";
-    print "  -p|--port NNNN       Bind to port NNNN\n";
-    exit 1;
-}
-
-setConfiguration();
-my $productDir = productDir();
-chdirWebKit();
-my $testDirectory = File::Spec->catfile(getcwd(), "LayoutTests");
-my $listen = "127.0.0.1:$httpdPort";
-$listen = "$httpdPort" if ($allInterfaces);
-
-if ($allInterfaces) {
-    print "Starting httpd on port $httpdPort (all interfaces)...\n";
-} else {
-    print "Starting httpd on <http://$listen/>...\n";
-}
-setShouldWaitForUserInterrupt();
-print "Press Ctrl+C to stop it.\n\n";
-
-my @args = (
-    "-C", "Listen $listen",
-    # Run in single-process mode, do not detach from the controlling terminal.
-    "-X",
-    # Disable Keep-Alive support. Makes testing in multiple browsers easier (no need to wait
-    # for another browser's connection to expire).
-    "-c", "KeepAlive off"
-);
-
-if (!isAnyWindows()) {
-    push(@args, "-c", "CustomLog |/usr/bin/tee common");
-    push(@args, "-c", "ErrorLog |/usr/bin/tee");
-}
-
-my @defaultArgs = getDefaultConfigForTestDirectory($testDirectory);
-@args = (@defaultArgs, @args);
-openHTTPD(@args);
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:], sys.stdout, sys.stderr))

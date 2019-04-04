@@ -20,9 +20,6 @@
 
 interface HTMLLegendElement : HTMLElement {
     readonly attribute HTMLFormElement form;
-    [Reflect] attribute DOMString align;
-#if defined(LANGUAGE_OBJECTIVE_C) && LANGUAGE_OBJECTIVE_C
-    [Reflect] attribute DOMString accessKey;
-#endif
+    [CEReactions=NotNeeded, Reflect] attribute DOMString align;
 };
 

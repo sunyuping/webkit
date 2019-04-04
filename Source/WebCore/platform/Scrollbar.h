@@ -23,14 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef Scrollbar_h
-#define Scrollbar_h
+#pragma once
 
 #include "ScrollTypes.h"
 #include "Timer.h"
 #include "Widget.h"
-#include <wtf/PassRefPtr.h>
-#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -43,7 +40,7 @@ class ScrollbarTheme;
 class Scrollbar : public Widget {
 public:
     // Must be implemented by platforms that can't simply use the Scrollbar base class.  Right now the only platform that is not using the base class is GTK.
-    WEBCORE_EXPORT static PassRefPtr<Scrollbar> createNativeScrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarControlSize);
+    WEBCORE_EXPORT static Ref<Scrollbar> createNativeScrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarControlSize);
 
     virtual ~Scrollbar();
 
@@ -59,7 +56,7 @@ public:
 
     ScrollableArea& scrollableArea() const { return m_scrollableArea; }
 
-    bool isCustomScrollbar() const { return m_isCustomScrollbar; }
+    virtual bool isCustomScrollbar() const { return false; }
     ScrollbarOrientation orientation() const { return m_orientation; }
 
     int value() const { return lroundf(m_currentPos); }
@@ -86,7 +83,7 @@ public:
     WEBCORE_EXPORT void setProportion(int visibleSize, int totalSize);
     void setPressedPos(int p) { m_pressedPos = p; }
 
-    virtual void paint(GraphicsContext&, const IntRect& damageRect) override;
+    void paint(GraphicsContext&, const IntRect& damageRect, Widget::SecurityOriginPaintPolicy = SecurityOriginPaintPolicy::AnyOrigin) override;
 
     bool enabled() const { return m_enabled; }
     virtual void setEnabled(bool);
@@ -99,7 +96,7 @@ public:
     // These methods are used for platform scrollbars to give :hover feedback.  They will not get called
     // when the mouse went down in a scrollbar, since it is assumed the scrollbar will start
     // grabbing all events in that case anyway.
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     WEBCORE_EXPORT bool mouseMoved(const PlatformMouseEvent&);
 #endif
     WEBCORE_EXPORT void mouseEntered();
@@ -112,42 +109,39 @@ public:
 
     ScrollbarTheme& theme() const { return m_theme; }
 
-    virtual void invalidateRect(const IntRect&) override;
+    void invalidateRect(const IntRect&) override;
 
     bool suppressInvalidation() const { return m_suppressInvalidation; }
     void setSuppressInvalidation(bool s) { m_suppressInvalidation = s; }
 
     virtual void styleChanged() { }
 
-    virtual IntRect convertToContainingView(const IntRect&) const override;
-    virtual IntRect convertFromContainingView(const IntRect&) const override;
+    IntRect convertToContainingView(const IntRect&) const override;
+    IntRect convertFromContainingView(const IntRect&) const override;
 
-    virtual IntPoint convertToContainingView(const IntPoint&) const override;
-    virtual IntPoint convertFromContainingView(const IntPoint&) const override;
+    IntPoint convertToContainingView(const IntPoint&) const override;
+    IntPoint convertFromContainingView(const IntPoint&) const override;
 
     void moveThumb(int pos, bool draggingDocument = false);
 
-    bool isAlphaLocked() const { return m_isAlphaLocked; }
-    void setIsAlphaLocked(bool flag) { m_isAlphaLocked = flag; }
-
+#if !PLATFORM(COCOA)
     float opacity() const { return m_opacity; }
     void setOpacity(float opacity) { m_opacity = opacity; }
+#endif
 
     bool supportsUpdateOnSecondaryThread() const;
 
-    WeakPtr<Scrollbar> createWeakPtr() { return m_weakPtrFactory.createWeakPtr(); }
-
 protected:
-    Scrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarControlSize, ScrollbarTheme* = 0, bool isCustomScrollbar = false);
+    Scrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarControlSize, ScrollbarTheme* = nullptr);
 
     void updateThumb();
     virtual void updateThumbPosition();
     virtual void updateThumbProportion();
 
     void autoscrollTimerFired();
-    void startTimerIfNeeded(double delay);
+    void startTimerIfNeeded(Seconds delay);
     void stopTimerIfNeeded();
-    void autoscrollPressedPart(double delay);
+    void autoscrollPressedPart(Seconds delay);
     ScrollDirection pressedPartScrollDirection();
     ScrollGranularity pressedPartScrollGranularity();
 
@@ -156,41 +150,35 @@ protected:
     ScrollbarControlSize m_controlSize;
     ScrollbarTheme& m_theme;
 
-    int m_visibleSize;
-    int m_totalSize;
-    float m_currentPos;
-    float m_dragOrigin;
-    int m_lineStep;
-    int m_pageStep;
-    float m_pixelStep;
+    int m_visibleSize { 0 };
+    int m_totalSize { 0 };
+    float m_currentPos { 0 };
+    float m_dragOrigin { 0 };
+    int m_lineStep { 0 };
+    int m_pageStep { 0 };
+    float m_pixelStep { 1 };
 
-    ScrollbarPart m_hoveredPart;
-    ScrollbarPart m_pressedPart;
-    int m_pressedPos;
-    float m_scrollPos;
-    bool m_draggingDocument;
-    int m_documentDragPos;
+    ScrollbarPart m_hoveredPart { NoPart };
+    ScrollbarPart m_pressedPart { NoPart };
+    int m_pressedPos { 0 };
+    bool m_draggingDocument { false };
+    int m_documentDragPos { 0 };
 
-    bool m_enabled;
+    bool m_enabled { true };
 
     Timer m_scrollTimer;
 
-    bool m_suppressInvalidation;
+    bool m_suppressInvalidation { false };
 
-    bool m_isAlphaLocked;
-
-    bool m_isCustomScrollbar;
-
+#if !PLATFORM(COCOA)
     float m_opacity { 1 };
+#endif
 
 private:
-    virtual bool isScrollbar() const override { return true; }
-
-    WeakPtrFactory<Scrollbar> m_weakPtrFactory;
+    bool isScrollbar() const override { return true; }
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_WIDGET(Scrollbar, isScrollbar())
 
-#endif // Scrollbar_h

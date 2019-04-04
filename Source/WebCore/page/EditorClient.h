@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2016 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Nokia Corporation and/or its subsidiary(-ies)
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,57 +24,41 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef EditorClient_h
-#define EditorClient_h
+#pragma once
 
 #include "EditorInsertAction.h"
-#include "FloatRect.h"
+#include "SerializedAttachmentData.h"
 #include "TextAffinity.h"
 #include "TextChecking.h"
 #include "UndoStep.h"
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
 
-#if PLATFORM(COCOA)
-OBJC_CLASS NSAttributedString;
-OBJC_CLASS NSString;
-OBJC_CLASS NSURL;
-#endif
-
-#if PLATFORM(IOS)
-OBJC_CLASS NSArray;
-OBJC_CLASS NSDictionary;
-#endif
-
 namespace WebCore {
 
-class ArchiveResource;
+enum class DOMPasteAccessResponse : uint8_t;
+
 class DocumentFragment;
-class Editor;
 class Element;
 class Frame;
-class HTMLElement;
 class KeyboardEvent;
-class LayoutRect;
 class Node;
 class Range;
 class SharedBuffer;
 class StyleProperties;
 class TextCheckerClient;
 class VisibleSelection;
-class VisiblePosition;
 
 struct GapRects;
 struct GrammarDetail;
 
 class EditorClient {
 public:
-    virtual ~EditorClient() {  }
-    virtual void pageDestroyed() = 0;
+    virtual ~EditorClient() = default;
 
     virtual bool shouldDeleteRange(Range*) = 0;
     virtual bool smartInsertDeleteEnabled() = 0; 
-    virtual bool isSelectTrailingWhitespaceEnabled() = 0;
+    virtual bool isSelectTrailingWhitespaceEnabled() const = 0;
     virtual bool isContinuousSpellCheckingEnabled() = 0;
     virtual void toggleContinuousSpellChecking() = 0;
     virtual bool isGrammarCheckingEnabled() = 0;
@@ -91,21 +75,40 @@ public:
     virtual void didApplyStyle() = 0;
     virtual bool shouldMoveRangeAfterDelete(Range*, Range*) = 0;
 
+#if ENABLE(ATTACHMENT_ELEMENT)
+    virtual void registerAttachmentIdentifier(const String& /* identifier */, const String& /* contentType */, const String& /* preferredFileName */, Ref<SharedBuffer>&&) { }
+    virtual void registerAttachmentIdentifier(const String& /* identifier */, const String& /* contentType */, const String& /* filePath */) { }
+    virtual void registerAttachments(Vector<SerializedAttachmentData>&&) { }
+    virtual void registerAttachmentIdentifier(const String& /* identifier */) { }
+    virtual void cloneAttachmentData(const String& /* fromIdentifier */, const String& /* toIdentifier */) { }
+    virtual void didInsertAttachmentWithIdentifier(const String& /* identifier */, const String& /* source */, bool /* hasEnclosingImage */) { }
+    virtual void didRemoveAttachmentWithIdentifier(const String&) { }
+    virtual bool supportsClientSideAttachmentData() const { return false; }
+    virtual Vector<SerializedAttachmentData> serializedAttachmentDataForIdentifiers(const Vector<String>&) { return { }; }
+#endif
+
     virtual void didBeginEditing() = 0;
     virtual void respondToChangedContents() = 0;
     virtual void respondToChangedSelection(Frame*) = 0;
-    virtual void didChangeSelectionAndUpdateLayout() = 0;
+    virtual void didEndUserTriggeredSelectionChanges() = 0;
+    virtual void updateEditorStateAfterLayoutIfEditabilityChanged() = 0;
     virtual void didEndEditing() = 0;
     virtual void willWriteSelectionToPasteboard(Range*) = 0;
     virtual void didWriteSelectionToPasteboard() = 0;
     virtual void getClientPasteboardDataForRange(Range*, Vector<String>& pasteboardTypes, Vector<RefPtr<SharedBuffer>>& pasteboardData) = 0;
+    virtual void requestCandidatesForSelection(const VisibleSelection&) { }
+    virtual void handleAcceptedCandidateWithSoftSpaces(TextCheckingResult) { }
+
+    virtual DOMPasteAccessResponse requestDOMPasteAccess(const String& originIdentifier) = 0;
 
     // Notify an input method that a composition was voluntarily discarded by WebCore, so that it could clean up too.
     // This function is not called when a composition is closed per a request from an input method.
     virtual void discardedComposition(Frame*) = 0;
+    virtual void canceledComposition() = 0;
+    virtual void didUpdateComposition() = 0;
 
-    virtual void registerUndoStep(PassRefPtr<UndoStep>) = 0;
-    virtual void registerRedoStep(PassRefPtr<UndoStep>) = 0;
+    virtual void registerUndoStep(UndoStep&) = 0;
+    virtual void registerRedoStep(UndoStep&) = 0;
     virtual void clearUndoRedoOperations() = 0;
 
     virtual bool canCopyCut(Frame*, bool defaultValue) const = 0;
@@ -127,25 +130,18 @@ public:
     virtual void textDidChangeInTextArea(Element*) = 0;
     virtual void overflowScrollPositionChanged() = 0;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     virtual void startDelayingAndCoalescingContentChangeNotifications() = 0;
     virtual void stopDelayingAndCoalescingContentChangeNotifications() = 0;
-    virtual void writeDataToPasteboard(NSDictionary*) = 0;
-    virtual NSArray* supportedPasteboardTypesForCurrentSelection() = 0;
-    virtual NSArray* readDataFromPasteboard(NSString* type, int index) = 0;
     virtual bool hasRichlyEditableSelection() = 0;
     virtual int getPasteboardItemsCount() = 0;
-    virtual DocumentFragment* documentFragmentFromDelegate(int index) = 0;
+    virtual RefPtr<DocumentFragment> documentFragmentFromDelegate(int index) = 0;
     virtual bool performsTwoStepPaste(DocumentFragment*) = 0;
-    virtual int pasteboardChangeCount() = 0;
+    virtual void updateStringForFind(const String&) = 0;
 #endif
 
 #if PLATFORM(COCOA)
-    virtual NSString* userVisibleString(NSURL*) = 0;
-    virtual DocumentFragment* documentFragmentFromAttributedString(NSAttributedString*, Vector< RefPtr<ArchiveResource>>&) = 0;
     virtual void setInsertionPasteboard(const String& pasteboardName) = 0;
-    virtual NSURL* canonicalizeURL(NSURL*) = 0;
-    virtual NSURL* canonicalizeURLString(NSString*) = 0;
 #endif
 
 #if USE(APPKIT)
@@ -186,8 +182,8 @@ public:
     // Support for global selections, used on platforms like the X Window System that treat
     // selection as a type of clipboard.
     virtual bool supportsGlobalSelection() { return false; }
+
+    virtual bool performTwoStepDrop(DocumentFragment&, Range& destination, bool isMove) = 0;
 };
 
 }
-
-#endif // EditorClient_h

@@ -28,28 +28,29 @@
 #if ENABLE(VIDEO)
 #include "RenderMedia.h"
 
-#include "RenderFlowThread.h"
+#include "RenderFragmentedFlow.h"
 #include "RenderView.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
 
 namespace WebCore {
 
-RenderMedia::RenderMedia(HTMLMediaElement& element, Ref<RenderStyle>&& style)
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMedia);
+
+RenderMedia::RenderMedia(HTMLMediaElement& element, RenderStyle&& style)
     : RenderImage(element, WTFMove(style))
 {
     setHasShadowControls(true);
 }
 
-RenderMedia::RenderMedia(HTMLMediaElement& element, Ref<RenderStyle>&& style, const IntSize& intrinsicSize)
+RenderMedia::RenderMedia(HTMLMediaElement& element, RenderStyle&& style, const IntSize& intrinsicSize)
     : RenderImage(element, WTFMove(style))
 {
     setIntrinsicSize(intrinsicSize);
     setHasShadowControls(true);
 }
 
-RenderMedia::~RenderMedia()
-{
-}
+RenderMedia::~RenderMedia() = default;
 
 void RenderMedia::paintReplaced(PaintInfo&, const LayoutPoint&)
 {

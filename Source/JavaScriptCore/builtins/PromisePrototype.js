@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,11 +35,9 @@ function then(onFulfilled, onRejected)
     "use strict";
 
     if (!@isPromise(this))
-        throw new @TypeError("|this| is not a object");
+        @throwTypeError("|this| is not a object");
 
-    // FIXME: Fix this code when @@species well-known symbol is landed.
-    // https://bugs.webkit.org/show_bug.cgi?id=146624
-    var constructor = this.constructor;
+    var constructor = @speciesConstructor(this, @Promise);
 
     var resultCapability = @newPromiseCapability(constructor);
 
@@ -49,18 +47,88 @@ function then(onFulfilled, onRejected)
     if (typeof onRejected !== "function")
         onRejected = function (argument) { throw argument; };
 
-    var fulfillReaction = @newPromiseReaction(resultCapability, onFulfilled);
-    var rejectReaction = @newPromiseReaction(resultCapability, onRejected);
+    var reaction = @newPromiseReaction(resultCapability, onFulfilled, onRejected);
 
-    var state = this.@promiseState;
-
+    var state = @getByIdDirectPrivate(this, "promiseState");
     if (state === @promiseStatePending) {
-        @putByValDirect(this.@promiseFulfillReactions, this.@promiseFulfillReactions.length, fulfillReaction)
-        @putByValDirect(this.@promiseRejectReactions, this.@promiseRejectReactions.length, rejectReaction)
-    } else if (state === @promiseStateFulfilled)
-        @enqueueJob(@promiseReactionJob, [fulfillReaction, this.@promiseResult]);
-    else if (state === @promiseStateRejected)
-        @enqueueJob(@promiseReactionJob, [rejectReaction, this.@promiseResult]);
+        var reactions = @getByIdDirectPrivate(this, "promiseReactions");
+        @putByValDirect(reactions, reactions.length, reaction);
+    } else {
+        if (state === @promiseStateRejected && !@getByIdDirectPrivate(this, "promiseIsHandled"))
+            @hostPromiseRejectionTracker(this, @promiseRejectionHandle);
+        @enqueueJob(@promiseReactionJob, [state, reaction, @getByIdDirectPrivate(this, "promiseResult")]);
+    }
+
+    @putByIdDirectPrivate(this, "promiseIsHandled", true);
 
     return resultCapability.@promise;
+}
+
+function finally(onFinally)
+{
+    "use strict";
+
+    if (!@isPromise(this))
+        @throwTypeError("|this| is not a Promise");
+
+    const constructor = @speciesConstructor(this, @Promise);
+
+    @assert(@isConstructor(constructor));
+
+    let thenFinally;
+    let catchFinally;
+
+    if (typeof onFinally !== "function") {
+        thenFinally = onFinally;
+        catchFinally = onFinally;
+    } else {
+        thenFinally = @getThenFinally(onFinally, constructor);
+        catchFinally = @getCatchFinally(onFinally, constructor);
+    }
+
+    return this.then(thenFinally, catchFinally);
+}
+
+@globalPrivate
+function getThenFinally(onFinally, constructor)
+{
+    "use strict";
+
+    return function(value)
+    {
+        @assert(typeof onFinally === "function");
+        const result = onFinally();
+
+        @assert(@isConstructor(constructor));
+        const resultCapability = @newPromiseCapability(constructor);
+
+        resultCapability.@resolve.@call(@undefined, result);
+
+        const promise = resultCapability.@promise;
+        const valueThunk = function () { return value; };
+
+        return promise.then(valueThunk);
+    }
+}
+
+@globalPrivate
+function getCatchFinally(onFinally, constructor)
+{
+    "use strict";
+
+    return function(reason)
+    {
+        @assert(typeof onFinally === "function");
+        const result = onFinally();
+
+        @assert(@isConstructor(constructor));
+        const resultCapability = @newPromiseCapability(constructor);
+
+        resultCapability.@resolve.@call(@undefined, result);
+
+        const promise = resultCapability.@promise;
+        const thrower = function () { throw reason; };
+
+        return promise.then(thrower);
+    }
 }

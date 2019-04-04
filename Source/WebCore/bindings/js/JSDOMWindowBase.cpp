@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 2000 Harri Porten (porten@kde.org)
  *  Copyright (C) 2006 Jon Shier (jshier@iastate.edu)
- *  Copyright (C) 2003-2009, 2014 Apple Inc. All rights reseved.
+ *  Copyright (C) 2003-2017 Apple Inc. All rights reseved.
  *  Copyright (C) 2006 Alexey Proskuryakov (ap@webkit.org)
  *  Copyright (c) 2015 Canon Inc. All rights reserved.
  *
@@ -26,71 +26,93 @@
 
 #include "ActiveDOMCallbackMicrotask.h"
 #include "Chrome.h"
+#include "CommonVM.h"
 #include "DOMWindow.h"
+#include "Document.h"
+#include "FetchResponse.h"
 #include "Frame.h"
 #include "InspectorController.h"
+#include "JSDOMBindingSecurity.h"
 #include "JSDOMGlobalObjectTask.h"
 #include "JSDOMWindowCustom.h"
-#include "JSMainThreadExecState.h"
-#include "JSModuleLoader.h"
+#include "JSFetchResponse.h"
+#include "JSMicrotaskCallback.h"
 #include "JSNode.h"
 #include "Logging.h"
 #include "Page.h"
+#include "RejectedPromiseTracker.h"
 #include "RuntimeApplicationChecks.h"
 #include "ScriptController.h"
+#include "ScriptModuleLoader.h"
 #include "SecurityOrigin.h"
 #include "Settings.h"
 #include "WebCoreJSClientData.h"
-#include <heap/StrongInlines.h>
-#include <runtime/JSInternalPromiseDeferred.h>
-#include <runtime/Microtask.h>
+#include <JavaScriptCore/CodeBlock.h>
+#include <JavaScriptCore/JSInternalPromise.h>
+#include <JavaScriptCore/JSInternalPromiseDeferred.h>
+#include <JavaScriptCore/Microtask.h>
+#include <JavaScriptCore/PromiseDeferredTimer.h>
+#include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/WebAssemblyPrototype.h>
+#include <wtf/Language.h>
 #include <wtf/MainThread.h>
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #include "ChromeClient.h"
-#include "WebSafeGCActivityCallbackIOS.h"
-#include "WebSafeIncrementalSweeperIOS.h"
 #endif
 
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
-static bool shouldAllowAccessFrom(const JSGlobalObject* thisObject, ExecState* exec)
-{
-    return BindingSecurity::shouldAllowAccessToDOMWindow(exec, asJSDOMWindow(thisObject)->wrapped());
-}
+const ClassInfo JSDOMWindowBase::s_info = { "Window", &JSDOMGlobalObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSDOMWindowBase) };
 
-const ClassInfo JSDOMWindowBase::s_info = { "Window", &JSDOMGlobalObject::s_info, 0, CREATE_METHOD_TABLE(JSDOMWindowBase) };
+const GlobalObjectMethodTable JSDOMWindowBase::s_globalObjectMethodTable = {
+    &supportsRichSourceInfo,
+    &shouldInterruptScript,
+    &javaScriptRuntimeFlags,
+    &queueTaskToEventLoop,
+    &shouldInterruptScriptBeforeTimeout,
+    &moduleLoaderImportModule,
+    &moduleLoaderResolve,
+    &moduleLoaderFetch,
+    &moduleLoaderCreateImportMetaProperties,
+    &moduleLoaderEvaluate,
+    &promiseRejectionTracker,
+    &defaultLanguage,
+#if ENABLE(WEBASSEMBLY)
+    &compileStreaming,
+    &instantiateStreaming,
+#else
+    nullptr,
+    nullptr,
+#endif
+};
 
-const GlobalObjectMethodTable JSDOMWindowBase::s_globalObjectMethodTable = { &shouldAllowAccessFrom, &supportsLegacyProfiling, &supportsRichSourceInfo, &shouldInterruptScript, &javaScriptRuntimeFlags, &queueTaskToEventLoop, &shouldInterruptScriptBeforeTimeout, &moduleLoaderResolve, &moduleLoaderFetch, nullptr, nullptr, &moduleLoaderEvaluate };
-
-JSDOMWindowBase::JSDOMWindowBase(VM& vm, Structure* structure, PassRefPtr<DOMWindow> window, JSDOMWindowShell* shell)
-    : JSDOMGlobalObject(vm, structure, &shell->world(), &s_globalObjectMethodTable)
+JSDOMWindowBase::JSDOMWindowBase(VM& vm, Structure* structure, RefPtr<DOMWindow>&& window, JSWindowProxy* proxy)
+    : JSDOMGlobalObject(vm, structure, proxy->world(), &s_globalObjectMethodTable)
     , m_windowCloseWatchpoints((window && window->frame()) ? IsWatched : IsInvalidated)
-    , m_wrapped(window)
-    , m_shell(shell)
+    , m_wrapped(WTFMove(window))
+    , m_proxy(proxy)
 {
 }
 
-void JSDOMWindowBase::finishCreation(VM& vm, JSDOMWindowShell* shell)
+void JSDOMWindowBase::finishCreation(VM& vm, JSWindowProxy* proxy)
 {
-    Base::finishCreation(vm, shell);
-    ASSERT(inherits(info()));
+    Base::finishCreation(vm, proxy);
+    ASSERT(inherits(vm, info()));
+
+    auto& builtinNames = static_cast<JSVMClientData*>(vm.clientData)->builtinNames();
 
     GlobalPropertyInfo staticGlobals[] = {
-        GlobalPropertyInfo(vm.propertyNames->document, jsNull(), DontDelete | ReadOnly),
-        GlobalPropertyInfo(vm.propertyNames->window, m_shell, DontDelete | ReadOnly),
+        GlobalPropertyInfo(builtinNames.documentPublicName(), jsNull(), PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly),
+        GlobalPropertyInfo(builtinNames.windowPublicName(), m_proxy, PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly),
     };
 
     addStaticGlobals(staticGlobals, WTF_ARRAY_LENGTH(staticGlobals));
-}
 
-void JSDOMWindowBase::visitChildren(JSCell* cell, SlotVisitor& visitor)
-{
-    JSDOMWindowBase* thisObject = jsCast<JSDOMWindowBase*>(cell);
-    ASSERT_GC_OBJECT_INHERITS(thisObject, info());
-    Base::visitChildren(thisObject, visitor);
+    if (m_wrapped && m_wrapped->frame() && m_wrapped->frame()->settings().needsSiteSpecificQuirks())
+        setNeedsSiteSpecificQuirks(true);
 }
 
 void JSDOMWindowBase::destroy(JSCell* cell)
@@ -100,9 +122,15 @@ void JSDOMWindowBase::destroy(JSCell* cell)
 
 void JSDOMWindowBase::updateDocument()
 {
+    // Since "document" property is defined as { configurable: false, writable: false, enumerable: true },
+    // users cannot change its attributes further.
+    // Reaching here, the attributes of "document" property should be never changed.
     ASSERT(m_wrapped->document());
     ExecState* exec = globalExec();
-    symbolTablePutWithAttributesTouchWatchpointSet(this, exec, exec->vm().propertyNames->document, toJS(exec, this, m_wrapped->document()), DontDelete | ReadOnly);
+    bool shouldThrowReadOnlyError = false;
+    bool ignoreReadOnlyErrors = true;
+    bool putResult = false;
+    symbolTablePutTouchWatchpointSet(this, exec, static_cast<JSVMClientData*>(exec->vm().clientData)->builtinNames().documentPublicName(), toJS(exec, this, m_wrapped->document()), shouldThrowReadOnlyError, ignoreReadOnlyErrors, putResult);
 }
 
 ScriptExecutionContext* JSDOMWindowBase::scriptExecutionContext() const
@@ -113,20 +141,6 @@ ScriptExecutionContext* JSDOMWindowBase::scriptExecutionContext() const
 void JSDOMWindowBase::printErrorMessage(const String& message) const
 {
     printErrorMessageForFrame(wrapped().frame(), message);
-}
-
-bool JSDOMWindowBase::supportsLegacyProfiling(const JSGlobalObject* object)
-{
-    const JSDOMWindowBase* thisObject = static_cast<const JSDOMWindowBase*>(object);
-    Frame* frame = thisObject->wrapped().frame();
-    if (!frame)
-        return false;
-
-    Page* page = frame->page();
-    if (!page)
-        return false;
-
-    return page->inspectorController().legacyProfilerEnabled();
 }
 
 bool JSDOMWindowBase::supportsRichSourceInfo(const JSGlobalObject* object)
@@ -142,7 +156,6 @@ bool JSDOMWindowBase::supportsRichSourceInfo(const JSGlobalObject* object)
 
     bool enabled = page->inspectorController().enabled();
     ASSERT(enabled || !thisObject->debugger());
-    ASSERT(enabled || !supportsLegacyProfiling(thisObject));
     return enabled;
 }
 
@@ -175,7 +188,7 @@ bool JSDOMWindowBase::shouldInterruptScriptBeforeTimeout(const JSGlobalObject* o
     if (shouldInterruptScriptToPreventInfiniteRecursionWhenClosingPage(page))
         return true;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     if (page->chrome().client().isStopping())
         return true;
 #endif
@@ -192,135 +205,92 @@ RuntimeFlags JSDOMWindowBase::javaScriptRuntimeFlags(const JSGlobalObject* objec
     return frame->settings().javaScriptRuntimeFlags();
 }
 
-class JSDOMWindowMicrotaskCallback : public RefCounted<JSDOMWindowMicrotaskCallback> {
-public:
-    static Ref<JSDOMWindowMicrotaskCallback> create(JSDOMWindowBase* globalObject, PassRefPtr<JSC::Microtask> task)
-    {
-        return adoptRef(*new JSDOMWindowMicrotaskCallback(globalObject, task));
-    }
-
-    void call()
-    {
-        Ref<JSDOMWindowMicrotaskCallback> protect(*this);
-        JSLockHolder lock(m_globalObject->vm());
-
-        ExecState* exec = m_globalObject->globalExec();
-
-        JSMainThreadExecState::runTask(exec, *m_task.get());
-
-        ASSERT(!exec->hadException());
-    }
-
-private:
-    JSDOMWindowMicrotaskCallback(JSDOMWindowBase* globalObject, PassRefPtr<JSC::Microtask> task)
-        : m_globalObject(globalObject->vm(), globalObject)
-        , m_task(task)
-    {
-    }
-
-    Strong<JSDOMWindowBase> m_globalObject;
-    RefPtr<JSC::Microtask> m_task;
-};
-
-void JSDOMWindowBase::queueTaskToEventLoop(const JSGlobalObject* object, PassRefPtr<JSC::Microtask> task)
+void JSDOMWindowBase::queueTaskToEventLoop(JSGlobalObject& object, Ref<JSC::Microtask>&& task)
 {
-    const JSDOMWindowBase* thisObject = static_cast<const JSDOMWindowBase*>(object);
+    JSDOMWindowBase& thisObject = static_cast<JSDOMWindowBase&>(object);
 
-    RefPtr<JSDOMWindowMicrotaskCallback> callback = JSDOMWindowMicrotaskCallback::create((JSDOMWindowBase*)thisObject, task);
-    auto microtask = std::make_unique<ActiveDOMCallbackMicrotask>(MicrotaskQueue::mainThreadQueue(), *thisObject->scriptExecutionContext(), [callback]() mutable {
+    auto callback = JSMicrotaskCallback::create(thisObject, WTFMove(task));
+    auto microtask = std::make_unique<ActiveDOMCallbackMicrotask>(MicrotaskQueue::mainThreadQueue(), *thisObject.scriptExecutionContext(), [callback = WTFMove(callback)]() mutable {
         callback->call();
     });
 
     MicrotaskQueue::mainThreadQueue().append(WTFMove(microtask));
 }
 
-void JSDOMWindowBase::willRemoveFromWindowShell()
+void JSDOMWindowBase::willRemoveFromWindowProxy()
 {
     setCurrentEvent(0);
 }
 
-JSDOMWindowShell* JSDOMWindowBase::shell() const
+JSWindowProxy* JSDOMWindowBase::proxy() const
 {
-    return m_shell;
+    return m_proxy;
 }
 
-VM& JSDOMWindowBase::commonVM()
+JSValue toJS(ExecState* state, DOMWindow& domWindow)
 {
-    ASSERT(isMainThread());
-
-    static VM* vm = nullptr;
-    if (!vm) {
-        ScriptController::initializeThreading();
-        vm = &VM::createLeaked(LargeHeap).leakRef();
-#if !PLATFORM(IOS)
-        vm->setExclusiveThread(std::this_thread::get_id());
-#else
-        vm->heap.setFullActivityCallback(WebSafeFullGCActivityCallback::create(&vm->heap));
-        vm->heap.setEdenActivityCallback(WebSafeEdenGCActivityCallback::create(&vm->heap));
-
-        vm->heap.setIncrementalSweeper(std::make_unique<WebSafeIncrementalSweeper>(&vm->heap));
-        vm->heap.machineThreads().addCurrentThread();
-#endif
-
-#if PLATFORM(MAC)
-        if (applicationIsITunes() || applicationIsIBooks() || Settings::shouldRewriteConstAsVar())
-            vm->setShouldRewriteConstAsVar(true);
-#endif
-
-        initNormalWorldClientData(vm);
-    }
-
-    return *vm;
-}
-
-// JSDOMGlobalObject* is ignored, accessing a window in any context will
-// use that DOMWindow's prototype chain.
-JSValue toJS(ExecState* exec, JSDOMGlobalObject*, DOMWindow* domWindow)
-{
-    return toJS(exec, domWindow);
-}
-
-JSValue toJS(ExecState* exec, DOMWindow* domWindow)
-{
-    if (!domWindow)
-        return jsNull();
-    Frame* frame = domWindow->frame();
+    auto* frame = domWindow.frame();
     if (!frame)
         return jsNull();
-    return frame->script().windowShell(currentWorld(exec));
+    return toJS(state, frame->windowProxy());
 }
 
-JSDOMWindow* toJSDOMWindow(Frame* frame, DOMWrapperWorld& world)
+JSDOMWindow* toJSDOMWindow(Frame& frame, DOMWrapperWorld& world)
 {
-    if (!frame)
-        return 0;
-    return frame->script().windowShell(world)->window();
+    return frame.script().globalObject(world);
 }
 
-JSDOMWindow* toJSDOMWindow(JSValue value)
+JSDOMWindow* toJSDOMWindow(JSC::VM& vm, JSValue value)
 {
     if (!value.isObject())
-        return 0;
+        return nullptr;
+
     while (!value.isNull()) {
         JSObject* object = asObject(value);
-        const ClassInfo* classInfo = object->classInfo();
+        const ClassInfo* classInfo = object->classInfo(vm);
         if (classInfo == JSDOMWindow::info())
             return jsCast<JSDOMWindow*>(object);
-        if (classInfo == JSDOMWindowShell::info())
-            return jsCast<JSDOMWindowShell*>(object)->window();
-        value = object->prototype();
+        if (classInfo == JSWindowProxy::info())
+            return jsDynamicCast<JSDOMWindow*>(vm, jsCast<JSWindowProxy*>(object)->window());
+        value = object->getPrototypeDirect(vm);
     }
-    return 0;
+    return nullptr;
+}
+
+DOMWindow& incumbentDOMWindow(ExecState& state)
+{
+    return asJSDOMWindow(&callerGlobalObject(state))->wrapped();
+}
+
+DOMWindow& activeDOMWindow(ExecState& state)
+{
+    return asJSDOMWindow(state.lexicalGlobalObject())->wrapped();
+}
+
+DOMWindow& firstDOMWindow(ExecState& state)
+{
+    VM& vm = state.vm();
+    return asJSDOMWindow(vm.vmEntryGlobalObject(&state))->wrapped();
+}
+
+Document* responsibleDocument(ExecState& state)
+{
+    CallerFunctor functor;
+    state.iterate(functor);
+    auto* callerFrame = functor.callerFrame();
+    if (!callerFrame)
+        return nullptr;
+    return asJSDOMWindow(callerFrame->lexicalGlobalObject())->wrapped().document();
 }
 
 void JSDOMWindowBase::fireFrameClearedWatchpointsForWindow(DOMWindow* window)
 {
-    JSC::VM& vm = JSDOMWindowBase::commonVM();
+    JSC::VM& vm = commonVM();
     JSVMClientData* clientData = static_cast<JSVMClientData*>(vm.clientData);
     Vector<Ref<DOMWrapperWorld>> wrapperWorlds;
     clientData->getAllWorlds(wrapperWorlds);
     for (unsigned i = 0; i < wrapperWorlds.size(); ++i) {
-        DOMObjectWrapperMap& wrappers = wrapperWorlds[i]->m_wrappers;
+        auto& wrappers = wrapperWorlds[i]->wrappers();
         auto result = wrappers.find(window);
         if (result == wrappers.end())
             continue;
@@ -328,35 +298,178 @@ void JSDOMWindowBase::fireFrameClearedWatchpointsForWindow(DOMWindow* window)
         if (!wrapper)
             continue;
         JSDOMWindowBase* jsWindow = JSC::jsCast<JSDOMWindowBase*>(wrapper);
-        jsWindow->m_windowCloseWatchpoints.fireAll("Frame cleared");
+        jsWindow->m_windowCloseWatchpoints.fireAll(vm, "Frame cleared");
     }
 }
 
-
-JSC::JSInternalPromise* JSDOMWindowBase::moduleLoaderResolve(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSValue moduleName, JSC::JSValue importerModuleKey)
+JSC::Identifier JSDOMWindowBase::moduleLoaderResolve(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSModuleLoader* moduleLoader, JSC::JSValue moduleName, JSC::JSValue importerModuleKey, JSC::JSValue scriptFetcher)
 {
     JSDOMWindowBase* thisObject = JSC::jsCast<JSDOMWindowBase*>(globalObject);
     if (RefPtr<Document> document = thisObject->wrapped().document())
-        return document->moduleLoader()->resolve(globalObject, exec, moduleName, importerModuleKey);
-    JSC::JSInternalPromiseDeferred* deferred = JSC::JSInternalPromiseDeferred::create(exec, globalObject);
-    return deferred->reject(exec, jsUndefined());
+        return document->moduleLoader().resolve(globalObject, exec, moduleLoader, moduleName, importerModuleKey, scriptFetcher);
+    return { };
 }
 
-JSC::JSInternalPromise* JSDOMWindowBase::moduleLoaderFetch(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSValue moduleKey)
+JSC::JSInternalPromise* JSDOMWindowBase::moduleLoaderFetch(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSModuleLoader* moduleLoader, JSC::JSValue moduleKey, JSC::JSValue parameters, JSC::JSValue scriptFetcher)
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
     JSDOMWindowBase* thisObject = JSC::jsCast<JSDOMWindowBase*>(globalObject);
     if (RefPtr<Document> document = thisObject->wrapped().document())
-        return document->moduleLoader()->fetch(globalObject, exec, moduleKey);
-    JSC::JSInternalPromiseDeferred* deferred = JSC::JSInternalPromiseDeferred::create(exec, globalObject);
-    return deferred->reject(exec, jsUndefined());
+        RELEASE_AND_RETURN(scope, document->moduleLoader().fetch(globalObject, exec, moduleLoader, moduleKey, parameters, scriptFetcher));
+    JSC::JSInternalPromiseDeferred* deferred = JSC::JSInternalPromiseDeferred::tryCreate(exec, globalObject);
+    RETURN_IF_EXCEPTION(scope, nullptr);
+    RELEASE_AND_RETURN(scope, deferred->reject(exec, jsUndefined()));
 }
 
-JSC::JSValue JSDOMWindowBase::moduleLoaderEvaluate(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSValue moduleKey, JSC::JSValue moduleRecord)
+JSC::JSValue JSDOMWindowBase::moduleLoaderEvaluate(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSModuleLoader* moduleLoader, JSC::JSValue moduleKey, JSC::JSValue moduleRecord, JSC::JSValue scriptFetcher)
 {
     JSDOMWindowBase* thisObject = JSC::jsCast<JSDOMWindowBase*>(globalObject);
     if (RefPtr<Document> document = thisObject->wrapped().document())
-        return document->moduleLoader()->evaluate(globalObject, exec, moduleKey, moduleRecord);
+        return document->moduleLoader().evaluate(globalObject, exec, moduleLoader, moduleKey, moduleRecord, scriptFetcher);
     return JSC::jsUndefined();
 }
+
+JSC::JSInternalPromise* JSDOMWindowBase::moduleLoaderImportModule(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSModuleLoader* moduleLoader, JSC::JSString* moduleName, JSC::JSValue parameters, const JSC::SourceOrigin& sourceOrigin)
+{
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    JSDOMWindowBase* thisObject = JSC::jsCast<JSDOMWindowBase*>(globalObject);
+    if (RefPtr<Document> document = thisObject->wrapped().document())
+        RELEASE_AND_RETURN(scope, document->moduleLoader().importModule(globalObject, exec, moduleLoader, moduleName, parameters, sourceOrigin));
+    JSC::JSInternalPromiseDeferred* deferred = JSC::JSInternalPromiseDeferred::tryCreate(exec, globalObject);
+    RETURN_IF_EXCEPTION(scope, nullptr);
+    RELEASE_AND_RETURN(scope, deferred->reject(exec, jsUndefined()));
+}
+
+JSC::JSObject* JSDOMWindowBase::moduleLoaderCreateImportMetaProperties(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSModuleLoader* moduleLoader, JSC::JSValue moduleKey, JSC::JSModuleRecord* moduleRecord, JSC::JSValue scriptFetcher)
+{
+    JSDOMWindowBase* thisObject = JSC::jsCast<JSDOMWindowBase*>(globalObject);
+    if (RefPtr<Document> document = thisObject->wrapped().document())
+        return document->moduleLoader().createImportMetaProperties(globalObject, exec, moduleLoader, moduleKey, moduleRecord, scriptFetcher);
+    return constructEmptyObject(exec, globalObject->nullPrototypeObjectStructure());
+}
+
+#if ENABLE(WEBASSEMBLY)
+static Optional<Vector<uint8_t>> tryAllocate(JSC::ExecState* exec, JSC::JSPromiseDeferred* promise, const char* data, size_t byteSize)
+{
+    Vector<uint8_t> arrayBuffer;
+    if (!arrayBuffer.tryReserveCapacity(byteSize)) {
+        promise->reject(exec, createOutOfMemoryError(exec));
+        return WTF::nullopt;
+    }
+
+    arrayBuffer.grow(byteSize);
+    memcpy(arrayBuffer.data(), data, byteSize);
+
+    return arrayBuffer;
+}
+
+static bool isResponseCorrect(JSC::ExecState* exec, FetchResponse* inputResponse, JSC::JSPromiseDeferred* promise)
+{
+    bool isResponseCorsSameOrigin = inputResponse->type() == ResourceResponse::Type::Basic || inputResponse->type() == ResourceResponse::Type::Cors || inputResponse->type() == ResourceResponse::Type::Default;
+
+    if (!isResponseCorsSameOrigin) {
+        promise->reject(exec, createTypeError(exec, "Response is not CORS-same-origin"_s));
+        return false;
+    }
+
+    if (!inputResponse->ok()) {
+        promise->reject(exec, createTypeError(exec, "Response has not returned OK status"_s));
+        return false;
+    }
+
+    auto contentType = inputResponse->headers().fastGet(HTTPHeaderName::ContentType);
+    if (!equalLettersIgnoringASCIICase(contentType, "application/wasm")) {
+        promise->reject(exec, createTypeError(exec, "Unexpected response MIME type. Expected 'application/wasm'"_s));
+        return false;
+    }
+
+    return true;
+}
+
+static void handleResponseOnStreamingAction(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, FetchResponse* inputResponse, JSC::JSPromiseDeferred* promise, Function<void(JSC::ExecState* exec, const char* data, size_t byteSize)>&& actionCallback)
+{
+    if (!isResponseCorrect(exec, inputResponse, promise))
+        return;
+
+    if (inputResponse->isBodyReceivedByChunk()) {
+        inputResponse->consumeBodyReceivedByChunk([promise, callback = WTFMove(actionCallback), globalObject, data = SharedBuffer::create()] (auto&& result) mutable {
+            ExecState* exec = globalObject->globalExec();
+            if (result.hasException()) {
+                promise->reject(exec, createTypeError(exec, result.exception().message()));
+                return;
+            }
+
+            if (auto chunk = result.returnValue())
+                data->append(reinterpret_cast<const char*>(chunk->data), chunk->size);
+            else {
+                VM& vm = exec->vm();
+                JSLockHolder lock(vm);
+
+                callback(exec, data->data(), data->size());
+            }
+        });
+        return;
+    }
+
+    auto body = inputResponse->consumeBody();
+    WTF::switchOn(body, [&] (Ref<FormData>& formData) {
+        if (auto buffer = formData->asSharedBuffer()) {
+            VM& vm = exec->vm();
+            JSLockHolder lock(vm);
+
+            actionCallback(exec, buffer->data(), buffer->size());
+            return;
+        }
+        // FIXME: http://webkit.org/b/184886> Implement loading for the Blob type
+        promise->reject(exec, createTypeError(exec, "Unexpected Response's Content-type"_s));
+    }, [&] (Ref<SharedBuffer>& buffer) {
+        VM& vm = exec->vm();
+        JSLockHolder lock(vm);
+
+        actionCallback(exec, buffer->data(), buffer->size());
+    }, [&] (std::nullptr_t&) {
+        promise->reject(exec, createTypeError(exec, "Unexpected Response's Content-type"_s));
+    });
+}
+
+void JSDOMWindowBase::compileStreaming(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSPromiseDeferred* promise, JSC::JSValue source)
+{
+    ASSERT(source);
+
+    VM& vm = exec->vm();
+
+    ASSERT(vm.promiseDeferredTimer->hasPendingPromise(promise));
+    ASSERT(vm.promiseDeferredTimer->hasDependancyInPendingPromise(promise, globalObject));
+
+    if (auto inputResponse = JSFetchResponse::toWrapped(vm, source)) {
+        handleResponseOnStreamingAction(globalObject, exec, inputResponse, promise, [promise] (JSC::ExecState* exec, const char* data, size_t byteSize) mutable {
+            if (auto arrayBuffer = tryAllocate(exec, promise, data, byteSize))
+                JSC::WebAssemblyPrototype::webAssemblyModuleValidateAsync(exec, promise, WTFMove(*arrayBuffer));
+        });
+    } else
+        promise->reject(exec, createTypeError(exec, "first argument must be an Response or Promise for Response"_s));
+}
+
+void JSDOMWindowBase::instantiateStreaming(JSC::JSGlobalObject* globalObject, JSC::ExecState* exec, JSC::JSPromiseDeferred* promise, JSC::JSValue source, JSC::JSObject* importedObject)
+{
+    ASSERT(source);
+
+    VM& vm = exec->vm();
+
+    ASSERT(vm.promiseDeferredTimer->hasPendingPromise(promise));
+    ASSERT(vm.promiseDeferredTimer->hasDependancyInPendingPromise(promise, globalObject));
+    ASSERT(vm.promiseDeferredTimer->hasDependancyInPendingPromise(promise, importedObject));
+
+    if (auto inputResponse = JSFetchResponse::toWrapped(vm, source)) {
+        handleResponseOnStreamingAction(globalObject, exec, inputResponse, promise, [promise, importedObject] (JSC::ExecState* exec, const char* data, size_t byteSize) mutable {
+            if (auto arrayBuffer = tryAllocate(exec, promise, data, byteSize))
+                JSC::WebAssemblyPrototype::webAssemblyModuleInstantinateAsync(exec, promise, WTFMove(*arrayBuffer), importedObject);
+        });
+    } else
+        promise->reject(exec, createTypeError(exec, "first argument must be an Response or Promise for Response"_s));
+}
+#endif
 
 } // namespace WebCore

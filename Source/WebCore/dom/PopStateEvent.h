@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2009-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,18 +24,12 @@
  *
  */
 
-#ifndef PopStateEvent_h
-#define PopStateEvent_h
+#pragma once
 
 #include "Event.h"
-#include "SerializedScriptValue.h"
-#include <bindings/ScriptValue.h>
+#include "JSValueInWrappedObject.h"
 
 namespace WebCore {
-
-struct PopStateEventInit : public EventInit {
-    Deprecated::ScriptValue state;
-};
 
 class History;
 class SerializedScriptValue;
@@ -43,28 +37,33 @@ class SerializedScriptValue;
 class PopStateEvent final : public Event {
 public:
     virtual ~PopStateEvent();
-    static Ref<PopStateEvent> create(RefPtr<SerializedScriptValue>&&, PassRefPtr<History>);
-    static Ref<PopStateEvent> createForBindings(const AtomicString&, const PopStateEventInit&);
+    static Ref<PopStateEvent> create(RefPtr<SerializedScriptValue>&&, History*);
 
-    PassRefPtr<SerializedScriptValue> serializedState() const { ASSERT(m_serializedState); return m_serializedState; }
+    struct Init : EventInit {
+        JSC::JSValue state;
+    };
+
+    static Ref<PopStateEvent> create(const AtomicString&, const Init&, IsTrusted = IsTrusted::No);
+    static Ref<PopStateEvent> createForBindings();
+
+    const JSValueInWrappedObject& state() const { return m_state; }
+    SerializedScriptValue* serializedState() const { return m_serializedState.get(); }
+
+    RefPtr<SerializedScriptValue> trySerializeState(JSC::ExecState&);
     
-    RefPtr<SerializedScriptValue> trySerializeState(JSC::ExecState*);
-    
-    const Deprecated::ScriptValue& state() const { return m_state; }
     History* history() const { return m_history.get(); }
 
-    virtual EventInterface eventInterface() const override;
-
 private:
-    PopStateEvent(const AtomicString&, const PopStateEventInit&);
-    explicit PopStateEvent(PassRefPtr<SerializedScriptValue>, PassRefPtr<History>);
+    PopStateEvent() = default;
+    PopStateEvent(const AtomicString&, const Init&, IsTrusted);
+    PopStateEvent(RefPtr<SerializedScriptValue>&&, History*);
 
-    Deprecated::ScriptValue m_state;
+    EventInterface eventInterface() const final;
+
+    JSValueInWrappedObject m_state;
     RefPtr<SerializedScriptValue> m_serializedState;
     bool m_triedToSerialize { false };
     RefPtr<History> m_history;
 };
 
 } // namespace WebCore
-
-#endif // PopStateEvent_h

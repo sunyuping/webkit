@@ -28,15 +28,16 @@
 #include "HTMLFrameSetElement.h"
 #include "HTMLNames.h"
 #include "RenderFrame.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLFrameElement);
 
 using namespace HTMLNames;
 
 inline HTMLFrameElement::HTMLFrameElement(const QualifiedName& tagName, Document& document)
     : HTMLFrameElementBase(tagName, document)
-    , m_frameBorder(true)
-    , m_frameBorderSet(false)
 {
     ASSERT(hasTagName(frameTag));
     setHasCustomStyleResolveCallbacks();
@@ -53,20 +54,20 @@ bool HTMLFrameElement::rendererIsNeeded(const RenderStyle&)
     return isURLAllowed();
 }
 
-RenderPtr<RenderElement> HTMLFrameElement::createElementRenderer(Ref<RenderStyle>&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> HTMLFrameElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderFrame>(*this, WTFMove(style));
 }
 
 bool HTMLFrameElement::noResize() const
 {
-    return fastHasAttribute(noresizeAttr);
+    return hasAttributeWithoutSynchronization(noresizeAttr);
 }
 
 void HTMLFrameElement::didAttachRenderers()
 {
     HTMLFrameElementBase::didAttachRenderers();
-    const HTMLFrameSetElement* containingFrameSet = HTMLFrameSetElement::findContaining(this);
+    const auto containingFrameSet = HTMLFrameSetElement::findContaining(this);
     if (!containingFrameSet)
         return;
     if (!m_frameBorderSet)
@@ -80,8 +81,8 @@ void HTMLFrameElement::parseAttribute(const QualifiedName& name, const AtomicStr
         m_frameBorderSet = !value.isNull();
         // FIXME: If we are already attached, this has no effect.
     } else if (name == noresizeAttr) {
-        if (renderer())
-            renderer()->updateFromElement();
+        if (auto* renderer = this->renderer())
+            renderer->updateFromElement();
     } else
         HTMLFrameElementBase::parseAttribute(name, value);
 }

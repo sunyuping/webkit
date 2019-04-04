@@ -1,6 +1,7 @@
 <html>
 <head>
 <script src="../resources/js-test-pre.js"></script>
+<script src="../resources/accessibility-helper.js"></script>
 </head>
 <body>
 
@@ -17,9 +18,6 @@
 
 <script>
     description("This tests that when an iframe finishes loading, it sends a notification.");
-
-    if (window.testRunner)
-        testRunner.waitUntilDone();
 
     window.jsTestIsAsync = true;
 
@@ -44,8 +42,6 @@
 
     function runTest()
     {
-        window.gotIframeNotification = false;
-
         if (window.accessibilityController) {
             window.root = accessibilityController.rootElement;
 
@@ -54,28 +50,22 @@
 
             window.accessibilityController.addNotificationListener(function (target, notification) {
                 // Ignore this notification if it's not on the iframe or not about the iframe being loaded.
-                if (target.description.indexOf("InnerFrame") == -1
+
+                var targetString = platformValueForW3CName(target);
+                if (targetString.indexOf("InnerFrame") == -1
                     || (notification != "AXLoadComplete" && notification != "AXLayoutComplete"))
                     return;
 
                 debug("Got notification on iframe.");
-                gotIframeNotification = true;
 
                 // Check that the button within the iframe is now reachable from the root.
                 shouldBeTrue("findByAccessibleTitleSubstring(root, 'InnerButton') != null");
+                accessibilityController.removeNotificationListener();
+                finishJSTest();
             });
         }
 
         window.iframeElement = document.getElementById("iframe");
-        iframeElement.addEventListener("load", function() {
-            window.setTimeout(function() {
-                shouldBeTrue("gotIframeNotification");
-                if (window.accessibilityController)
-                    accessibilityController.removeNotificationListener();
-
-                finishJSTest();
-            }, 10);
-        }, false);
 
         // Load content into the iframe. This will trigger the event
         // handler above, which will check that the accessibility tree

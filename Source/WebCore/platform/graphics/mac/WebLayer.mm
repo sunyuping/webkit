@@ -30,20 +30,16 @@
 #import "GraphicsLayerCA.h"
 #import "PlatformCALayer.h"
 #import <QuartzCore/QuartzCore.h>
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
+#import <wtf/SetForScope.h>
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #import "WKGraphics.h"
 #import "WAKWindow.h"
 #import "WebCoreThread.h"
 #endif
 
-@interface CALayer(WebCoreCALayerPrivate)
-- (void)reloadValueForKeyPath:(NSString *)keyPath;
-@end
-
-using namespace WebCore;
-
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 @interface WebLayer(Private)
 - (void)drawScaledContentsInContext:(CGContextRef)context;
 @end
@@ -53,16 +49,24 @@ using namespace WebCore;
 
 - (void)drawInContext:(CGContextRef)context
 {
-    PlatformCALayer* layer = PlatformCALayer::platformCALayer(self);
+    WebCore::PlatformCALayer* layer = WebCore::PlatformCALayer::platformCALayer((__bridge void*)self);
     if (layer) {
-        PlatformCALayer::RepaintRectList rectsToPaint = PlatformCALayer::collectRectsToPaint(context, layer);
-        PlatformCALayer::drawLayerContents(context, layer, rectsToPaint);
+        WebCore::PlatformCALayer::RepaintRectList rectsToPaint = WebCore::PlatformCALayer::collectRectsToPaint(context, layer);
+        WebCore::PlatformCALayer::drawLayerContents(context, layer, rectsToPaint, self.isRenderingInContext ? WebCore::GraphicsLayerPaintSnapshotting : WebCore::GraphicsLayerPaintNormal);
     }
 }
 
 @end // implementation WebLayer
 
 @implementation WebSimpleLayer
+
+@synthesize isRenderingInContext = _isRenderingInContext;
+
+- (void)renderInContext:(CGContextRef)context
+{
+    SetForScope<BOOL> change(_isRenderingInContext, YES);
+    [super renderInContext:context];
+}
 
 - (id<CAAction>)actionForKey:(NSString *)key
 {
@@ -75,20 +79,20 @@ using namespace WebCore;
 
 - (void)setNeedsDisplay
 {
-    PlatformCALayer* layer = PlatformCALayer::platformCALayer(self);
+    WebCore::PlatformCALayer* layer = WebCore::PlatformCALayer::platformCALayer((__bridge void*)self);
     if (layer && layer->owner() && layer->owner()->platformCALayerDrawsContent())
         [super setNeedsDisplay];
 }
 
 - (void)setNeedsDisplayInRect:(CGRect)dirtyRect
 {
-    PlatformCALayer* platformLayer = PlatformCALayer::platformCALayer(self);
+    WebCore::PlatformCALayer* platformLayer = WebCore::PlatformCALayer::platformCALayer((__bridge void*)self);
     if (!platformLayer) {
         [super setNeedsDisplayInRect:dirtyRect];
         return;
     }
 
-    if (PlatformCALayerClient* layerOwner = platformLayer->owner()) {
+    if (WebCore::PlatformCALayerClient* layerOwner = platformLayer->owner()) {
         if (layerOwner->platformCALayerDrawsContent()) {
             [super setNeedsDisplayInRect:dirtyRect];
 
@@ -103,32 +107,32 @@ using namespace WebCore;
 
 - (void)display
 {
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     if (pthread_main_np())
         WebThreadLock();
 #endif
     ASSERT(isMainThread());
     [super display];
-    PlatformCALayer* layer = PlatformCALayer::platformCALayer(self);
+    WebCore::PlatformCALayer* layer = WebCore::PlatformCALayer::platformCALayer((__bridge void*)self);
     if (layer && layer->owner())
         layer->owner()->platformCALayerLayerDidDisplay(layer);
 }
 
 - (void)drawInContext:(CGContextRef)context
 {
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     if (pthread_main_np())
         WebThreadLock();
 #endif
     ASSERT(isMainThread());
-    PlatformCALayer* layer = PlatformCALayer::platformCALayer(self);
+    WebCore::PlatformCALayer* layer = WebCore::PlatformCALayer::platformCALayer((__bridge void*)self);
     if (layer && layer->owner()) {
-        GraphicsContext graphicsContext(context);
+        WebCore::GraphicsContext graphicsContext(context);
         graphicsContext.setIsCALayerContext(true);
         graphicsContext.setIsAcceleratedContext(layer->acceleratesDrawing());
 
-        FloatRect clipBounds = CGContextGetClipBoundingBox(context);
-        layer->owner()->platformCALayerPaintContents(layer, graphicsContext, clipBounds);
+        WebCore::FloatRect clipBounds = CGContextGetClipBoundingBox(context);
+        layer->owner()->platformCALayerPaintContents(layer, graphicsContext, clipBounds, self.isRenderingInContext ? WebCore::GraphicsLayerPaintSnapshotting : WebCore::GraphicsLayerPaintNormal);
     }
 }
 
@@ -167,6 +171,11 @@ using namespace WebCore;
 
     if ([[self sublayers] count] == 0)
         [curDesc appendString:@"\n"];
+
+    if (CALayer *mask = [self mask]) {
+        [curDesc appendString:@"mask: "];
+        [curDesc appendString:[mask _descriptionWithPrefix:sublayerPrefix]];
+    }
 
     return curDesc;
 }

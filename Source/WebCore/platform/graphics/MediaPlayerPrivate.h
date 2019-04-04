@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,27 +23,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef MediaPlayerPrivate_h
-#define MediaPlayerPrivate_h
+#pragma once
 
 #if ENABLE(VIDEO)
 
 #include "MediaPlayer.h"
 #include "PlatformTimeRanges.h"
-#include <wtf/Forward.h>
 
 namespace WebCore {
-
-class IntRect;
-class IntSize;
-class MediaPlaybackTarget;
-class PlatformTextTrack;
 
 class MediaPlayerPrivateInterface {
     WTF_MAKE_NONCOPYABLE(MediaPlayerPrivateInterface); WTF_MAKE_FAST_ALLOCATED;
 public:
-    MediaPlayerPrivateInterface() { }
-    virtual ~MediaPlayerPrivateInterface() { }
+    MediaPlayerPrivateInterface() = default;
+    virtual ~MediaPlayerPrivateInterface() = default;
 
     virtual void load(const String& url) = 0;
 #if ENABLE(MEDIA_SOURCE)
@@ -55,17 +48,18 @@ public:
     virtual void cancelLoad() = 0;
     
     virtual void prepareToPlay() { }
-    virtual PlatformMedia platformMedia() const { return NoPlatformMedia; }
     virtual PlatformLayer* platformLayer() const { return 0; }
 
-#if PLATFORM(IOS) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
-    virtual void setVideoFullscreenLayer(PlatformLayer*) { }
+#if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
+    virtual void setVideoFullscreenLayer(PlatformLayer*, WTF::Function<void()>&& completionHandler) { completionHandler(); }
+    virtual void updateVideoFullscreenInlineImage() { }
     virtual void setVideoFullscreenFrame(FloatRect) { }
     virtual void setVideoFullscreenGravity(MediaPlayer::VideoGravity) { }
     virtual void setVideoFullscreenMode(MediaPlayer::VideoFullscreenMode) { }
+    virtual void videoFullscreenStandbyChanged() { }
 #endif
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     virtual NSArray *timedMetadata() const { return 0; }
     virtual String accessLog() const { return emptyString(); }
     virtual String errorLog() const { return emptyString(); }
@@ -76,6 +70,7 @@ public:
     virtual void pause() = 0;    
     virtual void setShouldBufferData(bool) { }
 
+    virtual bool supportsPictureInPicture() const { return false; }
     virtual bool supportsFullscreen() const { return false; }
     virtual bool supportsScanning() const { return false; }
     virtual bool requiresImmediateCompositing() const { return false; }
@@ -119,7 +114,7 @@ public:
 
     virtual void setVolume(float) { }
     virtual void setVolumeDouble(double volume) { return setVolume(volume); }
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY) || USE(GSTREAMER)
     virtual float volume() const { return 1; }
 #endif
 
@@ -141,6 +136,8 @@ public:
     virtual double minTimeSeekable() const { return 0; }
     virtual MediaTime minMediaTimeSeekable() const { return MediaTime::createWithDouble(minTimeSeekable()); }
     virtual std::unique_ptr<PlatformTimeRanges> buffered() const = 0;
+    virtual double seekableTimeRangesLastModifiedTime() const { return 0; }
+    virtual double liveUpdateInterval() const { return 0; }
 
     virtual unsigned long long totalBytes() const { return 0; }
     virtual bool didLoadingProgress() const = 0;
@@ -151,7 +148,7 @@ public:
 
     virtual void paintCurrentFrameInContext(GraphicsContext& c, const FloatRect& r) { paint(c, r); }
     virtual bool copyVideoTextureToPlatformTexture(GraphicsContext3D*, Platform3DObject, GC3Denum, GC3Dint, GC3Denum, GC3Denum, GC3Denum, bool, bool) { return false; }
-    virtual PassNativeImagePtr nativeImageForCurrentTime() { return nullptr; }
+    virtual NativeImagePtr nativeImageForCurrentTime() { return nullptr; }
 
     virtual void setPreload(MediaPlayer::Preload) { }
 
@@ -193,8 +190,8 @@ public:
     virtual void setShouldMaintainAspectRatio(bool) { }
 
     virtual bool hasSingleSecurityOrigin() const { return false; }
-
     virtual bool didPassCORSAccessCheck() const { return false; }
+    virtual Optional<bool> wouldTaintOrigin(const SecurityOrigin&) const { return WTF::nullopt; }
 
     virtual MediaPlayer::MovieLoadType movieLoadType() const { return MediaPlayer::Unknown; }
 
@@ -214,9 +211,9 @@ public:
     virtual unsigned audioDecodedByteCount() const { return 0; }
     virtual unsigned videoDecodedByteCount() const { return 0; }
 
-    void getSitesInMediaCache(Vector<String>&) { }
-    void clearMediaCache() { }
-    void clearMediaCacheForSite(const String&) { }
+    HashSet<RefPtr<SecurityOrigin>> originsInMediaCache(const String&) { return { }; }
+    void clearMediaCache(const String&, WallTime) { }
+    void clearMediaCacheForOrigins(const String&, const HashSet<RefPtr<SecurityOrigin>>&) { }
 
     virtual void setPrivateBrowsingMode(bool) { }
 
@@ -226,16 +223,17 @@ public:
     virtual AudioSourceProvider* audioSourceProvider() { return 0; }
 #endif
 
-#if ENABLE(ENCRYPTED_MEDIA)
-    virtual MediaPlayer::MediaKeyException addKey(const String&, const unsigned char*, unsigned, const unsigned char*, unsigned, const String&) { return MediaPlayer::KeySystemNotSupported; }
-    virtual MediaPlayer::MediaKeyException generateKeyRequest(const String&, const unsigned char*, unsigned) { return MediaPlayer::KeySystemNotSupported; }
-    virtual MediaPlayer::MediaKeyException cancelKeyRequest(const String&, const String&) { return MediaPlayer::KeySystemNotSupported; }
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    virtual std::unique_ptr<LegacyCDMSession> createSession(const String&, LegacyCDMSessionClient*) { return nullptr; }
+    virtual void setCDMSession(LegacyCDMSession*) { }
+    virtual void keyAdded() { }
 #endif
 
-#if ENABLE(ENCRYPTED_MEDIA_V2)
-    virtual std::unique_ptr<CDMSession> createSession(const String&, CDMSessionClient*) { return nullptr; }
-    virtual void setCDMSession(CDMSession*) { }
-    virtual void keyAdded() { }
+#if ENABLE(ENCRYPTED_MEDIA)
+    virtual void cdmInstanceAttached(CDMInstance&) { }
+    virtual void cdmInstanceDetached(CDMInstance&) { }
+    virtual void attemptToDecryptWithInstance(CDMInstance&) { }
+    virtual bool waitingForKey() const { return false; }
 #endif
 
 #if ENABLE(VIDEO_TRACK)
@@ -248,6 +246,9 @@ public:
 #if USE(GSTREAMER)
     virtual void simulateAudioInterruption() { }
 #endif
+
+    virtual void beginSimulatedHDCPError() { }
+    virtual void endSimulatedHDCPError() { }
 
     virtual String languageOfPrimaryAudioTrack() const { return emptyString(); }
 
@@ -265,19 +266,28 @@ public:
 
     virtual bool ended() const { return false; }
 
-#if ENABLE(MEDIA_SOURCE)
-    virtual unsigned long totalVideoFrames() { return 0; }
-    virtual unsigned long droppedVideoFrames() { return 0; }
-    virtual unsigned long corruptedVideoFrames() { return 0; }
-    virtual MediaTime totalFrameDelay() { return MediaTime::zeroTime(); }
-#endif
+    virtual Optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() { return WTF::nullopt; }
 
 #if ENABLE(AVF_CAPTIONS)
     virtual void notifyTrackModeChanged() { }
 #endif
+
+    virtual void notifyActiveSourceBuffersChanged() { }
+
+    virtual void setShouldDisableSleep(bool) { }
+
+    virtual void applicationWillResignActive() { }
+    virtual void applicationDidBecomeActive() { }
+
+#if USE(AVFOUNDATION)
+    virtual AVPlayer *objCAVFoundationAVPlayer() const { return nullptr; }
+#endif
+
+    virtual bool performTaskAtMediaTime(WTF::Function<void()>&&, MediaTime) { return false; }
+
+    virtual bool shouldIgnoreIntrinsicSize() { return false; }
 };
 
 }
 
-#endif
 #endif

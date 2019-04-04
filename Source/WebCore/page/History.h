@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007-2018 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,59 +23,65 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef History_h
-#define History_h
+#pragma once
 
 #include "DOMWindowProperty.h"
+#include "ExceptionOr.h"
+#include "JSValueInWrappedObject.h"
 #include "ScriptWrappable.h"
 #include "SerializedScriptValue.h"
-#include "URL.h"
-#include <wtf/Forward.h>
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefCounted.h>
+#include <wtf/WallTime.h>
 
 namespace WebCore {
 
-class Frame;
-class ScriptExecutionContext;
-struct ExceptionCodeWithMessage;
-typedef int ExceptionCode;
+class Document;
 
-class History : public ScriptWrappable, public RefCounted<History>, public DOMWindowProperty {
+class History final : public ScriptWrappable, public RefCounted<History>, public DOMWindowProperty {
 public:
-    static Ref<History> create(Frame* frame) { return adoptRef(*new History(frame)); }
+    static Ref<History> create(DOMWindow& window) { return adoptRef(*new History(window)); }
 
     unsigned length() const;
-    PassRefPtr<SerializedScriptValue> state();
+    
+    enum class ScrollRestoration {
+        Auto,
+        Manual
+    };
+
+    ExceptionOr<ScrollRestoration> scrollRestoration() const;
+    ExceptionOr<void> setScrollRestoration(ScrollRestoration);
+
+    SerializedScriptValue* state();
+    JSValueInWrappedObject& cachedState();
+
     void back();
     void forward();
-    void go(int distance);
+    void go(int);
 
-    void back(ScriptExecutionContext*);
-    void forward(ScriptExecutionContext*);
-    void go(ScriptExecutionContext*, int distance);
+    void back(Document&);
+    void forward(Document&);
+    void go(Document&, int);
 
-    bool stateChanged() const;
     bool isSameAsCurrentState(SerializedScriptValue*) const;
 
-    enum class StateObjectType {
-        Push,
-        Replace
-    };
-    void stateObjectAdded(PassRefPtr<SerializedScriptValue>, const String& title, const String& url, StateObjectType, ExceptionCodeWithMessage&);
+    ExceptionOr<void> pushState(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString);
+    ExceptionOr<void> replaceState(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString);
 
 private:
-    explicit History(Frame*);
+    explicit History(DOMWindow&);
+
+    enum class StateObjectType { Push, Replace };
+    ExceptionOr<void> stateObjectAdded(RefPtr<SerializedScriptValue>&&, const String& title, const String& url, StateObjectType);
+    bool stateChanged() const;
 
     URL urlForState(const String& url);
 
-    PassRefPtr<SerializedScriptValue> stateInternal() const;
+    SerializedScriptValue* stateInternal() const;
 
     RefPtr<SerializedScriptValue> m_lastStateObjectRequested;
+    JSValueInWrappedObject m_cachedState;
 
-    unsigned m_nonUserGestureObjectsAdded { 0 };
-    unsigned m_currentUserGestureObjectsAdded { 0 };
-    double m_currentUserGestureTimestamp { 0 };
+    unsigned m_currentStateObjectTimeSpanObjectsAdded { 0 };
+    WallTime m_currentStateObjectTimeSpanStart;
 
     // For the main frame's History object to keep track of all state object usage.
     uint64_t m_totalStateObjectUsage { 0 };
@@ -84,6 +90,14 @@ private:
     uint64_t m_mostRecentStateObjectUsage { 0 };
 };
 
-} // namespace WebCore
+inline ExceptionOr<void> History::pushState(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString)
+{
+    return stateObjectAdded(WTFMove(data), title, urlString, StateObjectType::Push);
+}
 
-#endif // History_h
+inline ExceptionOr<void> History::replaceState(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString)
+{
+    return stateObjectAdded(WTFMove(data), title, urlString, StateObjectType::Replace);
+}
+
+} // namespace WebCore

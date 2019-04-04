@@ -30,8 +30,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebVTTParser_h
-#define WebVTTParser_h
+#pragma once
 
 #if ENABLE(VIDEO_TRACK)
 
@@ -40,7 +39,6 @@
 #include "HTMLNames.h"
 #include "TextResourceDecoder.h"
 #include "VTTRegion.h"
-#include "WebVTTTokenizer.h"
 #include <memory>
 #include <wtf/MediaTime.h>
 #include <wtf/text/StringBuilder.h>
@@ -55,10 +53,11 @@ class VTTScanner;
 
 class WebVTTParserClient {
 public:
-    virtual ~WebVTTParserClient() { }
+    virtual ~WebVTTParserClient() = default;
 
     virtual void newCuesParsed() = 0;
     virtual void newRegionsParsed() = 0;
+    virtual void newStyleSheetsParsed() = 0;
     virtual void fileFailedToParse() = 0;
 };
 
@@ -66,7 +65,7 @@ class WebVTTCueData final : public RefCounted<WebVTTCueData> {
 public:
 
     static Ref<WebVTTCueData> create() { return adoptRef(*new WebVTTCueData()); }
-    ~WebVTTCueData() { }
+    ~WebVTTCueData() = default;
 
     MediaTime startTime() const { return m_startTime; }
     void setStartTime(const MediaTime& startTime) { m_startTime = startTime; }
@@ -87,7 +86,7 @@ public:
     void setOriginalStartTime(const MediaTime& time) { m_originalStartTime = time; }
 
 private:
-    WebVTTCueData() { }
+    WebVTTCueData() = default;
 
     MediaTime m_startTime;
     MediaTime m_endTime;
@@ -98,6 +97,7 @@ private:
 };
 
 class WebVTTParser final {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     enum ParseState {
         Initial,
@@ -105,6 +105,8 @@ public:
         Id,
         TimingsAndSettings,
         CueText,
+        Region,
+        Style,
         BadCue,
         Finished
     };
@@ -118,6 +120,14 @@ public:
             || tagName == uTag
             || tagName == rubyTag
             || tagName == rtTag;
+    }
+
+    static inline bool isASpace(UChar c)
+    {
+        // WebVTT space characters are U+0020 SPACE, U+0009 CHARACTER
+        // TABULATION (tab), U+000A LINE FEED (LF), U+000C FORM FEED (FF), and
+        // U+000D CARRIAGE RETURN (CR).
+        return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r';
     }
 
     static inline bool isValidSettingDelimiter(UChar c)
@@ -134,7 +144,7 @@ public:
 
     // Input data to the parser to parse.
     void parseBytes(const char*, unsigned);
-    void parseFileHeader(const String&);
+    void parseFileHeader(String&&);
     void parseCueData(const ISOWebVTTCue&);
     void flush();
     void fileFinished();
@@ -143,8 +153,10 @@ public:
     void getNewCues(Vector<RefPtr<WebVTTCueData>>&);
     void getNewRegions(Vector<RefPtr<VTTRegion>>&);
 
+    Vector<String> getStyleSheets();
+    
     // Create the DocumentFragment representation of the WebVTT cue text.
-    static PassRefPtr<DocumentFragment> createDocumentFragmentFromCueText(Document&, const String&);
+    static Ref<DocumentFragment> createDocumentFragmentFromCueText(Document&, const String&);
 
 protected:
     ScriptExecutionContext* m_scriptExecutionContext;
@@ -159,12 +171,17 @@ private:
     ParseState collectCueText(const String&);
     ParseState recoverCue(const String&);
     ParseState ignoreBadCue(const String&);
+    ParseState collectRegionSettings(const String&);
+    ParseState collectWebVTTBlock(const String&);
+    ParseState checkAndRecoverCue(const String& line);
+    ParseState collectStyleSheet(const String&);
+    bool checkAndCreateRegion(const String& line);
+    bool checkAndStoreRegion(const String& line);
+    bool checkStyleSheet(const String& line);
+    bool checkAndStoreStyleSheet(const String& line);
 
     void createNewCue();
     void resetCueValues();
-
-    void collectMetadataHeader(const String&);
-    void createNewRegion(const String& headerValue);
 
     static bool collectTimeStamp(VTTScanner& input, MediaTime& timeStamp);
 
@@ -174,15 +191,18 @@ private:
     MediaTime m_currentStartTime;
     MediaTime m_currentEndTime;
     StringBuilder m_currentContent;
+    String m_previousLine;
     String m_currentSettings;
-
+    RefPtr<VTTRegion> m_currentRegion;
+    String m_currentStyleSheet;
+    
     WebVTTParserClient* m_client;
 
     Vector<RefPtr<WebVTTCueData>> m_cuelist;
     Vector<RefPtr<VTTRegion>> m_regionList;
+    Vector<String> m_styleSheets;
 };
 
 } // namespace WebCore
 
-#endif
-#endif
+#endif // ENABLE(VIDEO_TRACK)

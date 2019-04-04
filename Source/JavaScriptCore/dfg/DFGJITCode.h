@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGJITCode_h
-#define DFGJITCode_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -52,14 +51,14 @@ public:
     JITCode();
     virtual ~JITCode();
     
-    virtual CommonData* dfgCommon() override;
-    virtual JITCode* dfg() override;
+    CommonData* dfgCommon() override;
+    JITCode* dfg() override;
     
-    OSREntryData* appendOSREntryData(unsigned bytecodeIndex, unsigned machineCodeOffset)
+    OSREntryData* appendOSREntryData(unsigned bytecodeIndex, CodeLocationLabel<OSREntryPtrTag> machineCode)
     {
         DFG::OSREntryData entry;
         entry.m_bytecodeIndex = bytecodeIndex;
-        entry.m_machineCodeOffset = machineCodeOffset;
+        entry.m_machineCode = machineCode;
         osrEntry.append(entry);
         return &osrEntry.last();
     }
@@ -70,7 +69,9 @@ public:
             osrEntry, osrEntry.size(), bytecodeIndex,
             getOSREntryDataBytecodeIndex);
     }
-    
+
+    void finalizeOSREntrypoints();
+
     unsigned appendOSRExit(const OSRExit& exit)
     {
         unsigned result = osrExit.size();
@@ -97,7 +98,7 @@ public:
     // stack. Currently, it also has the restriction that the values must be in their
     // bytecode-designated stack slots.
     void reconstruct(
-        ExecState*, CodeBlock*, CodeOrigin, unsigned streamIndex, Operands<JSValue>& result);
+        ExecState*, CodeBlock*, CodeOrigin, unsigned streamIndex, Operands<Optional<JSValue>>& result);
 
 #if ENABLE(FTL_JIT)
     // NB. All of these methods take CodeBlock* because they may want to use
@@ -119,13 +120,15 @@ public:
     RegisterSet liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBlock*, CallSiteIndex) override;
 #if ENABLE(FTL_JIT)
     CodeBlock* osrEntryBlock() { return m_osrEntryBlock.get(); }
-    void setOSREntryBlock(VM& vm, const JSCell* owner, CodeBlock* osrEntryBlock) { m_osrEntryBlock.set(vm, owner, osrEntryBlock); }
+    void setOSREntryBlock(VM&, const JSCell* owner, CodeBlock* osrEntryBlock);
     void clearOSREntryBlock() { m_osrEntryBlock.clear(); }
 #endif
 
     static ptrdiff_t commonDataOffset() { return OBJECT_OFFSETOF(JITCode, common); }
 
     Optional<CodeOrigin> findPC(CodeBlock*, void* pc) override;
+
+    using DirectJITCode::initializeCodeRefForDFG;
     
 private:
     friend class JITCompiler; // Allow JITCompiler to call setCodeRef().
@@ -137,9 +140,36 @@ public:
     Vector<DFG::SpeculationRecovery> speculationRecovery;
     DFG::VariableEventStream variableEventStream;
     DFG::MinifiedGraph minifiedDFG;
+
 #if ENABLE(FTL_JIT)
-    uint8_t nestedTriggerIsSet { 0 };
+    uint8_t neverExecutedEntry { 1 };
+
     UpperTierExecutionCounter tierUpCounter;
+
+    // For osrEntryPoint that are in inner loop, this maps their bytecode to the bytecode
+    // of the outerloop entry points in order (from innermost to outermost).
+    //
+    // The key may not always be a target for OSR Entry but the list in the value is guaranteed
+    // to be usable for OSR Entry.
+    HashMap<unsigned, Vector<unsigned>> tierUpInLoopHierarchy;
+
+    // Map each bytecode of CheckTierUpAndOSREnter to its stream index.
+    HashMap<unsigned, unsigned, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> bytecodeIndexToStreamIndex;
+
+    enum class TriggerReason : uint8_t {
+        DontTrigger,
+        CompilationDone,
+        StartCompilation,
+    };
+
+    // Map each bytecode of CheckTierUpAndOSREnter to its trigger forcing OSR Entry.
+    // This can never be modified after it has been initialized since the addresses of the triggers
+    // are used by the JIT.
+    HashMap<unsigned, TriggerReason> tierUpEntryTriggers;
+
+    // Set of bytecode that were the target of a TierUp operation.
+    HashSet<unsigned, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> tierUpEntrySeen;
+
     WriteBarrier<CodeBlock> m_osrEntryBlock;
     unsigned osrEntryRetry;
     bool abandonOSREntry;
@@ -149,6 +179,3 @@ public:
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGJITCode_h
-

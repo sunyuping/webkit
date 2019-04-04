@@ -26,15 +26,14 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AudioParam_h
-#define AudioParam_h
+#pragma once
 
 #include "AudioContext.h"
 #include "AudioParamTimeline.h"
 #include "AudioSummingJunction.h"
-#include <runtime/Float32Array.h>
+#include <JavaScriptCore/Float32Array.h>
 #include <sys/types.h>
-#include <wtf/PassRefPtr.h>
+#include <wtf/LoggerHelper.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
 
@@ -42,7 +41,13 @@ namespace WebCore {
 
 class AudioNodeOutput;
 
-class AudioParam : public AudioSummingJunction, public RefCounted<AudioParam> {
+class AudioParam final
+    : public AudioSummingJunction
+    , public RefCounted<AudioParam>
+#if !RELEASE_LOG_DISABLED
+    , private LoggerHelper
+#endif
+{
 public:
     static const double DefaultSmoothingConstant;
     static const double SnapThreshold;
@@ -53,8 +58,8 @@ public:
     }
 
     // AudioSummingJunction
-    virtual bool canUpdateState() override { return true; }
-    virtual void didUpdate() override { }
+    bool canUpdateState() override { return true; }
+    void didUpdate() override { }
 
     // Intrinsic value.
     float value();
@@ -89,7 +94,7 @@ public:
     void linearRampToValueAtTime(float value, float time) { m_timeline.linearRampToValueAtTime(value, time); }
     void exponentialRampToValueAtTime(float value, float time) { m_timeline.exponentialRampToValueAtTime(value, time); }
     void setTargetAtTime(float target, float time, float timeConstant) { m_timeline.setTargetAtTime(target, time, timeConstant); }
-    void setValueCurveAtTime(Float32Array* curve, float time, float duration) { m_timeline.setValueCurveAtTime(curve, time, duration); }
+    void setValueCurveAtTime(const RefPtr<Float32Array>& curve, float time, float duration) { m_timeline.setValueCurveAtTime(curve.get(), time, duration); }
     void cancelScheduledValues(float startTime) { m_timeline.cancelScheduledValues(startTime); }
 
     bool hasSampleAccurateValues() { return m_timeline.hasValues() || numberOfRenderingConnections(); }
@@ -103,24 +108,20 @@ public:
     void disconnect(AudioNodeOutput*);
 
 protected:
-    AudioParam(AudioContext& context, const String& name, double defaultValue, double minValue, double maxValue, unsigned units = 0)
-        : AudioSummingJunction(context)
-        , m_name(name)
-        , m_value(defaultValue)
-        , m_defaultValue(defaultValue)
-        , m_minValue(minValue)
-        , m_maxValue(maxValue)
-        , m_units(units)
-        , m_smoothedValue(defaultValue)
-        , m_smoothingConstant(DefaultSmoothingConstant)
-    {
-    }
+    AudioParam(AudioContext&, const String&, double defaultValue, double minValue, double maxValue, unsigned units = 0);
 
 private:
     // sampleAccurate corresponds to a-rate (audio rate) vs. k-rate in the Web Audio specification.
     void calculateFinalValues(float* values, unsigned numberOfValues, bool sampleAccurate);
     void calculateTimelineValues(float* values, unsigned numberOfValues);
 
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const final { return m_logger.get(); }
+    const void* logIdentifier() const final { return m_logIdentifier; }
+    const char* logClassName() const final { return "AudioParam"; }
+    WTFLogChannel& logChannel() const final;
+#endif
+    
     String m_name;
     double m_value;
     double m_defaultValue;
@@ -133,8 +134,11 @@ private:
     double m_smoothingConstant;
     
     AudioParamTimeline m_timeline;
+
+#if !RELEASE_LOG_DISABLED
+    mutable Ref<const Logger> m_logger;
+    const void* m_logIdentifier;
+#endif
 };
 
 } // namespace WebCore
-
-#endif // AudioParam_h

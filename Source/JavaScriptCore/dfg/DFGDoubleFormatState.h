@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGDoubleFormatState_h
-#define DFGDoubleFormatState_h
+#pragma once
 
 namespace JSC { namespace DFG {
 
@@ -49,6 +48,7 @@ inline DoubleFormatState mergeDoubleFormatStates(DoubleFormatState a, DoubleForm
         case CantUseDoubleFormat:
             return CantUseDoubleFormat;
         }
+        RELEASE_ASSERT_NOT_REACHED();
     case NotUsingDoubleFormat:
         switch (b) {
         case EmptyDoubleFormatState:
@@ -58,6 +58,7 @@ inline DoubleFormatState mergeDoubleFormatStates(DoubleFormatState a, DoubleForm
         case CantUseDoubleFormat:
             return CantUseDoubleFormat;
         }
+        RELEASE_ASSERT_NOT_REACHED();
     case CantUseDoubleFormat:
         return CantUseDoubleFormat;
     }
@@ -91,6 +92,3 @@ inline const char* doubleFormatStateToString(DoubleFormatState state)
 }
 
 } } // namespace JSC::DFG
-
-#endif // DFGDoubleFormatState_h
-

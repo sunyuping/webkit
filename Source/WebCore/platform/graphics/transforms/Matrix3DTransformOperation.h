@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef Matrix3DTransformOperation_h
-#define Matrix3DTransformOperation_h
+#pragma once
 
 #include "TransformOperation.h"
 #include <wtf/Ref.h>
@@ -38,7 +37,7 @@ public:
         return adoptRef(*new Matrix3DTransformOperation(matrix));
     }
 
-    virtual Ref<TransformOperation> clone() const override
+    Ref<TransformOperation> clone() const override
     {
         return adoptRef(*new Matrix3DTransformOperation(m_matrix));
     }
@@ -46,25 +45,27 @@ public:
     TransformationMatrix matrix() const {return m_matrix; }
 
 private:    
-    virtual bool isIdentity() const override { return m_matrix.isIdentity(); }
-    virtual bool isAffectedByTransformOrigin() const override { return !isIdentity(); }
+    bool isIdentity() const override { return m_matrix.isIdentity(); }
+    bool isAffectedByTransformOrigin() const final { return !isIdentity(); }
 
-    virtual OperationType type() const override { return MATRIX_3D; }
-    virtual bool isSameType(const TransformOperation& o) const override { return o.type() == MATRIX_3D; }
+    bool isRepresentableIn2D() const final;
 
-    virtual bool operator==(const TransformOperation&) const override;
+    bool operator==(const TransformOperation&) const override;
 
-    virtual bool apply(TransformationMatrix& transform, const FloatSize&) const override
+    bool apply(TransformationMatrix& transform, const FloatSize&) const override
     {
         transform.multiply(m_matrix);
         return false;
     }
 
-    virtual Ref<TransformOperation> blend(const TransformOperation* from, double progress, bool blendToIdentity = false) override;
+    Ref<TransformOperation> blend(const TransformOperation* from, double progress, bool blendToIdentity = false) override;
     
+    void dump(WTF::TextStream&) const final;
+
     Matrix3DTransformOperation(const TransformationMatrix& mat)
+        : TransformOperation(MATRIX_3D)
+        , m_matrix(mat)
     {
-        m_matrix = mat;
     }
 
     TransformationMatrix m_matrix;
@@ -73,5 +74,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(WebCore::Matrix3DTransformOperation, type() == WebCore::TransformOperation::MATRIX_3D)
-
-#endif // Matrix3DTransformOperation_h

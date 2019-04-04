@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2007, 2008, 2013 Apple Inc. All rights reserved.
+ *  Copyright (C) 2007-2008, 2013, 2016 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -18,39 +18,53 @@
  *
  */
 
-#ifndef StringPrototype_h
-#define StringPrototype_h
+#pragma once
 
+#include "JITOperations.h"
 #include "StringObject.h"
 
 namespace JSC {
 
 class ObjectPrototype;
+class RegExp;
+class RegExpObject;
 
-class StringPrototype : public StringObject {
+class StringPrototype final : public StringObject {
 private:
     StringPrototype(VM&, Structure*);
 
 public:
     typedef StringObject Base;
-    static const unsigned StructureFlags = OverridesGetOwnPropertySlot | Base::StructureFlags;
+    static const unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
     static StringPrototype* create(VM&, JSGlobalObject*, Structure*);
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
     {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
+        return Structure::create(vm, globalObject, prototype, TypeInfo(StringObjectType, StructureFlags), info());
     }
 
     DECLARE_INFO;
 
 protected:
     void finishCreation(VM&, JSGlobalObject*, JSString*);
-
-private:
-    static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
 };
 
-} // namespace JSC
+JSCell* JIT_OPERATION operationStringProtoFuncReplaceGeneric(
+    ExecState*, EncodedJSValue thisValue, EncodedJSValue searchValue, EncodedJSValue replaceValue);
 
-#endif // StringPrototype_h
+JSCell* JIT_OPERATION operationStringProtoFuncReplaceRegExpEmptyStr(
+    ExecState*, JSString* thisValue, RegExpObject* searchValue);
+
+JSCell* JIT_OPERATION operationStringProtoFuncReplaceRegExpString(
+    ExecState*, JSString* thisValue, RegExpObject* searchValue, JSString* replaceValue);
+
+void substituteBackreferences(StringBuilder& result, const String& replacement, StringView source, const int* ovector, RegExp*);
+
+EncodedJSValue JSC_HOST_CALL stringProtoFuncRepeatCharacter(ExecState*);
+EncodedJSValue JSC_HOST_CALL stringProtoFuncSplitFast(ExecState*);
+
+EncodedJSValue JSC_HOST_CALL builtinStringSubstrInternal(ExecState*);
+EncodedJSValue JSC_HOST_CALL builtinStringIncludesInternal(ExecState*);
+
+} // namespace JSC

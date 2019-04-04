@@ -10,9 +10,11 @@ div#node1 {
     position:absolute;
     ToP:0;
     lEfT:0;
+    /* font-size: 12px; */
+    /*float: left;*/
 }
 </style>
-<script type="text/javascript" src="../../http/tests/inspector/resources/inspector-test.js"></script>
+<script src="../../http/tests/inspector/resources/inspector-test.js"></script>
 <script>
 function test() {
     var nodeStyles;
@@ -35,11 +37,11 @@ function test() {
     {
         for (var i = 0; i < nodeStyles.matchedRules.length; ++i) {
             var rule = nodeStyles.matchedRules[i];
-            if (rule.type !== WebInspector.CSSStyleSheet.Type.Author)
+            if (rule.type !== WI.CSSStyleSheet.Type.Author)
                 continue;
 
-            for (var j = 0; j < rule.style.properties.length; ++j) {
-                var property = rule.style.properties[j];
+            for (var j = 0; j < rule.style.enabledProperties.length; ++j) {
+                var property = rule.style.enabledProperties[j];
 
                 if (property.anonymous)
                     continue;
@@ -54,18 +56,18 @@ function test() {
 
     function onStylesRefreshed()
     {
-        nodeStyles.removeEventListener(WebInspector.DOMNodeStyles.Event.Refreshed, onStylesRefreshed, this);
+        nodeStyles.removeEventListener(WI.DOMNodeStyles.Event.Refreshed, onStylesRefreshed, this);
         validateStyles();
     }
 
-    WebInspector.domTreeManager.requestDocument(function(documentNode) {
-        WebInspector.domTreeManager.querySelector(documentNode.id, "#node1", function(contentNodeId) {
+    WI.domManager.requestDocument(function(documentNode) {
+        WI.domManager.querySelector(documentNode.id, "#node1", function(contentNodeId) {
             if (contentNodeId) {
-                var domNode = WebInspector.domTreeManager.nodeForId(contentNodeId);
-                nodeStyles = WebInspector.cssStyleManager.stylesForNode(domNode);
+                var domNode = WI.domManager.nodeForId(contentNodeId);
+                nodeStyles = WI.cssManager.stylesForNode(domNode);
 
                 if (nodeStyles.needsRefresh)
-                    nodeStyles.addEventListener(WebInspector.DOMNodeStyles.Event.Refreshed, onStylesRefreshed, this);
+                    nodeStyles.addEventListener(WI.DOMNodeStyles.Event.Refreshed, onStylesRefreshed, this);
                 else
                     validateStyles();
             } else {

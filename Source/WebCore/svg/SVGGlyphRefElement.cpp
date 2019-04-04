@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011 Leo Yang <leoyang@webkit.org>
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -26,28 +27,18 @@
 #include "SVGNames.h"
 #include "SVGParserUtilities.h"
 #include "XLinkNames.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/text/AtomicString.h>
-#include <wtf/text/StringView.h>
 
 namespace WebCore {
 
-// Animated property definitions
-DEFINE_ANIMATED_STRING(SVGGlyphRefElement, XLinkNames::hrefAttr, Href, href)
-
-BEGIN_REGISTER_ANIMATED_PROPERTIES(SVGGlyphRefElement)
-    REGISTER_LOCAL_ANIMATED_PROPERTY(href)
-    REGISTER_PARENT_ANIMATED_PROPERTIES(SVGElement)
-END_REGISTER_ANIMATED_PROPERTIES
+WTF_MAKE_ISO_ALLOCATED_IMPL(SVGGlyphRefElement);
 
 inline SVGGlyphRefElement::SVGGlyphRefElement(const QualifiedName& tagName, Document& document)
     : SVGElement(tagName, document)
-    , m_x(0)
-    , m_y(0)
-    , m_dx(0)
-    , m_dy(0)
+    , SVGURIReference(this)
 {
     ASSERT(hasTagName(SVGNames::glyphRefTag));
-    registerAnimatedPropertiesForSVGGlyphRefElement();
 }
 
 Ref<SVGGlyphRefElement> SVGGlyphRefElement::create(const QualifiedName& tagName, Document& document)
@@ -59,67 +50,55 @@ bool SVGGlyphRefElement::hasValidGlyphElement(String& glyphName) const
 {
     // FIXME: We only support xlink:href so far.
     // https://bugs.webkit.org/show_bug.cgi?id=64787
-    return is<SVGGlyphElement>(targetElementFromIRIString(getAttribute(XLinkNames::hrefAttr), document(), &glyphName));
+    // No need to support glyphRef referencing another node inside a shadow tree.
+    auto target = targetElementFromIRIString(getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr), document());
+    glyphName = target.identifier;
+    return is<SVGGlyphElement>(target.element);
+}
+
+static float parseFloat(const AtomicString& value)
+{
+    float result;
+    if (!parseNumberFromString(value, result))
+        return 0;
+    return result;
 }
 
 void SVGGlyphRefElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
 {
-    auto upconvertedCharacters = StringView(value.string()).upconvertedCharacters();
-    const UChar* startPtr = upconvertedCharacters;
-    const UChar* endPtr = startPtr + value.length();
-
-    // FIXME: We need some error handling here.
+    // FIXME: Is the error handling in parseFloat correct for these attributes?
     if (name == SVGNames::xAttr)
-        parseNumber(startPtr, endPtr, m_x);
+        m_x = parseFloat(value);
     else if (name == SVGNames::yAttr)
-        parseNumber(startPtr, endPtr, m_y);
+        m_y = parseFloat(value);
     else if (name == SVGNames::dxAttr)
-        parseNumber(startPtr, endPtr, m_dx);
+        m_dx = parseFloat(value);
     else if (name == SVGNames::dyAttr)
-        parseNumber(startPtr, endPtr, m_dy);
+        m_dy = parseFloat(value);
     else {
         SVGURIReference::parseAttribute(name, value);
         SVGElement::parseAttribute(name, value);
     }
 }
 
-const AtomicString& SVGGlyphRefElement::glyphRef() const
+void SVGGlyphRefElement::setX(float x)
 {
-    return fastGetAttribute(SVGNames::glyphRefAttr);
+    setAttribute(SVGNames::xAttr, AtomicString::number(x));
 }
 
-void SVGGlyphRefElement::setGlyphRef(const AtomicString&, ExceptionCode&)
+void SVGGlyphRefElement::setY(float y)
 {
-    // FIXME: Set and honor attribute change.
-    // https://bugs.webkit.org/show_bug.cgi?id=64787
+    setAttribute(SVGNames::yAttr, AtomicString::number(y));
 }
 
-void SVGGlyphRefElement::setX(float x, ExceptionCode&)
+void SVGGlyphRefElement::setDx(float dx)
 {
-    // FIXME: Honor attribute change.
-    // https://bugs.webkit.org/show_bug.cgi?id=64787
-    m_x = x;
+    setAttribute(SVGNames::dxAttr, AtomicString::number(dx));
 }
 
-void SVGGlyphRefElement::setY(float y , ExceptionCode&)
+void SVGGlyphRefElement::setDy(float dy)
 {
-    // FIXME: Honor attribute change.
-    // https://bugs.webkit.org/show_bug.cgi?id=64787
-    m_y = y;
-}
-
-void SVGGlyphRefElement::setDx(float dx, ExceptionCode&)
-{
-    // FIXME: Honor attribute change.
-    // https://bugs.webkit.org/show_bug.cgi?id=64787
-    m_dx = dx;
-}
-
-void SVGGlyphRefElement::setDy(float dy, ExceptionCode&)
-{
-    // FIXME: Honor attribute change.
-    // https://bugs.webkit.org/show_bug.cgi?id=64787
-    m_dy = dy;
+    setAttribute(SVGNames::dyAttr, AtomicString::number(dy));
 }
 
 }

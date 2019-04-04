@@ -20,14 +20,14 @@
  *
  */
 
-#ifndef HTMLParagraphElement_h
-#define HTMLParagraphElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLParagraphElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLParagraphElement);
 public:
     static Ref<HTMLParagraphElement> create(Document&);
     static Ref<HTMLParagraphElement> create(const QualifiedName&, Document&);
@@ -35,10 +35,7 @@ public:
 private:
     HTMLParagraphElement(const QualifiedName&, Document&);
 
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
 };
 
 } // namespace WebCore
-
-#endif // HTMLParagraphElement_h

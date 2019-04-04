@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Andy VanWagoner <thetalecrafter@gmail.com>.
+ * Copyright (C) 2015 Andy VanWagoner <andy@vanwagoner.family>.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,9 +38,9 @@ function toLocaleString(/* locales, options */)
         if (opts === @undefined)
             options = null;
         else if (opts === null)
-            throw new @TypeError("null is not an object");
+            @throwTypeError("null is not an object");
         else
-            options = @Object(opts);
+            options = @toObject(opts);
 
         // Check original instead of descendant to reduce lookups up the prototype chain.
         var needsDefaults = !options || (
@@ -55,7 +55,7 @@ function toLocaleString(/* locales, options */)
 
         // Only create descendant if it will have own properties.
         if (needsDefaults) {
-            options = @Object.create(options)
+            options = @Object.@create(options);
             options.year = "numeric";
             options.month = "numeric";
             options.day = "numeric";
@@ -75,11 +75,9 @@ function toLocaleString(/* locales, options */)
     if (@isNaN(value))
         return "Invalid Date";
 
-    var options = toDateTimeOptionsAnyAll(arguments[1]);
-    var locales = arguments[0];
-
-    var dateFormat = new @DateTimeFormat(locales, options);
-    return dateFormat.format(value);
+    var options = toDateTimeOptionsAnyAll(@argument(1));
+    var locales = @argument(0);
+    return @dateTimeFormat(locales, options, value);
 }
 
 function toLocaleDateString(/* locales, options */)
@@ -95,9 +93,9 @@ function toLocaleDateString(/* locales, options */)
         if (opts === @undefined)
             options = null;
         else if (opts === null)
-            throw new @TypeError("null is not an object");
+            @throwTypeError("null is not an object");
         else
-            options = @Object(opts);
+            options = @toObject(opts);
 
         // Check original instead of descendant to reduce lookups up the prototype chain.
         var needsDefaults = !options || (
@@ -109,7 +107,7 @@ function toLocaleDateString(/* locales, options */)
 
         // Only create descendant if it will have own properties.
         if (needsDefaults) {
-            options = @Object.create(options)
+            options = @Object.@create(options);
             options.year = "numeric";
             options.month = "numeric";
             options.day = "numeric";
@@ -125,11 +123,9 @@ function toLocaleDateString(/* locales, options */)
     if (@isNaN(value))
         return "Invalid Date";
 
-    var options = toDateTimeOptionsDateDate(arguments[1]);
-    var locales = arguments[0];
-
-    var dateFormat = new @DateTimeFormat(locales, options);
-    return dateFormat.format(value);
+    var options = toDateTimeOptionsDateDate(@argument(1));
+    var locales = @argument(0);
+    return @dateTimeFormat(locales, options, value);
 }
 
 function toLocaleTimeString(/* locales, options */)
@@ -145,9 +141,9 @@ function toLocaleTimeString(/* locales, options */)
         if (opts === @undefined)
             options = null;
         else if (opts === null)
-            throw new @TypeError("null is not an object");
+            @throwTypeError("null is not an object");
         else
-            options = @Object(opts);
+            options = @toObject(opts);
 
         // Check original instead of descendant to reduce lookups up the prototype chain.
         var needsDefaults = !options || (
@@ -158,7 +154,7 @@ function toLocaleTimeString(/* locales, options */)
 
         // Only create descendant if it will have own properties.
         if (needsDefaults) {
-            options = @Object.create(options)
+            options = @Object.@create(options);
             options.hour = "numeric";
             options.minute = "numeric";
             options.second = "numeric";
@@ -174,9 +170,7 @@ function toLocaleTimeString(/* locales, options */)
     if (@isNaN(value))
         return "Invalid Date";
 
-    var options = toDateTimeOptionsTimeTime(arguments[1]);
-    var locales = arguments[0];
-
-    var dateFormat = new @DateTimeFormat(locales, options);
-    return dateFormat.format(value);
+    var options = toDateTimeOptionsTimeTime(@argument(1));
+    var locales = @argument(0);
+    return @dateTimeFormat(locales, options, value);
 }

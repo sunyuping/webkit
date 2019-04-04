@@ -47,14 +47,14 @@
 @end
 
 @interface NSString (JSStringRefAdditions)
-- (JSStringRef)createJSStringRef;
+- (JSRetainPtr<JSStringRef>)createJSStringRef;
 @end
 
 @implementation NSString (JSStringRefAdditions)
 
-- (JSStringRef)createJSStringRef
+- (JSRetainPtr<JSStringRef>)createJSStringRef
 {
-    return JSStringCreateWithCFString((CFStringRef)self);
+    return adopt(JSStringCreateWithCFString((__bridge CFStringRef)self));
 }
 
 @end
@@ -126,14 +126,14 @@ static Class webAccessibilityObjectWrapperClass()
 static JSValueRef makeValueRefForValue(JSContextRef context, id value)
 {
     if ([value isKindOfClass:[NSString class]])
-        return JSValueMakeString(context, adopt([value createJSStringRef]).get());
+        return JSValueMakeString(context, [value createJSStringRef].get());
     if ([value isKindOfClass:[NSNumber class]]) {
         if (!strcmp([value objCType], @encode(BOOL)))
             return JSValueMakeBoolean(context, [value boolValue]);
         return JSValueMakeNumber(context, [value doubleValue]);
     }
     if ([value isKindOfClass:webAccessibilityObjectWrapperClass()])
-        return toJS(context, WTR::AccessibilityUIElement::create(static_cast<PlatformUIElement>(value)).get());
+        return toJS(context, WTR::AccessibilityUIElement::create(static_cast<PlatformUIElement>(value)).ptr());
     if ([value isKindOfClass:[NSDictionary class]])
         return makeObjectRefForDictionary(context, value);
     if ([value isKindOfClass:[NSArray class]])
@@ -159,7 +159,7 @@ static JSValueRef makeObjectRefForDictionary(JSContextRef context, NSDictionary 
     [dictionary enumerateKeysAndObjectsUsingBlock:^(NSString *key, id obj, BOOL *stop)
     {
         if (JSValueRef propertyValue = makeValueRefForValue(context, obj))
-            JSObjectSetProperty(context, object, adopt([key createJSStringRef]).get(), propertyValue, kJSPropertyAttributeNone, nullptr);
+            JSObjectSetProperty(context, object, [key createJSStringRef].get(), propertyValue, kJSPropertyAttributeNone, nullptr);
     }];
 
     return object;
@@ -178,7 +178,7 @@ static JSValueRef makeObjectRefForDictionary(JSContextRef context, NSDictionary 
     WKBundleFrameRef mainFrame = WKBundlePageGetMainFrame(WTR::InjectedBundle::singleton().page()->page());
     JSContextRef context = WKBundleFrameGetJavaScriptContext(mainFrame);
 
-    JSValueRef notificationNameArgument = JSValueMakeString(context, adopt([notificationName createJSStringRef]).get());
+    JSValueRef notificationNameArgument = JSValueMakeString(context, [notificationName createJSStringRef].get());
     JSValueRef userInfoArgument = makeObjectRefForDictionary(context, userInfo);
     if (m_platformElement) {
         // Listener for one element gets the notification name and userInfo.
@@ -189,7 +189,7 @@ static JSValueRef makeObjectRefForDictionary(JSContextRef context, NSDictionary 
     } else {
         // A global listener gets the element, notification name and userInfo.
         JSValueRef arguments[3];
-        arguments[0] = toJS(context, WTR::AccessibilityUIElement::create([notification object]).get());
+        arguments[0] = toJS(context, WTR::AccessibilityUIElement::create([notification object]).ptr());
         arguments[1] = notificationNameArgument;
         arguments[2] = userInfoArgument;
         JSObjectCallAsFunction(context, const_cast<JSObjectRef>(m_notificationFunctionCallback), 0, 3, arguments, 0);

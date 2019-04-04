@@ -24,24 +24,23 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SymbolPrototype_h
-#define SymbolPrototype_h
+#pragma once
 
+#include "JSObject.h"
 #include "Symbol.h"
-#include "SymbolObject.h"
 
 namespace JSC {
 
 // In the ES6 spec, Symbol.prototype object is an ordinary JS object, not one of the symbol wrapper object instance.
-class SymbolPrototype : public JSNonFinalObject {
+class SymbolPrototype final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot;
+    static const unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
-    static SymbolPrototype* create(VM& vm, JSGlobalObject*, Structure* structure)
+    static SymbolPrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
     {
         SymbolPrototype* prototype = new (NotNull, allocateCell<SymbolPrototype>(vm.heap)) SymbolPrototype(vm, structure);
-        prototype->finishCreation(vm);
+        prototype->finishCreation(vm, globalObject);
         return prototype;
     }
 
@@ -54,13 +53,8 @@ public:
 
 protected:
     SymbolPrototype(VM&, Structure*);
-    void finishCreation(VM&);
-
-private:
-    static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
+    void finishCreation(VM&, JSGlobalObject*);
 };
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(SymbolPrototype);
 
 } // namespace JSC
-
-#endif // SymbolPrototype_h

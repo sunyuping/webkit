@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,11 +24,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BytecodeIntrinsicRegistry_h
-#define BytecodeIntrinsicRegistry_h
+#pragma once
 
 #include "Identifier.h"
-#include <wtf/HashTable.h>
 #include <wtf/Noncopyable.h>
 
 namespace JSC {
@@ -39,23 +38,77 @@ class RegisterID;
 class Identifier;
 
 #define JSC_COMMON_BYTECODE_INTRINSIC_FUNCTIONS_EACH_NAME(macro) \
-    macro(assert) \
+    macro(argument) \
+    macro(argumentCount) \
+    macro(getByIdDirect) \
+    macro(getByIdDirectPrivate) \
+    macro(idWithProfile) \
     macro(isObject) \
+    macro(isJSArray) \
+    macro(isProxyObject) \
+    macro(isDerivedArray) \
+    macro(isRegExpObject) \
+    macro(isMap) \
+    macro(isSet) \
+    macro(isUndefinedOrNull) \
+    macro(tailCallForwardArguments) \
+    macro(throwTypeError) \
+    macro(throwRangeError) \
+    macro(throwOutOfMemoryError) \
+    macro(tryGetById) \
+    macro(putByIdDirect) \
+    macro(putByIdDirectPrivate) \
     macro(putByValDirect) \
-    macro(toString)
+    macro(toNumber) \
+    macro(toString) \
+    macro(toObject) \
+    macro(newArrayWithSize) \
+    macro(defineEnumerableWritableConfigurableDataProperty) \
 
 #define JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_EACH_NAME(macro) \
+    JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_SIMPLE_EACH_NAME(macro) \
+    JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_CUSTOM_EACH_NAME(macro) \
+
+#define JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_SIMPLE_EACH_NAME(macro) \
     macro(undefined) \
-    macro(arrayIterationKindKey) \
-    macro(arrayIterationKindValue) \
-    macro(arrayIterationKindKeyValue) \
+    macro(Infinity) \
+    macro(iterationKindKey) \
+    macro(iterationKindValue) \
+    macro(iterationKindKeyValue) \
+    macro(MAX_ARRAY_INDEX) \
+    macro(MAX_STRING_LENGTH) \
+    macro(MAX_SAFE_INTEGER) \
+    macro(ModuleFetch) \
+    macro(ModuleTranslate) \
+    macro(ModuleInstantiate) \
+    macro(ModuleSatisfy) \
+    macro(ModuleLink) \
+    macro(ModuleReady) \
+    macro(promiseRejectionReject) \
+    macro(promiseRejectionHandle) \
     macro(promiseStatePending) \
     macro(promiseStateFulfilled) \
     macro(promiseStateRejected) \
-    macro(symbolIterator) \
-    macro(symbolSearch)
+    macro(GeneratorResumeModeNormal) \
+    macro(GeneratorResumeModeThrow) \
+    macro(GeneratorResumeModeReturn) \
+    macro(GeneratorStateCompleted) \
+    macro(GeneratorStateExecuting) \
+    macro(AsyncGeneratorStateCompleted) \
+    macro(AsyncGeneratorStateExecuting) \
+    macro(AsyncGeneratorStateAwaitingReturn) \
+    macro(AsyncGeneratorStateSuspendedStart) \
+    macro(AsyncGeneratorStateSuspendedYield) \
+    macro(AsyncGeneratorSuspendReasonYield) \
+    macro(AsyncGeneratorSuspendReasonAwait) \
+    macro(AsyncGeneratorSuspendReasonNone) \
+
+#define JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_CUSTOM_EACH_NAME(macro) \
+    macro(sentinelMapBucket) \
+    macro(sentinelSetBucket) \
 
 class BytecodeIntrinsicRegistry {
+    WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(BytecodeIntrinsicRegistry);
 public:
     explicit BytecodeIntrinsicRegistry(VM&);
@@ -73,10 +126,8 @@ private:
     HashMap<RefPtr<UniquedStringImpl>, EmitterType, IdentifierRepHash> m_bytecodeIntrinsicMap;
 
 #define JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS(name) Strong<Unknown> m_##name;
-    JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_EACH_NAME(JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS)
+    JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_SIMPLE_EACH_NAME(JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS)
 #undef JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS
 };
 
 } // namespace JSC
-
-#endif // BytecodeIntrinsicRegistry_h

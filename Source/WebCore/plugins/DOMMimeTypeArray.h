@@ -18,8 +18,7 @@
     Boston, MA 02110-1301, USA.
 */
 
-#ifndef DOMMimeTypeArray_h
-#define DOMMimeTypeArray_h
+#pragma once
 
 #include "DOMMimeType.h"
 #include "DOMWindowProperty.h"
@@ -28,12 +27,11 @@
 
 namespace WebCore {
 
-class Frame;
 class PluginData;
 
 class DOMMimeTypeArray : public ScriptWrappable, public RefCounted<DOMMimeTypeArray>, public DOMWindowProperty {
 public:
-    static Ref<DOMMimeTypeArray> create(Frame* frame) { return adoptRef(*new DOMMimeTypeArray(frame)); }
+    static Ref<DOMMimeTypeArray> create(DOMWindow* window) { return adoptRef(*new DOMMimeTypeArray(window)); }
     ~DOMMimeTypeArray();
 
     unsigned length() const;
@@ -42,10 +40,8 @@ public:
     Vector<AtomicString> supportedPropertyNames();
 
 private:
-    explicit DOMMimeTypeArray(Frame*);
+    explicit DOMMimeTypeArray(DOMWindow*);
     PluginData* getPluginData() const;
 };
 
 } // namespace WebCore
-
-#endif // DOMMimeTypeArray_h

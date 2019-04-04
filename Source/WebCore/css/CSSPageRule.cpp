@@ -29,7 +29,6 @@
 #include "PropertySetCSSStyleDeclaration.h"
 #include "StyleProperties.h"
 #include "StyleRule.h"
-#include <wtf/Vector.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -60,7 +59,7 @@ String CSSPageRule::selectorText() const
     const CSSSelector* selector = m_pageRule->selector();
     if (selector) {
         String pageSpecification = selector->selectorText();
-        if (!pageSpecification.isEmpty() && pageSpecification != starAtom) {
+        if (!pageSpecification.isEmpty() && pageSpecification != starAtom()) {
             text.append(' ');
             text.append(pageSpecification);
         }
@@ -78,7 +77,7 @@ void CSSPageRule::setSelectorText(const String& selectorText)
 
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
-    m_pageRule->wrapperAdoptSelectorList(selectorList);
+    m_pageRule->wrapperAdoptSelectorList(WTFMove(selectorList));
 }
 
 String CSSPageRule::cssText() const

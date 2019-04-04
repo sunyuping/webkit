@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,12 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ObjectPropertyConditionSet_h
-#define ObjectPropertyConditionSet_h
+#pragma once
 
 #include "ObjectPropertyCondition.h"
 #include <wtf/FastMalloc.h>
-#include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
@@ -67,7 +65,10 @@ public:
     {
         return !m_data || !m_data->vector.isEmpty();
     }
-    
+
+    bool isValidAndWatchable() const;
+
+    size_t size() const { return m_data ? m_data->vector.size() : 0; }
     bool isEmpty() const
     {
         return !m_data;
@@ -110,7 +111,7 @@ public:
     bool structuresEnsureValidityAssumingImpurePropertyWatchpoint() const;
     
     bool needImpurePropertyWatchpoint() const;
-    bool areStillLive() const;
+    bool areStillLive(VM&) const;
     
     void dumpInContext(PrintStream&, DumpContext*) const;
     void dump(PrintStream&) const;
@@ -155,6 +156,9 @@ private:
     RefPtr<Data> m_data;
 };
 
+ObjectPropertyCondition generateConditionForSelfEquivalence(
+    VM&, JSCell* owner, JSObject* object, UniquedStringImpl* uid);
+
 ObjectPropertyConditionSet generateConditionsForPropertyMiss(
     VM&, JSCell* owner, ExecState*, Structure* headStructure, UniquedStringImpl* uid);
 ObjectPropertyConditionSet generateConditionsForPropertySetterMiss(
@@ -166,10 +170,15 @@ ObjectPropertyConditionSet generateConditionsForPrototypePropertyHitCustom(
     VM&, JSCell* owner, ExecState*, Structure* headStructure, JSObject* prototype,
     UniquedStringImpl* uid);
 
+ObjectPropertyConditionSet generateConditionsForInstanceOf(
+    VM&, JSCell* owner, ExecState*, Structure* headStructure, JSObject* prototype, bool shouldHit);
+
+ObjectPropertyConditionSet generateConditionsForPrototypeEquivalenceConcurrently(
+    VM&, JSGlobalObject*, Structure* headStructure, JSObject* prototype,
+    UniquedStringImpl* uid);
+ObjectPropertyConditionSet generateConditionsForPropertyMissConcurrently(
+    VM&, JSGlobalObject*, Structure* headStructure, UniquedStringImpl* uid);
 ObjectPropertyConditionSet generateConditionsForPropertySetterMissConcurrently(
     VM&, JSGlobalObject*, Structure* headStructure, UniquedStringImpl* uid);
 
 } // namespace JSC
-
-#endif // ObjectPropertyConditionSet_h
-

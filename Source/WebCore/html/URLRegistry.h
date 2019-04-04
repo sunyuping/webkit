@@ -28,28 +28,26 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef URLRegistry_h
-#define URLRegistry_h
+#pragma once
 
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class URL;
 class SecurityOrigin;
 class URLRegistry;
 
 class URLRegistrable {
 public:
-    virtual ~URLRegistrable() { }
+    virtual ~URLRegistrable() = default;
     virtual URLRegistry& registry() const = 0;
 };
 
 class URLRegistry {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    virtual ~URLRegistry() { }
-    virtual void registerURL(SecurityOrigin*, const URL&, URLRegistrable*) = 0;
+    virtual ~URLRegistry() = default;
+    virtual void registerURL(SecurityOrigin*, const URL&, URLRegistrable&) = 0;
     virtual void unregisterURL(const URL&) = 0;
 
     // This is an optional API
@@ -57,5 +55,3 @@ public:
 };
 
 } // namespace WebCore
-
-#endif // URLRegistry_h

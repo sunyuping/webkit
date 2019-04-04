@@ -27,11 +27,14 @@
 
 #include "config.h"
 #include "PlatformWheelEvent.h"
-#include "Scrollbar.h"
 
+#include "FloatPoint.h"
+#include "GtkUtilities.h"
+#include "PlatformKeyboardEvent.h"
+#include "Scrollbar.h"
 #include <gdk/gdk.h>
 #include <gtk/gtk.h>
-#include <wtf/CurrentTime.h>
+#include <wtf/WallTime.h>
 
 namespace WebCore {
 
@@ -41,17 +44,18 @@ PlatformWheelEvent::PlatformWheelEvent(GdkEventScroll* event)
     static const float delta = 1;
 
     m_type = PlatformEvent::Wheel;
-    m_timestamp = currentTime();
+    m_timestamp = wallTimeForEvent(event);
 
-    m_modifiers = 0;
     if (event->state & GDK_SHIFT_MASK)
-        m_modifiers |= ShiftKey;
+        m_modifiers.add(Modifier::ShiftKey);
     if (event->state & GDK_CONTROL_MASK)
-        m_modifiers |= CtrlKey;
+        m_modifiers.add(Modifier::ControlKey);
     if (event->state & GDK_MOD1_MASK)
-        m_modifiers |= AltKey;
+        m_modifiers.add(Modifier::AltKey);
     if (event->state & GDK_META_MASK)
-        m_modifiers |= MetaKey;
+        m_modifiers.add(Modifier::MetaKey);
+    if (PlatformKeyboardEvent::modifiersContainCapsLock(event->state))
+        m_modifiers.add(PlatformEvent::Modifier::CapsLockKey);
 
     m_deltaX = 0;
     m_deltaY = 0;
@@ -83,6 +87,22 @@ PlatformWheelEvent::PlatformWheelEvent(GdkEventScroll* event)
     m_wheelTicksX = m_deltaX;
     m_wheelTicksY = m_deltaY;
 
+#if ENABLE(ASYNC_SCROLLING)
+#ifndef GTK_API_VERSION_2
+#if GTK_CHECK_VERSION(3, 20, 0)
+    m_phase = event->is_stop ?
+        PlatformWheelEventPhaseEnded :
+        PlatformWheelEventPhaseChanged;
+#else
+    m_phase = event->direction == GDK_SCROLL_SMOOTH && !m_deltaX && !m_deltaY ?
+        PlatformWheelEventPhaseEnded :
+        PlatformWheelEventPhaseChanged;
+#endif
+#else
+    m_phase = PlatformWheelEventPhaseChanged;
+#endif // GTK_API_VERSION_2
+#endif // ENABLE(ASYNC_SCROLLING)
+
     m_position = IntPoint(static_cast<int>(event->x), static_cast<int>(event->y));
     m_globalPosition = IntPoint(static_cast<int>(event->x_root), static_cast<int>(event->y_root));
     m_granularity = ScrollByPixelWheelEvent;
@@ -93,4 +113,4 @@ PlatformWheelEvent::PlatformWheelEvent(GdkEventScroll* event)
     m_deltaY *= static_cast<float>(Scrollbar::pixelsPerLineStep());
 }
 
-}
+} // namespace WebCore

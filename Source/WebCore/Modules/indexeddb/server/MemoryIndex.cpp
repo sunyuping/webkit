@@ -29,11 +29,13 @@
 #if ENABLE(INDEXED_DATABASE)
 
 #include "IDBError.h"
+#include "IDBGetAllResult.h"
 #include "IDBGetResult.h"
 #include "IDBKeyRangeData.h"
 #include "IndexKey.h"
 #include "Logging.h"
 #include "MemoryBackingStoreTransaction.h"
+#include "MemoryIndexCursor.h"
 #include "MemoryObjectStore.h"
 #include "ThreadSafeDataBuffer.h"
 
@@ -51,9 +53,7 @@ MemoryIndex::MemoryIndex(const IDBIndexInfo& info, MemoryObjectStore& objectStor
 {
 }
 
-MemoryIndex::~MemoryIndex()
-{
-}
+MemoryIndex::~MemoryIndex() = default;
 
 void MemoryIndex::cursorDidBecomeClean(MemoryIndexCursor& cursor)
 {
@@ -77,17 +77,13 @@ void MemoryIndex::objectStoreCleared()
 
 void MemoryIndex::notifyCursorsOfValueChange(const IDBKeyData& indexKey, const IDBKeyData& primaryKey)
 {
-    Vector<MemoryIndexCursor*> cursors;
-    copyToVector(m_cleanCursors, cursors);
-    for (auto* cursor : cursors)
+    for (auto* cursor : copyToVector(m_cleanCursors))
         cursor->indexValueChanged(indexKey, primaryKey);
 }
 
 void MemoryIndex::notifyCursorsOfAllRecordsChanged()
 {
-    Vector<MemoryIndexCursor*> cursors;
-    copyToVector(m_cleanCursors, cursors);
-    for (auto* cursor : cursors)
+    for (auto* cursor : copyToVector(m_cleanCursors))
         cursor->indexRecordsAllChanged();
 
     ASSERT(m_cleanCursors.isEmpty());
@@ -130,7 +126,7 @@ IDBGetResult MemoryIndex::getResultForKeyRange(IndexedDB::IndexRecordType type, 
     if (!keyValue)
         return { };
 
-    return type == IndexedDB::IndexRecordType::Key ? IDBGetResult(*keyValue) : IDBGetResult(m_objectStore.valueForKeyRange(*keyValue));
+    return type == IndexedDB::IndexRecordType::Key ? IDBGetResult(*keyValue) : IDBGetResult(*keyValue, m_objectStore.valueForKeyRange(*keyValue), m_objectStore.info().keyPath());
 }
 
 uint64_t MemoryIndex::countForKeyRange(const IDBKeyRangeData& inRange)
@@ -156,6 +152,43 @@ uint64_t MemoryIndex::countForKeyRange(const IDBKeyRangeData& inRange)
     return count;
 }
 
+void MemoryIndex::getAllRecords(const IDBKeyRangeData& keyRangeData, Optional<uint32_t> count, IndexedDB::GetAllType type, IDBGetAllResult& result) const
+{
+    LOG(IndexedDB, "MemoryIndex::getAllRecords");
+
+    result = { type, m_objectStore.info().keyPath() };
+
+    if (!m_records)
+        return;
+
+    uint32_t targetCount;
+    if (count && count.value())
+        targetCount = count.value();
+    else
+        targetCount = std::numeric_limits<uint32_t>::max();
+
+    IDBKeyRangeData range = keyRangeData;
+    uint32_t currentCount = 0;
+    while (currentCount < targetCount) {
+        auto key = m_records->lowestKeyWithRecordInRange(range);
+        if (key.isNull())
+            return;
+
+        range.lowerKey = key;
+        range.lowerOpen = true;
+
+        auto allValues = m_records->allValuesForKey(key, targetCount - currentCount);
+        for (auto& keyValue : allValues) {
+            result.addKey(IDBKeyData(keyValue));
+            if (type == IndexedDB::GetAllType::Values)
+                result.addValue(m_objectStore.valueForKeyRange(keyValue));
+        }
+
+        currentCount += allValues.size();
+    }
+}
+
+
 IDBError MemoryIndex::putIndexKey(const IDBKeyData& valueKey, const IndexKey& indexKey)
 {
     LOG(IndexedDB, "MemoryIndex::provisionalPutIndexKey");
@@ -177,7 +210,7 @@ IDBError MemoryIndex::putIndexKey(const IDBKeyData& valueKey, const IndexKey& in
     if (m_info.unique()) {
         for (auto& key : keys) {
             if (m_records->contains(key))
-                return IDBError(IDBDatabaseException::ConstraintError);
+                return IDBError(ConstraintError);
         }
     }
 
@@ -187,7 +220,7 @@ IDBError MemoryIndex::putIndexKey(const IDBKeyData& valueKey, const IndexKey& in
         notifyCursorsOfValueChange(key, valueKey);
     }
 
-    return { };
+    return IDBError { };
 }
 
 void MemoryIndex::removeRecord(const IDBKeyData& valueKey, const IndexKey& indexKey)

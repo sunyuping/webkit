@@ -23,21 +23,15 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IndexedDB_h
-#define IndexedDB_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
+
+#include <wtf/EnumTraits.h>
 
 namespace WebCore {
 
 namespace IndexedDB {
-
-enum class TransactionMode {
-    ReadOnly = 0,
-    ReadWrite = 1,
-    VersionChange = 2,
-};
-const unsigned TransactionModeMaximum = 2;
 
 enum class TransactionState {
     Active,
@@ -48,10 +42,10 @@ enum class TransactionState {
 };
 
 enum class CursorDirection {
-    Next = 0,
-    NextNoDuplicate = 1,
-    Prev = 2,
-    PrevNoDuplicate = 3,
+    Next,
+    Nextunique,
+    Prev,
+    Prevunique,
 };
 const unsigned CursorDirectionMaximum = 3;
 
@@ -71,12 +65,6 @@ enum class VersionNullness {
     NonNull,
 };
 
-enum class KeyPathType {
-    Null,
-    String,
-    Array,
-};
-
 enum class ObjectStoreOverwriteMode {
     Overwrite,
     OverwriteForCursor,
@@ -88,11 +76,17 @@ enum class IndexRecordType {
     Value,
 };
 
+enum class ObjectStoreRecordType {
+    ValueOnly,
+    KeyOnly,
+};
+
 // In order of the least to the highest precedent in terms of sort order.
 enum KeyType {
     Max = -1,
     Invalid = 0,
     Array,
+    Binary,
     String,
     Date,
     Number,
@@ -105,10 +99,26 @@ enum class RequestType {
     Other,
 };
 
+enum class GetAllType {
+    Keys,
+    Values,
+};
+
 } // namespace IndexedDB
 
 } // namespace WebCore
 
-#endif // ENABLED(INDEXED_DATABASE)
+namespace WTF {
 
-#endif // IndexedDB_h
+template<> struct EnumTraits<WebCore::IndexedDB::ObjectStoreOverwriteMode> {
+    using values = EnumValues<
+        WebCore::IndexedDB::ObjectStoreOverwriteMode,
+        WebCore::IndexedDB::ObjectStoreOverwriteMode::Overwrite,
+        WebCore::IndexedDB::ObjectStoreOverwriteMode::OverwriteForCursor,
+        WebCore::IndexedDB::ObjectStoreOverwriteMode::NoOverwrite
+    >;
+};
+
+}
+
+#endif // ENABLED(INDEXED_DATABASE)

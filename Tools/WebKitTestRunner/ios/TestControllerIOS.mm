@@ -26,19 +26,58 @@
 #import "config.h"
 #import "TestController.h"
 
+#import "GeneratedTouchesDebugWindow.h"
+#import "HIDEventGenerator.h"
+#import "IOSLayoutTestCommunication.h"
 #import "PlatformWebView.h"
 #import "TestInvocation.h"
+#import "TestRunnerWKWebView.h"
+#import "UIKitSPI.h"
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKPreferencesRefPrivate.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKStringCF.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
-#import <WebKit/WKWebView.h>
-#import <WebKit/WKWebViewConfiguration.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
+#import <objc/runtime.h>
 #import <wtf/MainThread.h>
 
+static BOOL overrideIsInHardwareKeyboardMode()
+{
+    return NO;
+}
+
+static void overridePresentViewControllerOrPopover()
+{
+}
+
 namespace WTR {
+
+static bool isDoneWaitingForKeyboardToDismiss = true;
+static bool isDoneWaitingForMenuToDismiss = true;
+
+static void handleKeyboardWillHideNotification(CFNotificationCenterRef, void*, CFStringRef, const void*, CFDictionaryRef)
+{
+    isDoneWaitingForKeyboardToDismiss = false;
+}
+
+static void handleKeyboardDidHideNotification(CFNotificationCenterRef, void*, CFStringRef, const void*, CFDictionaryRef)
+{
+    isDoneWaitingForKeyboardToDismiss = true;
+}
+
+static void handleMenuWillHideNotification(CFNotificationCenterRef, void*, CFStringRef, const void*, CFDictionaryRef)
+{
+    isDoneWaitingForMenuToDismiss = false;
+}
+
+static void handleMenuDidHideNotification(CFNotificationCenterRef, void*, CFStringRef, const void*, CFDictionaryRef)
+{
+    isDoneWaitingForMenuToDismiss = true;
+}
 
 void TestController::notifyDone()
 {
@@ -46,26 +85,37 @@ void TestController::notifyDone()
 
 void TestController::platformInitialize()
 {
-    NSString *identifier = [[NSBundle mainBundle] bundleIdentifier];
-    const char *stdinPath = [[NSString stringWithFormat:@"/tmp/%@_IN", identifier] UTF8String];
-    const char *stdoutPath = [[NSString stringWithFormat:@"/tmp/%@_OUT", identifier] UTF8String];
-    const char *stderrPath = [[NSString stringWithFormat:@"/tmp/%@_ERROR", identifier] UTF8String];
+    setUpIOSLayoutTestCommunication();
+    cocoaPlatformInitialize();
 
-    int infd = open(stdinPath, O_RDWR);
-    dup2(infd, STDIN_FILENO);
-    int outfd = open(stdoutPath, O_RDWR);
-    dup2(outfd, STDOUT_FILENO);
-    int errfd = open(stderrPath, O_RDWR | O_NONBLOCK);
-    dup2(errfd, STDERR_FILENO);
+    [UIApplication sharedApplication].idleTimerDisabled = YES;
+    [[UIScreen mainScreen] _setScale:2.0];
+
+    auto center = CFNotificationCenterGetLocalCenter();
+    CFNotificationCenterAddObserver(center, this, handleKeyboardWillHideNotification, (CFStringRef)UIKeyboardWillHideNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(center, this, handleKeyboardDidHideNotification, (CFStringRef)UIKeyboardDidHideNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(center, this, handleMenuWillHideNotification, (CFStringRef)UIMenuControllerWillHideMenuNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(center, this, handleMenuDidHideNotification, (CFStringRef)UIMenuControllerDidHideMenuNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+
+    // Override the implementation of +[UIKeyboard isInHardwareKeyboardMode] to ensure that test runs are deterministic
+    // regardless of whether a hardware keyboard is attached. We intentionally never restore the original implementation.
+    method_setImplementation(class_getClassMethod([UIKeyboard class], @selector(isInHardwareKeyboardMode)), reinterpret_cast<IMP>(overrideIsInHardwareKeyboardMode));
 }
 
 void TestController::platformDestroy()
 {
+    tearDownIOSLayoutTestCommunication();
+
+    auto center = CFNotificationCenterGetLocalCenter();
+    CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIKeyboardWillHideNotification, nullptr);
+    CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIKeyboardDidHideNotification, nullptr);
+    CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIMenuControllerWillHideMenuNotification, nullptr);
+    CFNotificationCenterRemoveObserver(center, this, (CFStringRef)UIMenuControllerDidHideMenuNotification, nullptr);
 }
 
 void TestController::initializeInjectedBundlePath()
 {
-    NSString *nsBundlePath = [[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"WebKitTestRunnerInjectedBundle.bundle"];
+    NSString *nsBundlePath = [[NSBundle mainBundle].builtInPlugInsPath stringByAppendingPathComponent:@"WebKitTestRunnerInjectedBundle.bundle"];
     m_injectedBundlePath.adopt(WKStringCreateWithCFString((CFStringRef)nsBundlePath));
 }
 
@@ -74,32 +124,94 @@ void TestController::initializeTestPluginDirectory()
     m_testPluginDirectory.adopt(WKStringCreateWithCFString((CFStringRef)[[NSBundle mainBundle] bundlePath]));
 }
 
+void TestController::configureContentExtensionForTest(const TestInvocation&)
+{
+}
+
 void TestController::platformResetPreferencesToConsistentValues()
 {
     WKPreferencesRef preferences = platformPreferences();
-    // Note that WKPreferencesSetTextAutosizingEnabled has no effect on iOS.
-    WKPreferencesSetMinimumZoomFontSize(preferences, 0);
+    WKPreferencesSetTextAutosizingEnabled(preferences, false);
+    WKPreferencesSetContentChangeObserverEnabled(preferences, false);
 }
 
-void TestController::platformResetStateToConsistentValues()
+void TestController::platformResetStateToConsistentValues(const TestOptions& options)
 {
-    cocoaResetStateToConsistentValues();
+    cocoaResetStateToConsistentValues(options);
+
+    [[UIApplication sharedApplication] _cancelAllTouches];
+    [[UIDevice currentDevice] setOrientation:UIDeviceOrientationPortrait animated:NO];
+
+    m_inputModeSwizzlers.clear();
+    m_overriddenKeyboardInputMode = nil;
+
+    m_presentPopoverSwizzlers.clear();
+    if (!options.shouldPresentPopovers) {
+        m_presentPopoverSwizzlers.append(std::make_unique<InstanceMethodSwizzler>([UIViewController class], @selector(presentViewController:animated:completion:), reinterpret_cast<IMP>(overridePresentViewControllerOrPopover)));
+        m_presentPopoverSwizzlers.append(std::make_unique<InstanceMethodSwizzler>([UIPopoverController class], @selector(presentPopoverFromRect:inView:permittedArrowDirections:animated:), reinterpret_cast<IMP>(overridePresentViewControllerOrPopover)));
+    }
+    
+    BOOL shouldRestoreFirstResponder = NO;
+    if (PlatformWebView* platformWebView = mainWebView()) {
+        TestRunnerWKWebView *webView = platformWebView->platformView();
+        webView._stableStateOverride = nil;
+        webView._scrollingUpdatesDisabledForTesting = NO;
+        webView.usesSafariLikeRotation = NO;
+        webView.overrideSafeAreaInsets = UIEdgeInsetsZero;
+        [webView _clearOverrideLayoutParameters];
+        [webView _clearInterfaceOrientationOverride];
+        [webView resetInteractionCallbacks];
+
+        UIScrollView *scrollView = webView.scrollView;
+        [scrollView _removeAllAnimations:YES];
+        [scrollView setZoomScale:1 animated:NO];
+        scrollView.contentInset = UIEdgeInsetsMake(options.contentInsetTop, 0, 0, 0);
+        scrollView.contentOffset = CGPointMake(0, -options.contentInsetTop);
+
+        if (webView.interactingWithFormControl)
+            shouldRestoreFirstResponder = [webView resignFirstResponder];
+    }
+
+    UIMenuController.sharedMenuController.menuVisible = NO;
+
+    runUntil(isDoneWaitingForKeyboardToDismiss, m_currentInvocation->shortTimeout());
+    runUntil(isDoneWaitingForMenuToDismiss, m_currentInvocation->shortTimeout());
+
+    if (shouldRestoreFirstResponder)
+        [mainWebView()->platformView() becomeFirstResponder];
 }
 
 void TestController::platformConfigureViewForTest(const TestInvocation& test)
 {
-    if (test.options().useFlexibleViewport) {
-        const unsigned phoneViewHeight = 480;
-        const unsigned phoneViewWidth = 320;
+    if (!test.options().useFlexibleViewport)
+        return;
+        
+    TestRunnerWKWebView *webView = mainWebView()->platformView();
 
-        mainWebView()->resizeTo(phoneViewWidth, phoneViewHeight);
-        // We also pass data to InjectedBundle::beginTesting() to have it call
-        // WKBundlePageSetUseTestingViewportConfiguration(false).
+    webView.configuration.preferences._shouldIgnoreMetaViewport = test.options().shouldIgnoreMetaViewport;
+
+    CGRect screenBounds = [UIScreen mainScreen].bounds;
+    CGSize oldSize = webView.bounds.size;
+    mainWebView()->resizeTo(screenBounds.size.width, screenBounds.size.height, PlatformWebView::WebViewSizingMode::HeightRespectsStatusBar);
+    CGSize newSize = webView.bounds.size;
+    
+    if (!CGSizeEqualToSize(oldSize, newSize)) {
+        __block bool doneResizing = false;
+        [webView _doAfterNextVisibleContentRectUpdate: ^{
+            doneResizing = true;
+        }];
+
+        platformRunUntil(doneResizing, noTimeout);
     }
+    
+    // We also pass data to InjectedBundle::beginTesting() to have it call
+    // WKBundlePageSetUseTestingViewportConfiguration(false).
 }
 
-void TestController::updatePlatformSpecificTestOptionsForTest(TestOptions&, const std::string&) const
+void TestController::updatePlatformSpecificTestOptionsForTest(TestOptions& options, const std::string&) const
 {
+    options.shouldShowTouches = shouldShowTouches();
+    [[GeneratedTouchesDebugWindow sharedGeneratedTouchesDebugWindow] setShouldShowTouches:options.shouldShowTouches];
 }
 
 void TestController::platformInitializeContext()
@@ -123,6 +235,33 @@ const char* TestController::platformLibraryPathForTesting()
 void TestController::setHidden(bool)
 {
     // FIXME: implement for iOS
+}
+
+static UIKeyboardInputMode *swizzleCurrentInputMode()
+{
+    return TestController::singleton().overriddenKeyboardInputMode();
+}
+
+static NSArray<UIKeyboardInputMode *> *swizzleActiveInputModes()
+{
+    return @[ TestController::singleton().overriddenKeyboardInputMode() ];
+}
+
+void TestController::setKeyboardInputModeIdentifier(const String& identifier)
+{
+    m_inputModeSwizzlers.clear();
+    m_overriddenKeyboardInputMode = [UIKeyboardInputMode keyboardInputModeWithIdentifier:identifier];
+    if (!m_overriddenKeyboardInputMode) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    auto controllerClass = UIKeyboardInputModeController.class;
+    m_inputModeSwizzlers.reserveCapacity(3);
+    m_inputModeSwizzlers.uncheckedAppend(std::make_unique<InstanceMethodSwizzler>(controllerClass, @selector(currentInputMode), reinterpret_cast<IMP>(swizzleCurrentInputMode)));
+    m_inputModeSwizzlers.uncheckedAppend(std::make_unique<InstanceMethodSwizzler>(controllerClass, @selector(currentInputModeInPreference), reinterpret_cast<IMP>(swizzleCurrentInputMode)));
+    m_inputModeSwizzlers.uncheckedAppend(std::make_unique<InstanceMethodSwizzler>(controllerClass, @selector(activeInputModes), reinterpret_cast<IMP>(swizzleActiveInputModes)));
+    [UIKeyboardImpl.sharedInstance prepareKeyboardInputModeFromPreferences:nil];
 }
 
 } // namespace WTR

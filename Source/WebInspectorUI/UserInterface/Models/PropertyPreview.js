@@ -23,16 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.PropertyPreview = class PropertyPreview extends WebInspector.Object
+WI.PropertyPreview = class PropertyPreview
 {
     constructor(name, type, subtype, value, valuePreview, isInternalProperty)
     {
-        super();
-
-        console.assert(name);
+        console.assert(typeof name === "string");
         console.assert(type);
         console.assert(!value || typeof value === "string");
-        console.assert(!valuePreview || valuePreview instanceof WebInspector.ObjectPreview);
+        console.assert(!valuePreview || valuePreview instanceof WI.ObjectPreview);
 
         this._name = name;
         this._type = type;
@@ -48,40 +46,17 @@ WebInspector.PropertyPreview = class PropertyPreview extends WebInspector.Object
     static fromPayload(payload)
     {
         if (payload.valuePreview)
-            payload.valuePreview = WebInspector.ObjectPreview.fromPayload(payload.valuePreview);
+            payload.valuePreview = WI.ObjectPreview.fromPayload(payload.valuePreview);
 
-        return new WebInspector.PropertyPreview(payload.name, payload.type, payload.subtype, payload.value, payload.valuePreview, payload.internal);
+        return new WI.PropertyPreview(payload.name, payload.type, payload.subtype, payload.value, payload.valuePreview, payload.internal);
     }
 
     // Public
 
-    get name()
-    {
-        return this._name;
-    }
-
-    get type()
-    {
-        return this._type;
-    }
-
-    get subtype()
-    {
-        return this._subtype;
-    }
-
-    get value()
-    {
-        return this._value;
-    }
-
-    get valuePreview()
-    {
-        return this._valuePreview;
-    }
-
-    get internal()
-    {
-        return this._internal;
-    }
+    get name() { return this._name; }
+    get type() { return this._type; }
+    get subtype() { return this._subtype; }
+    get value() { return this._value; }
+    get valuePreview() { return this._valuePreview; }
+    get internal() { return this._internal; }
 };

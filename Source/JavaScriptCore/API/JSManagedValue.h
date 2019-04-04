@@ -54,16 +54,14 @@ NS_CLASS_AVAILABLE(10_9, 7_0)
 /*!
 @method
 @abstract Create a JSManagedValue from a JSValue.
-@param value
 @result The new JSManagedValue.
 */
 + (JSManagedValue *)managedValueWithValue:(JSValue *)value;
-+ (JSManagedValue *)managedValueWithValue:(JSValue *)value andOwner:(id)owner NS_AVAILABLE(10_10, 8_0);
++ (JSManagedValue *)managedValueWithValue:(JSValue *)value andOwner:(id)owner JSC_API_AVAILABLE(macos(10.10), ios(8.0));
 
 /*!
 @method
 @abstract Create a JSManagedValue.
-@param value
 @result The new JSManagedValue.
 */
 - (instancetype)initWithValue:(JSValue *)value;

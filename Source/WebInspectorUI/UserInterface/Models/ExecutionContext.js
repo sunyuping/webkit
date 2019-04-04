@@ -23,15 +23,15 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ExecutionContext = class ExecutionContext extends WebInspector.Object
+WI.ExecutionContext = class ExecutionContext
 {
-    constructor(id, name, isPageContext, frame)
+    constructor(target, id, name, isPageContext, frame)
     {
-        super();
-
-        console.assert(typeof id === "number" || id === WebInspector.QuickConsole.MainFrameContextExecutionIdentifier);
+        console.assert(target instanceof WI.Target);
+        console.assert(typeof id === "number" || id === WI.RuntimeManager.TopLevelExecutionContextIdentifier);
         console.assert(typeof name === "string");
 
+        this._target = target;
         this._id = id;
         this._name = name;
         this._isPageContext = isPageContext || false;
@@ -40,23 +40,9 @@ WebInspector.ExecutionContext = class ExecutionContext extends WebInspector.Obje
 
     // Public
 
-    get id()
-    {
-        return this._id;
-    }
-
-    get name()
-    {
-        return this._name;
-    }
-
-    get isPageContext()
-    {
-        return this._isPageContext;
-    }
-
-    get frame()
-    {
-        return this._frame;
-    }
+    get target() { return this._target; }
+    get id() { return this._id; }
+    get name() { return this._name; }
+    get isPageContext() { return this._isPageContext; }
+    get frame() { return this._frame; }
 };

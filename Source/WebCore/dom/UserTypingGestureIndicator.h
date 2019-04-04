@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef UserTypingGestureIndicator_h
-#define UserTypingGestureIndicator_h
+#pragma once
 
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
@@ -40,8 +39,8 @@ public:
     WEBCORE_EXPORT static bool processingUserTypingGesture();
     WEBCORE_EXPORT static Node* focusedElementAtGestureStart();
 
-    explicit UserTypingGestureIndicator(Frame&);
-    ~UserTypingGestureIndicator();
+    WEBCORE_EXPORT explicit UserTypingGestureIndicator(Frame&);
+    WEBCORE_EXPORT ~UserTypingGestureIndicator();
 
 private:
     bool m_previousProcessingUserTypingGesture;
@@ -49,5 +48,3 @@ private:
 };    
 
 } // namespace WebCore
-
-#endif // UserTypingGestureIndicator_h

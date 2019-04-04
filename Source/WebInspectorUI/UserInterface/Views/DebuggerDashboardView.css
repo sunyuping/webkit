@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,16 +22,16 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 .toolbar .dashboard.debugger {
     display: flex;
     flex-wrap: nowrap;
     justify-content: center;
     align-items: center;
-
+    -webkit-padding-start: 5px;
+    -webkit-padding-end: 12px;
     text-align: center;
-    text-shadow: hsla(0, 0%, 100%, 0.5) 0 1px 0;
     color: hsl(0, 0%, 23%);
-    padding: 0 12px 0 5px;
 }
 
 .dashboard.debugger > .message {
@@ -39,8 +39,8 @@
 }
 
 .dashboard.debugger .navigation-bar {
+    -webkit-margin-end: 4px;
     border: 0;
-    margin-right: 4px;
 }
 
 .toolbar:not(.small-size) .dashboard.debugger .navigation-bar {
@@ -71,6 +71,11 @@
 
 body.window-inactive .dashboard.debugger .navigation-bar .item.button > .glyph {
     animation-name: none;
+}
+
+.dashboard.debugger .navigation-bar .item.debugger-dashboard-pause.activated {
+    fill: none;
+    stroke: var(--glyph-color-active);
 }
 
 @keyframes pulse-pause-button {
@@ -109,7 +114,11 @@ body.window-inactive .dashboard.debugger .navigation-bar .item.button > .glyph {
     align-self: center;
     width: 16px;
     height: 16px;
-    margin-right: 5px;
+}
+
+/* Add spacing between the ellipsis'd location and the up/down arrows. */
+.dashboard.debugger > .location > :last-child {
+    -webkit-margin-end: 5px;
 }
 
 .toolbar:not(.small-size) .dashboard.debugger > .location :not(:first-child) {
@@ -121,19 +130,23 @@ body.window-inactive .dashboard.debugger .navigation-bar .item.button > .glyph {
     height: 16px;
 }
 
+.dashboard.debugger > .location :matches(.function-icon, .event-listener-icon) {
+    -webkit-margin-end: 5px;
+}
+
 .dashboard.debugger > .location .function-name {
     color: hsl(0, 0%, 11%);
     padding-bottom: 1px;
 }
 
 .dashboard.debugger > .location .function-name::after {
-    content: '\00A0\2014\00A0'; /* &nbsp;&mdash;&nbsp; */
+    content: "\00A0\2014\00A0"; /* &nbsp;&mdash;&nbsp; */;
 }
 
 .dashboard.debugger > .location .go-to-link {
     padding-bottom: 1px;
     -webkit-text-decoration-color: hsl(0, 0%, 66%);
-    
+
     flex: initial;
     text-overflow: ellipsis;
     overflow: hidden;
@@ -151,4 +164,27 @@ body.window-inactive .dashboard.debugger .navigation-bar .item.button > .glyph {
 .toolbar.small-size .dashboard.debugger > .location > :first-child {
     width: 14px;
     height: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+    .toolbar .dashboard.debugger {
+        color: var(--text-color);
+    }
+
+    .dashboard.debugger .navigation-bar .item.button > .glyph {
+        color: var(--glyph-color-active);
+    }
+
+    .dashboard.debugger > .location .function-name {
+        color: var(--text-color-active);
+    }
+
+    .dashboard.debugger > .location .go-to-link {
+        padding-bottom: 1px;
+        -webkit-text-decoration-color: var(--text-color-secondary);
+    }
+
+    .dashboard.debugger > .divider {
+        background-image: linear-gradient(var(--text-color-tertiary), var(--text-color-tertiary));
+    }
 }

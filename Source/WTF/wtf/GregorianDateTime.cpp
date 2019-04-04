@@ -23,9 +23,9 @@
  */
 
 #include "config.h"
-#include "GregorianDateTime.h"
+#include <wtf/GregorianDateTime.h>
 
-#include "DateMath.h"
+#include <wtf/DateMath.h>
 
 #if OS(WINDOWS)
 #include <windows.h>
@@ -67,7 +67,11 @@ void GregorianDateTime::setToCurrentLocalTime()
 #else
     tm localTM;
     time_t localTime = time(0);
+#if HAVE(LOCALTIME_R)
     localtime_r(&localTime, &localTM);
+#else
+    localtime_s(&localTime, &localTM);
+#endif
 
     m_year = localTM.tm_year + 1900;
     m_month = localTM.tm_mon;

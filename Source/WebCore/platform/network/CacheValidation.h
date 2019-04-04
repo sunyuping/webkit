@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,33 +23,36 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CacheValidation_h
-#define CacheValidation_h
+#pragma once
 
-#include "PlatformExportMacros.h"
-#include <wtf/Optional.h>
+#include <pal/SessionID.h>
+#include <wtf/Markable.h>
+#include <wtf/WallTime.h>
 
 namespace WebCore {
 
+class CookieJar;
 class HTTPHeaderMap;
+class NetworkStorageSession;
+class ResourceRequest;
 class ResourceResponse;
 
 struct RedirectChainCacheStatus {
-    enum Status {
+    enum class Status : uint8_t {
         NoRedirection,
         NotCachedRedirection,
         CachedRedirection
     };
     RedirectChainCacheStatus()
-        : status(NoRedirection)
-        , endOfValidity(std::chrono::system_clock::time_point::max())
+        : endOfValidity(WallTime::infinity())
+        , status(Status::NoRedirection)
     { }
+    WallTime endOfValidity;
     Status status;
-    std::chrono::system_clock::time_point endOfValidity;
 };
 
-WEBCORE_EXPORT std::chrono::microseconds computeCurrentAge(const ResourceResponse&, std::chrono::system_clock::time_point responseTimestamp);
-WEBCORE_EXPORT std::chrono::microseconds computeFreshnessLifetimeForHTTPFamily(const ResourceResponse&, std::chrono::system_clock::time_point responseTimestamp);
+WEBCORE_EXPORT Seconds computeCurrentAge(const ResourceResponse&, WallTime responseTimestamp);
+WEBCORE_EXPORT Seconds computeFreshnessLifetimeForHTTPFamily(const ResourceResponse&, WallTime responseTimestamp);
 WEBCORE_EXPORT void updateResponseHeadersAfterRevalidation(ResourceResponse&, const ResourceResponse& validatingResponse);
 WEBCORE_EXPORT void updateRedirectChainStatus(RedirectChainCacheStatus&, const ResourceResponse&);
 
@@ -57,14 +60,28 @@ enum ReuseExpiredRedirectionOrNot { DoNotReuseExpiredRedirection, ReuseExpiredRe
 WEBCORE_EXPORT bool redirectChainAllowsReuse(RedirectChainCacheStatus, ReuseExpiredRedirectionOrNot);
 
 struct CacheControlDirectives {
-    Optional<std::chrono::microseconds> maxAge;
-    Optional<std::chrono::microseconds> maxStale;
-    bool noCache { false };
-    bool noStore { false };
-    bool mustRevalidate { false };
+    constexpr CacheControlDirectives()
+        : noCache(false)
+        , noStore(false)
+        , mustRevalidate(false)
+        , immutable(false)
+        { }
+
+    Markable<Seconds, Seconds::MarkableTraits> maxAge;
+    Markable<Seconds, Seconds::MarkableTraits> maxStale;
+    bool noCache : 1;
+    bool noStore : 1;
+    bool mustRevalidate : 1;
+    bool immutable : 1;
 };
 WEBCORE_EXPORT CacheControlDirectives parseCacheControlDirectives(const HTTPHeaderMap&);
 
-}
+WEBCORE_EXPORT Vector<std::pair<String, String>> collectVaryingRequestHeaders(NetworkStorageSession&, const ResourceRequest&, const ResourceResponse&);
+WEBCORE_EXPORT Vector<std::pair<String, String>> collectVaryingRequestHeaders(const CookieJar*, const ResourceRequest&, const ResourceResponse&, const PAL::SessionID&);
+WEBCORE_EXPORT bool verifyVaryingRequestHeaders(NetworkStorageSession&, const Vector<std::pair<String, String>>& varyingRequestHeaders, const ResourceRequest&);
+WEBCORE_EXPORT bool verifyVaryingRequestHeaders(const CookieJar*, const Vector<std::pair<String, String>>& varyingRequestHeaders, const ResourceRequest&, const PAL::SessionID&);
 
-#endif
+WEBCORE_EXPORT bool isStatusCodeCacheableByDefault(int statusCode);
+WEBCORE_EXPORT bool isStatusCodePotentiallyCacheable(int statusCode);
+
+}

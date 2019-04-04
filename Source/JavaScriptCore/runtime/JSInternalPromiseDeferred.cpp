@@ -29,30 +29,24 @@
 #include "BuiltinNames.h"
 #include "Error.h"
 #include "Exception.h"
-#include "JSCJSValueInlines.h"
-#include "JSCellInlines.h"
+#include "JSCInlines.h"
 #include "JSInternalPromise.h"
 #include "JSInternalPromiseConstructor.h"
-#include "SlotVisitorInlines.h"
-#include "StructureInlines.h"
 
 namespace JSC {
 
-const ClassInfo JSInternalPromiseDeferred::s_info = { "JSInternalPromiseDeferred", &Base::s_info, nullptr, CREATE_METHOD_TABLE(JSInternalPromiseDeferred) };
+const ClassInfo JSInternalPromiseDeferred::s_info = { "JSInternalPromiseDeferred", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSInternalPromiseDeferred) };
 
-JSInternalPromiseDeferred* JSInternalPromiseDeferred::create(ExecState* exec, JSGlobalObject* globalObject)
+JSInternalPromiseDeferred* JSInternalPromiseDeferred::tryCreate(ExecState* exec, JSGlobalObject* globalObject)
 {
     VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSValue deferred = newPromiseCapability(exec, globalObject, globalObject->internalPromiseConstructor());
-
-    JSValue promise = deferred.get(exec, vm.propertyNames->promisePrivateName);
-    ASSERT(promise.inherits(JSInternalPromise::info()));
-    JSValue resolve = deferred.get(exec, vm.propertyNames->builtinNames().resolvePrivateName());
-    JSValue reject = deferred.get(exec, vm.propertyNames->builtinNames().rejectPrivateName());
+    DeferredData data = createDeferredData(exec, globalObject, globalObject->internalPromiseConstructor());
+    RETURN_IF_EXCEPTION(scope, nullptr);
 
     JSInternalPromiseDeferred* result = new (NotNull, allocateCell<JSInternalPromiseDeferred>(vm.heap)) JSInternalPromiseDeferred(vm);
-    result->finishCreation(vm, jsCast<JSObject*>(promise), resolve, reject);
+    result->finishCreation(vm, data.promise, data.resolve, data.reject);
     return result;
 }
 
@@ -76,6 +70,11 @@ JSInternalPromise* JSInternalPromiseDeferred::reject(ExecState* exec, JSValue re
 {
     Base::reject(exec, reason);
     return promise();
+}
+
+JSInternalPromise* JSInternalPromiseDeferred::reject(ExecState* exec, Exception* reason)
+{
+    return reject(exec, reason->value());
 }
 
 } // namespace JSC

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,27 +28,27 @@
 
 #include "DebuggerScope.h"
 #include "Error.h"
-#include "JSCJSValue.h"
-#include "JSCellInlines.h"
+#include "IdentifierInlines.h"
+#include "JSCInlines.h"
 #include "JSJavaScriptCallFramePrototype.h"
-#include "StructureInlines.h"
+#include "ObjectConstructor.h"
 
 using namespace JSC;
 
 namespace Inspector {
 
-const ClassInfo JSJavaScriptCallFrame::s_info = { "JavaScriptCallFrame", &Base::s_info, 0, CREATE_METHOD_TABLE(JSJavaScriptCallFrame) };
+const ClassInfo JSJavaScriptCallFrame::s_info = { "JavaScriptCallFrame", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSJavaScriptCallFrame) };
 
-JSJavaScriptCallFrame::JSJavaScriptCallFrame(VM& vm, Structure* structure, PassRefPtr<JavaScriptCallFrame> impl)
+JSJavaScriptCallFrame::JSJavaScriptCallFrame(VM& vm, Structure* structure, Ref<JavaScriptCallFrame>&& impl)
     : JSDestructibleObject(vm, structure)
-    , m_impl(impl.leakRef())
+    , m_impl(&impl.leakRef())
 {
 }
 
 void JSJavaScriptCallFrame::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(info()));
+    ASSERT(inherits(vm, info()));
 }
 
 JSObject* JSJavaScriptCallFrame::createPrototype(VM& vm, JSGlobalObject* globalObject)
@@ -73,60 +73,89 @@ JSJavaScriptCallFrame::~JSJavaScriptCallFrame()
     releaseImpl();
 }
 
-JSValue JSJavaScriptCallFrame::evaluate(ExecState* exec)
+JSValue JSJavaScriptCallFrame::evaluateWithScopeExtension(ExecState* exec)
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue scriptValue = exec->argument(0);
+    if (!scriptValue.isString())
+        return throwTypeError(exec, scope, "JSJavaScriptCallFrame.evaluateWithScopeExtension first argument must be a string."_s);
+
+    String script = asString(scriptValue)->value(exec);
+    RETURN_IF_EXCEPTION(scope, JSValue());
+
     NakedPtr<Exception> exception;
-    JSValue result = impl().evaluate(exec->argument(0).toString(exec)->value(exec), exception);
+    JSObject* scopeExtension = exec->argument(1).getObject();
+    JSValue result = impl().evaluateWithScopeExtension(script, scopeExtension, exception);
     if (exception)
-        exec->vm().throwException(exec, exception);
+        throwException(exec, scope, exception);
 
     return result;
 }
 
-JSValue JSJavaScriptCallFrame::scopeType(ExecState* exec)
+static JSValue valueForScopeType(DebuggerScope* scope)
 {
-    if (!impl().scopeChain())
-        return jsUndefined();
+    if (scope->isCatchScope())
+        return jsNumber(JSJavaScriptCallFrame::CATCH_SCOPE);
+    if (scope->isFunctionNameScope())
+        return jsNumber(JSJavaScriptCallFrame::FUNCTION_NAME_SCOPE);
+    if (scope->isWithScope())
+        return jsNumber(JSJavaScriptCallFrame::WITH_SCOPE);
+    if (scope->isNestedLexicalScope())
+        return jsNumber(JSJavaScriptCallFrame::NESTED_LEXICAL_SCOPE);
+    if (scope->isGlobalLexicalEnvironment())
+        return jsNumber(JSJavaScriptCallFrame::GLOBAL_LEXICAL_ENVIRONMENT_SCOPE);
+    if (scope->isGlobalScope())
+        return jsNumber(JSJavaScriptCallFrame::GLOBAL_SCOPE);
 
-    if (!exec->argument(0).isInt32())
-        return jsUndefined();
-    int index = exec->argument(0).asInt32();
+    ASSERT(scope->isClosureScope());
+    return jsNumber(JSJavaScriptCallFrame::CLOSURE_SCOPE);
+}
+
+static JSValue valueForScopeLocation(ExecState* exec, const DebuggerLocation& location)
+{
+    if (location.sourceID == noSourceID)
+        return jsNull();
+
+    // Debugger.Location protocol object.
+    VM& vm = exec->vm();
+    JSObject* result = constructEmptyObject(exec);
+    result->putDirect(vm, Identifier::fromString(exec, "scriptId"), jsString(exec, String::number(location.sourceID)));
+    result->putDirect(vm, Identifier::fromString(exec, "lineNumber"), jsNumber(location.line));
+    result->putDirect(vm, Identifier::fromString(exec, "columnNumber"), jsNumber(location.column));
+    return result;
+}
+
+JSValue JSJavaScriptCallFrame::scopeDescriptions(ExecState* exec)
+{
+    VM& vm = exec->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
 
     DebuggerScope* scopeChain = impl().scopeChain();
-    DebuggerScope::iterator end = scopeChain->end();
+    if (!scopeChain)
+        return jsUndefined();
 
+    int index = 0;
+    JSArray* array = constructEmptyArray(exec, nullptr);
+
+    DebuggerScope::iterator end = scopeChain->end();
     for (DebuggerScope::iterator iter = scopeChain->begin(); iter != end; ++iter) {
         DebuggerScope* scope = iter.get();
-
-        if (!index) {
-            if (scope->isCatchScope())
-                return jsNumber(JSJavaScriptCallFrame::CATCH_SCOPE);
-            if (scope->isFunctionNameScope())
-                return jsNumber(JSJavaScriptCallFrame::FUNCTION_NAME_SCOPE);
-            if (scope->isWithScope())
-                return jsNumber(JSJavaScriptCallFrame::WITH_SCOPE);
-            if (scope->isNestedLexicalScope())
-                return jsNumber(JSJavaScriptCallFrame::NESTED_LEXICAL_SCOPE);
-            if (scope->isGlobalLexicalEnvironment())
-                return jsNumber(JSJavaScriptCallFrame::GLOBAL_LEXICAL_ENVIRONMENT_SCOPE);
-            if (scope->isGlobalScope()) {
-                ASSERT(++iter == end);
-                return jsNumber(JSJavaScriptCallFrame::GLOBAL_SCOPE);
-            }
-            ASSERT(scope->isClosureScope());
-            return jsNumber(JSJavaScriptCallFrame::CLOSURE_SCOPE);
-        }
-
-        --index;
+        JSObject* description = constructEmptyObject(exec);
+        description->putDirect(vm, Identifier::fromString(exec, "type"), valueForScopeType(scope));
+        description->putDirect(vm, Identifier::fromString(exec, "name"), jsString(exec, scope->name()));
+        description->putDirect(vm, Identifier::fromString(exec, "location"), valueForScopeLocation(exec, scope->location()));
+        array->putDirectIndex(exec, index++, description);
+        RETURN_IF_EXCEPTION(throwScope, JSValue());
     }
 
-    ASSERT_NOT_REACHED();
-    return jsUndefined();
+    return array;
 }
 
 JSValue JSJavaScriptCallFrame::caller(ExecState* exec) const
 {
-    return toJS(exec, globalObject(), impl().caller());
+    return toJS(exec, globalObject(exec->vm()), impl().caller());
 }
 
 JSValue JSJavaScriptCallFrame::sourceID(ExecState*) const
@@ -151,6 +180,9 @@ JSValue JSJavaScriptCallFrame::functionName(ExecState* exec) const
 
 JSValue JSJavaScriptCallFrame::scopeChain(ExecState* exec) const
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     if (!impl().scopeChain())
         return jsNull();
 
@@ -166,8 +198,12 @@ JSValue JSJavaScriptCallFrame::scopeChain(ExecState* exec) const
         list.append(iter.get());
         ++iter;
     } while (iter != end);
+    if (UNLIKELY(list.hasOverflowed())) {
+        throwOutOfMemoryError(exec, scope);
+        return { };
+    }
 
-    return constructArray(exec, nullptr, globalObject(), list);
+    return constructArray(exec, nullptr, globalObject(vm), list);
 }
 
 JSValue JSJavaScriptCallFrame::thisObject(ExecState*) const
@@ -175,13 +211,18 @@ JSValue JSJavaScriptCallFrame::thisObject(ExecState*) const
     return impl().thisValue();
 }
 
+JSValue JSJavaScriptCallFrame::isTailDeleted(JSC::ExecState*) const
+{
+    return jsBoolean(impl().isTailDeleted());
+}
+
 JSValue JSJavaScriptCallFrame::type(ExecState* exec) const
 {
     switch (impl().type()) {
     case DebuggerCallFrame::FunctionType:
-        return jsNontrivialString(exec, ASCIILiteral("function"));
+        return jsNontrivialString(exec, "function"_s);
     case DebuggerCallFrame::ProgramType:
-        return jsNontrivialString(exec, ASCIILiteral("program"));
+        return jsNontrivialString(exec, "program"_s);
     }
 
     ASSERT_NOT_REACHED();
@@ -193,16 +234,12 @@ JSValue toJS(ExecState* exec, JSGlobalObject* globalObject, JavaScriptCallFrame*
     if (!impl)
         return jsNull();
 
-    JSObject* prototype = JSJavaScriptCallFrame::createPrototype(exec->vm(), globalObject);
-    Structure* structure = JSJavaScriptCallFrame::createStructure(exec->vm(), globalObject, prototype);
-    JSJavaScriptCallFrame* javaScriptCallFrame = JSJavaScriptCallFrame::create(exec->vm(), structure, impl);
+    VM& vm = exec->vm();
+    JSObject* prototype = JSJavaScriptCallFrame::createPrototype(vm, globalObject);
+    Structure* structure = JSJavaScriptCallFrame::createStructure(vm, globalObject, prototype);
+    JSJavaScriptCallFrame* javaScriptCallFrame = JSJavaScriptCallFrame::create(vm, structure, *impl);
 
     return javaScriptCallFrame;
-}
-
-JSJavaScriptCallFrame* toJSJavaScriptCallFrame(JSValue value)
-{
-    return value.inherits(JSJavaScriptCallFrame::info()) ? jsCast<JSJavaScriptCallFrame*>(value) : nullptr;
 }
 
 } // namespace Inspector

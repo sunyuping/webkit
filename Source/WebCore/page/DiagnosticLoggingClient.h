@@ -23,29 +23,28 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DiagnosticLoggingClient_h
-#define DiagnosticLoggingClient_h
+#pragma once
 
 #include "DiagnosticLoggingResultType.h"
+#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
 #include <wtf/RandomNumber.h>
 
 namespace WebCore {
 
-enum class ShouldSample { No, Yes };
+enum class ShouldSample : bool { No, Yes };
 
 class DiagnosticLoggingClient {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     virtual void logDiagnosticMessage(const String& message, const String& description, ShouldSample) = 0;
     virtual void logDiagnosticMessageWithResult(const String& message, const String& description, DiagnosticLoggingResultType, ShouldSample) = 0;
-    virtual void logDiagnosticMessageWithValue(const String& message, const String& description, const String& value, ShouldSample) = 0;
-
-    virtual void mainFrameDestroyed() = 0;
+    virtual void logDiagnosticMessageWithValue(const String& message, const String& description, double value, unsigned significantFigures, ShouldSample) = 0;
+    virtual void logDiagnosticMessageWithEnhancedPrivacy(const String& message, const String& description, ShouldSample) = 0;
 
     static bool shouldLogAfterSampling(ShouldSample);
 
-protected:
-    virtual ~DiagnosticLoggingClient() { }
+    virtual ~DiagnosticLoggingClient() = default;
 };
 
 inline bool DiagnosticLoggingClient::shouldLogAfterSampling(ShouldSample shouldSample)
@@ -57,6 +56,4 @@ inline bool DiagnosticLoggingClient::shouldLogAfterSampling(ShouldSample shouldS
     return randomNumber() <= selectionProbability;
 }
 
-}
-
-#endif
+} // namespace WebCore

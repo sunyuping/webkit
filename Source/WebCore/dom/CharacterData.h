@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003, 2004, 2005, 2006, 2008, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2018 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,28 +20,25 @@
  *
  */
 
-#ifndef CharacterData_h
-#define CharacterData_h
+#pragma once
 
-#include "Node.h"
-#include <wtf/text/WTFString.h>
+#include "ContainerNode.h"
 
 namespace WebCore {
 
 class CharacterData : public Node {
+    WTF_MAKE_ISO_ALLOCATED(CharacterData);
 public:
     const String& data() const { return m_data; }
     static ptrdiff_t dataMemoryOffset() { return OBJECT_OFFSETOF(CharacterData, m_data); }
 
     WEBCORE_EXPORT void setData(const String&);
     unsigned length() const { return m_data.length(); }
-    String substringData(unsigned offset, unsigned count, ExceptionCode&);
-    void appendData(const String&);
-    void insertData(unsigned offset, const String&, ExceptionCode&);
-    void deleteData(unsigned offset, unsigned count, ExceptionCode&);
-    void replaceData(unsigned offset, unsigned count, const String&, ExceptionCode&);
-
-    bool containsOnlyWhitespace() const;
+    WEBCORE_EXPORT ExceptionOr<String> substringData(unsigned offset, unsigned count);
+    WEBCORE_EXPORT void appendData(const String&);
+    WEBCORE_EXPORT ExceptionOr<void> insertData(unsigned offset, const String&);
+    WEBCORE_EXPORT ExceptionOr<void> deleteData(unsigned offset, unsigned count);
+    WEBCORE_EXPORT ExceptionOr<void> replaceData(unsigned offset, unsigned count, const String&);
 
     // Like appendData, but optimized for the parser (e.g., no mutation events).
     // Returns how much could be added before length limit was met.
@@ -63,13 +60,12 @@ protected:
     void dispatchModifiedEvent(const String& oldValue);
 
 private:
-    virtual String nodeValue() const override final;
-    virtual void setNodeValue(const String&, ExceptionCode&) override final;
-    virtual bool isCharacterDataNode() const override final { return true; }
-    virtual int maxCharacterOffset() const override final;
-    virtual bool offsetInCharacters() const override final;
+    String nodeValue() const final;
+    ExceptionOr<void> setNodeValue(const String&) final;
+    bool isCharacterDataNode() const final { return true; }
+    int maxCharacterOffset() const final;
     void setDataAndUpdate(const String&, unsigned offsetOfReplacedData, unsigned oldLength, unsigned newLength);
-    void checkCharDataOperation(unsigned offset, ExceptionCode&);
+    void notifyParentAfterChange(ContainerNode::ChildChangeSource);
 
     String m_data;
 };
@@ -79,5 +75,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::CharacterData)
     static bool isType(const WebCore::Node& node) { return node.isCharacterDataNode(); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // CharacterData_h

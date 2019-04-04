@@ -29,12 +29,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ColorInputType_h
-#define ColorInputType_h
+#pragma once
 
 #if ENABLE(INPUT_TYPE_COLOR)
 
 #include "BaseClickableWithKeyInputType.h"
+#include "ColorChooser.h"
 #include "ColorChooserClient.h"
 
 namespace WebCore {
@@ -45,26 +45,30 @@ public:
     virtual ~ColorInputType();
 
 private:
-    virtual void didChooseColor(const Color&) override;
-    virtual void didEndChooser() override;
-    virtual IntRect elementRectRelativeToRootView() const override;
-    virtual Color currentColor() override;
-    virtual bool shouldShowSuggestions() const override;
-    virtual Vector<Color> suggestions() const override;
-    virtual bool isColorControl() const override;
-    virtual const AtomicString& formControlType() const override;
-    virtual bool supportsRequired() const override;
-    virtual String fallbackValue() const override;
-    virtual String sanitizeValue(const String&) const override;
-    virtual void createShadowSubtree() override;
-    virtual void setValue(const String&, bool valueChanged, TextFieldEventBehavior) override;
-    virtual void handleDOMActivateEvent(Event*) override;
-    virtual void detach() override;
-    virtual bool shouldRespectListAttribute() override;
-    virtual bool typeMismatchFor(const String&) const override;
-    virtual bool shouldResetOnDocumentActivation() override;
-    virtual Color valueAsColor() const override;
-    virtual void selectColor(const Color&) override;
+    void didChooseColor(const Color&) final;
+    void didEndChooser() final;
+    IntRect elementRectRelativeToRootView() const final;
+    Color currentColor() final;
+    bool shouldShowSuggestions() const final;
+    Vector<Color> suggestedColors() const final;
+    bool isMouseFocusable() const final;
+    bool isKeyboardFocusable(KeyboardEvent*) const final;
+    bool isColorControl() const final;
+    bool isPresentingAttachedView() const final;
+    const AtomicString& formControlType() const final;
+    bool supportsRequired() const final;
+    String fallbackValue() const final;
+    String sanitizeValue(const String&) const final;
+    void createShadowSubtree() final;
+    void setValue(const String&, bool valueChanged, TextFieldEventBehavior) final;
+    void handleDOMActivateEvent(Event&) final;
+    void detach() final;
+    void elementDidBlur() final;
+    bool shouldRespectListAttribute() final;
+    bool typeMismatchFor(const String&) const final;
+    bool shouldResetOnDocumentActivation() final;
+    Color valueAsColor() const final;
+    void selectColor(StringView) final;
 
     void endColorChooser();
     void updateColorSwatch();
@@ -76,5 +80,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(INPUT_TYPE_COLOR)
-
-#endif // ColorInputType_h

@@ -1,4 +1,3 @@
- X
 This tests that native elements and ARIA overrides result in the same ARIA computed role, regardless of platform.
 
 On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE".
@@ -10,7 +9,7 @@ PASS: aside -> complementary.
 PASS: button -> button. 
 PASS: dfn -> definition. 
 PASS: dl -> . 
-PASS: footer -> . 
+PASS: footer -> contentinfo. 
 PASS: form -> form. 
 PASS: header -> banner. 
 PASS: h1 -> heading. 
@@ -42,24 +41,29 @@ PASS: input[type='text'] -> .
 PASS: input[type='time'] -> . 
 PASS: input[type='url'] -> . 
 PASS: input[type='week'] -> . 
-PASS: ins -> group. 
+PASS: ins -> . 
 PASS: math -> math. 
 PASS: meter -> progressbar. 
 PASS: nav -> navigation. 
 PASS: ol -> list. 
 PASS: li -> listitem. 
-PASS: p -> . 
+PASS: p -> paragraph. 
 PASS: pre -> group. 
 PASS: progress -> progressbar. 
-PASS: samp -> group. 
-PASS: section -> region. 
-PASS: select:not([multiple]) -> . 
+PASS: samp -> . 
+PASS: section:not([aria-label]:not([aria-labelledby]) -> group. 
+PASS: section[aria-label] -> region. 
+PASS: section[aria-labelledby] -> region. 
+PASS: select:not([multiple]) -> button. 
 PASS: select[multiple] -> listbox. 
 PASS: option -> option. 
 PASS: optgroup -> option. 
 PASS: option -> option. 
 PASS: option -> option. 
+PASS: sub -> . 
+PASS: sup -> . 
 PASS: table -> table. 
+PASS: caption -> caption. 
 PASS: tr -> row. 
 PASS: th -> columnheader. 
 PASS: tr -> row. 
@@ -76,7 +80,7 @@ PASS: td[role="gridcell"] -> gridcell.
 PASS: textarea -> textbox. 
 PASS: ul -> list. 
 PASS: li -> listitem. 
-PASS: var -> group. 
+PASS: var -> . 
 PASS: div[role="command"] -> . 
 PASS: div[role="composite"] -> . 
 PASS: div[role="input"] -> . 
@@ -94,7 +98,9 @@ PASS: div[role="alertdialog"] -> alertdialog.
 PASS: div[role="application"] -> application. 
 PASS: div[role="article"] -> article. 
 PASS: div[role="banner"] -> banner. 
+PASS: div[role="blockquote"] -> blockquote. 
 PASS: div[role="button"] -> button. 
+PASS: div[role="caption"] -> caption. 
 PASS: div[role="checkbox"] -> checkbox. 
 PASS: div[role="combobox"] -> combobox. 
 PASS: div[role="complementary"] -> complementary. 
@@ -131,6 +137,7 @@ PASS: div[role="menuitemcheckbox"] -> menuitemcheckbox.
 PASS: div[role="menuitemradio"] -> menuitemradio. 
 PASS: div[role="navigation"] -> navigation. 
 PASS: div[role="note"] -> note. 
+PASS: div[role="paragraph"] -> paragraph. 
 PASS: div[role="progressbar"] -> progressbar. 
 PASS: div[role="radiogroup"] -> radiogroup. 
 PASS: div[role="radio"] -> radio. 

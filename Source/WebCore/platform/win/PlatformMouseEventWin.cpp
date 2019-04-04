@@ -30,7 +30,6 @@
 #include "GDIUtilities.h"
 #include "HWndDC.h"
 #include <wtf/Assertions.h>
-#include <wtf/CurrentTime.h>
 #include <wtf/MathExtras.h>
 #include <windows.h>
 #include <windowsx.h>
@@ -42,8 +41,6 @@ namespace WebCore {
 static IntPoint positionForEvent(HWND hWnd, LPARAM lParam)
 {
     IntPoint point(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-    float inverseScaleFactor = 1.0f / deviceScaleFactorForWindow(hWnd);
-    point.scale(inverseScaleFactor, inverseScaleFactor);
     return point;
 }
 
@@ -83,12 +80,12 @@ static PlatformEvent::Type messageToEventType(UINT message)
 }
 
 PlatformMouseEvent::PlatformMouseEvent(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam, bool didActivateWebView)
-    : PlatformEvent(messageToEventType(message), wParam & MK_SHIFT, wParam & MK_CONTROL, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, currentTime())
+    : PlatformEvent(messageToEventType(message), wParam & MK_SHIFT, wParam & MK_CONTROL, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, WallTime::now())
     , m_position(positionForEvent(hWnd, lParam))
     , m_globalPosition(globalPositionForEvent(hWnd, lParam))
     , m_clickCount(0)
-    , m_didActivateWebView(didActivateWebView)
     , m_modifierFlags(wParam)
+    , m_didActivateWebView(didActivateWebView)
 {
     switch (message) {
         case WM_LBUTTONDOWN:
@@ -120,16 +117,6 @@ PlatformMouseEvent::PlatformMouseEvent(HWND hWnd, UINT message, WPARAM wParam, L
         default:
             ASSERT_NOT_REACHED();
     }
-}
-
-bool operator==(unsigned short a, MouseButton b)
-{
-    return a == static_cast<unsigned short>(b);
-}
-
-bool operator!=(unsigned short a, MouseButton b)
-{
-    return a != static_cast<unsigned short>(b);
 }
 
 } // namespace WebCore

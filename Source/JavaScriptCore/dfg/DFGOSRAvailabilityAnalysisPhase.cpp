@@ -35,6 +35,9 @@
 #include "JSCInlines.h"
 
 namespace JSC { namespace DFG {
+namespace DFGOSRAvailabilityAnalysisPhaseInternal {
+static constexpr bool verbose = false;
+}
 
 class OSRAvailabilityAnalysisPhase : public Phase {
 public:
@@ -57,16 +60,28 @@ public:
         
         BasicBlock* root = m_graph.block(0);
         root->ssa->availabilityAtHead.m_locals.fill(Availability::unavailable());
-        for (unsigned argument = m_graph.m_argumentFormats.size(); argument--;) {
-            FlushedAt flushedAt = FlushedAt(
-                m_graph.m_argumentFormats[argument],
-                virtualRegisterForArgument(argument));
-            root->ssa->availabilityAtHead.m_locals.argument(argument) = Availability(flushedAt);
-        }
+
+        for (unsigned argument = 0; argument < m_graph.block(0)->valuesAtHead.numberOfArguments(); ++argument)
+            root->ssa->availabilityAtHead.m_locals.argument(argument) = Availability::unavailable();
 
         // This could be made more efficient by processing blocks in reverse postorder.
         
-        LocalOSRAvailabilityCalculator calculator;
+        auto dumpAvailability = [] (BasicBlock* block) {
+            dataLogLn(block->ssa->availabilityAtHead);
+            dataLogLn(block->ssa->availabilityAtTail);
+        };
+
+        auto dumpBytecodeLivenessAtHead = [&] (BasicBlock* block) {
+            dataLog("Live: ");
+            m_graph.forAllLiveInBytecode(
+                block->at(0)->origin.forExit,
+                [&] (VirtualRegister reg) {
+                    dataLog(reg, " ");
+                });
+            dataLogLn("");
+        };
+
+        LocalOSRAvailabilityCalculator calculator(m_graph);
         bool changed;
         do {
             changed = false;
@@ -76,6 +91,10 @@ public:
                 if (!block)
                     continue;
                 
+                if (DFGOSRAvailabilityAnalysisPhaseInternal::verbose) {
+                    dataLogLn("Before changing Block #", block->index);
+                    dumpAvailability(block);
+                }
                 calculator.beginBlock(block);
                 
                 for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex)
@@ -86,27 +105,87 @@ public:
                 
                 block->ssa->availabilityAtTail = calculator.m_availability;
                 changed = true;
-                
+
+                if (DFGOSRAvailabilityAnalysisPhaseInternal::verbose) {
+                    dataLogLn("After changing Block #", block->index);
+                    dumpAvailability(block);
+                }
+
                 for (unsigned successorIndex = block->numSuccessors(); successorIndex--;) {
                     BasicBlock* successor = block->successor(successorIndex);
                     successor->ssa->availabilityAtHead.merge(calculator.m_availability);
+                }
+
+                for (unsigned successorIndex = block->numSuccessors(); successorIndex--;) {
+                    BasicBlock* successor = block->successor(successorIndex);
                     successor->ssa->availabilityAtHead.pruneByLiveness(
                         m_graph, successor->at(0)->origin.forExit);
+                    if (DFGOSRAvailabilityAnalysisPhaseInternal::verbose) {
+                        dataLogLn("After pruning Block #", successor->index);
+                        dumpAvailability(successor);
+                        dumpBytecodeLivenessAtHead(successor);
+                    }
                 }
             }
         } while (changed);
+
+        if (validationEnabled()) {
+
+            for (BlockIndex blockIndex = 0; blockIndex < m_graph.numBlocks(); ++blockIndex) {
+                BasicBlock* block = m_graph.block(blockIndex);
+                if (!block)
+                    continue;
+                
+                calculator.beginBlock(block);
+                
+                for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {
+                    if (block->at(nodeIndex)->origin.exitOK) {
+                        // If we're allowed to exit here, the heap must be in a state
+                        // where exiting wouldn't crash. These particular fields are
+                        // required for correctness because we use them during OSR exit
+                        // to do meaningful things. It would be wrong for any of them
+                        // to be dead.
+
+                        AvailabilityMap availabilityMap = calculator.m_availability;
+                        availabilityMap.pruneByLiveness(m_graph, block->at(nodeIndex)->origin.forExit);
+
+                        for (auto heapPair : availabilityMap.m_heap) {
+                            switch (heapPair.key.kind()) {
+                            case ActivationScopePLoc:
+                            case ActivationSymbolTablePLoc:
+                            case FunctionActivationPLoc:
+                            case FunctionExecutablePLoc:
+                            case StructurePLoc:
+                                if (heapPair.value.isDead()) {
+                                    dataLogLn("PromotedHeapLocation is dead, but should not be: ", heapPair.key);
+                                    availabilityMap.dump(WTF::dataFile());
+                                    CRASH();
+                                }
+                                break;
+
+                            default:
+                                break;
+                            }
+                        }
+                    }
+
+                    calculator.executeNode(block->at(nodeIndex));
+                }
+            }
+        }
         
         return true;
     }
+
 };
 
 bool performOSRAvailabilityAnalysis(Graph& graph)
 {
-    SamplingRegion samplingRegion("DFG OSR Availability Analysis Phase");
     return runPhase<OSRAvailabilityAnalysisPhase>(graph);
 }
 
-LocalOSRAvailabilityCalculator::LocalOSRAvailabilityCalculator()
+LocalOSRAvailabilityCalculator::LocalOSRAvailabilityCalculator(Graph& graph)
+    : m_graph(graph)
 {
 }
 
@@ -153,6 +232,16 @@ void LocalOSRAvailabilityCalculator::executeNode(Node* node)
         m_availability.m_locals.operand(node->unlinkedLocal()).setNodeUnavailable();
         break;
     }
+
+    case InitializeEntrypointArguments: {
+        unsigned entrypointIndex = node->entrypointIndex();
+        const Vector<FlushFormat>& argumentFormats = m_graph.m_argumentFormats[entrypointIndex];
+        for (unsigned argument = argumentFormats.size(); argument--; ) {
+            FlushedAt flushedAt = FlushedAt(argumentFormats[argument], virtualRegisterForArgument(argument));
+            m_availability.m_locals.argument(argument) = Availability(flushedAt);
+        }
+        break;
+    }
         
     case LoadVarargs:
     case ForwardVarargs: {
@@ -165,31 +254,36 @@ void LocalOSRAvailabilityCalculator::executeNode(Node* node)
         }
         break;
     }
-        
+    
+    case PhantomCreateRest:
     case PhantomDirectArguments:
     case PhantomClonedArguments: {
-        InlineCallFrame* inlineCallFrame = node->origin.semantic.inlineCallFrame;
+        InlineCallFrame* inlineCallFrame = node->origin.semantic.inlineCallFrame();
         if (!inlineCallFrame) {
             // We don't need to record anything about how the arguments are to be recovered. It's just a
             // given that we can read them from the stack.
             break;
         }
+
+        unsigned numberOfArgumentsToSkip = 0;
+        if (node->op() == PhantomCreateRest)
+            numberOfArgumentsToSkip = node->numberOfArgumentsToSkip();
         
         if (inlineCallFrame->isVarargs()) {
             // Record how to read each argument and the argument count.
             Availability argumentCount =
-                m_availability.m_locals.operand(inlineCallFrame->stackOffset + JSStack::ArgumentCount);
+                m_availability.m_locals.operand(inlineCallFrame->stackOffset + CallFrameSlot::argumentCount);
             
             m_availability.m_heap.set(PromotedHeapLocation(ArgumentCountPLoc, node), argumentCount);
         }
         
         if (inlineCallFrame->isClosureCall) {
             Availability callee = m_availability.m_locals.operand(
-                inlineCallFrame->stackOffset + JSStack::Callee);
+                inlineCallFrame->stackOffset + CallFrameSlot::callee);
             m_availability.m_heap.set(PromotedHeapLocation(ArgumentsCalleePLoc, node), callee);
         }
         
-        for (unsigned i = 0; i < inlineCallFrame->arguments.size() - 1; ++i) {
+        for (unsigned i = numberOfArgumentsToSkip; i < inlineCallFrame->argumentCountIncludingThis - 1; ++i) {
             Availability argument = m_availability.m_locals.operand(
                 inlineCallFrame->stackOffset + CallFrame::argumentOffset(i));
             
@@ -204,6 +298,21 @@ void LocalOSRAvailabilityCalculator::executeNode(Node* node)
             Availability(node->child2().node()));
         break;
     }
+
+    case PhantomSpread:
+        m_availability.m_heap.set(PromotedHeapLocation(SpreadPLoc, node), Availability(node->child1().node()));
+        break;
+
+    case PhantomNewArrayWithSpread:
+        for (unsigned i = 0; i < node->numChildren(); i++) {
+            Node* child = m_graph.varArgChild(node, i).node();
+            m_availability.m_heap.set(PromotedHeapLocation(NewArrayWithSpreadArgumentPLoc, node, i), Availability(child));
+        }
+        break;
+
+    case PhantomNewArrayBuffer:
+        m_availability.m_heap.set(PromotedHeapLocation(NewArrayBufferPLoc, node), Availability(node->child1().node()));
+        break;
         
     default:
         break;

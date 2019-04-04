@@ -26,10 +26,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SecurityOriginHash_h
-#define SecurityOriginHash_h
+#pragma once
 
-#include "URL.h"
+#include <wtf/URL.h>
 #include "SecurityOrigin.h"
 #include <wtf/RefPtr.h>
 
@@ -41,7 +40,7 @@ struct SecurityOriginHash {
         unsigned hashCodes[3] = {
             origin->protocol().impl() ? origin->protocol().impl()->hash() : 0,
             origin->host().impl() ? origin->host().impl()->hash() : 0,
-            origin->port()
+            origin->port().valueOr(0)
         };
         return StringHasher::hashMemory<sizeof(hashCodes)>(hashCodes);
     }
@@ -54,7 +53,7 @@ struct SecurityOriginHash {
     {
         if (!a || !b)
             return a == b;
-        return a->isSameSchemeHostPort(b);
+        return a->isSameSchemeHostPort(*b);
     }
     static bool equal(SecurityOrigin* a, const RefPtr<SecurityOrigin>& b)
     {
@@ -82,5 +81,3 @@ namespace WTF {
     };
 
 } // namespace WTF
-
-#endif // SecurityOriginHash_h

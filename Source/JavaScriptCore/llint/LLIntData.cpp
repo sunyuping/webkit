@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,8 @@
 
 #include "config.h"
 #include "LLIntData.h"
+
+#include "ArithProfile.h"
 #include "BytecodeConventions.h"
 #include "CodeBlock.h"
 #include "CodeType.h"
@@ -34,39 +36,45 @@
 #include "MaxFrameExtentForSlowPathCall.h"
 #include "Opcode.h"
 #include "PropertyOffset.h"
+#include "ShadowChicken.h"
 #include "WriteBarrier.h"
 
 #define STATIC_ASSERT(cond) static_assert(cond, "LLInt assumes " #cond)
 
-namespace JSC { namespace LLInt {
 
-Instruction* Data::s_exceptionInstructions = 0;
-Opcode Data::s_opcodeMap[numOpcodeIDs] = { };
+namespace JSC {
 
-#if ENABLE(JIT)
-extern "C" void llint_entry(void*);
+namespace LLInt {
+
+
+uint8_t Data::s_exceptionInstructions[maxOpcodeLength + 1] = { };
+Opcode g_opcodeMap[numOpcodeIDs] = { };
+Opcode g_opcodeMapWide[numOpcodeIDs] = { };
+
+#if !ENABLE(C_LOOP)
+extern "C" void llint_entry(void*, void*);
 #endif
 
 void initialize()
 {
-    Data::s_exceptionInstructions = new Instruction[maxOpcodeLength + 1];
-
-#if !ENABLE(JIT)
+#if ENABLE(C_LOOP)
     CLoop::initialize();
 
-#else // ENABLE(JIT)
-    llint_entry(&Data::s_opcodeMap);
+#else // !ENABLE(C_LOOP)
+    llint_entry(&g_opcodeMap, &g_opcodeMapWide);
 
+    for (int i = 0; i < numOpcodeIDs; ++i) {
+        g_opcodeMap[i] = tagCodePtr(g_opcodeMap[i], BytecodePtrTag);
+        g_opcodeMapWide[i] = tagCodePtr(g_opcodeMapWide[i], BytecodePtrTag);
+    }
+
+    ASSERT(llint_throw_from_slow_path_trampoline < UINT8_MAX);
     for (int i = 0; i < maxOpcodeLength + 1; ++i)
-        Data::s_exceptionInstructions[i].u.pointer =
-            LLInt::getCodePtr(llint_throw_from_slow_path_trampoline);
-#endif // ENABLE(JIT)
+        Data::s_exceptionInstructions[i] = llint_throw_from_slow_path_trampoline;
+#endif // ENABLE(C_LOOP)
 }
 
-#if COMPILER(CLANG)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmissing-noreturn"
-#endif
+IGNORE_WARNINGS_BEGIN("missing-noreturn")
 void Data::performAssertions(VM& vm)
 {
     UNUSED_PARAM(vm);
@@ -75,35 +83,33 @@ void Data::performAssertions(VM& vm)
     // prepared to change LowLevelInterpreter.asm as well!!
 
 #if USE(JSVALUE64)
-    const ptrdiff_t PtrSize = 8;
     const ptrdiff_t CallFrameHeaderSlots = 5;
 #else // USE(JSVALUE64) // i.e. 32-bit version
-    const ptrdiff_t PtrSize = 4;
     const ptrdiff_t CallFrameHeaderSlots = 4;
 #endif
+    const ptrdiff_t MachineRegisterSize = sizeof(CPURegister);
     const ptrdiff_t SlotSize = 8;
 
-    STATIC_ASSERT(sizeof(void*) == PtrSize);
     STATIC_ASSERT(sizeof(Register) == SlotSize);
-    STATIC_ASSERT(JSStack::CallFrameHeaderSize == CallFrameHeaderSlots);
+    STATIC_ASSERT(CallFrame::headerSizeInRegisters == CallFrameHeaderSlots);
 
     ASSERT(!CallFrame::callerFrameOffset());
-    STATIC_ASSERT(JSStack::CallerFrameAndPCSize == (PtrSize * 2) / SlotSize);
-    ASSERT(CallFrame::returnPCOffset() == CallFrame::callerFrameOffset() + PtrSize);
-    ASSERT(JSStack::CodeBlock * sizeof(Register) == CallFrame::returnPCOffset() + PtrSize);
-    STATIC_ASSERT(JSStack::Callee * sizeof(Register) == JSStack::CodeBlock * sizeof(Register) + SlotSize);
-    STATIC_ASSERT(JSStack::ArgumentCount * sizeof(Register) == JSStack::Callee * sizeof(Register) + SlotSize);
-    STATIC_ASSERT(JSStack::ThisArgument * sizeof(Register) == JSStack::ArgumentCount * sizeof(Register) + SlotSize);
-    STATIC_ASSERT(JSStack::CallFrameHeaderSize == JSStack::ThisArgument);
+    STATIC_ASSERT(CallerFrameAndPC::sizeInRegisters == (MachineRegisterSize * 2) / SlotSize);
+    ASSERT(CallFrame::returnPCOffset() == CallFrame::callerFrameOffset() + MachineRegisterSize);
+    ASSERT(CallFrameSlot::codeBlock * sizeof(Register) == CallFrame::returnPCOffset() + MachineRegisterSize);
+    STATIC_ASSERT(CallFrameSlot::callee * sizeof(Register) == CallFrameSlot::codeBlock * sizeof(Register) + SlotSize);
+    STATIC_ASSERT(CallFrameSlot::argumentCount * sizeof(Register) == CallFrameSlot::callee * sizeof(Register) + SlotSize);
+    STATIC_ASSERT(CallFrameSlot::thisArgument * sizeof(Register) == CallFrameSlot::argumentCount * sizeof(Register) + SlotSize);
+    STATIC_ASSERT(CallFrame::headerSizeInRegisters == CallFrameSlot::thisArgument);
 
-    ASSERT(CallFrame::argumentOffsetIncludingThis(0) == JSStack::ThisArgument);
+    ASSERT(CallFrame::argumentOffsetIncludingThis(0) == CallFrameSlot::thisArgument);
 
 #if CPU(BIG_ENDIAN)
-    ASSERT(OBJECT_OFFSETOF(EncodedValueDescriptor, asBits.tag) == 0);
-    ASSERT(OBJECT_OFFSETOF(EncodedValueDescriptor, asBits.payload) == 4);
+    STATIC_ASSERT(TagOffset == 0);
+    STATIC_ASSERT(PayloadOffset == 4);
 #else
-    ASSERT(OBJECT_OFFSETOF(EncodedValueDescriptor, asBits.tag) == 4);
-    ASSERT(OBJECT_OFFSETOF(EncodedValueDescriptor, asBits.payload) == 0);
+    STATIC_ASSERT(TagOffset == 4);
+    STATIC_ASSERT(PayloadOffset == 0);
 #endif
 #if USE(JSVALUE32_64)
     STATIC_ASSERT(JSValue::Int32Tag == static_cast<unsigned>(-1));
@@ -124,71 +130,18 @@ void Data::performAssertions(VM& vm)
     STATIC_ASSERT(ValueUndefined == (TagBitTypeOther | TagBitUndefined));
     STATIC_ASSERT(ValueNull == TagBitTypeOther);
 #endif
-#if (CPU(X86_64) && !OS(WINDOWS)) || CPU(ARM64) || !ENABLE(JIT)
-    STATIC_ASSERT(!maxFrameExtentForSlowPathCall);
-#elif CPU(ARM) || CPU(SH4)
-    STATIC_ASSERT(maxFrameExtentForSlowPathCall == 24);
-#elif CPU(X86) || CPU(MIPS)
-    STATIC_ASSERT(maxFrameExtentForSlowPathCall == 40);
-#elif CPU(X86_64) && OS(WINDOWS)
-    STATIC_ASSERT(maxFrameExtentForSlowPathCall == 64);
-#endif
 
-#if !ENABLE(JIT) || USE(JSVALUE32_64)
-    ASSERT(!CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters());
+#if ENABLE(C_LOOP)
+    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 1);
+#elif USE(JSVALUE32_64)
+    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 1);
 #elif (CPU(X86_64) && !OS(WINDOWS))  || CPU(ARM64)
-    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 3);
+    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 4);
 #elif (CPU(X86_64) && OS(WINDOWS))
-    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 3);
+    ASSERT(CodeBlock::llintBaselineCalleeSaveSpaceAsVirtualRegisters() == 4);
 #endif
-    
-    STATIC_ASSERT(StringType == 6);
-    STATIC_ASSERT(SymbolType == 7);
-    STATIC_ASSERT(ObjectType == 21);
-    STATIC_ASSERT(FinalObjectType == 22);
-    STATIC_ASSERT(MasqueradesAsUndefined == 1);
-    STATIC_ASSERT(ImplementsDefaultHasInstance == 2);
-    STATIC_ASSERT(FirstConstantRegisterIndex == 0x40000000);
-    STATIC_ASSERT(GlobalCode == 0);
-    STATIC_ASSERT(EvalCode == 1);
-    STATIC_ASSERT(FunctionCode == 2);
-    STATIC_ASSERT(ModuleCode == 3);
 
     ASSERT(!(reinterpret_cast<ptrdiff_t>((reinterpret_cast<WriteBarrier<JSCell>*>(0x4000)->slot())) - 0x4000));
-    static_assert(PutByIdPrimaryTypeMask == 0x6, "LLInt assumes PutByIdPrimaryTypeMask is == 0x6");
-    static_assert(PutByIdPrimaryTypeSecondary == 0x0, "LLInt assumes PutByIdPrimaryTypeSecondary is == 0x0");
-    static_assert(PutByIdPrimaryTypeObjectWithStructure == 0x2, "LLInt assumes PutByIdPrimaryTypeObjectWithStructure is == 0x2");
-    static_assert(PutByIdPrimaryTypeObjectWithStructureOrOther == 0x4, "LLInt assumes PutByIdPrimaryTypeObjectWithStructureOrOther is == 0x4");
-    static_assert(PutByIdSecondaryTypeMask == -0x8, "LLInt assumes PutByIdSecondaryTypeMask is == -0x8");
-    static_assert(PutByIdSecondaryTypeBottom == 0x0, "LLInt assumes PutByIdSecondaryTypeBottom is == 0x0");
-    static_assert(PutByIdSecondaryTypeBoolean == 0x8, "LLInt assumes PutByIdSecondaryTypeBoolean is == 0x8");
-    static_assert(PutByIdSecondaryTypeOther == 0x10, "LLInt assumes PutByIdSecondaryTypeOther is == 0x10");
-    static_assert(PutByIdSecondaryTypeInt32 == 0x18, "LLInt assumes PutByIdSecondaryTypeInt32 is == 0x18");
-    static_assert(PutByIdSecondaryTypeNumber == 0x20, "LLInt assumes PutByIdSecondaryTypeNumber is == 0x20");
-    static_assert(PutByIdSecondaryTypeString == 0x28, "LLInt assumes PutByIdSecondaryTypeString is == 0x28");
-    static_assert(PutByIdSecondaryTypeSymbol == 0x30, "LLInt assumes PutByIdSecondaryTypeSymbol is == 0x30");
-    static_assert(PutByIdSecondaryTypeObject == 0x38, "LLInt assumes PutByIdSecondaryTypeObject is == 0x38");
-    static_assert(PutByIdSecondaryTypeObjectOrOther == 0x40, "LLInt assumes PutByIdSecondaryTypeObjectOrOther is == 0x40");
-    static_assert(PutByIdSecondaryTypeTop == 0x48, "LLInt assumes PutByIdSecondaryTypeTop is == 0x48");
-
-    static_assert(GlobalProperty == 0, "LLInt assumes GlobalProperty ResultType is == 0");
-    static_assert(GlobalVar == 1, "LLInt assumes GlobalVar ResultType is == 1");
-    static_assert(GlobalLexicalVar == 2, "LLInt assumes GlobalLexicalVar ResultType is == 2");
-    static_assert(ClosureVar == 3, "LLInt assumes ClosureVar ResultType is == 3");
-    static_assert(LocalClosureVar == 4, "LLInt assumes LocalClosureVar ResultType is == 4");
-    static_assert(ModuleVar == 5, "LLInt assumes ModuleVar ResultType is == 5");
-    static_assert(GlobalPropertyWithVarInjectionChecks == 6, "LLInt assumes GlobalPropertyWithVarInjectionChecks ResultType is == 6");
-    static_assert(GlobalVarWithVarInjectionChecks == 7, "LLInt assumes GlobalVarWithVarInjectionChecks ResultType is == 7");
-    static_assert(GlobalLexicalVarWithVarInjectionChecks == 8, "LLInt assumes GlobalLexicalVarWithVarInjectionChecks ResultType is == 8");
-    static_assert(ClosureVarWithVarInjectionChecks == 9, "LLInt assumes ClosureVarWithVarInjectionChecks ResultType is == 9");
-
-    static_assert(InitializationMode::Initialization == 0, "LLInt assumes that InitializationMode::Initialization is 0");
-    
-    STATIC_ASSERT(GetPutInfo::typeBits == 0x3ff);
-    STATIC_ASSERT(GetPutInfo::initializationShift == 10);
-    STATIC_ASSERT(GetPutInfo::initializationBits == 0xffc00);
-
-    STATIC_ASSERT(MarkedBlock::blockMask == ~static_cast<decltype(MarkedBlock::blockMask)>(0x3fff));
 
     // FIXME: make these assertions less horrible.
 #if !ASSERT_DISABLED
@@ -198,10 +151,39 @@ void Data::performAssertions(VM& vm)
     ASSERT(bitwise_cast<int**>(&testVector)[0] == testVector.begin());
 #endif
 
-    ASSERT(StringImpl::s_hashFlag8BitBuffer == 8);
+    {
+        ArithProfile arithProfile;
+        arithProfile.lhsSawInt32();
+        arithProfile.rhsSawInt32();
+        ASSERT(arithProfile.bits() == ArithProfile::observedBinaryIntInt().bits());
+        STATIC_ASSERT(ArithProfile::observedBinaryIntInt().lhsObservedType().isOnlyInt32());
+        STATIC_ASSERT(ArithProfile::observedBinaryIntInt().rhsObservedType().isOnlyInt32());
+    }
+    {
+        ArithProfile arithProfile;
+        arithProfile.lhsSawNumber();
+        arithProfile.rhsSawInt32();
+        ASSERT(arithProfile.bits() == ArithProfile::observedBinaryNumberInt().bits());
+        STATIC_ASSERT(ArithProfile::observedBinaryNumberInt().lhsObservedType().isOnlyNumber());
+        STATIC_ASSERT(ArithProfile::observedBinaryNumberInt().rhsObservedType().isOnlyInt32());
+    }
+    {
+        ArithProfile arithProfile;
+        arithProfile.lhsSawNumber();
+        arithProfile.rhsSawNumber();
+        ASSERT(arithProfile.bits() == ArithProfile::observedBinaryNumberNumber().bits());
+        STATIC_ASSERT(ArithProfile::observedBinaryNumberNumber().lhsObservedType().isOnlyNumber());
+        STATIC_ASSERT(ArithProfile::observedBinaryNumberNumber().rhsObservedType().isOnlyNumber());
+    }
+    {
+        ArithProfile arithProfile;
+        arithProfile.lhsSawInt32();
+        arithProfile.rhsSawNumber();
+        ASSERT(arithProfile.bits() == ArithProfile::observedBinaryIntNumber().bits());
+        STATIC_ASSERT(ArithProfile::observedBinaryIntNumber().lhsObservedType().isOnlyInt32());
+        STATIC_ASSERT(ArithProfile::observedBinaryIntNumber().rhsObservedType().isOnlyNumber());
+    }
 }
-#if COMPILER(CLANG)
-#pragma clang diagnostic pop
-#endif
+IGNORE_WARNINGS_END
 
 } } // namespace JSC::LLInt

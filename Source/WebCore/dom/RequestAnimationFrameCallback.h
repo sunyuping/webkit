@@ -28,23 +28,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RequestAnimationFrameCallback_h
-#define RequestAnimationFrameCallback_h
+#pragma once
 
+#include "ActiveDOMCallback.h"
+#include "CallbackResult.h"
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
-class RequestAnimationFrameCallback : public RefCounted<RequestAnimationFrameCallback> {
+class RequestAnimationFrameCallback : public RefCounted<RequestAnimationFrameCallback>, public ActiveDOMCallback {
 public:
-    virtual ~RequestAnimationFrameCallback() { }
-    virtual bool handleEvent(double highResTimeMs) = 0;
+    using ActiveDOMCallback::ActiveDOMCallback;
+
+    virtual CallbackResult<void> handleEvent(double highResTimeMs) = 0;
 
     int m_id;
     bool m_firedOrCancelled;
-    bool m_useLegacyTimeBase;
 };
 
-}
-
-#endif // RequestAnimationFrameCallback_h
+} // namespace WebCore

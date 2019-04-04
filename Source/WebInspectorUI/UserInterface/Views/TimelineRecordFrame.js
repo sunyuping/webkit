@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.TimelineRecordFrame = class TimelineRecordFrame extends WebInspector.Object
+WI.TimelineRecordFrame = class TimelineRecordFrame extends WI.Object
 {
     constructor(graphDataSource, record)
     {
@@ -96,9 +96,12 @@ WebInspector.TimelineRecordFrame = class TimelineRecordFrame extends WebInspecto
 
         this._element.style.width = (1 / graphDataSource.timelineOverview.secondsPerPixel) + "px";
 
-        var graphDuration = graphDataSource.endTime - graphDataSource.startTime
-        var recordLeftPosition = (frameIndex - graphDataSource.startTime) / graphDuration;
-        this._updateElementPosition(this._element, recordLeftPosition, "left");
+        var graphDuration = graphDataSource.endTime - graphDataSource.startTime;
+        let recordPosition = (frameIndex - graphDataSource.startTime) / graphDuration;
+
+        let property = WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL ? "right" : "left";
+        this._updateElementPosition(this._element, recordPosition, property);
+
         this._updateChildElements(graphDataSource);
 
         return true;
@@ -108,7 +111,7 @@ WebInspector.TimelineRecordFrame = class TimelineRecordFrame extends WebInspecto
 
     _calculateFrameDisplayData(graphDataSource)
     {
-        var secondsPerBlock = (graphDataSource.graphHeightSeconds / graphDataSource.height) * WebInspector.TimelineRecordFrame.MinimumHeightPixels;
+        var secondsPerBlock = (graphDataSource.graphHeightSeconds / graphDataSource.height) * WI.TimelineRecordFrame.MinimumHeightPixels;
         var segments = [];
         var invisibleSegments = [];
         var currentSegment = null;
@@ -139,8 +142,8 @@ WebInspector.TimelineRecordFrame = class TimelineRecordFrame extends WebInspecto
         // block high are grouped until the minimum is met, or a task meeting the minimum is found. The group is then
         // added to the list of segment candidates. Large tasks (one block or more) are not grouped with other tasks
         // and are simply added to the candidate list.
-        for (var key in WebInspector.RenderingFrameTimelineRecord.TaskType) {
-            var taskType = WebInspector.RenderingFrameTimelineRecord.TaskType[key];
+        for (var key in WI.RenderingFrameTimelineRecord.TaskType) {
+            var taskType = WI.RenderingFrameTimelineRecord.TaskType[key];
             var duration = this._record.durationForTask(taskType);
             if (duration === 0)
                 continue;
@@ -272,14 +275,14 @@ WebInspector.TimelineRecordFrame = class TimelineRecordFrame extends WebInspecto
     _updateElementPosition(element, newPosition, property)
     {
         newPosition *= 100;
-        newPosition = newPosition.toFixed(2);
 
-        var currentPosition = parseFloat(element.style[property]).toFixed(2);
-        if (currentPosition !== newPosition)
-            element.style[property] = newPosition + "%";
+        let newPositionAprox = Math.round(newPosition * 100);
+        let currentPositionAprox = Math.round(parseFloat(element.style[property]) * 100);
+        if (currentPositionAprox !== newPositionAprox)
+            element.style[property] = (newPositionAprox / 100) + "%";
     }
 };
 
-WebInspector.TimelineRecordFrame.MinimumHeightPixels = 3;
-WebInspector.TimelineRecordFrame.MaximumWidthPixels = 14;
-WebInspector.TimelineRecordFrame.MinimumWidthPixels = 4;
+WI.TimelineRecordFrame.MinimumHeightPixels = 3;
+WI.TimelineRecordFrame.MaximumWidthPixels = 14;
+WI.TimelineRecordFrame.MinimumWidthPixels = 4;

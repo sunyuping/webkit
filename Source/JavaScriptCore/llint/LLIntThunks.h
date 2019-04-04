@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef LLIntThunks_h
-#define LLIntThunks_h
+#pragma once
 
 #include "MacroAssemblerCodeRef.h"
 
@@ -32,22 +31,27 @@ namespace JSC {
 
 class VM;
 struct ProtoCallFrame;
+typedef int64_t EncodedJSValue;
 
 extern "C" {
     EncodedJSValue vmEntryToJavaScript(void*, VM*, ProtoCallFrame*);
     EncodedJSValue vmEntryToNative(void*, VM*, ProtoCallFrame*);
 }
 
+inline EncodedJSValue vmEntryToWasm(void* code, VM* vm, ProtoCallFrame* frame)
+{
+    code = retagCodePtr<WasmEntryPtrTag, JSEntryPtrTag>(code);
+    return vmEntryToJavaScript(code, vm, frame);
+}
+
 namespace LLInt {
 
-MacroAssemblerCodeRef functionForCallEntryThunkGenerator(VM*);
-MacroAssemblerCodeRef functionForConstructEntryThunkGenerator(VM*);
-MacroAssemblerCodeRef functionForCallArityCheckThunkGenerator(VM*);
-MacroAssemblerCodeRef functionForConstructArityCheckThunkGenerator(VM*);
-MacroAssemblerCodeRef evalEntryThunkGenerator(VM*);
-MacroAssemblerCodeRef programEntryThunkGenerator(VM*);
-MacroAssemblerCodeRef moduleProgramEntryThunkGenerator(VM*);
+MacroAssemblerCodeRef<JITThunkPtrTag> functionForCallEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> functionForConstructEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> functionForCallArityCheckThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> functionForConstructArityCheckThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> evalEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> programEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> moduleProgramEntryThunk();
 
 } } // namespace JSC::LLInt
-
-#endif // LLIntThunks_h

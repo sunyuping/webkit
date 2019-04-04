@@ -28,18 +28,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import codecs
 import json
-import logging
-import os
-import platform
-import Queue
-import re
 import StringIO
-import sys
-import thread
-import time
-import threading
 import unittest
 
 from webkitpy.common.system import outputcapture, path
@@ -48,13 +38,10 @@ from webkitpy.common.system.systemhost import SystemHost
 from webkitpy.common.host import Host
 from webkitpy.common.host_mock import MockHost
 
-from webkitpy import port
 from webkitpy.layout_tests import run_webkit_tests
 from webkitpy.layout_tests.models.test_run_results import INTERRUPTED_EXIT_STATUS
-from webkitpy.port import Port
 from webkitpy.port import test
-from webkitpy.test.skip import skip_if
-from webkitpy.tool.mocktool import MockOptions
+from webkitpy.xcode.device_type import DeviceType
 
 
 def parse_args(extra_args=None, tests_included=False, new_results=False, print_nothing=True):
@@ -67,6 +54,10 @@ def parse_args(extra_args=None, tests_included=False, new_results=False, print_n
 
     if not '--child-processes' in extra_args:
         args.extend(['--child-processes', 1])
+
+    if not '--world-leaks' in extra_args:
+        args.append('--world-leaks')
+
     args.extend(extra_args)
     if not tests_included:
         # We use the glob to test that globbing works.
@@ -219,7 +210,6 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
 
         self.assertEqual(host.user.opened_urls, [path.abspath_to_uri(MockHost().platform, '/tmp/layout-test-results/results.html')])
 
-
     def test_batch_size(self):
         batch_tests_run = get_test_batches(['--batch-size', '2'])
         for batch in batch_tests_run:
@@ -332,6 +322,9 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
 
     def test_gc_between_tests(self):
         self.assertTrue(passing_run(['--gc-between-tests']))
+
+    def test_check_for_world_leaks(self):
+        self.assertTrue(passing_run(['--world-leaks']))
 
     def test_complex_text(self):
         self.assertTrue(passing_run(['--complex-text']))
@@ -533,24 +526,24 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
 
     def test_crash_log(self):
         # FIXME: Need to rewrite these tests to not be mac-specific, or move them elsewhere.
-        # Currently CrashLog uploading only works on Darwin.
-        if not self._platform.is_mac():
+        # Currently CrashLog uploading only works on Darwin and Windows.
+        if not self._platform.is_mac() or self._platform.is_win():
             return
         mock_crash_report = make_mock_crash_report_darwin('DumpRenderTree', 12345)
         host = MockHost()
-        host.filesystem.write_text_file('/Users/mock/Library/Logs/DiagnosticReports/DumpRenderTree_2011-06-13-150719_quadzen.crash', mock_crash_report)
+        host.filesystem.write_text_file('/tmp/layout-test-results/DumpRenderTree_2011-06-13-150719_quadzen.crash', mock_crash_report)
         _, regular_output, _ = logging_run(['failures/unexpected/crash-with-stderr.html', '--dump-render-tree'], tests_included=True, host=host)
         expected_crash_log = mock_crash_report
         self.assertEqual(host.filesystem.read_text_file('/tmp/layout-test-results/failures/unexpected/crash-with-stderr-crash-log.txt'), expected_crash_log)
 
     def test_web_process_crash_log(self):
         # FIXME: Need to rewrite these tests to not be mac-specific, or move them elsewhere.
-        # Currently CrashLog uploading only works on Darwin.
-        if not self._platform.is_mac():
+        # Currently CrashLog uploading only works on Darwin and Windows.
+        if not self._platform.is_mac() or self._platform.is_win():
             return
         mock_crash_report = make_mock_crash_report_darwin('WebProcess', 12345)
         host = MockHost()
-        host.filesystem.write_text_file('/Users/mock/Library/Logs/DiagnosticReports/WebProcess_2011-06-13-150719_quadzen.crash', mock_crash_report)
+        host.filesystem.write_text_file('/tmp/layout-test-results/WebProcess_2011-06-13-150719_quadzen.crash', mock_crash_report)
         logging_run(['failures/unexpected/web-process-crash-with-stderr.html'], tests_included=True, host=host)
         self.assertEqual(host.filesystem.read_text_file('/tmp/layout-test-results/failures/unexpected/web-process-crash-with-stderr-crash-log.txt'), mock_crash_report)
 
@@ -831,6 +824,116 @@ class RunTest(unittest.TestCase, StreamTestingMixin):
         self.assertTrue('text.html passed' in logging_stream.getvalue())
         self.assertTrue('image.html passed' in logging_stream.getvalue())
 
+    def test_device_type_test_division(self):
+        host = MockHost()
+        port = host.port_factory.get('ios-simulator')
+
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/test1.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/ios/test2.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/ipad/test3.html', '')
+        host.filesystem.write_text_file('/MOCK output of child process/ImageDiff', '')
+
+        oc = outputcapture.OutputCapture()
+        try:
+            oc.capture_output()
+            logging = StringIO.StringIO()
+            run_webkit_tests.run(port, run_webkit_tests.parse_args(['--debug-rwt-logging', '-n', '--no-build', '--root', '/build'])[0], [], logging_stream=logging)
+        finally:
+            output, err, _ = oc.restore_output()
+
+        for line in logging.getvalue():
+            if str(DeviceType.from_string('iPhone SE')) in line:
+                self.assertTrue('Skipping 2 tests' in line)
+            elif str(DeviceType.from_string('iPad (5th generation)')) in line:
+                self.assertTrue('Skipping 1 test' in line)
+            elif str(DeviceType.from_string('iPhone 7')) in line:
+                self.assertTrue('Skipping 0 tests' in line)
+
+    def test_device_type_specific_listing(self):
+        host = MockHost()
+        port = host.port_factory.get('ios-simulator')
+
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/test1.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/ios/test2.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/ipad/test3.html', '')
+
+        oc = outputcapture.OutputCapture()
+        try:
+            oc.capture_output()
+            logging = StringIO.StringIO()
+            run_webkit_tests._print_expectations(port, run_webkit_tests.parse_args([])[0], [], logging_stream=logging)
+        finally:
+            output, _, _ = oc.restore_output()
+
+        current_type = None
+        by_type = {}
+        for line in output.splitlines():
+            if not line or 'skip' in line:
+                continue
+            if 'Tests to run' in line:
+                current_type = DeviceType.from_string(line.split('for ')[-1].split(' running')[0]) if 'for ' in line else None
+                by_type[current_type] = []
+                continue
+            by_type[current_type].append(line)
+
+        self.assertEqual(3, len(by_type.keys()))
+        self.assertEqual(2, len(by_type[DeviceType.from_string('iPhone SE')]))
+        self.assertEqual(1, len(by_type[DeviceType.from_string('iPad (5th generation)')]))
+        self.assertEqual(0, len(by_type[DeviceType.from_string('iPhone 7')]))
+
+    def test_ipad_test_division(self):
+        host = MockHost()
+        port = host.port_factory.get('ipad-simulator')
+
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/test1.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/ios/test2.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/ipad/test3.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/iphone/test4.html', '')
+        host.filesystem.write_text_file('/MOCK output of child process/ImageDiff', '')
+
+        oc = outputcapture.OutputCapture()
+        try:
+            oc.capture_output()
+            logging = StringIO.StringIO()
+            run_webkit_tests.run(port, run_webkit_tests.parse_args(['--debug-rwt-logging', '-n', '--no-build', '--root', '/build'])[0], [], logging_stream=logging)
+        finally:
+            output, err, _ = oc.restore_output()
+
+        for line in logging.getvalue():
+            if str(DeviceType.from_string('iPad (5th generation)')) in line:
+                self.assertTrue('Skipping 3 test' in line)
+
+    def test_ipad_listing(self):
+        host = MockHost()
+        port = host.port_factory.get('ipad-simulator')
+
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/test1.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/ios/test2.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/ipad/test3.html', '')
+        host.filesystem.write_text_file('/mock-checkout/LayoutTests/platform/iphone/test4.html', '')
+
+        oc = outputcapture.OutputCapture()
+        try:
+            oc.capture_output()
+            logging = StringIO.StringIO()
+            run_webkit_tests._print_expectations(port, run_webkit_tests.parse_args([])[0], [], logging_stream=logging)
+        finally:
+            output, _, _ = oc.restore_output()
+
+        current_type = None
+        by_type = {}
+        for line in output.splitlines():
+            if not line or 'skip' in line:
+                continue
+            if 'Tests to run' in line:
+                current_type = DeviceType.from_string(line.split('for ')[-1].split(' running')[0]) if 'for ' in line else None
+                by_type[current_type] = []
+                continue
+            by_type[current_type].append(line)
+
+        self.assertEqual(1, len(by_type.keys()))
+        self.assertEqual(3, len(by_type[DeviceType.from_string('iPad (5th generation)')]))
+
 
 class EndToEndTest(unittest.TestCase):
     def test_reftest_with_two_notrefs(self):
@@ -874,7 +977,7 @@ class RebaselineTest(unittest.TestCase, StreamTestingMixin):
             tests_included=True, host=host, new_results=True)
         file_list = host.filesystem.written_files.keys()
         self.assertEqual(details.exit_code, 0)
-        self.assertEqual(len(file_list), 8)
+        self.assertEqual(len(file_list), 9)
         self.assertBaselines(file_list, "passes/image", [".txt", ".png"], err)
         self.assertBaselines(file_list, "failures/expected/missing_image", [".txt", ".png"], err)
 
@@ -890,7 +993,7 @@ class RebaselineTest(unittest.TestCase, StreamTestingMixin):
             tests_included=True, host=host, new_results=True)
         file_list = host.filesystem.written_files.keys()
         self.assertEqual(details.exit_code, 0)
-        self.assertEqual(len(file_list), 10)
+        self.assertEqual(len(file_list), 11)
         self.assertBaselines(file_list, "failures/unexpected/missing_text", [".txt"], err)
         self.assertBaselines(file_list, "platform/test/failures/unexpected/missing_image", [".png"], err)
         self.assertBaselines(file_list, "platform/test/failures/unexpected/missing_render_tree_dump", [".txt"], err)
@@ -904,7 +1007,7 @@ class RebaselineTest(unittest.TestCase, StreamTestingMixin):
             tests_included=True, host=host, new_results=True)
         file_list = host.filesystem.written_files.keys()
         self.assertEqual(details.exit_code, 0)
-        self.assertEqual(len(file_list), 8)
+        self.assertEqual(len(file_list), 9)
         self.assertBaselines(file_list,
             "platform/test-mac-leopard/passes/image", [".txt", ".png"], err)
         self.assertBaselines(file_list,

@@ -23,14 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef AuthenticationChallenge_h
-#define AuthenticationChallenge_h
+#pragma once
 
 #include "AuthenticationChallengeBase.h"
 #include "AuthenticationClient.h"
 #include <wtf/RefPtr.h>
 
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
 
 typedef struct _CFURLAuthChallenge* CFURLAuthChallengeRef;
 
@@ -50,7 +49,7 @@ class AuthenticationChallenge : public AuthenticationChallengeBase {
 public:
     AuthenticationChallenge() {}
     WEBCORE_EXPORT AuthenticationChallenge(const ProtectionSpace&, const Credential& proposedCredential, unsigned previousFailureCount, const ResourceResponse&, const ResourceError&);
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
     AuthenticationChallenge(CFURLAuthChallengeRef, AuthenticationClient*);
 
     CFURLAuthChallengeRef cfURLAuthChallengeRef() const { return m_cfChallenge.get(); }
@@ -69,15 +68,13 @@ private:
     static bool platformCompare(const AuthenticationChallenge& a, const AuthenticationChallenge& b);
 
     // Platform challenge may be null. If it's non-null, it's always up to date with other fields.
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
     RefPtr<AuthenticationClient> m_authenticationClient;
     RetainPtr<CFURLAuthChallengeRef> m_cfChallenge;
 #else
     RetainPtr<id> m_sender;
-    RetainPtr<NSURLAuthenticationChallenge *> m_nsChallenge;
+    RetainPtr<NSURLAuthenticationChallenge> m_nsChallenge;
 #endif
 };
 
 }
-
-#endif

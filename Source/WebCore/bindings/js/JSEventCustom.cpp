@@ -33,53 +33,18 @@
 #include "Event.h"
 #include "EventHeaders.h"
 #include "EventInterfaces.h"
-#include "EventNames.h"
 #include "JSDOMBinding.h"
 #include "JSDataTransfer.h"
-#include <runtime/JSLock.h>
-#include <wtf/HashMap.h>
+#include <JavaScriptCore/JSLock.h>
 #include <wtf/text/AtomicString.h>
 
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
-JSValue JSEvent::clipboardData(ExecState& state) const
+JSValue toJS(ExecState* state, JSDOMGlobalObject* globalObject, Event& event)
 {
-    return wrapped().isClipboardEvent() ? toJS(&state, globalObject(), wrapped().clipboardData()) : jsUndefined();
-}
-
-#define TRY_TO_WRAP_WITH_INTERFACE(interfaceName) \
-    case interfaceName##InterfaceType: \
-        return CREATE_DOM_WRAPPER(&globalObject, interfaceName, &event);
-
-static inline JSValue createNewEventWrapper(JSDOMGlobalObject& globalObject, Event& event)
-{
-    switch (event.eventInterface()) {
-        DOM_EVENT_INTERFACES_FOR_EACH(TRY_TO_WRAP_WITH_INTERFACE)
-    }
-
-    return CREATE_DOM_WRAPPER(&globalObject, Event, &event);
-}
-
-JSValue toJS(ExecState*, JSDOMGlobalObject* globalObject, Event* event)
-{
-    JSLockHolder lock(globalObject->vm());
-
-    if (!event)
-        return jsNull();
-
-    JSObject* wrapper = getCachedWrapper(globalObject->world(), event);
-    if (wrapper)
-        return wrapper;
-
-    return createNewEventWrapper(*globalObject, *event);
-}
-
-
-JSValue toJSNewlyCreated(ExecState*, JSDOMGlobalObject* globalObject, Event* event)
-{
-    return event ? createNewEventWrapper(*globalObject, *event) : jsNull();
+    return wrap(state, globalObject, event);
 }
 
 #undef TRY_TO_WRAP_WITH_INTERFACE

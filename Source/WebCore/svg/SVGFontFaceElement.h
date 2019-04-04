@@ -19,10 +19,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGFontFaceElement_h
-#define SVGFontFaceElement_h
+#pragma once
 
 #if ENABLE(SVG_FONTS)
+
 #include "SVGElement.h"
 
 namespace WebCore {
@@ -31,6 +31,7 @@ class SVGFontElement;
 class StyleRuleFontFace;
 
 class SVGFontFaceElement final : public SVGElement {
+    WTF_MAKE_ISO_ALLOCATED(SVGFontFaceElement);
 public:
     static Ref<SVGFontFaceElement> create(const QualifiedName&, Document&);
 
@@ -50,18 +51,19 @@ public:
     SVGFontElement* associatedFontElement() const;
     void rebuildFontFace();
     
-    const StyleRuleFontFace& fontFaceRule() const { return m_fontFaceRule.get(); }
+    StyleRuleFontFace& fontFaceRule() { return m_fontFaceRule.get(); }
 
 private:
     SVGFontFaceElement(const QualifiedName&, Document&);
+    ~SVGFontFaceElement();
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
 
-    virtual void childrenChanged(const ChildChange&) override;
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    virtual void removedFrom(ContainerNode&) override;
+    void childrenChanged(const ChildChange&) final;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
 
-    virtual bool rendererIsNeeded(const RenderStyle&) override { return false; }
+    bool rendererIsNeeded(const RenderStyle&) final { return false; }
 
     Ref<StyleRuleFontFace> m_fontFaceRule;
     SVGFontElement* m_fontElement;
@@ -70,6 +72,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(SVG_FONTS)
-#endif
-
-// vim:ts=4:noet

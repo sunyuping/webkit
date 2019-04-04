@@ -32,9 +32,10 @@
 #include "config.h"
 #include "InstrumentingAgents.h"
 
-using namespace Inspector;
 
 namespace WebCore {
+
+using namespace Inspector;
 
 InstrumentingAgents::InstrumentingAgents(InspectorEnvironment& environment)
     : m_environment(environment)
@@ -47,21 +48,26 @@ void InstrumentingAgents::reset()
     m_inspectorPageAgent = nullptr;
     m_inspectorCSSAgent = nullptr;
     m_inspectorLayerTreeAgent = nullptr;
+    m_inspectorWorkerAgent = nullptr;
     m_webConsoleAgent = nullptr;
     m_inspectorDOMAgent = nullptr;
     m_inspectorNetworkAgent = nullptr;
     m_pageRuntimeAgent = nullptr;
+    m_inspectorScriptProfilerAgent = nullptr;
     m_inspectorTimelineAgent = nullptr;
     m_persistentInspectorTimelineAgent = nullptr;
     m_inspectorDOMStorageAgent = nullptr;
-#if ENABLE(WEB_REPLAY)
-    m_inspectorReplayAgent = nullptr;
+#if ENABLE(RESOURCE_USAGE)
+    m_inspectorCPUProfilerAgent = nullptr;
+    m_inspectorMemoryAgent = nullptr;
 #endif
     m_inspectorDatabaseAgent = nullptr;
     m_inspectorApplicationCacheAgent = nullptr;
     m_inspectorDebuggerAgent = nullptr;
     m_pageDebuggerAgent = nullptr;
+    m_pageHeapAgent = nullptr;
     m_inspectorDOMDebuggerAgent = nullptr;
+    m_inspectorCanvasAgent = nullptr;
 }
 
 } // namespace WebCore

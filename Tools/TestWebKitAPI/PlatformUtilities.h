@@ -26,24 +26,26 @@
 #ifndef PlatformUtilities_h
 #define PlatformUtilities_h
 
+#ifndef BUILDING_JSCONLY__
 #include <WebKit/WKNativeEvent.h>
 #include <WebKit/WKRetainPtr.h>
+#endif
+
+#include "Utilities.h"
 #include <string>
 
 #if USE(FOUNDATION)
 OBJC_CLASS NSString;
+OBJC_CLASS NSDictionary;
 #endif
 
 namespace TestWebKitAPI {
 namespace Util {
 
-// Runs a platform runloop until the 'done' is true. 
-void run(bool* done);
-void sleep(double seconds);
-
 std::string toSTD(const char*);
 #if USE(FOUNDATION)
 std::string toSTD(NSString *);
+bool jsonMatchesExpectedValues(NSString *jsonString, NSDictionary *expected);
 #endif
 
 #if WK_HAVE_C_SPI
@@ -75,7 +77,7 @@ static inline ::testing::AssertionResult assertWKStringEqual(const char* expecte
 #define EXPECT_WK_STREQ(expected, actual) \
     EXPECT_PRED_FORMAT2(TestWebKitAPI::Util::assertWKStringEqual, expected, actual)
 
-#if WK_API_ENABLED
+#if PLATFORM(COCOA)
 extern NSString * const TestPlugInClassNameParameter;
 #endif
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGUseKind_h
-#define DFGUseKind_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -44,7 +43,7 @@ enum UseKind {
     UntypedUse, // UntypedUse must come first (value 0).
     Int32Use,
     KnownInt32Use,
-    MachineIntUse,
+    AnyIntUse,
     NumberUse,
     RealNumberUse,
     BooleanUse,
@@ -53,18 +52,31 @@ enum UseKind {
     KnownCellUse,
     CellOrOtherUse,
     ObjectUse,
+    ArrayUse,
     FunctionUse,
     FinalObjectUse,
+    RegExpObjectUse,
+    ProxyObjectUse,
+    DerivedArrayUse,
     ObjectOrOtherUse,
     StringIdentUse,
     StringUse,
+    StringOrOtherUse,
     KnownStringUse,
     KnownPrimitiveUse, // This bizarre type arises for op_strcat, which has a bytecode guarantee that it will only see primitives (i.e. not objects).
     SymbolUse,
+    BigIntUse,
+    MapObjectUse,
+    SetObjectUse,
+    WeakMapObjectUse,
+    WeakSetObjectUse,
+    DataViewObjectUse,
     StringObjectUse,
     StringOrStringObjectUse,
     NotStringVarUse,
+    NotSymbolUse,
     NotCellUse,
+    KnownOtherUse,
     OtherUse,
     MiscUse,
 
@@ -72,7 +84,7 @@ enum UseKind {
     //    in an FP register.
     DoubleRepUse,
     DoubleRepRealUse,
-    DoubleRepMachineIntUse,
+    DoubleRepAnyIntUse,
 
     // 3. The Int52 representation for an unboxed integer value that must be stored
     //    in a GP register.
@@ -85,14 +97,14 @@ inline SpeculatedType typeFilterFor(UseKind useKind)
 {
     switch (useKind) {
     case UntypedUse:
-        return SpecFullTop;
+        return SpecBytecodeTop;
     case Int32Use:
     case KnownInt32Use:
-        return SpecInt32;
+        return SpecInt32Only;
     case Int52RepUse:
-        return SpecMachineInt;
-    case MachineIntUse:
-        return SpecInt32 | SpecInt52AsDouble;
+        return SpecAnyInt;
+    case AnyIntUse:
+        return SpecInt32Only | SpecAnyIntAsDouble;
     case NumberUse:
         return SpecBytecodeNumber;
     case RealNumberUse:
@@ -101,22 +113,30 @@ inline SpeculatedType typeFilterFor(UseKind useKind)
         return SpecFullDouble;
     case DoubleRepRealUse:
         return SpecDoubleReal;
-    case DoubleRepMachineIntUse:
-        return SpecInt52AsDouble;
+    case DoubleRepAnyIntUse:
+        return SpecAnyIntAsDouble;
     case BooleanUse:
     case KnownBooleanUse:
         return SpecBoolean;
     case CellUse:
     case KnownCellUse:
-        return SpecCell;
+        return SpecCellCheck;
     case CellOrOtherUse:
-        return SpecCell | SpecOther;
+        return SpecCellCheck | SpecOther;
     case ObjectUse:
         return SpecObject;
+    case ArrayUse:
+        return SpecArray;
     case FunctionUse:
         return SpecFunction;
     case FinalObjectUse:
         return SpecFinalObject;
+    case RegExpObjectUse:
+        return SpecRegExpObject;
+    case ProxyObjectUse:
+        return SpecProxyObject;
+    case DerivedArrayUse:
+        return SpecDerivedArray;
     case ObjectOrOtherUse:
         return SpecObject | SpecOther;
     case StringIdentUse:
@@ -124,18 +144,35 @@ inline SpeculatedType typeFilterFor(UseKind useKind)
     case StringUse:
     case KnownStringUse:
         return SpecString;
+    case StringOrOtherUse:
+        return SpecString | SpecOther;
     case KnownPrimitiveUse:
         return SpecHeapTop & ~SpecObject;
     case SymbolUse:
         return SpecSymbol;
+    case BigIntUse:
+        return SpecBigInt;
+    case MapObjectUse:
+        return SpecMapObject;
+    case SetObjectUse:
+        return SpecSetObject;
+    case WeakMapObjectUse:
+        return SpecWeakMapObject;
+    case WeakSetObjectUse:
+        return SpecWeakSetObject;
+    case DataViewObjectUse:
+        return SpecDataViewObject;
     case StringObjectUse:
         return SpecStringObject;
     case StringOrStringObjectUse:
         return SpecString | SpecStringObject;
     case NotStringVarUse:
         return ~SpecStringVar;
+    case NotSymbolUse:
+        return ~SpecSymbol;
     case NotCellUse:
-        return ~SpecCell;
+        return ~SpecCellCheck;
+    case KnownOtherUse:
     case OtherUse:
         return SpecOther;
     case MiscUse:
@@ -155,6 +192,7 @@ inline bool shouldNotHaveTypeCheck(UseKind kind)
     case KnownStringUse:
     case KnownPrimitiveUse:
     case KnownBooleanUse:
+    case KnownOtherUse:
     case Int52RepUse:
     case DoubleRepUse:
         return true;
@@ -178,8 +216,8 @@ inline bool isNumerical(UseKind kind)
     case Int52RepUse:
     case DoubleRepUse:
     case DoubleRepRealUse:
-    case MachineIntUse:
-    case DoubleRepMachineIntUse:
+    case AnyIntUse:
+    case DoubleRepAnyIntUse:
         return true;
     default:
         return false;
@@ -191,7 +229,7 @@ inline bool isDouble(UseKind kind)
     switch (kind) {
     case DoubleRepUse:
     case DoubleRepRealUse:
-    case DoubleRepMachineIntUse:
+    case DoubleRepAnyIntUse:
         return true;
     default:
         return false;
@@ -206,27 +244,24 @@ inline bool isCell(UseKind kind)
     case CellUse:
     case KnownCellUse:
     case ObjectUse:
+    case ArrayUse:
     case FunctionUse:
     case FinalObjectUse:
+    case RegExpObjectUse:
+    case ProxyObjectUse:
+    case DerivedArrayUse:
     case StringIdentUse:
     case StringUse:
     case KnownStringUse:
     case SymbolUse:
+    case BigIntUse:
     case StringObjectUse:
     case StringOrStringObjectUse:
-        return true;
-    default:
-        return false;
-    }
-}
-
-// Returns true if it uses structure in a way that could be clobbered by
-// things that change the structure.
-inline bool usesStructure(UseKind kind)
-{
-    switch (kind) {
-    case StringObjectUse:
-    case StringOrStringObjectUse:
+    case MapObjectUse:
+    case SetObjectUse:
+    case WeakMapObjectUse:
+    case WeakSetObjectUse:
+    case DataViewObjectUse:
         return true;
     default:
         return false;
@@ -236,11 +271,6 @@ inline bool usesStructure(UseKind kind)
 // Returns true if we've already guaranteed the type 
 inline bool alreadyChecked(UseKind kind, SpeculatedType type)
 {
-    // If the check involves the structure then we need to know more than just the type to be sure
-    // that the check is done.
-    if (usesStructure(kind))
-        return false;
-    
     return !(type & ~typeFilterFor(kind));
 }
 
@@ -257,6 +287,34 @@ inline UseKind useKindForResult(NodeFlags result)
     }
 }
 
+inline bool checkMayCrashIfInputIsEmpty(UseKind kind)
+{
+#if USE(JSVALUE64)
+    switch (kind) {
+    case UntypedUse:
+    case Int32Use:
+    case KnownInt32Use:
+    case AnyIntUse:
+    case NumberUse:
+    case BooleanUse:
+    case KnownBooleanUse:
+    case CellUse:
+    case KnownCellUse:
+    case CellOrOtherUse:
+    case KnownOtherUse:
+    case OtherUse:
+    case MiscUse:
+    case NotCellUse:
+        return false;
+    default:
+        return true;
+    }
+#else
+    UNUSED_PARAM(kind);
+    return true;
+#endif
+}
+
 } } // namespace JSC::DFG
 
 namespace WTF {
@@ -266,6 +324,3 @@ void printInternal(PrintStream&, JSC::DFG::UseKind);
 } // namespace WTF
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGUseKind_h
-

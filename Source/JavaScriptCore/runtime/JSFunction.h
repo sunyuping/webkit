@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2003, 2006-2009, 2015-2016 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2019 Apple Inc. All rights reserved.
  *  Copyright (C) 2007 Cameron Zwarich (cwzwarich@uwaterloo.ca)
  *  Copyright (C) 2007 Maks Orlovich
  *
@@ -21,14 +21,12 @@
  *
  */
 
-#ifndef JSFunction_h
-#define JSFunction_h
+#pragma once
 
 #include "FunctionRareData.h"
 #include "InternalFunction.h"
 #include "JSCallee.h"
 #include "JSScope.h"
-#include "Watchpoint.h"
 
 namespace JSC {
 
@@ -40,16 +38,20 @@ class JSGlobalObject;
 class LLIntOffsetsExtractor;
 class NativeExecutable;
 class SourceCode;
-class WebAssemblyExecutable;
 class InternalFunction;
 namespace DFG {
 class SpeculativeJIT;
 class JITCompiler;
 }
 
+namespace DOMJIT {
+class Signature;
+}
+
+
 JS_EXPORT_PRIVATE EncodedJSValue JSC_HOST_CALL callHostFunctionAsConstructor(ExecState*);
 
-JS_EXPORT_PRIVATE String getCalculatedDisplayName(CallFrame*, JSObject*);
+JS_EXPORT_PRIVATE String getCalculatedDisplayName(VM&, JSObject*);
 
 class JSFunction : public JSCallee {
     friend class JIT;
@@ -59,31 +61,34 @@ class JSFunction : public JSCallee {
     friend class InternalFunction;
 
 public:
+    
+    template<typename CellType, SubspaceAccess>
+    static IsoSubspace* subspaceFor(VM& vm)
+    {
+        return &vm.functionSpace;
+    }
+    
     typedef JSCallee Base;
-    const static unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetPropertyNames;
+    const static unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetPropertyNames | OverridesGetCallData;
 
-    static size_t allocationSize(size_t inlineCapacity)
+    static size_t allocationSize(Checked<size_t> inlineCapacity)
     {
         ASSERT_UNUSED(inlineCapacity, !inlineCapacity);
         return sizeof(JSFunction);
     }
 
-    JS_EXPORT_PRIVATE static JSFunction* create(VM&, JSGlobalObject*, int length, const String& name, NativeFunction, Intrinsic = NoIntrinsic, NativeFunction nativeConstructor = callHostFunctionAsConstructor);
+    static Structure* selectStructureForNewFuncExp(JSGlobalObject*, FunctionExecutable*);
+
+    JS_EXPORT_PRIVATE static JSFunction* create(VM&, JSGlobalObject*, int length, const String& name, NativeFunction, Intrinsic = NoIntrinsic, NativeFunction nativeConstructor = callHostFunctionAsConstructor, const DOMJIT::Signature* = nullptr);
     
     static JSFunction* createWithInvalidatedReallocationWatchpoint(VM&, FunctionExecutable*, JSScope*);
 
-    static JSFunction* create(VM&, FunctionExecutable*, JSScope*);
+    JS_EXPORT_PRIVATE static JSFunction* create(VM&, FunctionExecutable*, JSScope*);
     static JSFunction* create(VM&, FunctionExecutable*, JSScope*, Structure*);
-#if ENABLE(WEBASSEMBLY)
-    static JSFunction* create(VM&, WebAssemblyExecutable*, JSScope*);
-#endif
 
-    JS_EXPORT_PRIVATE static JSFunction* createBuiltinFunction(VM&, FunctionExecutable*, JSGlobalObject*);
-    static JSFunction* createBuiltinFunction(VM&, FunctionExecutable*, JSGlobalObject*, const String& name);
-
-    JS_EXPORT_PRIVATE String name(ExecState*);
-    JS_EXPORT_PRIVATE String displayName(ExecState*);
-    const String calculatedDisplayName(ExecState*);
+    JS_EXPORT_PRIVATE String name(VM&);
+    JS_EXPORT_PRIVATE String displayName(VM&);
+    JS_EXPORT_PRIVATE const String calculatedDisplayName(VM&);
 
     ExecutableBase* executable() const { return m_executable.get(); }
 
@@ -102,8 +107,8 @@ public:
         return Structure::create(vm, globalObject, prototype, TypeInfo(JSFunctionType, StructureFlags), info()); 
     }
 
-    NativeFunction nativeFunction();
-    NativeFunction nativeConstructor();
+    TaggedNativeFunction nativeFunction();
+    TaggedNativeFunction nativeConstructor();
 
     static ConstructType getConstructData(JSCell*, ConstructData&);
     static CallType getCallData(JSCell*, CallData&);
@@ -125,14 +130,7 @@ public:
         return m_rareData.get();
     }
 
-    FunctionRareData* rareData(ExecState* exec, unsigned inlineCapacity)
-    {
-        if (UNLIKELY(!m_rareData))
-            return allocateAndInitializeRareData(exec, inlineCapacity);
-        if (UNLIKELY(!m_rareData->isObjectAllocationProfileInitialized()))
-            return initializeRareData(exec, inlineCapacity);
-        return m_rareData.get();
-    }
+    FunctionRareData* ensureRareDataAndAllocationProfile(ExecState*, unsigned inlineCapacity);
 
     FunctionRareData* rareData()
     {
@@ -150,43 +148,71 @@ public:
     JS_EXPORT_PRIVATE bool isHostFunctionNonInline() const;
     bool isClassConstructorFunction() const;
 
+    void setFunctionName(ExecState*, JSValue name);
+
+    // Returns the __proto__ for the |this| value if this JSFunction were to be constructed.
+    JSObject* prototypeForConstruction(VM&, ExecState*);
+
+    bool canUseAllocationProfile();
+    bool canUseAllocationProfileNonInline();
+
+    enum class PropertyStatus {
+        Eager,
+        Lazy,
+        Reified,
+    };
+    PropertyStatus reifyLazyPropertyIfNeeded(VM&, ExecState*, PropertyName);
+
 protected:
     JS_EXPORT_PRIVATE JSFunction(VM&, JSGlobalObject*, Structure*);
     JSFunction(VM&, FunctionExecutable*, JSScope*, Structure*);
 
-#if ENABLE(WEBASSEMBLY)
-    JSFunction(VM&, WebAssemblyExecutable*, JSScope*);
-#endif
-
     void finishCreation(VM&, NativeExecutable*, int length, const String& name);
-    using Base::finishCreation;
-
-    FunctionRareData* allocateRareData(VM&);
-    FunctionRareData* allocateAndInitializeRareData(ExecState*, size_t inlineCapacity);
-    FunctionRareData* initializeRareData(ExecState*, size_t inlineCapacity);
+    void finishCreation(VM&);
 
     static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
     static void getOwnNonIndexPropertyNames(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode = EnumerationMode());
     static bool defineOwnProperty(JSObject*, ExecState*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
 
-    static void put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
+    static bool put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
 
     static bool deleteProperty(JSCell*, ExecState*, PropertyName);
 
     static void visitChildren(JSCell*, SlotVisitor&);
 
-
-    static NativeExecutable* lookUpOrCreateNativeExecutable(VM&, NativeFunction, Intrinsic, NativeFunction nativeConstructor, const String& name);
-
 private:
     static JSFunction* createImpl(VM& vm, FunctionExecutable* executable, JSScope* scope, Structure* structure)
     {
         JSFunction* function = new (NotNull, allocateCell<JSFunction>(vm.heap)) JSFunction(vm, executable, scope, structure);
-        ASSERT(function->structure()->globalObject());
+        ASSERT(function->structure(vm)->globalObject());
         function->finishCreation(vm);
         return function;
     }
-    
+
+    FunctionRareData* allocateRareData(VM&);
+    FunctionRareData* allocateAndInitializeRareData(ExecState*, size_t inlineCapacity);
+    FunctionRareData* initializeRareData(ExecState*, size_t inlineCapacity);
+
+    bool hasReifiedLength() const;
+    bool hasReifiedName() const;
+    void reifyLength(VM&);
+    void reifyName(VM&, ExecState*);
+    void reifyName(VM&, ExecState*, String name);
+
+    static bool isLazy(PropertyStatus property) { return property == PropertyStatus::Lazy || property == PropertyStatus::Reified; }
+    static bool isReified(PropertyStatus property) { return property == PropertyStatus::Reified; }
+
+    PropertyStatus reifyLazyPropertyForHostOrBuiltinIfNeeded(VM&, ExecState*, PropertyName);
+    PropertyStatus reifyLazyLengthIfNeeded(VM&, ExecState*, PropertyName);
+    PropertyStatus reifyLazyNameIfNeeded(VM&, ExecState*, PropertyName);
+    PropertyStatus reifyLazyBoundNameIfNeeded(VM&, ExecState*, PropertyName);
+
+#if ASSERT_DISABLED
+    void assertTypeInfoFlagInvariants() { }
+#else
+    void assertTypeInfoFlagInvariants();
+#endif
+
     friend class LLIntOffsetsExtractor;
 
     static EncodedJSValue argumentsGetter(ExecState*, EncodedJSValue, PropertyName);
@@ -199,5 +225,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // JSFunction_h

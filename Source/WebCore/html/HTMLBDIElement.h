@@ -18,14 +18,14 @@
  *
  */
 
-#ifndef HTMLBDIElement_h
-#define HTMLBDIElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLBDIElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLBDIElement);
 public:
     static Ref<HTMLBDIElement> create(const QualifiedName& name, Document& document)
     {
@@ -42,5 +42,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif

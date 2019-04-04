@@ -38,14 +38,15 @@ bool argumentsInvolveStackSlot(InlineCallFrame* inlineCallFrame, VirtualRegister
         return (reg.isArgument() && reg.toArgument()) || reg.isHeader();
     
     if (inlineCallFrame->isClosureCall
-        && reg == VirtualRegister(inlineCallFrame->stackOffset + JSStack::Callee))
+        && reg == VirtualRegister(inlineCallFrame->stackOffset + CallFrameSlot::callee))
         return true;
     
     if (inlineCallFrame->isVarargs()
-        && reg == VirtualRegister(inlineCallFrame->stackOffset + JSStack::ArgumentCount))
+        && reg == VirtualRegister(inlineCallFrame->stackOffset + CallFrameSlot::argumentCount))
         return true;
     
-    unsigned numArguments = inlineCallFrame->arguments.size() - 1;
+    // We do not include fixups here since it is not related to |arguments|, rest parameters, and varargs.
+    unsigned numArguments = inlineCallFrame->argumentCountIncludingThis - 1;
     VirtualRegister argumentStart =
         VirtualRegister(inlineCallFrame->stackOffset) + CallFrame::argumentOffset(0);
     return reg >= argumentStart && reg < argumentStart + numArguments;
@@ -53,7 +54,7 @@ bool argumentsInvolveStackSlot(InlineCallFrame* inlineCallFrame, VirtualRegister
 
 bool argumentsInvolveStackSlot(Node* candidate, VirtualRegister reg)
 {
-    return argumentsInvolveStackSlot(candidate->origin.semantic.inlineCallFrame, reg);
+    return argumentsInvolveStackSlot(candidate->origin.semantic.inlineCallFrame(), reg);
 }
 
 Node* emitCodeToGetArgumentsArrayLength(
@@ -64,32 +65,82 @@ Node* emitCodeToGetArgumentsArrayLength(
     DFG_ASSERT(
         graph, arguments,
         arguments->op() == CreateDirectArguments || arguments->op() == CreateScopedArguments
-        || arguments->op() == CreateClonedArguments || arguments->op() == PhantomDirectArguments
-        || arguments->op() == PhantomClonedArguments);
+        || arguments->op() == CreateClonedArguments || arguments->op() == CreateRest
+        || arguments->op() == NewArrayBuffer
+        || arguments->op() == PhantomDirectArguments || arguments->op() == PhantomClonedArguments
+        || arguments->op() == PhantomCreateRest || arguments->op() == PhantomNewArrayBuffer
+        || arguments->op() == PhantomNewArrayWithSpread,
+        arguments->op());
+
+    if (arguments->op() == PhantomNewArrayWithSpread) {
+        unsigned numberOfNonSpreadArguments = 0;
+        BitVector* bitVector = arguments->bitVector();
+        Node* currentSum = nullptr;
+        for (unsigned i = 0; i < arguments->numChildren(); i++) {
+            if (bitVector->get(i)) {
+                Node* child = graph.varArgChild(arguments, i).node();
+                DFG_ASSERT(graph, child, child->op() == PhantomSpread, child->op());
+                DFG_ASSERT(graph, child->child1().node(),
+                    child->child1()->op() == PhantomCreateRest || child->child1()->op() == PhantomNewArrayBuffer,
+                    child->child1()->op());
+                Node* lengthOfChild = emitCodeToGetArgumentsArrayLength(insertionSet, child->child1().node(), nodeIndex, origin);
+                if (currentSum)
+                    currentSum = insertionSet.insertNode(nodeIndex, SpecInt32Only, ArithAdd, origin, OpInfo(Arith::CheckOverflow), Edge(currentSum, Int32Use), Edge(lengthOfChild, Int32Use));
+                else
+                    currentSum = lengthOfChild;
+            } else
+                numberOfNonSpreadArguments++;
+        }
+        if (currentSum) {
+            if (!numberOfNonSpreadArguments)
+                return currentSum;
+            return insertionSet.insertNode(
+                nodeIndex, SpecInt32Only, ArithAdd, origin, OpInfo(Arith::CheckOverflow), Edge(currentSum, Int32Use),
+                insertionSet.insertConstantForUse(nodeIndex, origin, jsNumber(numberOfNonSpreadArguments), Int32Use));
+        }
+        return insertionSet.insertConstant(nodeIndex, origin, jsNumber(numberOfNonSpreadArguments));
+    }
+
+    if (arguments->op() == NewArrayBuffer || arguments->op() == PhantomNewArrayBuffer) {
+        return insertionSet.insertConstant(
+            nodeIndex, origin, jsNumber(arguments->castOperand<JSImmutableButterfly*>()->length()));
+    }
     
-    InlineCallFrame* inlineCallFrame = arguments->origin.semantic.inlineCallFrame;
+    InlineCallFrame* inlineCallFrame = arguments->origin.semantic.inlineCallFrame();
+
+    unsigned numberOfArgumentsToSkip = 0;
+    if (arguments->op() == CreateRest || arguments->op() == PhantomCreateRest)
+        numberOfArgumentsToSkip = arguments->numberOfArgumentsToSkip();
     
     if (inlineCallFrame && !inlineCallFrame->isVarargs()) {
+        unsigned argumentsSize = inlineCallFrame->argumentCountIncludingThis - 1;
+        if (argumentsSize >= numberOfArgumentsToSkip)
+            argumentsSize -= numberOfArgumentsToSkip;
+        else
+            argumentsSize = 0;
         return insertionSet.insertConstant(
-            nodeIndex, origin, jsNumber(inlineCallFrame->arguments.size() - 1));
+            nodeIndex, origin, jsNumber(argumentsSize));
     }
     
-    Node* argumentCount;
-    if (!inlineCallFrame)
-        argumentCount = insertionSet.insertNode(nodeIndex, SpecInt32, GetArgumentCount, origin);
-    else {
-        VirtualRegister argumentCountRegister(inlineCallFrame->stackOffset + JSStack::ArgumentCount);
-        
-        argumentCount = insertionSet.insertNode(
-            nodeIndex, SpecInt32, GetStack, origin,
-            OpInfo(graph.m_stackAccessData.add(argumentCountRegister, FlushedInt32)));
-    }
-    
-    return insertionSet.insertNode(
-        nodeIndex, SpecInt32, ArithSub, origin, OpInfo(Arith::Unchecked),
+    Node* argumentCount = insertionSet.insertNode(nodeIndex,
+        SpecInt32Only, GetArgumentCountIncludingThis, origin, OpInfo(inlineCallFrame));
+
+    Node* result = insertionSet.insertNode(
+        nodeIndex, SpecInt32Only, ArithSub, origin, OpInfo(Arith::Unchecked),
         Edge(argumentCount, Int32Use),
         insertionSet.insertConstantForUse(
-            nodeIndex, origin, jsNumber(1), Int32Use));
+            nodeIndex, origin, jsNumber(1 + numberOfArgumentsToSkip), Int32Use));
+
+    if (numberOfArgumentsToSkip) {
+        // The above subtraction may produce a negative number if this number is non-zero. We correct that here.
+        result = insertionSet.insertNode(
+            nodeIndex, SpecInt32Only, ArithMax, origin, 
+            Edge(result, Int32Use), 
+            insertionSet.insertConstantForUse(nodeIndex, origin, jsNumber(0), Int32Use));
+        result->setResult(NodeResultInt32);
+    }
+
+    return result;
 }
 
 } } // namespace JSC::DFG

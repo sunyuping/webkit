@@ -20,14 +20,14 @@
  *
  */
 
-#ifndef HTMLParamElement_h
-#define HTMLParamElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLParamElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLParamElement);
 public:
     static Ref<HTMLParamElement> create(const QualifiedName&, Document&);
 
@@ -39,10 +39,8 @@ public:
 private:
     HTMLParamElement(const QualifiedName&, Document&);
 
-    virtual bool isURLAttribute(const Attribute&) const override;
-    virtual void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
+    bool isURLAttribute(const Attribute&) const final;
+    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
 };
 
 } // namespace WebCore
-
-#endif

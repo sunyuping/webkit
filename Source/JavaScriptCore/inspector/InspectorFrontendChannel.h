@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef InspectorFrontendChannel_h
-#define InspectorFrontendChannel_h
+#pragma once
 
 #include <wtf/text/WTFString.h>
 
@@ -43,9 +42,19 @@ public:
 
     virtual ~FrontendChannel() { }
     virtual ConnectionType connectionType() const = 0;
-    virtual bool sendMessageToFrontend(const String& message) = 0;
+    virtual void sendMessageToFrontend(const String& message) = 0;
 };
 
 } // namespace Inspector
 
-#endif // !defined(InspectorFrontendChannel_h)
+namespace WTF {
+
+template<> struct EnumTraits<Inspector::FrontendChannel::ConnectionType> {
+    using values = EnumValues<
+        Inspector::FrontendChannel::ConnectionType,
+        Inspector::FrontendChannel::ConnectionType::Remote,
+        Inspector::FrontendChannel::ConnectionType::Local
+    >;
+};
+
+} // namespace WTF

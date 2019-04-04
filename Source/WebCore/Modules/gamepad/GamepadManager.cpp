@@ -22,6 +22,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #include "config.h"
 #include "GamepadManager.h"
 
@@ -29,22 +30,20 @@
 
 #include "DOMWindow.h"
 #include "Document.h"
+#include "EventNames.h"
 #include "Gamepad.h"
 #include "GamepadEvent.h"
 #include "GamepadProvider.h"
 #include "Logging.h"
 #include "NavigatorGamepad.h"
 #include "PlatformGamepad.h"
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
 static NavigatorGamepad* navigatorGamepadFromDOMWindow(DOMWindow* window)
 {
-    Navigator* navigator = window->navigator();
-    if (!navigator)
-        return nullptr;
-
-    return NavigatorGamepad::from(navigator);
+    return NavigatorGamepad::from(&window->navigator());
 }
 
 GamepadManager& GamepadManager::singleton()
@@ -79,7 +78,7 @@ void GamepadManager::platformGamepadDisconnected(PlatformGamepad& platformGamepa
 {
     Vector<WeakPtr<DOMWindow>> weakWindows;
     for (auto* domWindow : m_domWindows)
-        weakWindows.append(domWindow->createWeakPtr());
+        weakWindows.append(makeWeakPtr(*domWindow));
 
     HashSet<NavigatorGamepad*> notifiedNavigators;
 
@@ -114,13 +113,18 @@ void GamepadManager::platformGamepadDisconnected(PlatformGamepad& platformGamepa
     }
 }
 
-void GamepadManager::platformGamepadInputActivity()
+void GamepadManager::platformGamepadInputActivity(bool shouldMakeGamepadVisible)
 {
+    if (!shouldMakeGamepadVisible)
+        return;
+
     if (m_gamepadBlindNavigators.isEmpty() && m_gamepadBlindDOMWindows.isEmpty())
         return;
 
-    for (auto* gamepad : GamepadProvider::singleton().platformGamepads())
-        makeGamepadVisible(*gamepad, m_gamepadBlindNavigators, m_gamepadBlindDOMWindows);
+    for (auto* gamepad : GamepadProvider::singleton().platformGamepads()) {
+        if (gamepad)
+            makeGamepadVisible(*gamepad, m_gamepadBlindNavigators, m_gamepadBlindDOMWindows);
+    }
 
     m_gamepadBlindNavigators.clear();
     m_gamepadBlindDOMWindows.clear();
@@ -136,7 +140,7 @@ void GamepadManager::makeGamepadVisible(PlatformGamepad& platformGamepad, HashSe
 
     Vector<WeakPtr<DOMWindow>> weakWindows;
     for (auto* domWindow : m_domWindows)
-        weakWindows.append(domWindow->createWeakPtr());
+        weakWindows.append(makeWeakPtr(*domWindow));
 
     for (auto& window : weakWindows) {
         // Event dispatch might have made this window go away.
@@ -218,7 +222,7 @@ void GamepadManager::maybeStartMonitoringGamepads()
     if (!m_navigators.isEmpty() || !m_domWindows.isEmpty()) {
         LOG(Gamepad, "GamepadManager has %i NavigatorGamepads and %i DOMWindows registered, is starting gamepad monitoring", m_navigators.size(), m_domWindows.size());
         m_isMonitoringGamepads = true;
-        GamepadProvider::singleton().startMonitoringGamepads(this);
+        GamepadProvider::singleton().startMonitoringGamepads(*this);
     }
 }
 
@@ -230,7 +234,7 @@ void GamepadManager::maybeStopMonitoringGamepads()
     if (m_navigators.isEmpty() && m_domWindows.isEmpty()) {
         LOG(Gamepad, "GamepadManager has no NavigatorGamepads or DOMWindows registered, is stopping gamepad monitoring");
         m_isMonitoringGamepads = false;
-        GamepadProvider::singleton().stopMonitoringGamepads(this);
+        GamepadProvider::singleton().stopMonitoringGamepads(*this);
     }
 }
 

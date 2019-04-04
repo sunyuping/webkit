@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,12 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef FTLExceptionTarget_h
-#define FTLExceptionTarget_h
+#pragma once
 
 #include "DFGCommon.h"
 
-#if ENABLE(FTL_JIT) && FTL_USES_B3
+#if ENABLE(FTL_JIT)
 
 #include "CCallHelpers.h"
 #include "FTLOSRExitHandle.h"
@@ -44,7 +43,7 @@ public:
     ~ExceptionTarget();
 
     // It's OK to call this during linking, but not any sooner.
-    CodeLocationLabel label(LinkBuffer&);
+    CodeLocationLabel<ExceptionHandlerPtrTag> label(LinkBuffer&);
 
     // Or, you can get a JumpList at any time. Anything you add to this JumpList will be linked to
     // the target's label.
@@ -62,7 +61,4 @@ private:
 
 } } // namespace JSC::FTL
 
-#endif // ENABLE(FTL_JIT) && FTL_USES_B3
-
-#endif // FTLExceptionTarget_h
-
+#endif // ENABLE(FTL_JIT)

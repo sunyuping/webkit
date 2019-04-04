@@ -23,41 +23,37 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebCoreResourceHandleAsOperationQueueDelegate_h
-#define WebCoreResourceHandleAsOperationQueueDelegate_h
+#pragma once
 
-#if !USE(CFNETWORK)
-
-#include "WebCoreResourceHandleAsDelegate.h"
 #include <dispatch/dispatch.h>
+#include <wtf/Function.h>
+#include <wtf/Lock.h>
+#include <wtf/MessageQueue.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/SchedulePair.h>
+#include <wtf/threads/BinarySemaphore.h>
 
 namespace WebCore {
 class ResourceHandle;
 }
 
-@interface WebCoreResourceHandleAsOperationQueueDelegate : NSObject <NSURLConnectionDelegate, WebCoreResourceLoaderDelegate> {
+@interface WebCoreResourceHandleAsOperationQueueDelegate : NSObject <NSURLConnectionDelegate> {
     WebCore::ResourceHandle* m_handle;
 
     // Synchronous delegates on operation queue wait until main thread sends an asynchronous response.
-    dispatch_semaphore_t m_semaphore;
+    BinarySemaphore m_semaphore;
+    MessageQueue<Function<void()>>* m_messageQueue;
     RetainPtr<NSURLRequest> m_requestResult;
+    Lock m_mutex;
     RetainPtr<NSCachedURLResponse> m_cachedResponseResult;
+    Optional<SchedulePairHashSet> m_scheduledPairs;
     BOOL m_boolResult;
 }
 
-- (id)initWithHandle:(WebCore::ResourceHandle*)handle;
-- (void)continueWillSendRequest:(NSURLRequest *)newRequest;
-- (void)continueDidReceiveResponse;
-#if USE(PROTECTION_SPACE_AUTH_CALLBACK)
-- (void)continueCanAuthenticateAgainstProtectionSpace:(BOOL)canAuthenticate;
-#endif
-- (void)continueWillCacheResponse:(NSCachedURLResponse *)response;
+- (void)detachHandle;
+- (id)initWithHandle:(WebCore::ResourceHandle*)handle messageQueue:(MessageQueue<Function<void()>>*)messageQueue;
 @end
 
 @interface WebCoreResourceHandleWithCredentialStorageAsOperationQueueDelegate : WebCoreResourceHandleAsOperationQueueDelegate
 
 @end
-
-#endif // !USE(CFNETWORK)
-#endif // WebCoreResourceHandleAsOperationQueueDelegate_h

@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef BooleanObject_h
-#define BooleanObject_h
+#pragma once
 
 #include "JSWrapperObject.h"
 
@@ -31,7 +30,7 @@ protected:
     JS_EXPORT_PRIVATE void finishCreation(VM&);
 
 public:
-    typedef JSWrapperObject Base;
+    using Base = JSWrapperObject;
 
     static BooleanObject* create(VM& vm, Structure* structure)
     {
@@ -48,14 +47,4 @@ public:
     }
 };
 
-BooleanObject* asBooleanObject(JSValue);
-
-inline BooleanObject* asBooleanObject(JSValue value)
-{
-    ASSERT(asObject(value)->inherits(BooleanObject::info()));
-    return static_cast<BooleanObject*>(asObject(value));
-}
-
 } // namespace JSC
-
-#endif // BooleanObject_h

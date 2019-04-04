@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,83 +23,82 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef GenericTaskQueue_h
-#define GenericTaskQueue_h
+#pragma once
 
 #include "Timer.h"
 #include <wtf/Deque.h>
+#include <wtf/Function.h>
 #include <wtf/WeakPtr.h>
+
+namespace WTF {
+class Lock;
+};
 
 namespace WebCore {
 
 template <typename T>
 class TaskDispatcher {
 public:
-    TaskDispatcher(T& context)
+    TaskDispatcher(T* context)
         : m_context(context)
     {
     }
 
-    void postTask(std::function<void()> f)
+    void postTask(WTF::Function<void()>&& f)
     {
-        m_context.postTask(f);
+        ASSERT(m_context);
+        m_context->postTask(WTFMove(f));
     }
 
 private:
-    T& m_context;
+    T* m_context;
 };
 
 template<>
-class TaskDispatcher<Timer> {
+class TaskDispatcher<Timer> : public CanMakeWeakPtr<TaskDispatcher<Timer>> {
 public:
-    TaskDispatcher()
-        : m_timer(*this, &TaskDispatcher<Timer>::timerFired)
-    {
-    }
+    TaskDispatcher();
+    void postTask(WTF::Function<void()>&&);
 
-    void postTask(std::function<void()> function)
-    {
-        m_queue.append(function);
-        m_timer.startOneShot(0);
-    }
+private:
+    static Timer& sharedTimer();
+    static WTF::Lock& sharedLock();
+    static void sharedTimerFired();
+    static Deque<WeakPtr<TaskDispatcher<Timer>>>& pendingDispatchers();
 
-    void timerFired()
-    {
-        Deque<std::function<void()>> queue;
-        queue.swap(m_queue);
-        for (std::function<void()>& function : queue)
-            function();
-    }
+    void dispatchOneTask();
 
-    Timer m_timer;
-    Deque<std::function<void()>> m_queue;
+    Deque<WTF::Function<void()>> m_pendingTasks;
 };
 
-template <typename T>
-class GenericTaskQueue {
+template <typename T, typename C = unsigned>
+class GenericTaskQueue : public CanMakeWeakPtr<GenericTaskQueue<T, C>> {
 public:
     GenericTaskQueue()
-        : m_weakPtrFactory(this)
-        , m_dispatcher()
+        : m_dispatcher()
     {
     }
 
     GenericTaskQueue(T& t)
-        : m_weakPtrFactory(this)
-        , m_dispatcher(t)
+        : m_dispatcher(&t)
     {
     }
 
-    typedef std::function<void()> TaskFunction;
+    GenericTaskQueue(T* t)
+        : m_dispatcher(t)
+        , m_isClosed(!t)
+    {
+    }
 
-    void enqueueTask(TaskFunction task)
+    typedef WTF::Function<void ()> TaskFunction;
+
+    void enqueueTask(TaskFunction&& task)
     {
         if (m_isClosed)
             return;
 
         ++m_pendingTasks;
-        auto weakThis = m_weakPtrFactory.createWeakPtr();
-        m_dispatcher.postTask([weakThis, task] {
+        m_dispatcher.postTask([weakThis = makeWeakPtr(*this), task = WTFMove(task)] {
             if (!weakThis)
                 return;
             ASSERT(weakThis->m_pendingTasks);
@@ -116,18 +115,17 @@ public:
 
     void cancelAllTasks()
     {
-        m_weakPtrFactory.revokeAll();
+        CanMakeWeakPtr<GenericTaskQueue<T>>::weakPtrFactory().revokeAll();
         m_pendingTasks = 0;
     }
+
     bool hasPendingTasks() const { return m_pendingTasks; }
+    bool isClosed() const { return m_isClosed; }
 
 private:
-    WeakPtrFactory<GenericTaskQueue> m_weakPtrFactory;
     TaskDispatcher<T> m_dispatcher;
-    unsigned m_pendingTasks { 0 };
+    C m_pendingTasks { 0 };
     bool m_isClosed { false };
 };
 
 }
-
-#endif

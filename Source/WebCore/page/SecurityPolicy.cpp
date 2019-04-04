@@ -29,12 +29,13 @@
 #include "config.h"
 #include "SecurityPolicy.h"
 
-#include "URL.h"
-#include <wtf/MainThread.h>
 #include "OriginAccessEntry.h"
 #include "SecurityOrigin.h"
 #include <memory>
+#include <wtf/HashMap.h>
+#include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/URL.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
@@ -44,8 +45,10 @@ static SecurityPolicy::LocalLoadPolicy localLoadPolicy = SecurityPolicy::AllowLo
 typedef Vector<OriginAccessEntry> OriginAccessWhiteList;
 typedef HashMap<String, std::unique_ptr<OriginAccessWhiteList>> OriginAccessMap;
 
+static Lock originAccessMapLock;
 static OriginAccessMap& originAccessMap()
 {
+    ASSERT(originAccessMapLock.isHeld());
     static NeverDestroyed<OriginAccessMap> originAccessMap;
     return originAccessMap;
 }
@@ -66,8 +69,20 @@ bool SecurityPolicy::shouldHideReferrer(const URL& url, const String& referrer)
     return !URLIsSecureURL;
 }
 
+String SecurityPolicy::referrerToOriginString(const String& referrer)
+{
+    String originString = SecurityOrigin::createFromString(referrer)->toString();
+    if (originString == "null")
+        return String();
+    // A security origin is not a canonical URL as it lacks a path. Add /
+    // to turn it into a canonical URL we can use as referrer.
+    return originString + "/";
+}
+
 String SecurityPolicy::generateReferrerHeader(ReferrerPolicy referrerPolicy, const URL& url, const String& referrer)
 {
+    ASSERT(referrer == URL(URL(), referrer).strippedForUseAsReferrer());
+
     if (referrer.isEmpty())
         return String();
 
@@ -75,23 +90,59 @@ String SecurityPolicy::generateReferrerHeader(ReferrerPolicy referrerPolicy, con
         return String();
 
     switch (referrerPolicy) {
-    case ReferrerPolicyNever:
-        return String();
-    case ReferrerPolicyAlways:
-        return referrer;
-    case ReferrerPolicyOrigin: {
-        String origin = SecurityOrigin::createFromString(referrer)->toString();
-        if (origin == "null")
-            return String();
-        // A security origin is not a canonical URL as it lacks a path. Add /
-        // to turn it into a canonical URL we can use as referrer.
-        return origin + "/";
-    }
-    case ReferrerPolicyDefault:
+    case ReferrerPolicy::EmptyString:
+        ASSERT_NOT_REACHED();
         break;
+    case ReferrerPolicy::NoReferrer:
+        return String();
+    case ReferrerPolicy::NoReferrerWhenDowngrade:
+        break;
+    case ReferrerPolicy::SameOrigin: {
+        auto origin = SecurityOrigin::createFromString(referrer);
+        if (!origin->canRequest(url))
+            return String();
+        break;
+    }
+    case ReferrerPolicy::Origin:
+        return referrerToOriginString(referrer);
+    case ReferrerPolicy::StrictOrigin:
+        if (shouldHideReferrer(url, referrer))
+            return String();
+        return referrerToOriginString(referrer);
+    case ReferrerPolicy::OriginWhenCrossOrigin: {
+        auto origin = SecurityOrigin::createFromString(referrer);
+        if (!origin->canRequest(url))
+            return referrerToOriginString(referrer);
+        break;
+    }
+    case ReferrerPolicy::StrictOriginWhenCrossOrigin: {
+        auto origin = SecurityOrigin::createFromString(referrer);
+        if (!origin->canRequest(url)) {
+            if (shouldHideReferrer(url, referrer))
+                return String();
+            return referrerToOriginString(referrer);
+        }
+        break;
+    }
+    case ReferrerPolicy::UnsafeUrl:
+        return referrer;
     }
 
     return shouldHideReferrer(url, referrer) ? String() : referrer;
+}
+
+bool SecurityPolicy::shouldInheritSecurityOriginFromOwner(const URL& url)
+{
+    // Paraphrased from <https://html.spec.whatwg.org/multipage/browsers.html#origin> (8 July 2016)
+    //
+    // If a Document has the address "about:blank"
+    //      The origin of the document is the origin it was assigned when its browsing context was created.
+    // If a Document has the address "about:srcdoc"
+    //      The origin of the document is the origin of its parent document.
+    //
+    // Note: We generalize this to invalid URLs because we treat such URLs as about:blank.
+    //
+    return url.isEmpty() || equalIgnoringASCIICase(url.string(), WTF::blankURL()) || equalLettersIgnoringASCIICase(url.string(), "about:srcdoc");
 }
 
 void SecurityPolicy::setLocalLoadPolicy(LocalLoadPolicy policy)
@@ -111,6 +162,7 @@ bool SecurityPolicy::allowSubstituteDataAccessToLocal()
 
 bool SecurityPolicy::isAccessWhiteListed(const SecurityOrigin* activeOrigin, const SecurityOrigin* targetOrigin)
 {
+    Locker<Lock> locker(originAccessMapLock);
     if (OriginAccessWhiteList* list = originAccessMap().get(activeOrigin->toString())) {
         for (auto& entry : *list) {
             if (entry.matchesOrigin(*targetOrigin))
@@ -128,35 +180,37 @@ bool SecurityPolicy::isAccessToURLWhiteListed(const SecurityOrigin* activeOrigin
 
 void SecurityPolicy::addOriginAccessWhitelistEntry(const SecurityOrigin& sourceOrigin, const String& destinationProtocol, const String& destinationDomain, bool allowDestinationSubdomains)
 {
-    ASSERT(isMainThread());
     ASSERT(!sourceOrigin.isUnique());
     if (sourceOrigin.isUnique())
         return;
 
     String sourceString = sourceOrigin.toString();
+
+    Locker<Lock> locker(originAccessMapLock);
     OriginAccessMap::AddResult result = originAccessMap().add(sourceString, nullptr);
     if (result.isNewEntry)
         result.iterator->value = std::make_unique<OriginAccessWhiteList>();
 
     OriginAccessWhiteList* list = result.iterator->value.get();
-    list->append(OriginAccessEntry(destinationProtocol, destinationDomain, allowDestinationSubdomains ? OriginAccessEntry::AllowSubdomains : OriginAccessEntry::DisallowSubdomains));
+    list->append(OriginAccessEntry(destinationProtocol, destinationDomain, allowDestinationSubdomains ? OriginAccessEntry::AllowSubdomains : OriginAccessEntry::DisallowSubdomains, OriginAccessEntry::TreatIPAddressAsIPAddress));
 }
 
 void SecurityPolicy::removeOriginAccessWhitelistEntry(const SecurityOrigin& sourceOrigin, const String& destinationProtocol, const String& destinationDomain, bool allowDestinationSubdomains)
 {
-    ASSERT(isMainThread());
     ASSERT(!sourceOrigin.isUnique());
     if (sourceOrigin.isUnique())
         return;
 
     String sourceString = sourceOrigin.toString();
+
+    Locker<Lock> locker(originAccessMapLock);
     OriginAccessMap& map = originAccessMap();
     OriginAccessMap::iterator it = map.find(sourceString);
     if (it == map.end())
         return;
 
     OriginAccessWhiteList& list = *it->value;
-    OriginAccessEntry originAccessEntry(destinationProtocol, destinationDomain, allowDestinationSubdomains ? OriginAccessEntry::AllowSubdomains : OriginAccessEntry::DisallowSubdomains);
+    OriginAccessEntry originAccessEntry(destinationProtocol, destinationDomain, allowDestinationSubdomains ? OriginAccessEntry::AllowSubdomains : OriginAccessEntry::DisallowSubdomains, OriginAccessEntry::TreatIPAddressAsIPAddress);
     if (!list.removeFirst(originAccessEntry))
         return;
 
@@ -166,7 +220,7 @@ void SecurityPolicy::removeOriginAccessWhitelistEntry(const SecurityOrigin& sour
 
 void SecurityPolicy::resetOriginAccessWhitelists()
 {
-    ASSERT(isMainThread());
+    Locker<Lock> locker(originAccessMapLock);
     originAccessMap().clear();
 }
 

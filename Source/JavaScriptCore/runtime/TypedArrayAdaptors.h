@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,10 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef TypedArrayAdaptors_h
-#define TypedArrayAdaptors_h
+#pragma once
 
 #include "JSCJSValue.h"
+#include "MathCommon.h"
 #include "TypedArrayType.h"
 #include <wtf/MathExtras.h>
 
@@ -40,9 +40,12 @@ struct IntegralTypedArrayAdaptor {
     typedef ViewTypeArg ViewType;
     typedef JSViewTypeArg JSViewType;
     static const TypedArrayType typeValue = typeValueArg;
+    constexpr static const TypeArg minValue = std::numeric_limits<TypeArg>::lowest();
+    constexpr static const TypeArg maxValue = std::numeric_limits<TypeArg>::max();
 
     static JSValue toJSValue(Type value)
     {
+        static_assert(!std::is_floating_point<Type>::value, "");
         return jsNumber(value);
     }
     
@@ -76,6 +79,33 @@ struct IntegralTypedArrayAdaptor {
             return OtherAdaptor::toNativeFromUint32(value);
         return OtherAdaptor::toNativeFromInt32(value);
     }
+
+    static Optional<Type> toNativeFromInt32WithoutCoercion(int32_t value)
+    {
+        if ((value >= 0 && static_cast<uint32_t>(value) > static_cast<uint32_t>(maxValue)) || value < static_cast<int32_t>(minValue))
+            return WTF::nullopt;
+        return static_cast<Type>(value);
+    }
+
+    static Optional<Type> toNativeFromUint32WithoutCoercion(uint32_t value)
+    {
+        if (value > static_cast<uint32_t>(maxValue))
+            return WTF::nullopt;
+
+        return static_cast<Type>(value);
+    }
+
+    static Optional<Type> toNativeFromDoubleWithoutCoercion(double value)
+    {
+        Type integer = static_cast<Type>(value);
+        if (static_cast<double>(integer) != value)
+            return WTF::nullopt;
+
+        if (value < 0)
+            return toNativeFromInt32WithoutCoercion(static_cast<int32_t>(value));
+        
+        return toNativeFromUint32WithoutCoercion(static_cast<uint32_t>(value));
+    }
 };
 
 template<
@@ -86,12 +116,14 @@ struct FloatTypedArrayAdaptor {
     typedef ViewTypeArg ViewType;
     typedef JSViewTypeArg JSViewType;
     static const TypedArrayType typeValue = typeValueArg;
-    
+    constexpr static const TypeArg minValue = std::numeric_limits<TypeArg>::lowest();
+    constexpr static const TypeArg maxValue = std::numeric_limits<TypeArg>::max();
+
     static JSValue toJSValue(Type value)
     {
         return jsDoubleNumber(purifyNaN(value));
     }
-    
+
     static double toDouble(Type value)
     {
         return static_cast<double>(value);
@@ -101,21 +133,42 @@ struct FloatTypedArrayAdaptor {
     {
         return static_cast<Type>(value);
     }
-    
+
     static Type toNativeFromUint32(uint32_t value)
     {
         return static_cast<Type>(value);
     }
-    
+
     static Type toNativeFromDouble(double value)
     {
-        return value;
+        return static_cast<Type>(value);
     }
-    
+
     template<typename OtherAdaptor>
     static typename OtherAdaptor::Type convertTo(Type value)
     {
         return OtherAdaptor::toNativeFromDouble(value);
+    }
+
+    static Optional<Type> toNativeFromInt32WithoutCoercion(int32_t value)
+    {
+        return static_cast<Type>(value);
+    }
+
+    static Optional<Type> toNativeFromDoubleWithoutCoercion(double value)
+    {
+        if (std::isnan(value) || std::isinf(value))
+            return static_cast<Type>(value);
+
+        Type valueResult = static_cast<Type>(value);
+
+        if (static_cast<double>(valueResult) != value)
+            return WTF::nullopt;
+
+        if (value < minValue || value > maxValue)
+            return WTF::nullopt;
+
+        return valueResult;
     }
 };
 
@@ -165,27 +218,29 @@ struct Uint8ClampedAdaptor {
     typedef Uint8ClampedArray ViewType;
     typedef JSUint8ClampedArray JSViewType;
     static const TypedArrayType typeValue = TypeUint8Clamped;
-    
+    constexpr static const uint8_t minValue = std::numeric_limits<uint8_t>::lowest();
+    constexpr static const uint8_t maxValue = std::numeric_limits<uint8_t>::max();
+
     static JSValue toJSValue(uint8_t value)
     {
         return jsNumber(value);
     }
-    
+
     static double toDouble(uint8_t value)
     {
         return static_cast<double>(value);
     }
-    
+
     static Type toNativeFromInt32(int32_t value)
     {
         return clamp(value);
     }
-    
+
     static Type toNativeFromUint32(uint32_t value)
     {
         return std::min(static_cast<uint32_t>(255), value);
     }
-    
+
     static Type toNativeFromDouble(double value)
     {
         if (std::isnan(value) || value < 0)
@@ -194,13 +249,30 @@ struct Uint8ClampedAdaptor {
             return 255;
         return static_cast<uint8_t>(lrint(value));
     }
-    
+
     template<typename OtherAdaptor>
     static typename OtherAdaptor::Type convertTo(uint8_t value)
     {
         return OtherAdaptor::toNativeFromInt32(value);
     }
     
+    static Optional<Type> toNativeFromInt32WithoutCoercion(int32_t value)
+    {
+        if (value > maxValue || value < minValue)
+            return WTF::nullopt;
+
+        return static_cast<Type>(value);
+    }
+
+    static Optional<Type> toNativeFromDoubleWithoutCoercion(double value)
+    {
+        uint8_t integer = static_cast<uint8_t>(value);
+        if (static_cast<double>(integer) != value)
+            return WTF::nullopt;
+
+        return integer;
+    }
+
 private:
     static uint8_t clamp(int32_t value)
     {
@@ -213,6 +285,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // TypedArrayAdaptors_h
-

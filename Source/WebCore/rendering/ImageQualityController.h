@@ -23,13 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ImageQualityController_h
-#define ImageQualityController_h
+#pragma once
 
 #include "GraphicsTypes.h"
 #include "Timer.h"
 #include <wtf/HashMap.h>
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
@@ -67,6 +65,4 @@ private:
     bool m_liveResizeOptimizationIsActive { false };
 };
 
-} // namespace
-
-#endif
+} // namespace WebCore

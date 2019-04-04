@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2016 Devin Rousso <webkit@devinrousso.com>. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,22 +24,39 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ResourceCollection = class ResourceCollection extends WebInspector.Object
+WI.ResourceCollection = class ResourceCollection extends WI.Collection
 {
-    constructor()
+    constructor(resourceType)
     {
         super();
 
-        this._resources = [];
+        this._resourceType = resourceType || null;
         this._resourceURLMap = new Map;
         this._resourcesTypeMap = new Map;
     }
 
     // Public
 
-    get resources()
+    get resourceType() { return this._resourceType; }
+
+    get displayName()
     {
-        return this._resources;
+        const plural = true;
+        return this._resourceType ? WI.Resource.displayNameForType(this._resourceType, plural) : WI.UIString("Resources");
+    }
+
+    objectIsRequiredType(object)
+    {
+        if (this._resourceType === WI.Resource.Type.Stylesheet && object instanceof WI.CSSStyleSheet)
+            return true;
+
+        if (!(object instanceof WI.Resource))
+            return false;
+
+        if (!this._resourceType)
+            return true;
+
+        return object.type === this._resourceType;
     }
 
     resourceForURL(url)
@@ -46,92 +64,91 @@ WebInspector.ResourceCollection = class ResourceCollection extends WebInspector.
         return this._resourceURLMap.get(url) || null;
     }
 
-    resourcesWithType(type)
+    resourceCollectionForType(type)
     {
-        return this._resourcesTypeMap.get(type) || [];
+        if (this._resourceType) {
+            console.assert(type === this._resourceType);
+            return this;
+        }
+
+        let resourcesCollectionForType = this._resourcesTypeMap.get(type);
+        if (!resourcesCollectionForType) {
+            resourcesCollectionForType = new WI.ResourceCollection(type);
+            this._resourcesTypeMap.set(type, resourcesCollectionForType);
+        }
+
+        return resourcesCollectionForType;
     }
 
-    addResource(resource)
+    clear()
     {
-        console.assert(resource instanceof WebInspector.Resource);
-        if (!(resource instanceof WebInspector.Resource))
-            return;
+        super.clear();
 
-        this._associateWithResource(resource);
-    }
-
-    removeResource(resourceOrURL)
-    {
-        console.assert(resourceOrURL);
-
-        if (resourceOrURL instanceof WebInspector.Resource)
-            var url = resourceOrURL.url;
-        else
-            var url = resourceOrURL;
-
-        // Fetch the resource by URL even if we were passed a WebInspector.Resource.
-        // We do this incase the WebInspector.Resource is a new object that isn't in _resources,
-        // but the URL is a valid resource.
-        var resource = this.resourceForURL(url);
-        console.assert(resource instanceof WebInspector.Resource);
-        if (!(resource instanceof WebInspector.Resource))
-            return null;
-
-        this._disassociateWithResource(resource);
-
-        return resource;
-    }
-
-    removeAllResources()
-    {
-        if (!this._resources.length)
-            return;
-
-        for (var i = 0; i < this._resources.length; ++i)
-            this._disassociateWithResource(this._resources[i], true);
-
-        this._resources = [];
         this._resourceURLMap.clear();
-        this._resourcesTypeMap.clear();
+
+        if (!this._resourceType)
+            this._resourcesTypeMap.clear();
+    }
+
+    // Protected
+
+    itemAdded(item)
+    {
+        this._associateWithResource(item);
+    }
+
+    itemRemoved(item)
+    {
+        this._disassociateWithResource(item);
+    }
+
+    itemsCleared(items)
+    {
+        const skipRemoval = true;
+
+        for (let item of items)
+            this._disassociateWithResource(item, skipRemoval);
     }
 
     // Private
 
     _associateWithResource(resource)
     {
-        this._resources.push(resource);
         this._resourceURLMap.set(resource.url, resource);
 
-        if (!this._resourcesTypeMap.has(resource.type))
-            this._resourcesTypeMap.set(resource.type, [resource]);
-        else
-            this._resourcesTypeMap.get(resource.type).push(resource);
+        if (!this._resourceType) {
+            let resourcesCollectionForType = this.resourceCollectionForType(resource.type);
+            resourcesCollectionForType.add(resource);
+        }
 
-        resource.addEventListener(WebInspector.Resource.Event.URLDidChange, this._resourceURLDidChange, this);
-        resource.addEventListener(WebInspector.Resource.Event.TypeDidChange, this._resourceTypeDidChange, this);
+        resource.addEventListener(WI.Resource.Event.URLDidChange, this._resourceURLDidChange, this);
+        resource.addEventListener(WI.Resource.Event.TypeDidChange, this._resourceTypeDidChange, this);
     }
 
     _disassociateWithResource(resource, skipRemoval)
     {
-        if (skipRemoval) {
-            this._resources.remove(resource);
-            if (this._resourcesTypeMap.has(resource.type))
-                this._resourcesTypeMap.get(resource.type).remove(resource);
-            this._resourceURLMap.delete(resource.url);
+        resource.removeEventListener(WI.Resource.Event.URLDidChange, this._resourceURLDidChange, this);
+        resource.removeEventListener(WI.Resource.Event.TypeDidChange, this._resourceTypeDidChange, this);
+
+        if (skipRemoval)
+            return;
+
+        if (!this._resourceType) {
+            let resourcesCollectionForType = this.resourceCollectionForType(resource.type);
+            resourcesCollectionForType.remove(resource);
         }
 
-        resource.removeEventListener(WebInspector.Resource.Event.URLDidChange, this._resourceURLDidChange, this);
-        resource.removeEventListener(WebInspector.Resource.Event.TypeDidChange, this._resourceTypeDidChange, this);
+        this._resourceURLMap.delete(resource.url);
     }
 
     _resourceURLDidChange(event)
     {
-        var resource = event.target;
-        console.assert(resource instanceof WebInspector.Resource);
-        if (!(resource instanceof WebInspector.Resource))
+        let resource = event.target;
+        console.assert(resource instanceof WI.Resource);
+        if (!(resource instanceof WI.Resource))
             return;
 
-        var oldURL = event.data.oldURL;
+        let oldURL = event.data.oldURL;
         console.assert(oldURL);
         if (!oldURL)
             return;
@@ -142,22 +159,24 @@ WebInspector.ResourceCollection = class ResourceCollection extends WebInspector.
 
     _resourceTypeDidChange(event)
     {
-        var resource = event.target;
-        console.assert(resource instanceof WebInspector.Resource);
-        if (!(resource instanceof WebInspector.Resource))
+        let resource = event.target;
+        console.assert(resource instanceof WI.Resource);
+        if (!(resource instanceof WI.Resource))
             return;
 
-        var oldType = event.data.oldType;
-        console.assert(oldType);
-        if (!oldType)
+        if (this._resourceType) {
+            console.assert(resource.type !== this._resourceType);
+            this.remove(resource);
             return;
+        }
 
-        if (!this._resourcesTypeMap.has(resource.type))
-            this._resourcesTypeMap.set(resource.type, [resource]);
-        else
-            this._resourcesTypeMap.get(resource.type).push(resource);
+        console.assert(event.data.oldType);
 
-        if (this._resourcesTypeMap.has(oldType))
-            this._resourcesTypeMap.get(oldType).remove(resource);
+        let resourcesWithNewType = this.resourceCollectionForType(resource.type);
+        resourcesWithNewType.add(resource);
+
+        // It is not necessary to remove the resource from the sub-collection for the old type since
+        // this is handled by that sub-collection's own _resourceTypeDidChange handler (via the
+        // above if statement).
     }
 };

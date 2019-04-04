@@ -23,35 +23,52 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.CallFrameTreeElement = class CallFrameTreeElement extends WebInspector.GeneralTreeElement
+WI.CallFrameTreeElement = class CallFrameTreeElement extends WI.GeneralTreeElement
 {
-    constructor(callFrame)
+    constructor(callFrame, isAsyncBoundaryCallFrame)
     {
-        console.assert(callFrame instanceof WebInspector.CallFrame);
+        console.assert(callFrame instanceof WI.CallFrame);
 
-        var className = WebInspector.CallFrameView.iconClassNameForCallFrame(callFrame);
-        var title = callFrame.functionName || WebInspector.UIString("(anonymous function)");
-
-        super(className, title, null, callFrame, false);
-
-        if (!callFrame.nativeCode && callFrame.sourceCodeLocation) {
-            var displayScriptURL = callFrame.sourceCodeLocation.displaySourceCode.url;
-            if (displayScriptURL) {
-                this.subtitle = document.createElement("span");
-                callFrame.sourceCodeLocation.populateLiveDisplayLocationString(this.subtitle, "textContent");
-                // Set the tooltip on the entire tree element in onattach, once the element is created.
-                this.tooltipHandledSeparately = true;
-            }
-        }
+        let className = WI.CallFrameView.iconClassNameForCallFrame(callFrame);
+        let title = callFrame.functionName || WI.UIString("(anonymous function)");
+        const subtitle = null;
+        super(["call-frame", className], title, subtitle, callFrame);
 
         this._callFrame = callFrame;
+        this._isActiveCallFrame = false;
+
+         if (isAsyncBoundaryCallFrame) {
+            this.addClassName("async-boundary");
+            this.selectable = false;
+         }
+
+        if (this._callFrame.nativeCode || !this._callFrame.sourceCodeLocation) {
+            this.subtitle = "";
+            this.selectable = false;
+            return;
+        }
+
+        let displayScriptURL = this._callFrame.sourceCodeLocation.displaySourceCode.url;
+        if (displayScriptURL) {
+            this.subtitle = document.createElement("span");
+            this._callFrame.sourceCodeLocation.populateLiveDisplayLocationString(this.subtitle, "textContent");
+            // Set the tooltip on the entire tree element in onattach, once the element is created.
+            this.tooltipHandledSeparately = true;
+        }
     }
 
     // Public
 
-    get callFrame()
+    get callFrame() { return this._callFrame; }
+    get isActiveCallFrame() { return this._isActiveCallFrame; }
+
+    set isActiveCallFrame(x)
     {
-        return this._callFrame;
+        if (this._isActiveCallFrame === x)
+            return;
+
+        this._isActiveCallFrame = x;
+        this._updateStatus();
     }
 
     // Protected
@@ -63,8 +80,30 @@ WebInspector.CallFrameTreeElement = class CallFrameTreeElement extends WebInspec
         console.assert(this.element);
 
         if (this.tooltipHandledSeparately) {
-            var tooltipPrefix = this.mainTitle + "\n";
+            let tailCallSuffix = "";
+            if (this._callFrame.isTailDeleted)
+                tailCallSuffix = " " + WI.UIString("(Tail Call)");
+            let tooltipPrefix = this.mainTitle + tailCallSuffix + "\n";
             this._callFrame.sourceCodeLocation.populateLiveDisplayLocationTooltip(this.element, tooltipPrefix);
         }
+
+        this._updateStatus();
+    }
+
+    // Private
+
+    _updateStatus()
+    {
+        if (!this.element)
+            return;
+
+        if (!this._isActiveCallFrame) {
+            this.status = null;
+            return;
+        }
+
+        if (!this._statusImageElement)
+            this._statusImageElement = WI.ImageUtilities.useSVGSymbol("Images/ActiveCallFrame.svg", "status-image");
+        this.status = this._statusImageElement;
     }
 };

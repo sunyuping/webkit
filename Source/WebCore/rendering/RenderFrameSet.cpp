@@ -41,11 +41,14 @@
 #include "RenderLayer.h"
 #include "RenderView.h"
 #include "Settings.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
 
 namespace WebCore {
 
-RenderFrameSet::RenderFrameSet(HTMLFrameSetElement& frameSet, Ref<RenderStyle>&& style)
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderFrameSet);
+
+RenderFrameSet::RenderFrameSet(HTMLFrameSetElement& frameSet, RenderStyle&& style)
     : RenderBox(frameSet, WTFMove(style), 0)
     , m_isResizing(false)
     , m_isChildResizing(false)
@@ -53,9 +56,7 @@ RenderFrameSet::RenderFrameSet(HTMLFrameSetElement& frameSet, Ref<RenderStyle>&&
     setInline(false);
 }
 
-RenderFrameSet::~RenderFrameSet()
-{
-}
+RenderFrameSet::~RenderFrameSet() = default;
 
 HTMLFrameSetElement& RenderFrameSet::frameSetElement() const
 {
@@ -67,19 +68,22 @@ RenderFrameSet::GridAxis::GridAxis()
 {
 }
 
-static Color borderStartEdgeColor()
+static const Color& borderStartEdgeColor()
 {
-    return Color(170, 170, 170);
+    static NeverDestroyed<Color> color(170, 170, 170);
+    return color;
 }
 
-static Color borderEndEdgeColor()
+static const Color& borderEndEdgeColor()
 {
-    return Color::black;
+    static NeverDestroyed<Color> color = Color::black;
+    return color;
 }
 
-static Color borderFillColor()
+static const Color& borderFillColor()
 {
-    return Color(208, 208, 208);
+    static NeverDestroyed<Color> color(208, 208, 208);
+    return color;
 }
 
 void RenderFrameSet::paintColumnBorder(const PaintInfo& paintInfo, const IntRect& borderRect)
@@ -91,7 +95,7 @@ void RenderFrameSet::paintColumnBorder(const PaintInfo& paintInfo, const IntRect
     
     // Fill first.
     GraphicsContext& context = paintInfo.context();
-    context.fillRect(borderRect, frameSetElement().hasBorderColor() ? style().visitedDependentColor(CSSPropertyBorderLeftColor) : borderFillColor());
+    context.fillRect(borderRect, frameSetElement().hasBorderColor() ? style().visitedDependentColorWithColorFilter(CSSPropertyBorderLeftColor) : borderFillColor());
     
     // Now stroke the edges but only if we have enough room to paint both edges with a little
     // bit of the fill color showing through.
@@ -110,7 +114,7 @@ void RenderFrameSet::paintRowBorder(const PaintInfo& paintInfo, const IntRect& b
     
     // Fill first.
     GraphicsContext& context = paintInfo.context();
-    context.fillRect(borderRect, frameSetElement().hasBorderColor() ? style().visitedDependentColor(CSSPropertyBorderLeftColor) : borderFillColor());
+    context.fillRect(borderRect, frameSetElement().hasBorderColor() ? style().visitedDependentColorWithColorFilter(CSSPropertyBorderLeftColor) : borderFillColor());
 
     // Now stroke the edges but only if we have enough room to paint both edges with a little
     // bit of the fill color showing through.
@@ -122,7 +126,7 @@ void RenderFrameSet::paintRowBorder(const PaintInfo& paintInfo, const IntRect& b
 
 void RenderFrameSet::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    if (paintInfo.phase != PaintPhaseForeground)
+    if (paintInfo.phase != PaintPhase::Foreground)
         return;
     
     RenderObject* child = firstChild();
@@ -135,9 +139,9 @@ void RenderFrameSet::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
     size_t cols = m_cols.m_sizes.size();
     LayoutUnit borderThickness = frameSetElement().border();
     
-    LayoutUnit yPos = 0;
+    LayoutUnit yPos;
     for (size_t r = 0; r < rows; r++) {
-        LayoutUnit xPos = 0;
+        LayoutUnit xPos;
         for (size_t c = 0; c < cols; c++) {
             downcast<RenderElement>(*child).paint(paintInfo, adjustedPaintOffset);
             xPos += m_cols.m_sizes[c];
@@ -490,6 +494,18 @@ void RenderFrameSet::layout()
     clearNeedsLayout();
 }
 
+static void resetFrameRendererAndDescendents(RenderBox* frameSetChild, RenderFrameSet& parentFrameSet)
+{
+    if (!frameSetChild)
+        return;
+
+    for (auto* descendant = frameSetChild; descendant; descendant = downcast<RenderBox>(RenderObjectTraversal::next(*descendant, &parentFrameSet))) {
+        descendant->setWidth(0);
+        descendant->setHeight(0);
+        descendant->clearNeedsLayout();
+    }
+}
+
 void RenderFrameSet::positionFrames()
 {
     RenderBox* child = firstChildBox();
@@ -512,7 +528,7 @@ void RenderFrameSet::positionFrames()
             if (width != child->width() || height != child->height()) {
                 child->setWidth(width);
                 child->setHeight(height);
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
                 // FIXME: Is this iOS-specific?
                 child->setNeedsLayout(MarkOnlyThis);
 #else
@@ -530,12 +546,7 @@ void RenderFrameSet::positionFrames()
         yPos += height + borderThickness;
     }
 
-    // all the remaining frames are hidden to avoid ugly spurious unflowed frames
-    for (; child; child = child->nextSiblingBox()) {
-        child->setWidth(0);
-        child->setHeight(0);
-        child->clearNeedsLayout();
-    }
+    resetFrameRendererAndDescendents(child, *this);
 }
 
 void RenderFrameSet::positionFramesWithFlattening()
@@ -638,17 +649,12 @@ void RenderFrameSet::positionFramesWithFlattening()
     if (repaintNeeded)
         repaint();
 
-    // all the remaining frames are hidden to avoid ugly spurious unflowed frames
-    for (; child; child = child->nextSiblingBox()) {
-        child->setWidth(0);
-        child->setHeight(0);
-        child->clearNeedsLayout();
-    }
+    resetFrameRendererAndDescendents(child, *this);
 }
 
 bool RenderFrameSet::flattenFrameSet() const
 {
-    return frame().settings().frameFlatteningEnabled();
+    return view().frameView().effectiveFrameFlattening() != FrameFlattening::Disabled;
 }
 
 void RenderFrameSet::startResizing(GridAxis& axis, int position)
@@ -677,7 +683,7 @@ void RenderFrameSet::continueResizing(GridAxis& axis, int position)
     setNeedsLayout();
 }
 
-bool RenderFrameSet::userResize(MouseEvent* evt)
+bool RenderFrameSet::userResize(MouseEvent& event)
 {
     if (flattenFrameSet())
         return false;
@@ -685,8 +691,8 @@ bool RenderFrameSet::userResize(MouseEvent* evt)
     if (!m_isResizing) {
         if (needsLayout())
             return false;
-        if (evt->type() == eventNames().mousedownEvent && evt->button() == LeftButton) {
-            FloatPoint localPos = absoluteToLocal(evt->absoluteLocation(), UseTransforms);
+        if (event.type() == eventNames().mousedownEvent && event.button() == LeftButton) {
+            FloatPoint localPos = absoluteToLocal(event.absoluteLocation(), UseTransforms);
             startResizing(m_cols, localPos.x());
             startResizing(m_rows, localPos.y());
             if (m_cols.m_splitBeingResized != noSplit || m_rows.m_splitBeingResized != noSplit) {
@@ -695,11 +701,11 @@ bool RenderFrameSet::userResize(MouseEvent* evt)
             }
         }
     } else {
-        if (evt->type() == eventNames().mousemoveEvent || (evt->type() == eventNames().mouseupEvent && evt->button() == LeftButton)) {
-            FloatPoint localPos = absoluteToLocal(evt->absoluteLocation(), UseTransforms);
+        if (event.type() == eventNames().mousemoveEvent || (event.type() == eventNames().mouseupEvent && event.button() == LeftButton)) {
+            FloatPoint localPos = absoluteToLocal(event.absoluteLocation(), UseTransforms);
             continueResizing(m_cols, localPos.x());
             continueResizing(m_rows, localPos.y());
-            if (evt->type() == eventNames().mouseupEvent && evt->button() == LeftButton) {
+            if (event.type() == eventNames().mouseupEvent && event.button() == LeftButton) {
                 setIsResizing(false);
                 return true;
             }

@@ -1,7 +1,7 @@
 /*
  * (C) 1999-2003 Lars Knoll (knoll@kde.org)
  * (C) 2002-2003 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2002, 2005, 2006, 2008, 2009, 2010, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2002-2017 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -28,28 +28,30 @@
 #include "CachedResourceRequest.h"
 #include "CachedResourceRequestInitiators.h"
 #include "Document.h"
+#include "MediaList.h"
+#include "MediaQueryParser.h"
 #include "SecurityOrigin.h"
 #include "StyleSheetContents.h"
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
-Ref<StyleRuleImport> StyleRuleImport::create(const String& href, PassRefPtr<MediaQuerySet> media)
+Ref<StyleRuleImport> StyleRuleImport::create(const String& href, Ref<MediaQuerySet>&& media)
 {
-    return adoptRef(*new StyleRuleImport(href, media));
+    return adoptRef(*new StyleRuleImport(href, WTFMove(media)));
 }
 
-StyleRuleImport::StyleRuleImport(const String& href, PassRefPtr<MediaQuerySet> media)
-    : StyleRuleBase(Import, 0)
+StyleRuleImport::StyleRuleImport(const String& href, Ref<MediaQuerySet>&& media)
+    : StyleRuleBase(Import)
     , m_parentStyleSheet(0)
     , m_styleSheetClient(this)
     , m_strHref(href)
-    , m_mediaQueries(media)
+    , m_mediaQueries(WTFMove(media))
     , m_cachedSheet(0)
     , m_loading(false)
 {
     if (!m_mediaQueries)
-        m_mediaQueries = MediaQuerySet::create(String());
+        m_mediaQueries = MediaQuerySet::create(String(), MediaQueryParserContext());
 }
 
 StyleRuleImport::~StyleRuleImport()
@@ -57,7 +59,7 @@ StyleRuleImport::~StyleRuleImport()
     if (m_styleSheet)
         m_styleSheet->clearOwnerRule();
     if (m_cachedSheet)
-        m_cachedSheet->removeClient(&m_styleSheetClient);
+        m_cachedSheet->removeClient(m_styleSheetClient);
 }
 
 void StyleRuleImport::setCSSStyleSheet(const String& href, const URL& baseURL, const String& charset, const CachedCSSStyleSheet* cachedStyleSheet)
@@ -65,14 +67,16 @@ void StyleRuleImport::setCSSStyleSheet(const String& href, const URL& baseURL, c
     if (m_styleSheet)
         m_styleSheet->clearOwnerRule();
 
-    CSSParserContext context = m_parentStyleSheet ? m_parentStyleSheet->parserContext() : CSSStrictMode;
+    CSSParserContext context = m_parentStyleSheet ? m_parentStyleSheet->parserContext() : HTMLStandardMode;
     context.charset = charset;
     if (!baseURL.isNull())
         context.baseURL = baseURL;
 
     Document* document = m_parentStyleSheet ? m_parentStyleSheet->singleOwnerDocument() : nullptr;
     m_styleSheet = StyleSheetContents::create(this, href, context);
-    m_styleSheet->parseAuthorStyleSheet(cachedStyleSheet, document ? document->securityOrigin() : nullptr);
+    if (m_parentStyleSheet->isContentOpaque() || !cachedStyleSheet->isCORSSameOrigin())
+        m_styleSheet->setAsOpaque();
+    m_styleSheet->parseAuthorStyleSheet(cachedStyleSheet, document ? &document->securityOrigin() : nullptr);
 
     m_loading = false;
 
@@ -91,8 +95,11 @@ void StyleRuleImport::requestStyleSheet()
 {
     if (!m_parentStyleSheet)
         return;
-    Document* document = m_parentStyleSheet->singleOwnerDocument();
+    auto* document = m_parentStyleSheet->singleOwnerDocument();
     if (!document)
+        return;
+    auto* page = document->page();
+    if (!page)
         return;
 
     URL absURL;
@@ -114,14 +121,36 @@ void StyleRuleImport::requestStyleSheet()
 
     // FIXME: Skip Content Security Policy check when stylesheet is in a user agent shadow tree.
     // See <https://bugs.webkit.org/show_bug.cgi?id=146663>.
-    CachedResourceRequest request(ResourceRequest(absURL), m_parentStyleSheet->charset());
+    CachedResourceRequest request(absURL, CachedResourceLoader::defaultCachedResourceOptions(), WTF::nullopt, String(m_parentStyleSheet->charset()));
     request.setInitiator(cachedResourceRequestInitiators().css);
     if (m_cachedSheet)
-        m_cachedSheet->removeClient(&m_styleSheetClient);
-    if (m_parentStyleSheet->isUserStyleSheet())
-        m_cachedSheet = document->cachedResourceLoader().requestUserCSSStyleSheet(request);
-    else
-        m_cachedSheet = document->cachedResourceLoader().requestCSSStyleSheet(request);
+        m_cachedSheet->removeClient(m_styleSheetClient);
+    if (m_parentStyleSheet->isUserStyleSheet()) {
+        ResourceLoaderOptions options {
+            SendCallbackPolicy::DoNotSendCallbacks,
+            ContentSniffingPolicy::SniffContent,
+            DataBufferingPolicy::BufferData,
+            StoredCredentialsPolicy::Use,
+            ClientCredentialPolicy::MayAskClientForCredentials,
+            FetchOptions::Credentials::Include,
+            SecurityCheckPolicy::SkipSecurityCheck,
+            FetchOptions::Mode::NoCors,
+            CertificateInfoPolicy::DoNotIncludeCertificateInfo,
+            ContentSecurityPolicyImposition::SkipPolicyCheck,
+            DefersLoadingPolicy::AllowDefersLoading,
+            CachingPolicy::AllowCaching
+        };
+        options.loadedFromOpaqueSource = m_parentStyleSheet->isContentOpaque() ? LoadedFromOpaqueSource::Yes : LoadedFromOpaqueSource::No;
+
+        request.setOptions(WTFMove(options));
+
+        m_cachedSheet = document->cachedResourceLoader().requestUserCSSStyleSheet(*page, WTFMove(request));
+    } else {
+        auto options = request.options();
+        options.loadedFromOpaqueSource = m_parentStyleSheet->isContentOpaque() ? LoadedFromOpaqueSource::Yes : LoadedFromOpaqueSource::No;
+        request.setOptions(WTFMove(options));
+        m_cachedSheet = document->cachedResourceLoader().requestCSSStyleSheet(WTFMove(request)).value_or(nullptr);
+    }
     if (m_cachedSheet) {
         // if the import rule is issued dynamically, the sheet may be
         // removed from the pending sheet count, so let the doc know
@@ -129,7 +158,7 @@ void StyleRuleImport::requestStyleSheet()
         if (m_parentStyleSheet && m_parentStyleSheet->loadCompleted() && rootSheet == m_parentStyleSheet)
             m_parentStyleSheet->startLoadingDynamicSheet();
         m_loading = true;
-        m_cachedSheet->addClient(&m_styleSheetClient);
+        m_cachedSheet->addClient(m_styleSheetClient);
     }
 }
 

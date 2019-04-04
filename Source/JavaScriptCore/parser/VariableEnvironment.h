@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef VariableEnvironment_h
-#define VariableEnvironment_h
+#pragma once
 
 #include "Identifier.h"
 #include <wtf/HashMap.h>
@@ -40,6 +39,9 @@ public:
     ALWAYS_INLINE bool isExported() const { return m_bits & IsExported; }
     ALWAYS_INLINE bool isImported() const { return m_bits & IsImported; }
     ALWAYS_INLINE bool isImportedNamespace() const { return m_bits & IsImportedNamespace; }
+    ALWAYS_INLINE bool isFunction() const { return m_bits & IsFunction; }
+    ALWAYS_INLINE bool isParameter() const { return m_bits & IsParameter; }
+    ALWAYS_INLINE bool isSloppyModeHoistingCandidate() const { return m_bits & IsSloppyModeHoistingCandidate; }
 
     ALWAYS_INLINE void setIsCaptured() { m_bits |= IsCaptured; }
     ALWAYS_INLINE void setIsConst() { m_bits |= IsConst; }
@@ -48,20 +50,33 @@ public:
     ALWAYS_INLINE void setIsExported() { m_bits |= IsExported; }
     ALWAYS_INLINE void setIsImported() { m_bits |= IsImported; }
     ALWAYS_INLINE void setIsImportedNamespace() { m_bits |= IsImportedNamespace; }
+    ALWAYS_INLINE void setIsFunction() { m_bits |= IsFunction; }
+    ALWAYS_INLINE void setIsParameter() { m_bits |= IsParameter; }
+    ALWAYS_INLINE void setIsSloppyModeHoistingCandidate() { m_bits |= IsSloppyModeHoistingCandidate; }
 
     ALWAYS_INLINE void clearIsVar() { m_bits &= ~IsVar; }
 
+    uint16_t bits() const { return m_bits; }
+
+    bool operator==(const VariableEnvironmentEntry& other) const
+    {
+        return m_bits == other.m_bits;
+    }
+
 private:
-    enum Traits {
+    enum Traits : uint16_t {
         IsCaptured = 1 << 0,
         IsConst = 1 << 1,
         IsVar = 1 << 2,
         IsLet = 1 << 3,
         IsExported = 1 << 4,
         IsImported = 1 << 5,
-        IsImportedNamespace = 1 << 6
+        IsImportedNamespace = 1 << 6,
+        IsFunction = 1 << 7,
+        IsParameter = 1 << 8,
+        IsSloppyModeHoistingCandidate = 1 << 9
     };
-    uint8_t m_bits { 0 };
+    uint16_t m_bits { 0 };
 };
 
 struct VariableEnvironmentEntryHashTraits : HashTraits<VariableEnvironmentEntry> {
@@ -72,6 +87,12 @@ class VariableEnvironment {
 private:
     typedef HashMap<RefPtr<UniquedStringImpl>, VariableEnvironmentEntry, IdentifierRepHash, HashTraits<RefPtr<UniquedStringImpl>>, VariableEnvironmentEntryHashTraits> Map;
 public:
+    VariableEnvironment() = default;
+    VariableEnvironment(VariableEnvironment&& other) = default;
+    VariableEnvironment(const VariableEnvironment&) = default;
+    VariableEnvironment& operator=(const VariableEnvironment&) = default;
+    VariableEnvironment& operator=(VariableEnvironment&&) = default;
+
     ALWAYS_INLINE Map::iterator begin() { return m_map.begin(); }
     ALWAYS_INLINE Map::iterator end() { return m_map.end(); }
     ALWAYS_INLINE Map::const_iterator begin() const { return m_map.begin(); }
@@ -92,11 +113,157 @@ public:
     void markVariableAsImported(const RefPtr<UniquedStringImpl>& identifier);
     void markVariableAsExported(const RefPtr<UniquedStringImpl>& identifier);
 
+    bool isEverythingCaptured() const { return m_isEverythingCaptured; }
+
 private:
+    friend class CachedVariableEnvironment;
+
     Map m_map;
     bool m_isEverythingCaptured { false };
 };
 
+class CompactVariableEnvironment {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(CompactVariableEnvironment);
+
+    friend class CachedCompactVariableEnvironment;
+
+public:
+    CompactVariableEnvironment(const VariableEnvironment&);
+    VariableEnvironment toVariableEnvironment() const;
+
+    bool operator==(const CompactVariableEnvironment&) const;
+    unsigned hash() const { return m_hash; }
+
+private:
+    CompactVariableEnvironment() = default;
+
+    Vector<RefPtr<UniquedStringImpl>> m_variables;
+    Vector<VariableEnvironmentEntry> m_variableMetadata;
+    unsigned m_hash;
+    bool m_isEverythingCaptured;
+};
+
+struct CompactVariableMapKey {
+    CompactVariableMapKey()
+        : m_environment(nullptr)
+    {
+        ASSERT(isHashTableEmptyValue());
+    }
+
+    CompactVariableMapKey(CompactVariableEnvironment& environment)
+        : m_environment(&environment)
+    { }
+
+    static unsigned hash(const CompactVariableMapKey& key) { return key.m_environment->hash(); }
+    static bool equal(const CompactVariableMapKey& a, const CompactVariableMapKey& b) { return *a.m_environment == *b.m_environment; }
+    static const bool safeToCompareToEmptyOrDeleted = false;
+    static void makeDeletedValue(CompactVariableMapKey& key)
+    {
+        key.m_environment = reinterpret_cast<CompactVariableEnvironment*>(1);
+    }
+    bool isHashTableDeletedValue() const
+    {
+        return m_environment == reinterpret_cast<CompactVariableEnvironment*>(1);
+    }
+    bool isHashTableEmptyValue() const
+    {
+        return !m_environment;
+    }
+
+    CompactVariableEnvironment& environment()
+    {
+        RELEASE_ASSERT(!isHashTableDeletedValue());
+        RELEASE_ASSERT(!isHashTableEmptyValue());
+        return *m_environment;
+    }
+
+private:
+    CompactVariableEnvironment* m_environment;
+};
+
 } // namespace JSC
 
-#endif // VariableEnvironment_h
+namespace WTF {
+
+template<typename T> struct DefaultHash;
+template<> struct DefaultHash<JSC::CompactVariableMapKey> {
+    using Hash = JSC::CompactVariableMapKey;
+};
+
+template<> struct HashTraits<JSC::CompactVariableMapKey> : GenericHashTraits<JSC::CompactVariableMapKey> {
+    static const bool emptyValueIsZero = true;
+    static JSC::CompactVariableMapKey emptyValue() { return JSC::CompactVariableMapKey(); }
+
+    static const bool hasIsEmptyValueFunction = true;
+    static bool isEmptyValue(JSC::CompactVariableMapKey key) { return key.isHashTableEmptyValue(); }
+
+    static void constructDeletedValue(JSC::CompactVariableMapKey& key) { JSC::CompactVariableMapKey::makeDeletedValue(key); }
+    static bool isDeletedValue(JSC::CompactVariableMapKey key) { return key.isHashTableDeletedValue(); }
+};
+
+} // namespace WTF
+
+namespace JSC {
+
+class CompactVariableMap : public RefCounted<CompactVariableMap> {
+public:
+    class Handle {
+        friend class CachedCompactVariableMapHandle;
+
+    public:
+        Handle() = default;
+
+        Handle(CompactVariableEnvironment&, CompactVariableMap&);
+
+        Handle(Handle&& other)
+        {
+            swap(other);
+        }
+        Handle& operator=(Handle&& other)
+        {
+            Handle handle(WTFMove(other));
+            swap(handle);
+            return *this;
+        }
+
+        Handle(const Handle&);
+        Handle& operator=(const Handle& other)
+        {
+            Handle handle(other);
+            swap(handle);
+            return *this;
+        }
+
+        ~Handle();
+
+        explicit operator bool() const { return !!m_map; }
+
+        const CompactVariableEnvironment& environment() const
+        {
+            return *m_environment;
+        }
+
+    private:
+        void swap(Handle& other)
+        {
+            std::swap(other.m_environment, m_environment);
+            std::swap(other.m_map, m_map);
+        }
+
+        CompactVariableEnvironment* m_environment { nullptr };
+        RefPtr<CompactVariableMap> m_map;
+    };
+
+    Handle get(const VariableEnvironment&);
+
+private:
+    friend class Handle;
+    friend class CachedCompactVariableMapHandle;
+
+    Handle get(CompactVariableEnvironment*, bool& isNewEntry);
+
+    HashMap<CompactVariableMapKey, unsigned> m_map;
+};
+
+} // namespace JSC

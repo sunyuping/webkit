@@ -23,6 +23,7 @@
 #include "MatrixTransformOperation.h"
 
 #include <algorithm>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -34,14 +35,13 @@ bool MatrixTransformOperation::operator==(const TransformOperation& other) const
     return m_a == m.m_a && m_b == m.m_b && m_c == m.m_c && m_d == m.m_d && m_e == m.m_e && m_f == m.m_f;
 }
 
-static Ref<TransformOperation> createOperation(TransformationMatrix& to, TransformationMatrix& from, double progress)
-{
-    to.blend(from, progress);
-    return MatrixTransformOperation::create(to);
-}
-
 Ref<TransformOperation> MatrixTransformOperation::blend(const TransformOperation* from, double progress, bool blendToIdentity)
 {
+    auto createOperation = [] (TransformationMatrix& to, TransformationMatrix& from, double progress) {
+        to.blend(from, progress);
+        return MatrixTransformOperation::create(to);
+    };
+
     if (from && !from->isSameType(*this))
         return *this;
 
@@ -56,6 +56,17 @@ Ref<TransformOperation> MatrixTransformOperation::blend(const TransformOperation
     if (blendToIdentity)
         return createOperation(fromT, toT, progress);
     return createOperation(toT, fromT, progress);
+}
+
+void MatrixTransformOperation::dump(TextStream& ts) const
+{
+    ts << "("
+        << TextStream::FormatNumberRespectingIntegers(m_a) << ", "
+        << TextStream::FormatNumberRespectingIntegers(m_b) << ", "
+        << TextStream::FormatNumberRespectingIntegers(m_c) << ", "
+        << TextStream::FormatNumberRespectingIntegers(m_d) << ", "
+        << TextStream::FormatNumberRespectingIntegers(m_e) << ", "
+        << TextStream::FormatNumberRespectingIntegers(m_f) << ")";
 }
 
 } // namespace WebCore

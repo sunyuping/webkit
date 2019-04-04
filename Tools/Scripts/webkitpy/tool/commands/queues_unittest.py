@@ -136,14 +136,16 @@ class FeederQueueTest(QueuesTest):
             "begin_work_queue": self._default_begin_work_queue_logs("feeder-queue"),
             "process_work_item": """Warning, attachment 10001 on bug 50000 has invalid committer (non-committer@example.com)
 Warning, attachment 10001 on bug 50000 has invalid committer (non-committer@example.com)
-MOCK setting flag 'commit-queue' to '-' on attachment '10001' with comment 'Rejecting attachment 10001 from commit-queue.\n\nnon-committer@example.com does not have committer permissions according to http://trac.webkit.org/browser/trunk/Tools/Scripts/webkitpy/common/config/contributors.json.
+MOCK setting flag 'commit-queue' to '-' on attachment '10001' with comment 'Rejecting attachment 10001 from commit-queue.\n\nnon-committer@example.com does not have committer permissions according to https://trac.webkit.org/browser/trunk/Tools/Scripts/webkitpy/common/config/contributors.json.
 
 - If you do not have committer rights please read http://webkit.org/coding/contributing.html for instructions on how to use bugzilla flags.
 
 - If you have committer rights please correct the error in Tools/Scripts/webkitpy/common/config/contributors.json by adding yourself to the file (no review needed).  The commit-queue restarts itself every 2 hours.  After restart the commit-queue will correctly respect your committer rights.'
 Feeding commit-queue high priority items [10005], regular items [10000]
 MOCK: update_work_items: commit-queue [10005, 10000]
-Feeding EWS (1 r? patch, 1 new)
+Feeding EWS (2 r? patches, 2 new)
+MOCK: upload_attachment: 10008
+MOCK: submit_to_ews: 10008
 MOCK: submit_to_ews: 10002
 """,
             "handle_unexpected_error": "Mock error message\n",
@@ -159,13 +161,16 @@ class AbstractPatchQueueTest(CommandsTest):
         queue._options = Mock()
         queue._options.port = None
         self.assertIsNone(queue._next_patch())
-        tool.status_server = MockStatusServer(work_items=[2, 10000, 10001])
+        tool.status_server = MockStatusServer(work_items=[2, 10000, 10001, 10008])
         expected_stdout = "MOCK: fetch_attachment: 2 is not a known attachment id\n"  # A mock-only message to prevent us from making mistakes.
-        expected_logs = "MOCK: release_work_item: None 2\n"
+        expected_logs = """MOCK: update_status: None Skip
+MOCK: release_work_item: None 2
+"""
         patch = OutputCapture().assert_outputs(self, queue._next_patch, expected_stdout=expected_stdout, expected_logs=expected_logs)
         # The patch.id() == 2 is ignored because it doesn't exist.
         self.assertEqual(patch.id(), 10000)
         self.assertEqual(queue._next_patch().id(), 10001)
+        self.assertEqual(queue._next_patch().id(), 10008)
         self.assertEqual(queue._next_patch(), None)    # When the queue is empty
 
 
@@ -178,10 +183,10 @@ class PatchProcessingQueueTest(CommandsTest):
         queue._options = Mock()
         queue._options.port = None
         patch = queue._tool.bugs.fetch_attachment(10001)
-        expected_logs = """MOCK add_attachment_to_bug: bug_id=50000, description=Archive of layout-test-results from bot for mac-snowleopard filename=layout-test-results.zip mimetype=None
+        expected_logs = """MOCK add_attachment_to_bug: bug_id=50000, description=Archive of layout-test-results from bot for mac-highsierra filename=layout-test-results.zip mimetype=None
 -- Begin comment --
 The attached test failures were seen while running run-webkit-tests on the mock-queue.
-Port: mac-snowleopard  Platform: MockPlatform 1.0
+Port: mac-highsierra  Platform: MockPlatform 1.0
 -- End comment --
 """
         OutputCapture().assert_outputs(self, queue._upload_results_archive_for_patch, [patch, Mock()], expected_logs=expected_logs)
@@ -379,12 +384,11 @@ MOCK: release_work_item: commit-queue 10005
         patch = tool.bugs.fetch_attachment(10007)  # _patch8, resolved bug, without review flag, not marked obsolete (maybe already landed)
         expected_logs = {
             "begin_work_queue": self._default_begin_work_queue_logs("commit-queue"),
-            "process_work_item": """MOCK: update_status: commit-queue Error: commit-queue did not process patch.
+            "process_work_item": """MOCK: update_status: commit-queue Error: commit-queue did not process patch. Reason: Bug is already closed.
 MOCK: release_work_item: commit-queue 10007
 """,
         }
         self.assert_queue_outputs(CommitQueue(), tool=tool, work_item=patch, expected_logs=expected_logs)
-
 
     def test_auto_retry(self):
         queue = CommitQueue()
@@ -412,17 +416,7 @@ MOCK: update_status: commit-queue Tests passed, but commit failed (checkout out 
         queue._options.port = None
         expected_logs = """Running: webkit-patch --status-host=example.com clean --port=mac
 MOCK: update_status: commit-queue Cleaned working directory
-Running: webkit-patch --status-host=example.com update --port=mac
-MOCK: update_status: commit-queue Updated working directory
-Running: webkit-patch --status-host=example.com apply-attachment --no-update --non-interactive 10000 --port=mac
-MOCK: update_status: commit-queue Applied patch
-Running: webkit-patch --status-host=example.com validate-changelog --check-oops --non-interactive 10000 --port=mac
-MOCK: update_status: commit-queue ChangeLog validated
-Running: webkit-patch --status-host=example.com build --no-clean --no-update --build-style=release --port=mac
-MOCK: update_status: commit-queue Built patch
-Running: webkit-patch --status-host=example.com build-and-test --no-clean --no-update --test --non-interactive --build-style=release --port=mac
-MOCK: update_status: commit-queue Passed tests
-MOCK: update_status: commit-queue Error: commit-queue did not process patch.
+MOCK: update_status: commit-queue Error: commit-queue did not process patch. Reason: Patch is obsolete.
 MOCK: release_work_item: commit-queue 10000
 """
         self.maxDiff = None
@@ -430,14 +424,14 @@ MOCK: release_work_item: commit-queue 10000
 
     def test_report_flaky_tests(self):
         queue = TestCommitQueue(MockTool())
-        expected_logs = """MOCK bug comment: bug_id=50002, cc=None
+        expected_logs = """MOCK bug comment: bug_id=50002, cc=None, see_also=None
 --- Begin comment ---
 The commit-queue just saw foo/bar.html flake (text diff) while processing attachment 10000 on bug 50000.
 Port: MockPort  Platform: MockPlatform 1.0
 --- End comment ---
 
 MOCK add_attachment_to_bug: bug_id=50002, description=Failure diff from bot filename=failure.diff mimetype=None
-MOCK bug comment: bug_id=50002, cc=None
+MOCK bug comment: bug_id=50002, cc=None, see_also=None
 --- Begin comment ---
 The commit-queue just saw bar/baz.html flake (text diff) while processing attachment 10000 on bug 50000.
 Port: MockPort  Platform: MockPlatform 1.0
@@ -445,7 +439,7 @@ Port: MockPort  Platform: MockPlatform 1.0
 
 bar/baz-diffs.txt does not exist in results archive, uploading entire archive.
 MOCK add_attachment_to_bug: bug_id=50002, description=Archive of layout-test-results from bot filename=layout-test-results.zip mimetype=None
-MOCK bug comment: bug_id=50000, cc=None
+MOCK bug comment: bug_id=50000, cc=None, see_also=None
 --- Begin comment ---
 The commit-queue encountered the following flaky tests while processing attachment 10000:
 
@@ -482,7 +476,8 @@ class StyleQueueTest(QueuesTest):
     def test_style_queue_with_style_exception(self):
         expected_logs = {
             "begin_work_queue": self._default_begin_work_queue_logs("style-queue"),
-            "process_work_item": """Running: webkit-patch --status-host=example.com clean
+            "process_work_item": """MOCK: update_status: style-queue Started processing patch
+Running: webkit-patch --status-host=example.com clean
 MOCK: update_status: style-queue Cleaned working directory
 Running: webkit-patch --status-host=example.com update
 MOCK: update_status: style-queue Updated working directory
@@ -504,7 +499,8 @@ MOCK: release_work_item: style-queue 10000
     def test_style_queue_with_watch_list_exception(self):
         expected_logs = {
             "begin_work_queue": self._default_begin_work_queue_logs("style-queue"),
-            "process_work_item": """Running: webkit-patch --status-host=example.com clean
+            "process_work_item": """MOCK: update_status: style-queue Started processing patch
+Running: webkit-patch --status-host=example.com clean
 MOCK: update_status: style-queue Cleaned working directory
 Running: webkit-patch --status-host=example.com update
 MOCK: update_status: style-queue Updated working directory
@@ -525,3 +521,15 @@ MOCK: release_work_item: style-queue 10000
         }
         tool = MockTool(executive_throws_when_run=set(['apply-watchlist-local']))
         self.assert_queue_outputs(StyleQueue(), expected_logs=expected_logs, tool=tool)
+
+    def test_non_valid_patch(self):
+        tool = MockTool()
+        patch = tool.bugs.fetch_attachment(10007)  # _patch8, resolved bug, without review flag, not marked obsolete (maybe already landed)
+        expected_logs = {
+            "begin_work_queue": self._default_begin_work_queue_logs("style-queue"),
+            "process_work_item": """MOCK: update_status: style-queue Started processing patch
+MOCK: update_status: style-queue Error: style-queue did not process patch. Reason: Bug is already closed.
+MOCK: release_work_item: style-queue 10007
+""",
+        }
+        self.assert_queue_outputs(StyleQueue(), tool=tool, work_item=patch, expected_logs=expected_logs)

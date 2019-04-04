@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
     <head>
         <script src=../../media-resources/video-test.js></script>
@@ -10,35 +11,30 @@
                 testRunner.setAuthenticationPassword("password");
             }
 
-            function loadMediaFrame() 
+            var tests;
+            var media = findMediaFile('video', 'test');
+            var type = mimeTypeForExtension(media.split('.').pop());
+
+            function startTests()
             {
                 findMediaElement();
+                waitForEventAndFail('error');
+                waitForEventAndEnd('canplay');
 
-                var movie = findMediaFile('video', 'test');
-                var type = mimeTypeForExtension(movie.split('.').pop());
-                var frame = document.createElement('iframe');
-                frame.width = 0;
-                frame.height = 0;
-                frame.addEventListener('load', function () {
-                        source = document.getElementById('source');
-                        source.src = 'http://127.0.0.1:8000/media/resources/video-auth.php?name=' + movie + '&type=' + type;
-                        source.type = type;
-        
-                        waitForEventAndFail('error');
-                        waitForEventAndEnd('canplay');
-                        video.load();
-                });
-        
-                frame.src = "data:text/html,<b>test</b>";
-                document.body.appendChild(frame);
+                testSameDomain();
+            }
+
+            function testSameDomain()
+            {
+                consoleWrite('Testing same domain (127.0.0.1)');
+                video.src = 'http://127.0.0.1:8000/media/resources/video-auth.php?name=' + media + '&type=' + type;
+                video.load();
             }
         </script>
     </head>
 
-    <body onload="loadMediaFrame()">
-        <video id="video">
-            <source id="source">
-        </video>
+    <body onload="startTests()">
+        <video></video>
         <br>
         Tests that the media player sends authorization credentials when requesting a media file.
     </body>

@@ -28,8 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NavigatorMediaDevices_h
-#define NavigatorMediaDevices_h
+#pragma once
 
 #if ENABLE(MEDIA_STREAM)
 
@@ -38,13 +37,13 @@
 
 namespace WebCore {
 
-class Frame;
 class MediaDevices;
 class Navigator;
 
 class NavigatorMediaDevices : public Supplement<Navigator>, public DOMWindowProperty {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit NavigatorMediaDevices(Frame*);
+    explicit NavigatorMediaDevices(DOMWindow*);
     virtual ~NavigatorMediaDevices();
     static NavigatorMediaDevices* from(Navigator*);
 
@@ -60,5 +59,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(MEDIA_STREAM)
-
-#endif // NavigatorMediaDevices_h

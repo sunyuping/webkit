@@ -28,11 +28,10 @@
 
 #include "BridgeJSC.h"
 #include "runtime_object.h"
-#include <heap/StrongInlines.h>
-#include <heap/Weak.h>
-#include <heap/WeakInlines.h>
-#include <runtime/JSGlobalObject.h>
-#include <wtf/HashCountedSet.h>
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/Weak.h>
+#include <JavaScriptCore/WeakInlines.h>
 #include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
@@ -76,9 +75,7 @@ RootObject* findRootObject(JSGlobalObject* globalObject)
     return 0;
 }
 
-RootObject::InvalidationCallback::~InvalidationCallback()
-{
-}
+RootObject::InvalidationCallback::~InvalidationCallback() = default;
 
 Ref<RootObject> RootObject::create(const void* nativeHandle, JSGlobalObject* globalObject)
 {
@@ -200,7 +197,7 @@ void RootObject::finalize(JSC::Handle<JSC::Unknown> handle, void*)
 {
     RuntimeObject* object = static_cast<RuntimeObject*>(handle.slot()->asCell());
 
-    Ref<RootObject> protect(*this);
+    Ref<RootObject> protectedThis(*this);
     object->invalidate();
     weakRemove(m_runtimeObjects, object, object);
 }

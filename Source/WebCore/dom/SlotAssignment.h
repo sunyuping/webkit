@@ -23,81 +23,126 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SlotAssignment_h
-#define SlotAssignment_h
+#pragma once
 
-#if ENABLE(SHADOW_DOM) || ENABLE(DETAILS_ELEMENT)
-
+#include "RenderTreeUpdater.h"
+#include "ShadowRoot.h"
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/AtomicString.h>
 #include <wtf/text/AtomicStringHash.h>
 
 namespace WebCore {
 
+class Element;
 class HTMLSlotElement;
 class Node;
-class ShadowRoot;
 
 class SlotAssignment {
-    WTF_MAKE_NONCOPYABLE(SlotAssignment);
+    WTF_MAKE_NONCOPYABLE(SlotAssignment); WTF_MAKE_FAST_ALLOCATED;
 public:
-    using SlotNameFunction = std::function<AtomicString (const Node& child)>;
-
     SlotAssignment();
-    SlotAssignment(SlotNameFunction);
-    ~SlotAssignment() { }
+    virtual ~SlotAssignment();
 
-    static const AtomicString& defaultSlotName() { return emptyAtom; }
+    static const AtomicString& defaultSlotName() { return emptyAtom(); }
 
     HTMLSlotElement* findAssignedSlot(const Node&, ShadowRoot&);
 
+    void renameSlotElement(HTMLSlotElement&, const AtomicString& oldName, const AtomicString& newName, ShadowRoot&);
     void addSlotElementByName(const AtomicString&, HTMLSlotElement&, ShadowRoot&);
-    void removeSlotElementByName(const AtomicString&, HTMLSlotElement&, ShadowRoot&);
+    void removeSlotElementByName(const AtomicString&, HTMLSlotElement&, ContainerNode* oldParentOfRemovedTreeForRemoval, ShadowRoot&);
+    void slotFallbackDidChange(HTMLSlotElement&, ShadowRoot&);
+    void resolveSlotsBeforeNodeInsertionOrRemoval(ShadowRoot&);
+    void willRemoveAllChildren(ShadowRoot&);
+
+    void didChangeSlot(const AtomicString&, ShadowRoot&);
+    void enqueueSlotChangeEvent(const AtomicString&, ShadowRoot&);
 
     const Vector<Node*>* assignedNodesForSlot(const HTMLSlotElement&, ShadowRoot&);
 
-    void invalidate(ShadowRoot&);
-    void invalidateDefaultSlot(ShadowRoot&);
+    virtual void hostChildElementDidChange(const Element&, ShadowRoot&);
 
 private:
-    struct SlotInfo {
-        SlotInfo() { }
-        SlotInfo(HTMLSlotElement& slotElement)
-            : element(&slotElement)
-            , elementCount(1)
-        { }
+    struct Slot {
+        WTF_MAKE_FAST_ALLOCATED;
+    public:
+        Slot() { }
 
         bool hasSlotElements() { return !!elementCount; }
         bool hasDuplicatedSlotElements() { return elementCount > 1; }
         bool shouldResolveSlotElement() { return !element && elementCount; }
 
-        HTMLSlotElement* element { nullptr };
+        WeakPtr<HTMLSlotElement> element;
+        WeakPtr<HTMLSlotElement> oldElement;
         unsigned elementCount { 0 };
+        bool seenFirstElement { false };
         Vector<Node*> assignedNodes;
     };
 
-    HTMLSlotElement* findFirstSlotElement(SlotInfo&, ShadowRoot&);
+    bool hasAssignedNodes(ShadowRoot&, Slot&);
+    enum class SlotMutationType { Insertion, Removal };
+    void resolveSlotsAfterSlotMutation(ShadowRoot&, SlotMutationType, ContainerNode* oldParentOfRemovedTree = nullptr);
+
+    virtual const AtomicString& slotNameForHostChild(const Node&) const;
+
+    HTMLSlotElement* findFirstSlotElement(Slot&, ShadowRoot&);
     void resolveAllSlotElements(ShadowRoot&);
 
     void assignSlots(ShadowRoot&);
     void assignToSlot(Node& child, const AtomicString& slotName);
 
-    SlotNameFunction m_slotNameFunction;
-
-    HashMap<AtomicString, std::unique_ptr<SlotInfo>> m_slots;
+    HashMap<AtomicString, std::unique_ptr<Slot>> m_slots;
 
 #ifndef NDEBUG
     HashSet<HTMLSlotElement*> m_slotElementsForConsistencyCheck;
-    bool m_needsToResolveSlotElements { false };
 #endif
 
+    bool m_needsToResolveSlotElements { false };
     bool m_slotAssignmentsIsValid { false };
+    bool m_willBeRemovingAllChildren { false };
+    unsigned m_slotMutationVersion { 0 };
+    unsigned m_slotResolutionVersion { 0 };
 };
 
+inline void ShadowRoot::resolveSlotsBeforeNodeInsertionOrRemoval()
+{
+    if (UNLIKELY(shouldFireSlotchangeEvent() && m_slotAssignment))
+        m_slotAssignment->resolveSlotsBeforeNodeInsertionOrRemoval(*this);
 }
 
-#endif
+inline void ShadowRoot::willRemoveAllChildren(ContainerNode&)
+{
+    if (UNLIKELY(shouldFireSlotchangeEvent() && m_slotAssignment))
+        m_slotAssignment->willRemoveAllChildren(*this);
+}
 
-#endif /* SlotAssignment_h */
+inline void ShadowRoot::didRemoveAllChildrenOfShadowHost()
+{
+    if (m_slotAssignment) // FIXME: This is incorrect when there were no elements or text nodes removed.
+        m_slotAssignment->didChangeSlot(nullAtom(), *this);
+}
+
+inline void ShadowRoot::didChangeDefaultSlot()
+{
+    if (m_slotAssignment)
+        m_slotAssignment->didChangeSlot(nullAtom(), *this);
+}
+
+inline void ShadowRoot::hostChildElementDidChange(const Element& childElement)
+{
+    if (m_slotAssignment)
+        m_slotAssignment->hostChildElementDidChange(childElement, *this);
+}
+
+inline void ShadowRoot::hostChildElementDidChangeSlotAttribute(Element& element, const AtomicString& oldValue, const AtomicString& newValue)
+{
+    if (!m_slotAssignment)
+        return;
+    m_slotAssignment->didChangeSlot(oldValue, *this);
+    m_slotAssignment->didChangeSlot(newValue, *this);
+    RenderTreeUpdater::tearDownRenderers(element);
+}
+
+} // namespace WebCore

@@ -33,7 +33,6 @@
 }
 
 .popover .edit-breakpoint-popover-content > label.toggle {
-    color: black;
     font-weight: bold;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -44,13 +43,13 @@
 }
 
 .popover .edit-breakpoint-popover-content > table > tr > th {
-    color: hsl(0, 0%, 34%);
-    font-weight: bold;
-    text-align: right;
     width: 1px; /* Shrink to fit. */
-    vertical-align: top;
+    font-weight: bold;
     line-height: 23px;
+    text-align: end;
+    vertical-align: top;
     white-space: nowrap;
+    color: hsl(0, 0%, 34%);
 }
 
 .popover .edit-breakpoint-popover-content > table > tr > td {
@@ -62,7 +61,7 @@
     padding: 4px 0 2px 0;
     -webkit-appearance: textfield;
     border: 1px solid hsl(0, 0%, 78%);
-    background: white;
+    background: var(--background-color-code);
 }
 
 .edit-breakpoint-popover-condition > .CodeMirror {
@@ -70,12 +69,22 @@
     height: auto;
 }
 
-#edit-breakpoint-popover-ignore {
-    width: 40px;
-    margin-right: 4px;
+.wide .edit-breakpoint-popover-condition > .CodeMirror {
+    width: 360px; /* NOTE: Fixed value, manually tuned to .edit-breakpoint-popover-content width. */
 }
 
-#edit-breakpoint-popoover-auto-continue {
-    margin-left: 0;
-    margin-right: 4px;
+#edit-breakpoint-popover-ignore {
+    width: 40px;
+}
+
+#edit-breakpoint-popover-ignore,
+#edit-breakpoint-popover-auto-continue {
+    -webkit-margin-start: 0;
+    -webkit-margin-end: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+    .popover .edit-breakpoint-popover-content > table > tr > th {
+        color: var(--text-color-secondary);
+    }
 }

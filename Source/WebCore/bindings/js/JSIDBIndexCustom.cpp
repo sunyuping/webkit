@@ -28,18 +28,15 @@
 
 #if ENABLE(INDEXED_DATABASE)
 
-#include "IDBIndexImpl.h"
-
-using namespace JSC;
+#include "IDBIndex.h"
+#include <JavaScriptCore/HeapInlines.h>
 
 namespace WebCore {
+using namespace JSC;
 
 void JSIDBIndex::visitAdditionalChildren(SlotVisitor& visitor)
 {
-    if (!wrapped().isModern())
-        return;
-
-    visitor.addOpaqueRoot(&static_cast<IDBClient::IDBIndex&>(wrapped()).modernObjectStore());
+    visitor.addOpaqueRoot(static_cast<IDBIndex&>(wrapped()).objectStoreAsOpaqueRoot());
 }
 
 } // namespace WebCore

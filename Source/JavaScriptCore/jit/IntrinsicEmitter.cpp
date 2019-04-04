@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,10 +33,12 @@
 #include "CCallHelpers.h"
 #include "CallFrame.h"
 #include "CodeBlock.h"
+#include "IntrinsicGetterAccessCase.h"
 #include "JSArrayBufferView.h"
 #include "JSCJSValueInlines.h"
 #include "JSCellInlines.h"
 #include "PolymorphicAccess.h"
+#include "StructureStubInfo.h"
 
 namespace JSC {
 
@@ -47,7 +49,7 @@ typedef CCallHelpers::ImmPtr ImmPtr;
 typedef CCallHelpers::TrustedImm64 TrustedImm64;
 typedef CCallHelpers::Imm64 Imm64;
 
-bool AccessCase::canEmitIntrinsicGetter(JSFunction* getter, Structure* structure)
+bool IntrinsicGetterAccessCase::canEmitIntrinsicGetter(JSFunction* getter, Structure* structure)
 {
 
     switch (getter->intrinsic()) {
@@ -61,13 +63,18 @@ bool AccessCase::canEmitIntrinsicGetter(JSFunction* getter, Structure* structure
         
         return true;
     }
+    case UnderscoreProtoIntrinsic: {
+        auto getPrototypeMethod = structure->classInfo()->methodTable.getPrototype;
+        MethodTable::GetPrototypeFunctionPtr defaultGetPrototype = JSObject::getPrototype;
+        return getPrototypeMethod == defaultGetPrototype;
+    }
     default:
         return false;
     }
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-void AccessCase::emitIntrinsicGetter(AccessGenerationState& state)
+void IntrinsicGetterAccessCase::emitIntrinsicGetter(AccessGenerationState& state)
 {
     CCallHelpers& jit = *state.jit;
     JSValueRegs valueRegs = state.valueRegs;
@@ -77,7 +84,7 @@ void AccessCase::emitIntrinsicGetter(AccessGenerationState& state)
     switch (intrinsic()) {
     case TypedArrayLengthIntrinsic: {
         jit.load32(MacroAssembler::Address(state.baseGPR, JSArrayBufferView::offsetOfLength()), valueGPR);
-        jit.boxInt32(valueGPR, valueRegs, CCallHelpers::DoNotHaveTagRegisters);
+        jit.boxInt32(valueGPR, valueRegs);
         state.succeed();
         return;
     }
@@ -92,7 +99,7 @@ void AccessCase::emitIntrinsicGetter(AccessGenerationState& state)
             jit.lshift32(valueGPR, Imm32(logElementSize(type)), valueGPR);
         }
 
-        jit.boxInt32(valueGPR, valueRegs, CCallHelpers::DoNotHaveTagRegisters);
+        jit.boxInt32(valueGPR, valueRegs);
         state.succeed();
         return;
     }
@@ -114,11 +121,20 @@ void AccessCase::emitIntrinsicGetter(AccessGenerationState& state)
         CCallHelpers::Jump done = jit.jump();
         
         emptyByteOffset.link(&jit);
-        jit.move(TrustedImmPtr(0), valueGPR);
+        jit.move(TrustedImmPtr(nullptr), valueGPR);
         
         done.link(&jit);
         
-        jit.boxInt32(valueGPR, valueRegs, CCallHelpers::DoNotHaveTagRegisters);
+        jit.boxInt32(valueGPR, valueRegs);
+        state.succeed();
+        return;
+    }
+
+    case UnderscoreProtoIntrinsic: {
+        if (structure()->hasPolyProto())
+            jit.loadValue(CCallHelpers::Address(baseGPR, offsetRelativeToBase(knownPolyProtoOffset)), valueRegs);
+        else
+            jit.moveValue(structure()->storedPrototype(), valueRegs);
         state.succeed();
         return;
     }

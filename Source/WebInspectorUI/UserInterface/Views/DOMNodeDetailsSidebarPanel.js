@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,92 +23,172 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel extends WebInspector.DOMDetailsSidebarPanel
+WI.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel extends WI.DOMDetailsSidebarPanel
 {
     constructor()
     {
-        super("dom-node-details", WebInspector.UIString("Node"), WebInspector.UIString("Node"));
+        super("dom-node-details", WI.UIString("Node"));
 
-        WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.AttributeModified, this._attributesChanged, this);
-        WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.AttributeRemoved, this._attributesChanged, this);
-        WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.CharacterDataModified, this._characterDataModified, this);
+        this._eventListenerGroupingMethodSetting = new WI.Setting("dom-node-event-listener-grouping-method", WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Event);
 
         this.element.classList.add("dom-node");
 
-        this._identityNodeTypeRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Type"));
-        this._identityNodeNameRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Name"));
-        this._identityNodeValueRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Value"));
+        this._nodeRemoteObject = null;
+    }
 
-        var identityGroup = new WebInspector.DetailsSectionGroup([this._identityNodeTypeRow, this._identityNodeNameRow, this._identityNodeValueRow]);
-        var identitySection = new WebInspector.DetailsSection("dom-node-identity", WebInspector.UIString("Identity"), [identityGroup]);
+    // Public
 
-        this._attributesDataGridRow = new WebInspector.DetailsSectionDataGridRow(null, WebInspector.UIString("No Attributes"));
+    closed()
+    {
+        WI.domManager.removeEventListener(null, null, this);
 
-        var attributesGroup = new WebInspector.DetailsSectionGroup([this._attributesDataGridRow]);
-        var attributesSection = new WebInspector.DetailsSection("dom-node-attributes", WebInspector.UIString("Attributes"), [attributesGroup]);
+        super.closed();
+    }
 
-        this._propertiesRow = new WebInspector.DetailsSectionRow;
+    // Protected
 
-        var propertiesGroup = new WebInspector.DetailsSectionGroup([this._propertiesRow]);
-        var propertiesSection = new WebInspector.DetailsSection("dom-node-properties", WebInspector.UIString("Properties"), [propertiesGroup]);
+    initialLayout()
+    {
+        super.initialLayout();
 
-        this._eventListenersSectionGroup = new WebInspector.DetailsSectionGroup;
-        var eventListenersSection = new WebInspector.DetailsSection("dom-node-event-listeners", WebInspector.UIString("Event Listeners"), [this._eventListenersSectionGroup]);
+        WI.domManager.addEventListener(WI.DOMManager.Event.AttributeModified, this._attributesChanged, this);
+        WI.domManager.addEventListener(WI.DOMManager.Event.AttributeRemoved, this._attributesChanged, this);
+        WI.domManager.addEventListener(WI.DOMManager.Event.CharacterDataModified, this._characterDataModified, this);
+        WI.domManager.addEventListener(WI.DOMManager.Event.CustomElementStateChanged, this._customElementStateChanged, this);
+
+        this._identityNodeTypeRow = new WI.DetailsSectionSimpleRow(WI.UIString("Type"));
+        this._identityNodeNameRow = new WI.DetailsSectionSimpleRow(WI.UIString("Name"));
+        this._identityNodeValueRow = new WI.DetailsSectionSimpleRow(WI.UIString("Value"));
+        this._identityNodeContentSecurityPolicyHashRow = new WI.DetailsSectionSimpleRow(WI.UIString("CSP Hash"));
+
+        var identityGroup = new WI.DetailsSectionGroup([this._identityNodeTypeRow, this._identityNodeNameRow, this._identityNodeValueRow, this._identityNodeContentSecurityPolicyHashRow]);
+        var identitySection = new WI.DetailsSection("dom-node-identity", WI.UIString("Identity"), [identityGroup]);
+
+        this._attributesDataGridRow = new WI.DetailsSectionDataGridRow(null, WI.UIString("No Attributes"));
+
+        var attributesGroup = new WI.DetailsSectionGroup([this._attributesDataGridRow]);
+        var attributesSection = new WI.DetailsSection("dom-node-attributes", WI.UIString("Attributes"), [attributesGroup]);
+
+        this._propertiesRow = new WI.DetailsSectionRow;
+
+        var propertiesGroup = new WI.DetailsSectionGroup([this._propertiesRow]);
+        var propertiesSection = new WI.DetailsSection("dom-node-properties", WI.UIString("Properties"), [propertiesGroup]);
+
+        let eventListenersFilterElement = WI.ImageUtilities.useSVGSymbol("Images/FilterFieldGlyph.svg", "filter", WI.UIString("Grouping Method"));
+
+        let eventListenersGroupMethodSelectElement = eventListenersFilterElement.appendChild(document.createElement("select"));
+        eventListenersGroupMethodSelectElement.addEventListener("change", (event) => {
+            this._eventListenerGroupingMethodSetting.value = eventListenersGroupMethodSelectElement.value;
+
+            this._refreshEventListeners();
+        });
+
+        function createOption(text, value) {
+            let optionElement = eventListenersGroupMethodSelectElement.appendChild(document.createElement("option"));
+            optionElement.value = value;
+            optionElement.textContent = text;
+        }
+
+        createOption(WI.UIString("Group by Event"), WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Event);
+        createOption(WI.UIString("Group by Target"), WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Target);
+
+        eventListenersGroupMethodSelectElement.value = this._eventListenerGroupingMethodSetting.value;
+
+        this._eventListenersSectionGroup = new WI.DetailsSectionGroup;
+        let eventListenersSection = new WI.DetailsSection("dom-node-event-listeners", WI.UIString("Event Listeners"), [this._eventListenersSectionGroup], eventListenersFilterElement);
 
         this.contentView.element.appendChild(identitySection.element);
         this.contentView.element.appendChild(attributesSection.element);
         this.contentView.element.appendChild(propertiesSection.element);
         this.contentView.element.appendChild(eventListenersSection.element);
 
-        if (this._accessibilitySupported()) {
-            this._accessibilityEmptyRow = new WebInspector.DetailsSectionRow(WebInspector.UIString("No Accessibility Information"));
-            this._accessibilityNodeActiveDescendantRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Shared Focus"));
-            this._accessibilityNodeBusyRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Busy"));
-            this._accessibilityNodeCheckedRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Checked"));
-            this._accessibilityNodeChildrenRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Children"));
-            this._accessibilityNodeControlsRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Controls"));
-            this._accessibilityNodeCurrentRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Current"));
-            this._accessibilityNodeDisabledRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Disabled"));
-            this._accessibilityNodeExpandedRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Expanded"));
-            this._accessibilityNodeFlowsRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Flows"));
-            this._accessibilityNodeFocusedRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Focused"));
-            this._accessibilityNodeIgnoredRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Ignored"));
-            this._accessibilityNodeInvalidRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Invalid"));
-            this._accessibilityNodeLiveRegionStatusRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Live"));
-            this._accessibilityNodeMouseEventRow = new WebInspector.DetailsSectionSimpleRow("");
-            this._accessibilityNodeLabelRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Label"));
-            this._accessibilityNodeOwnsRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Owns"));
-            this._accessibilityNodeParentRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Parent"));
-            this._accessibilityNodePressedRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Pressed"));
-            this._accessibilityNodeReadonlyRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Readonly"));
-            this._accessibilityNodeRequiredRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Required"));
-            this._accessibilityNodeRoleRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Role"));
-            this._accessibilityNodeSelectedRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Selected"));
-            this._accessibilityNodeSelectedChildrenRow = new WebInspector.DetailsSectionSimpleRow(WebInspector.UIString("Selected Items"));
+        if (WI.sharedApp.hasExtraDomains) {
+            if (InspectorBackend.domains.DOM.getDataBindingsForNode) {
+                this._dataBindingsSection = new WI.DetailsSection("dom-node-data-bindings", WI.UIString("Data Bindings"), []);
+                this.contentView.element.appendChild(this._dataBindingsSection.element);
+            }
 
-            this._accessibilityGroup = new WebInspector.DetailsSectionGroup([this._accessibilityEmptyRow]);
-            var accessibilitySection = new WebInspector.DetailsSection("dom-node-accessibility", WebInspector.UIString("Accessibility"), [this._accessibilityGroup]);
+            if (InspectorBackend.domains.DOM.getAssociatedDataForNode) {
+                this._associatedDataGrid = new WI.DetailsSectionRow(WI.UIString("No Associated Data"));
+
+                let associatedDataGroup = new WI.DetailsSectionGroup([this._associatedDataGrid]);
+
+                let associatedSection = new WI.DetailsSection("dom-node-associated-data", WI.UIString("Associated Data"), [associatedDataGroup]);
+                this.contentView.element.appendChild(associatedSection.element);
+            }
+        }
+
+        if (this._accessibilitySupported()) {
+            this._accessibilityEmptyRow = new WI.DetailsSectionRow(WI.UIString("No Accessibility Information"));
+            this._accessibilityNodeActiveDescendantRow = new WI.DetailsSectionSimpleRow(WI.UIString("Shared Focus"));
+            this._accessibilityNodeBusyRow = new WI.DetailsSectionSimpleRow(WI.UIString("Busy"));
+            this._accessibilityNodeCheckedRow = new WI.DetailsSectionSimpleRow(WI.UIString("Checked"));
+            this._accessibilityNodeChildrenRow = new WI.DetailsSectionSimpleRow(WI.UIString("Children"));
+            this._accessibilityNodeControlsRow = new WI.DetailsSectionSimpleRow(WI.UIString("Controls"));
+            this._accessibilityNodeCurrentRow = new WI.DetailsSectionSimpleRow(WI.UIString("Current"));
+            this._accessibilityNodeDisabledRow = new WI.DetailsSectionSimpleRow(WI.UIString("Disabled"));
+            this._accessibilityNodeExpandedRow = new WI.DetailsSectionSimpleRow(WI.UIString("Expanded"));
+            this._accessibilityNodeFlowsRow = new WI.DetailsSectionSimpleRow(WI.UIString("Flows"));
+            this._accessibilityNodeFocusedRow = new WI.DetailsSectionSimpleRow(WI.UIString("Focused"));
+            this._accessibilityNodeHeadingLevelRow = new WI.DetailsSectionSimpleRow(WI.UIString("Heading Level"));
+            this._accessibilityNodehierarchyLevelRow = new WI.DetailsSectionSimpleRow(WI.UIString("Hierarchy Level"));
+            this._accessibilityNodeIgnoredRow = new WI.DetailsSectionSimpleRow(WI.UIString("Ignored"));
+            this._accessibilityNodeInvalidRow = new WI.DetailsSectionSimpleRow(WI.UIString("Invalid"));
+            this._accessibilityNodeLiveRegionStatusRow = new WI.DetailsSectionSimpleRow(WI.UIString("Live"));
+            this._accessibilityNodeMouseEventRow = new WI.DetailsSectionSimpleRow("");
+            this._accessibilityNodeLabelRow = new WI.DetailsSectionSimpleRow(WI.UIString("Label"));
+            this._accessibilityNodeOwnsRow = new WI.DetailsSectionSimpleRow(WI.UIString("Owns"));
+            this._accessibilityNodeParentRow = new WI.DetailsSectionSimpleRow(WI.UIString("Parent"));
+            this._accessibilityNodePressedRow = new WI.DetailsSectionSimpleRow(WI.UIString("Pressed"));
+            this._accessibilityNodeReadonlyRow = new WI.DetailsSectionSimpleRow(WI.UIString("Readonly"));
+            this._accessibilityNodeRequiredRow = new WI.DetailsSectionSimpleRow(WI.UIString("Required"));
+            this._accessibilityNodeRoleRow = new WI.DetailsSectionSimpleRow(WI.UIString("Role"));
+            this._accessibilityNodeSelectedRow = new WI.DetailsSectionSimpleRow(WI.UIString("Selected"));
+            this._accessibilityNodeSelectedChildrenRow = new WI.DetailsSectionSimpleRow(WI.UIString("Selected Items"));
+
+            this._accessibilityGroup = new WI.DetailsSectionGroup([this._accessibilityEmptyRow]);
+            var accessibilitySection = new WI.DetailsSection("dom-node-accessibility", WI.UIString("Accessibility"), [this._accessibilityGroup]);
 
             this.contentView.element.appendChild(accessibilitySection.element);
         }
     }
 
-    // Public
-
-    refresh()
+    layout()
     {
-        var domNode = this.domNode;
-        if (!domNode)
+        super.layout();
+
+        if (!this.domNode)
             return;
 
-        this._identityNodeTypeRow.value = this._nodeTypeDisplayName();
-        this._identityNodeNameRow.value = domNode.nodeNameInCorrectCase();
-        this._identityNodeValueRow.value = domNode.nodeValue();
-
+        this._refreshIdentity();
         this._refreshAttributes();
         this._refreshProperties();
         this._refreshEventListeners();
+        this._refreshDataBindings();
+        this._refreshAssociatedData();
         this._refreshAccessibility();
+    }
+
+    sizeDidChange()
+    {
+        super.sizeDidChange();
+
+        // FIXME: <https://webkit.org/b/152269> Web Inspector: Convert DetailsSection classes to use View
+        this._attributesDataGridRow.sizeDidChange();
+    }
+
+    attached()
+    {
+        super.attached();
+
+        WI.DOMNode.addEventListener(WI.DOMNode.Event.EventListenersChanged, this._eventListenersChanged, this);
+    }
+
+    detached()
+    {
+        WI.DOMNode.removeEventListener(WI.DOMNode.Event.EventListenersChanged, this._eventListenersChanged, this);
+
+        super.detached();
     }
 
     // Private
@@ -118,30 +198,66 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
         return window.DOMAgent && DOMAgent.getAccessibilityPropertiesForNode;
     }
 
+    _refreshIdentity()
+    {
+        const domNode = this.domNode;
+        this._identityNodeTypeRow.value = this._nodeTypeDisplayName();
+        this._identityNodeNameRow.value = domNode.nodeNameInCorrectCase();
+        this._identityNodeValueRow.value = domNode.nodeValue();
+        this._identityNodeContentSecurityPolicyHashRow.value = domNode.contentSecurityPolicyHash();
+    }
+
     _refreshAttributes()
     {
-        this._attributesDataGridRow.dataGrid = this._createAttributesDataGrid();
+        let domNode = this.domNode;
+        if (!domNode || !domNode.hasAttributes()) {
+            // Remove the DataGrid to show the placeholder text.
+            this._attributesDataGridRow.dataGrid = null;
+            return;
+        }
+
+        let dataGrid = this._attributesDataGridRow.dataGrid;
+        if (!dataGrid) {
+            const columns = {
+                name: {title: WI.UIString("Name"), width: "30%"},
+                value: {title: WI.UIString("Value")},
+            };
+            dataGrid = this._attributesDataGridRow.dataGrid = new WI.DataGrid(columns);
+        }
+
+        dataGrid.removeChildren();
+
+        let attributes = domNode.attributes();
+        attributes.sort((a, b) => a.name.extendedLocaleCompare(b.name));
+        for (let attribute of attributes) {
+            let dataGridNode = new WI.EditableDataGridNode(attribute);
+            dataGridNode.addEventListener(WI.EditableDataGridNode.Event.ValueChanged, this._attributeNodeValueChanged, this);
+            dataGrid.appendChild(dataGridNode);
+        }
+
+        dataGrid.updateLayoutIfNeeded();
     }
 
     _refreshProperties()
     {
-        var domNode = this.domNode;
-        if (!domNode)
-            return;
+        if (this._nodeRemoteObject) {
+            this._nodeRemoteObject.release();
+            this._nodeRemoteObject = null;
+        }
 
-        RuntimeAgent.releaseObjectGroup(WebInspector.DOMNodeDetailsSidebarPanel.PropertiesObjectGroupName);
-        WebInspector.RemoteObject.resolveNode(domNode, WebInspector.DOMNodeDetailsSidebarPanel.PropertiesObjectGroupName, nodeResolved.bind(this));
+        let domNode = this.domNode;
 
-        function nodeResolved(object)
-        {
-            if (!object)
-                return;
+        const objectGroup = "dom-node-details-sidebar-properties-object-group";
+        RuntimeAgent.releaseObjectGroup(objectGroup);
 
+        WI.RemoteObject.resolveNode(domNode, objectGroup).then((object) => {
             // Bail if the DOM node changed while we were waiting for the async response.
             if (this.domNode !== domNode)
                 return;
 
-            function collectPrototypes()
+            this._nodeRemoteObject = object;
+
+            function inspectedPage_node_collectPrototypes()
             {
                 // This builds an object with numeric properties. This is easier than dealing with arrays
                 // with the way RemoteObject works. Start at 1 since we use parseInt later and parseInt
@@ -158,9 +274,10 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                 return result;
             }
 
-            object.callFunction(collectPrototypes, undefined, false, nodePrototypesReady.bind(this));
-            object.release();
-        }
+            const args = undefined;
+            const generatePreview = false;
+            object.callFunction(inspectedPage_node_collectPrototypes, args, generatePreview, nodePrototypesReady.bind(this));
+        });
 
         function nodePrototypesReady(error, object, wasThrown)
         {
@@ -183,31 +300,37 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
             if (this.domNode !== domNode)
                 return;
 
-            var element = this._propertiesRow.element;
+            let element = this._propertiesRow.element;
             element.removeChildren();
 
-            // Get array of prototype user-friendly names.
-            for (var i = 0; i < prototypes.length; ++i) {
+            let propertyPath = new WI.PropertyPath(this._nodeRemoteObject, "node");
+
+            let initialSection = true;
+            for (let i = 0; i < prototypes.length; ++i) {
                 // The only values we care about are numeric, as assigned in collectPrototypes.
                 if (!parseInt(prototypes[i].name, 10))
                     continue;
 
-                var prototype = prototypes[i].value;
-                var title = prototype.description;
-                if (title.match(/Prototype$/))
-                    title = title.replace(/Prototype$/, WebInspector.UIString(" (Prototype)"));
-                else if (title === "Object")
-                    title = title + WebInspector.UIString(" (Prototype)");
+                let prototype = prototypes[i].value;
+                let prototypeName = prototype.description;
+                let title = prototypeName;
+                if (/Prototype$/.test(title)) {
+                    prototypeName = prototypeName.replace(/Prototype$/, "");
+                    title = prototypeName + WI.UIString(" (Prototype)");
+                } else if (title === "Object")
+                    title = title + WI.UIString(" (Prototype)");
 
-                // FIXME: <https://webkit.org/b/142833> Web Inspector: Node Details Sidebar Properties Section has "undefined" for all prototype properties
-
-                var objectTree = new WebInspector.ObjectTreeView(prototype, WebInspector.ObjectTreeView.Mode.Properties);
+                let mode = initialSection ? WI.ObjectTreeView.Mode.Properties : WI.ObjectTreeView.Mode.PureAPI;
+                let objectTree = new WI.ObjectTreeView(prototype, mode, propertyPath);
                 objectTree.showOnlyProperties();
+                objectTree.setPrototypeNameOverride(prototypeName);
 
-                var detailsSection = new WebInspector.DetailsSection(prototype.description.hash + "-prototype-properties", title, null, null, true);
-                detailsSection.groups[0].rows = [new WebInspector.DetailsSectionPropertiesRow(objectTree)];
+                let detailsSection = new WI.DetailsSection(prototype.description.hash + "-prototype-properties", title, null, null, true);
+                detailsSection.groups[0].rows = [new WI.ObjectPropertiesDetailSectionRow(objectTree, detailsSection)];
 
                 element.appendChild(detailsSection.element);
+
+                initialSection = false;
             }
         }
     }
@@ -218,7 +341,81 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
         if (!domNode)
             return;
 
-        domNode.eventListeners(eventListenersCallback.bind(this));
+        const windowTargetIdentifier = Symbol("window");
+
+        function createEventListenerSection(title, eventListeners, options = {}) {
+            let groups = eventListeners.map((eventListener) => new WI.EventListenerSectionGroup(eventListener, options));
+
+            const optionsElement = null;
+            const defaultCollapsedSettingValue = true;
+            let section = new WI.DetailsSection(`${title}-event-listener-section`, title, groups, optionsElement, defaultCollapsedSettingValue);
+            section.element.classList.add("event-listener-section");
+            return section;
+        }
+
+        function generateGroupsByEvent(eventListeners) {
+            let eventListenerTypes = new Map;
+            for (let eventListener of eventListeners) {
+                console.assert(eventListener.nodeId || eventListener.onWindow);
+                if (eventListener.nodeId)
+                    eventListener.node = WI.domManager.nodeForId(eventListener.nodeId);
+
+                let eventListenersForType = eventListenerTypes.get(eventListener.type);
+                if (!eventListenersForType)
+                    eventListenerTypes.set(eventListener.type, eventListenersForType = []);
+                eventListenersForType.push(eventListener);
+            }
+
+            let rows = [];
+
+            let types = Array.from(eventListenerTypes.keys());
+            types.sort();
+            for (let type of types)
+                rows.push(createEventListenerSection(type, eventListenerTypes.get(type), {hideType: true}));
+
+            return rows;
+        }
+
+        function generateGroupsByTarget(eventListeners) {
+            let eventListenerTargets = new Map;
+            for (let eventListener of eventListeners) {
+                console.assert(eventListener.nodeId || eventListener.onWindow);
+                if (eventListener.nodeId)
+                    eventListener.node = WI.domManager.nodeForId(eventListener.nodeId);
+
+                let target = eventListener.onWindow ? windowTargetIdentifier : eventListener.node;
+                let eventListenersForTarget = eventListenerTargets.get(target);
+                if (!eventListenersForTarget)
+                    eventListenerTargets.set(target, eventListenersForTarget = []);
+                eventListenersForTarget.push(eventListener);
+            }
+
+            let rows = [];
+
+            function generateSectionForTarget(target) {
+                let eventListenersForTarget = eventListenerTargets.get(target);
+                if (!eventListenersForTarget)
+                    return;
+
+                eventListenersForTarget.sort((a, b) => a.type.toLowerCase().extendedLocaleCompare(b.type.toLowerCase()));
+
+                let title = target === windowTargetIdentifier ? WI.unlocalizedString("window") : target.displayName;
+
+                let section = createEventListenerSection(title, eventListenersForTarget, {hideTarget: true});
+                if (target instanceof WI.DOMNode)
+                    WI.bindInteractionsForNodeToElement(target, section.titleElement, {ignoreClick: true});
+                rows.push(section);
+            }
+
+            let currentNode = domNode;
+            do {
+                generateSectionForTarget(currentNode);
+            } while (currentNode = currentNode.parentNode);
+
+            generateSectionForTarget(windowTargetIdentifier);
+
+            return rows;
+        }
 
         function eventListenersCallback(error, eventListeners)
         {
@@ -229,37 +426,108 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
             if (this.domNode !== domNode)
                 return;
 
-            var eventListenerTypes = [];
-            var eventListenerSections = {};
-            for (var i = 0; i < eventListeners.length; ++i) {
-                var eventListener = eventListeners[i];
-                eventListener.node = WebInspector.domTreeManager.nodeForId(eventListener.nodeId);
-
-                var type = eventListener.type;
-                var section = eventListenerSections[type];
-                if (!section) {
-                    section = new WebInspector.EventListenerSection(type, domNode.id);
-                    eventListenerSections[type] = section;
-                    eventListenerTypes.push(type);
-                }
-
-                section.addListener(eventListener);
-            }
-
-            if (!eventListenerTypes.length) {
-                var emptyRow = new WebInspector.DetailsSectionRow(WebInspector.UIString("No Event Listeners"));
+            if (!eventListeners.length) {
+                var emptyRow = new WI.DetailsSectionRow(WI.UIString("No Event Listeners"));
                 emptyRow.showEmptyMessage();
                 this._eventListenersSectionGroup.rows = [emptyRow];
                 return;
             }
 
-            eventListenerTypes.sort();
+            switch (this._eventListenerGroupingMethodSetting.value) {
+            case WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Event:
+                this._eventListenersSectionGroup.rows = generateGroupsByEvent.call(this, eventListeners);
+                break;
 
-            var rows = [];
-            for (var i = 0; i < eventListenerTypes.length; ++i)
-                rows.push(eventListenerSections[eventListenerTypes[i]]);
-            this._eventListenersSectionGroup.rows = rows;
+            case WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Target:
+                this._eventListenersSectionGroup.rows = generateGroupsByTarget.call(this, eventListeners);
+                break;
+            }
         }
+
+        domNode.getEventListeners(eventListenersCallback.bind(this));
+    }
+
+    _refreshDataBindings()
+    {
+        if (!this._dataBindingsSection)
+            return;
+
+        let domNode = this.domNode;
+        if (!domNode)
+            return;
+
+        DOMAgent.getDataBindingsForNode(this.domNode.id).then(({dataBindings}) => {
+            if (this.domNode !== domNode)
+                return;
+
+            if (!dataBindings.length) {
+                let emptyRow = new WI.DetailsSectionRow(WI.UIString("No Data Bindings"));
+                emptyRow.showEmptyMessage();
+                this._dataBindingsSection.groups = [new WI.DetailsSectionGroup([emptyRow])];
+                return;
+            }
+
+            let groups = [];
+            for (let {binding, type, value} of dataBindings) {
+                groups.push(new WI.DetailsSectionGroup([
+                    new WI.DetailsSectionSimpleRow(WI.UIString("Binding"), binding),
+                    new WI.DetailsSectionSimpleRow(WI.UIString("Type"), type),
+                    new WI.DetailsSectionSimpleRow(WI.UIString("Value"), value),
+                ]));
+            }
+            this._dataBindingsSection.groups = groups;
+        });
+    }
+
+    _refreshAssociatedData()
+    {
+        if (!this._associatedDataGrid)
+            return;
+
+        const objectGroup = "dom-node-details-sidebar-associated-data-object-group";
+        RuntimeAgent.releaseObjectGroup(objectGroup);
+
+        let domNode = this.domNode;
+        if (!domNode)
+            return;
+
+        DOMAgent.getAssociatedDataForNode(domNode.id).then(({associatedData}) => {
+            if (this.domNode !== domNode)
+                return;
+
+            if (!associatedData) {
+                this._associatedDataGrid.showEmptyMessage();
+                return;
+            }
+
+            let expression = associatedData;
+            const options = {
+                objectGroup,
+                doNotPauseOnExceptionsAndMuteConsole: true,
+            };
+            WI.runtimeManager.evaluateInInspectedWindow(expression, options, (result, wasThrown) => {
+                console.assert(!wasThrown);
+
+                if (!result) {
+                    this._associatedDataGrid.showEmptyMessage();
+                    return;
+                }
+
+                this._associatedDataGrid.hideEmptyMessage();
+
+                const propertyPath = null;
+                const forceExpanding = true;
+                let element = WI.FormattedValue.createObjectTreeOrFormattedValueForRemoteObject(result, propertyPath, forceExpanding);
+
+                let objectTree = element.__objectTree;
+                if (objectTree) {
+                    objectTree.showOnlyProperties();
+                    objectTree.expand();
+                }
+
+                this._associatedDataGrid.element.appendChild(element);
+            });
+        });
     }
 
     _refreshAccessibility()
@@ -275,16 +543,16 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
 
         function booleanValueToLocalizedStringIfTrue(property) {
             if (properties[property])
-                return WebInspector.UIString("Yes");
+                return WI.UIString("Yes");
             return "";
         }
 
         function booleanValueToLocalizedStringIfPropertyDefined(property) {
             if (properties[property] !== undefined) {
                 if (properties[property])
-                    return WebInspector.UIString("Yes");
+                    return WI.UIString("Yes");
                 else
-                    return WebInspector.UIString("No");
+                    return WI.UIString("No");
             }
             return "";
         }
@@ -292,48 +560,48 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
         function linkForNodeId(nodeId) {
             var link = null;
             if (nodeId !== undefined && typeof nodeId === "number") {
-                var node = WebInspector.domTreeManager.nodeForId(nodeId);
+                var node = WI.domManager.nodeForId(nodeId);
                 if (node)
-                    link = WebInspector.linkifyAccessibilityNodeReference(node);
+                    link = WI.linkifyAccessibilityNodeReference(node);
             }
             return link;
         }
 
         function linkListForNodeIds(nodeIds) {
-            if (!nodeIds) 
+            if (!nodeIds)
                 return null;
 
             const itemsToShow = 5;
             let hasLinks = false;
             let listItemCount = 0;
             let container = document.createElement("div");
-            container.classList.add("list-container")
-            let linkList = container.createChild("ul", "node-link-list");            
+            container.classList.add("list-container");
+            let linkList = container.createChild("ul", "node-link-list");
             let initiallyHiddenItems = [];
             for (let nodeId of nodeIds) {
-                let node = WebInspector.domTreeManager.nodeForId(nodeId);
+                let node = WI.domManager.nodeForId(nodeId);
                 if (!node)
                     continue;
-                let link = WebInspector.linkifyAccessibilityNodeReference(node);
+                let link = WI.linkifyAccessibilityNodeReference(node);
                 hasLinks = true;
                 let li = linkList.createChild("li");
                 li.appendChild(link);
-                if (listItemCount >= itemsToShow) {  
+                if (listItemCount >= itemsToShow) {
                     li.hidden = true;
                     initiallyHiddenItems.push(li);
-                } 
+                }
                 listItemCount++;
             }
             container.appendChild(linkList);
             if (listItemCount > itemsToShow) {
                 let moreNodesButton = container.createChild("button", "expand-list-button");
-                moreNodesButton.textContent = WebInspector.UIString("%d More\u2026").format(listItemCount - itemsToShow);
+                moreNodesButton.textContent = WI.UIString("%d More\u2026").format(listItemCount - itemsToShow);
                 moreNodesButton.addEventListener("click", () => {
-                    initiallyHiddenItems.forEach((element) => element.hidden = false);
+                    initiallyHiddenItems.forEach((element) => { element.hidden = false; });
                     moreNodesButton.remove();
                 });
             }
-            if (hasLinks) 
+            if (hasLinks)
                 return container;
 
             return null;
@@ -354,75 +622,74 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                 var checked = "";
                 if (accessibilityProperties.checked !== undefined) {
                     if (accessibilityProperties.checked === DOMAgent.AccessibilityPropertiesChecked.True)
-                        checked = WebInspector.UIString("Yes");
+                        checked = WI.UIString("Yes");
                     else if (accessibilityProperties.checked === DOMAgent.AccessibilityPropertiesChecked.Mixed)
-                        checked = WebInspector.UIString("Mixed");
+                        checked = WI.UIString("Mixed");
                     else // DOMAgent.AccessibilityPropertiesChecked.False
-                        checked = WebInspector.UIString("No");
+                        checked = WI.UIString("No");
                 }
 
                 // Accessibility tree children are not a 1:1 mapping with DOM tree children.
                 var childNodeLinkList = linkListForNodeIds(accessibilityProperties.childNodeIds);
-                
                 var controlledNodeLinkList = linkListForNodeIds(accessibilityProperties.controlledNodeIds);
-                
+
                 var current = "";
                 switch (accessibilityProperties.current) {
                 case DOMAgent.AccessibilityPropertiesCurrent.True:
-                    current = WebInspector.UIString("True");
+                    current = WI.UIString("True");
                     break;
                 case DOMAgent.AccessibilityPropertiesCurrent.Page:
-                    current = WebInspector.UIString("Page");
+                    current = WI.UIString("Page");
                     break;
                 case DOMAgent.AccessibilityPropertiesCurrent.Location:
-                    current = WebInspector.UIString("Location");
+                    current = WI.UIString("Location");
                     break;
                 case DOMAgent.AccessibilityPropertiesCurrent.Step:
-                    current = WebInspector.UIString("Step");
+                    current = WI.UIString("Step");
                     break;
                 case DOMAgent.AccessibilityPropertiesCurrent.Date:
-                    current = WebInspector.UIString("Date");
+                    current = WI.UIString("Date");
                     break;
                 case DOMAgent.AccessibilityPropertiesCurrent.Time:
-                    current = WebInspector.UIString("Time");
+                    current = WI.UIString("Time");
                     break;
                 default:
                     current = "";
                 }
-                
+
                 var disabled = booleanValueToLocalizedStringIfTrue("disabled");
                 var expanded = booleanValueToLocalizedStringIfPropertyDefined("expanded");
                 var flowedNodeLinkList = linkListForNodeIds(accessibilityProperties.flowedNodeIds);
                 var focused = booleanValueToLocalizedStringIfPropertyDefined("focused");
-                
+
                 var ignored = "";
                 if (accessibilityProperties.ignored) {
-                    ignored = WebInspector.UIString("Yes");
+                    ignored = WI.UIString("Yes");
                     if (accessibilityProperties.hidden)
-                        ignored = WebInspector.UIString("%s (hidden)").format(ignored);
+                        ignored = WI.UIString("%s (hidden)").format(ignored);
                     else if (accessibilityProperties.ignoredByDefault)
-                        ignored = WebInspector.UIString("%s (default)").format(ignored);
+                        ignored = WI.UIString("%s (default)").format(ignored);
                 }
 
                 var invalid = "";
                 if (accessibilityProperties.invalid === DOMAgent.AccessibilityPropertiesInvalid.True)
-                    invalid = WebInspector.UIString("Yes");
+                    invalid = WI.UIString("Yes");
                 else if (accessibilityProperties.invalid === DOMAgent.AccessibilityPropertiesInvalid.Grammar)
-                    invalid = WebInspector.UIString("Grammar");
+                    invalid = WI.UIString("Grammar");
                 else if (accessibilityProperties.invalid === DOMAgent.AccessibilityPropertiesInvalid.Spelling)
-                    invalid = WebInspector.UIString("Spelling");
+                    invalid = WI.UIString("Spelling");
 
                 var label = accessibilityProperties.label;
 
                 var liveRegionStatus = "";
                 var liveRegionStatusNode = null;
                 var liveRegionStatusToken = accessibilityProperties.liveRegionStatus;
-                switch(liveRegionStatusToken) {
+                switch (liveRegionStatusToken) {
                 case DOMAgent.AccessibilityPropertiesLiveRegionStatus.Assertive:
-                    liveRegionStatus = WebInspector.UIString("Assertive");
+                    liveRegionStatus = WI.UIString("Assertive");
                     break;
                 case DOMAgent.AccessibilityPropertiesLiveRegionStatus.Polite:
-                    liveRegionStatus = WebInspector.UIString("Polite");
+                    liveRegionStatus = WI.UIString("Polite");
                     break;
                 default:
                     liveRegionStatus = "";
@@ -433,21 +700,21 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                     if (liveRegionRelevant && liveRegionRelevant.length) {
                         // @aria-relevant="all" is exposed as ["additions","removals","text"], in order.
                         // This order is controlled in WebCore and expected in WebInspectorUI.
-                        if (liveRegionRelevant.length === 3 
+                        if (liveRegionRelevant.length === 3
                             && liveRegionRelevant[0] === DOMAgent.LiveRegionRelevant.Additions
                             && liveRegionRelevant[1] === DOMAgent.LiveRegionRelevant.Removals
                             && liveRegionRelevant[2] === DOMAgent.LiveRegionRelevant.Text)
-                            liveRegionRelevant = [WebInspector.UIString("All Changes")];
+                            liveRegionRelevant = [WI.UIString("All Changes")];
                         else {
                             // Reassign localized strings in place: ["additions","text"] becomes ["Additions","Text"].
                             liveRegionRelevant = liveRegionRelevant.map(function(value) {
                                 switch (value) {
                                 case DOMAgent.LiveRegionRelevant.Additions:
-                                    return WebInspector.UIString("Additions");
+                                    return WI.UIString("Additions");
                                 case DOMAgent.LiveRegionRelevant.Removals:
-                                    return WebInspector.UIString("Removals");
+                                    return WI.UIString("Removals");
                                 case DOMAgent.LiveRegionRelevant.Text:
-                                    return WebInspector.UIString("Text");
+                                    return WI.UIString("Text");
                                 default: // If WebCore sends a new unhandled value, display as a String.
                                     return "\"" + value + "\"";
                                 }
@@ -463,7 +730,7 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                         liveRegionStatusNode.append(liveRegionStatus);
                         var clarificationNode = document.createElement("div");
                         clarificationNode.className = "clarification";
-                        clarificationNode.append(WebInspector.UIString("Region announced in its entirety."));
+                        clarificationNode.append(WI.UIString("Region announced in its entirety."));
                         liveRegionStatusNode.appendChild(clarificationNode);
                     }
                 }
@@ -473,7 +740,7 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                 var mouseEventNodeLink = null;
                 if (mouseEventNodeId) {
                     if (mouseEventNodeId === accessibilityProperties.nodeId)
-                        mouseEventTextValue = WebInspector.UIString("Yes");
+                        mouseEventTextValue = WI.UIString("Yes");
                     else
                         mouseEventNodeLink = linkForNodeId(mouseEventNodeId);
                 }
@@ -488,18 +755,45 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                 var required = booleanValueToLocalizedStringIfPropertyDefined("required");
 
                 var role = accessibilityProperties.role;
+                let hasPopup = accessibilityProperties.isPopupButton;
+                let roleType = null;
+                let buttonType = null;
+                let buttonTypePopupString = WI.UIString("popup");
+                let buttonTypeToggleString = WI.UIString("toggle");
+                let buttonTypePopupToggleString = WI.UIString("popup, toggle");
+
                 if (role === "" || role === "unknown")
-                    role = WebInspector.UIString("No exact ARIA role match.");
+                    role = WI.UIString("No matching ARIA role");
                 else if (role) {
+                    if (role === "button") {
+                        if (pressed)
+                            buttonType = buttonTypeToggleString;
+
+                        // In cases where an element is a toggle button, but it also has
+                        // aria-haspopup, we concatenate the button types. If it is just
+                        // a popup button, we only include "popup".
+                        if (hasPopup)
+                            buttonType = buttonType ? buttonTypePopupToggleString : buttonTypePopupString;
+                    }
+
                     if (!domNode.getAttribute("role"))
-                        role = WebInspector.UIString("%s (default)").format(role);
-                    else if (domNode.getAttribute("role") !== role)
-                        role = WebInspector.UIString("%s (computed)").format(role);
+                        roleType = WI.UIString("default");
+                    else if (buttonType || domNode.getAttribute("role") !== role)
+                        roleType = WI.UIString("computed");
+
+                    if (buttonType && roleType)
+                        role = WI.UIString("%s (%s, %s)").format(role, buttonType, roleType);
+                    else if (roleType || buttonType) {
+                        let extraInfo = roleType || buttonType;
+                        role = WI.UIString("%s (%s)").format(role, extraInfo);
+                    }
                 }
 
                 var selected = booleanValueToLocalizedStringIfTrue("selected");
                 var selectedChildNodeLinkList = linkListForNodeIds(accessibilityProperties.selectedChildNodeIds);
 
+                var headingLevel = accessibilityProperties.headingLevel;
+                var hierarchyLevel = accessibilityProperties.hierarchyLevel;
                 // Assign all the properties to their respective views.
                 this._accessibilityNodeActiveDescendantRow.value = activeDescendantLink || "";
                 this._accessibilityNodeBusyRow.value = busy;
@@ -511,13 +805,15 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                 this._accessibilityNodeExpandedRow.value = expanded;
                 this._accessibilityNodeFlowsRow.value = flowedNodeLinkList || "";
                 this._accessibilityNodeFocusedRow.value = focused;
+                this._accessibilityNodeHeadingLevelRow.value = headingLevel || "";
+                this._accessibilityNodehierarchyLevelRow.value = hierarchyLevel || "";
                 this._accessibilityNodeIgnoredRow.value = ignored;
                 this._accessibilityNodeInvalidRow.value = invalid;
                 this._accessibilityNodeLabelRow.value = label;
                 this._accessibilityNodeLiveRegionStatusRow.value = liveRegionStatusNode || liveRegionStatus;
-                
+
                 // Row label changes based on whether the value is a delegate node link.
-                this._accessibilityNodeMouseEventRow.label = mouseEventNodeLink ? WebInspector.UIString("Click Listener") : WebInspector.UIString("Clickable");
+                this._accessibilityNodeMouseEventRow.label = mouseEventNodeLink ? WI.UIString("Click Listener") : WI.UIString("Clickable");
                 this._accessibilityNodeMouseEventRow.value = mouseEventNodeLink || mouseEventTextValue;
 
                 this._accessibilityNodeOwnsRow.value = ownedNodeLinkList || "";
@@ -528,10 +824,10 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                 this._accessibilityNodeRoleRow.value = role;
                 this._accessibilityNodeSelectedRow.value = selected;
 
-                this._accessibilityNodeSelectedChildrenRow.label = WebInspector.UIString("Selected Items");
+                this._accessibilityNodeSelectedChildrenRow.label = WI.UIString("Selected Items");
                 this._accessibilityNodeSelectedChildrenRow.value = selectedChildNodeLinkList || "";
                 if (selectedChildNodeLinkList && accessibilityProperties.selectedChildNodeIds.length === 1)
-                    this._accessibilityNodeSelectedChildrenRow.label = WebInspector.UIString("Selected Item");                
+                    this._accessibilityNodeSelectedChildrenRow.label = WI.UIString("Selected Item");
 
                 // Display order, not alphabetical as above.
                 this._accessibilityGroup.rows = [
@@ -548,6 +844,8 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
                     this._accessibilityNodeFlowsRow,
                     this._accessibilityNodeMouseEventRow,
                     this._accessibilityNodeFocusedRow,
+                    this._accessibilityNodeHeadingLevelRow,
+                    this._accessibilityNodehierarchyLevelRow,
                     this._accessibilityNodeBusyRow,
                     this._accessibilityNodeLiveRegionStatusRow,
                     this._accessibilityNodeCurrentRow,
@@ -576,12 +874,32 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
         domNode.accessibilityProperties(accessibilityPropertiesCallback.bind(this));
     }
 
+    _eventListenersChanged(event)
+    {
+        if (event.target === this.domNode || event.target.isAncestor(this.domNode))
+            this._refreshEventListeners();
+    }
+
     _attributesChanged(event)
     {
         if (event.data.node !== this.domNode)
             return;
         this._refreshAttributes();
         this._refreshAccessibility();
+        this._refreshDataBindings();
+    }
+
+    _attributeNodeValueChanged(event)
+    {
+        let change = event.data;
+        let data = event.target.data;
+
+        if (change.columnIdentifier === "name") {
+            this.domNode.removeAttribute(data[change.columnIdentifier], (error) => {
+                this.domNode.setAttribute(change.value, `${change.value}="${data.value}"`);
+            });
+        } else if (change.columnIdentifier === "value")
+            this.domNode.setAttributeValue(data.name, change.value);
     }
 
     _characterDataModified(event)
@@ -591,50 +909,60 @@ WebInspector.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel exten
         this._identityNodeValueRow.value = this.domNode.nodeValue();
     }
 
+    _customElementStateChanged(event)
+    {
+        if (event.data.node !== this.domNode)
+            return;
+        this._refreshIdentity();
+    }
+
     _nodeTypeDisplayName()
     {
         switch (this.domNode.nodeType()) {
-        case Node.ELEMENT_NODE:
-            return WebInspector.UIString("Element");
+        case Node.ELEMENT_NODE: {
+            const nodeName = WI.UIString("Element");
+            const state = this._customElementState();
+            return state === null ? nodeName : `${nodeName} (${state})`;
+        }
         case Node.TEXT_NODE:
-            return WebInspector.UIString("Text Node");
+            return WI.UIString("Text Node");
         case Node.COMMENT_NODE:
-            return WebInspector.UIString("Comment");
+            return WI.UIString("Comment");
         case Node.DOCUMENT_NODE:
-            return WebInspector.UIString("Document");
+            return WI.UIString("Document");
         case Node.DOCUMENT_TYPE_NODE:
-            return WebInspector.UIString("Document Type");
+            return WI.UIString("Document Type");
         case Node.DOCUMENT_FRAGMENT_NODE:
-            return WebInspector.UIString("Document Fragment");
+            return WI.UIString("Document Fragment");
         case Node.CDATA_SECTION_NODE:
-            return WebInspector.UIString("Character Data");
+            return WI.UIString("Character Data");
         case Node.PROCESSING_INSTRUCTION_NODE:
-            return WebInspector.UIString("Processing Instruction");
+            return WI.UIString("Processing Instruction");
         default:
             console.error("Unknown DOM node type: ", this.domNode.nodeType());
             return this.domNode.nodeType();
         }
     }
 
-    _createAttributesDataGrid()
+    _customElementState()
     {
-        var domNode = this.domNode;
-        if (!domNode || !domNode.hasAttributes())
+        const state = this.domNode.customElementState();
+        switch (state) {
+        case WI.DOMNode.CustomElementState.Builtin:
             return null;
-
-        var columns = {name: {title: WebInspector.UIString("Name"), width: "30%"}, value: {title: WebInspector.UIString("Value")}};
-        var dataGrid = new WebInspector.DataGrid(columns);
-
-        var attributes = domNode.attributes();
-        for (var i = 0; i < attributes.length; ++i) {
-            var attribute = attributes[i];
-
-            var node = new WebInspector.DataGridNode({name: attribute.name, value: attribute.value || ""}, false);
-            dataGrid.appendChild(node);
+        case WI.DOMNode.CustomElementState.Custom:
+            return WI.UIString("Custom");
+        case WI.DOMNode.CustomElementState.Waiting:
+            return WI.UIString("Undefined custom element");
+        case WI.DOMNode.CustomElementState.Failed:
+            return WI.UIString("Failed to upgrade");
         }
-
-        return dataGrid;
+        console.error("Unknown DOM custom element state: ", state);
+        return null;
     }
 };
 
-WebInspector.DOMNodeDetailsSidebarPanel.PropertiesObjectGroupName = "dom-node-details-sidebar-properties-object-group";
+WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod = {
+    Event: "event",
+    Target: "target",
+};

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
+ * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,45 +27,42 @@
 #include "config.h"
 #include "CustomEvent.h"
 
-#include "EventNames.h"
-#include <runtime/JSCInlines.h>
+#include <JavaScriptCore/JSCInlines.h>
 
 namespace WebCore {
 
-CustomEvent::CustomEvent()
+inline CustomEvent::CustomEvent(IsTrusted isTrusted)
+    : Event(isTrusted)
 {
 }
 
-CustomEvent::CustomEvent(const AtomicString& type, const CustomEventInit& initializer)
-    : Event(type, initializer)
+inline CustomEvent::CustomEvent(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
+    : Event(type, initializer, isTrusted)
     , m_detail(initializer.detail)
 {
 }
 
-CustomEvent::~CustomEvent()
+CustomEvent::~CustomEvent() = default;
+
+Ref<CustomEvent> CustomEvent::create(IsTrusted isTrusted)
 {
+    return adoptRef(*new CustomEvent(isTrusted));
 }
 
-void CustomEvent::initCustomEvent(const AtomicString& type, bool canBubble, bool cancelable, const Deprecated::ScriptValue& detail)
+Ref<CustomEvent> CustomEvent::create(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
 {
-    if (dispatched())
+    return adoptRef(*new CustomEvent(type, initializer, isTrusted));
+}
+
+void CustomEvent::initCustomEvent(const AtomicString& type, bool canBubble, bool cancelable, JSC::JSValue detail)
+{
+    if (isBeingDispatched())
         return;
 
     initEvent(type, canBubble, cancelable);
 
     m_detail = detail;
-    m_serializedDetail = nullptr;
-    m_triedToSerialize = false;
-}
-
-RefPtr<SerializedScriptValue> CustomEvent::trySerializeDetail(JSC::ExecState* exec)
-{
-    if (!m_serializedDetail && !m_triedToSerialize) {
-        m_serializedDetail = SerializedScriptValue::create(exec, m_detail.jsValue(), nullptr, nullptr, NonThrowing);
-        m_triedToSerialize = true;
-    }
-    
-    return m_serializedDetail;
+    m_cachedDetail = { };
 }
 
 EventInterface CustomEvent::eventInterface() const

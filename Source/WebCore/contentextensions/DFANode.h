@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DFANode_h
-#define DFANode_h
+#pragma once
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
@@ -39,8 +38,8 @@ namespace ContentExtensions {
 struct DFA;
 
 struct CharRange {
-    char first;
-    char last;
+    signed char first;
+    signed char last;
     unsigned size() const { return last - first + 1; }
 };
 
@@ -146,7 +145,6 @@ public:
 
     void setActions(uint32_t start, uint16_t length)
     {
-        ASSERT(!m_actionsStart);
         ASSERT(!m_actionsLength);
         m_actionsStart = start;
         m_actionsLength = length;
@@ -171,10 +169,7 @@ private:
 
 COMPILE_ASSERT(sizeof(DFANode) <= 16, Keep the DFANodes small);
 
-}
-
+} // namespace ContentExtensions
 } // namespace WebCore
 
 #endif // ENABLE(CONTENT_EXTENSIONS)
-
-#endif // DFANode_h

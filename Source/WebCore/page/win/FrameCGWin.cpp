@@ -26,6 +26,8 @@
 #include "config.h"
 #include "FrameWin.h"
 
+#if USE(CG)
+
 #include "BitmapInfo.h"
 #include "Frame.h"
 #include "FrameSelection.h"
@@ -52,8 +54,8 @@ static void drawRectIntoContext(IntRect rect, FrameView* view, GraphicsContext& 
 
 GDIObject<HBITMAP> imageFromRect(const Frame* frame, IntRect& ir)
 {
-    PaintBehavior oldPaintBehavior = frame->view()->paintBehavior();
-    frame->view()->setPaintBehavior(oldPaintBehavior | PaintBehaviorFlattenCompositingLayers);
+    auto oldPaintBehavior = frame->view()->paintBehavior();
+    frame->view()->setPaintBehavior(oldPaintBehavior | PaintBehavior::FlattenCompositingLayers);
 
     void* bits = nullptr;
     auto hdc = adoptGDIObject(::CreateCompatibleDC(0));
@@ -67,7 +69,7 @@ GDIObject<HBITMAP> imageFromRect(const Frame* frame, IntRect& ir)
 
     HGDIOBJ hbmpOld = SelectObject(hdc.get(), hbmp.get());
     CGContextRef context = CGBitmapContextCreate(static_cast<void*>(bits), w, h,
-        8, w * sizeof(RGBQUAD), deviceRGBColorSpaceRef(), kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
+        8, w * sizeof(RGBQUAD), sRGBColorSpaceRef(), kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
     CGContextSaveGState(context);
 
     GraphicsContext gc(context);
@@ -83,3 +85,5 @@ GDIObject<HBITMAP> imageFromRect(const Frame* frame, IntRect& ir)
 }
 
 } // namespace WebCore
+
+#endif

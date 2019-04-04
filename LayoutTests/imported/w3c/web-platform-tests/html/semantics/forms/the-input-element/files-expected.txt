@@ -6,7 +6,6 @@ PASS files for input type=tel
 PASS files for input type=url 
 PASS files for input type=email 
 PASS files for input type=password 
-PASS files for input type=datetime 
 PASS files for input type=date 
 PASS files for input type=month 
 PASS files for input type=week 
@@ -22,4 +21,5 @@ PASS files for input type=image
 PASS files for input type=reset 
 PASS files for input type=button 
 PASS files for input type=file 
+PASS setting <input type=file>.files 
 

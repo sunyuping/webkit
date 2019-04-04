@@ -47,7 +47,7 @@ static bool didFinishLoad;
 
 namespace TestWebKitAPI {
 
-TEST(WebKit1, SetDocumentURITestFile)
+TEST(WebKitLegacy, SetDocumentURITestFile)
 {
     RetainPtr<WebView> webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 120, 200) frameName:nil groupName:nil]);
     RetainPtr<SetDocumentURITest> testController = adoptNS([SetDocumentURITest new]);
@@ -64,7 +64,7 @@ TEST(WebKit1, SetDocumentURITestFile)
     EXPECT_WK_STREQ(@"file:///test", [document baseURI]);
 }
 
-TEST(WebKit1, SetDocumentURITestURL)
+TEST(WebKitLegacy, SetDocumentURITestURL)
 {
     RetainPtr<WebView> webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 120, 200) frameName:nil groupName:nil]);
     RetainPtr<SetDocumentURITest> testController = adoptNS([SetDocumentURITest new]);
@@ -84,7 +84,7 @@ TEST(WebKit1, SetDocumentURITestURL)
     EXPECT_WK_STREQ(@"http://example.com/relativeURL.html", result);
 }
 
-TEST(WebKit1, SetDocumentURITestString)
+TEST(WebKitLegacy, SetDocumentURITestString)
 {
     RetainPtr<WebView> webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 120, 200) frameName:nil groupName:nil]);
     RetainPtr<SetDocumentURITest> testController = adoptNS([SetDocumentURITest new]);
@@ -97,11 +97,10 @@ TEST(WebKit1, SetDocumentURITestString)
     [document setDocumentURI:@"A non-URL string."];
     // documentURI accepts random strings.
     EXPECT_WK_STREQ(@"A non-URL string.", [document documentURI]);
-    // baseURI is empty for non-URL strings.
-    EXPECT_WK_STREQ(@"", [document baseURI]);
+    EXPECT_WK_STREQ(@"about:blank", [document baseURI]);
 }
 
-TEST(WebKit1, SetDocumentURITestNull)
+TEST(WebKitLegacy, SetDocumentURITestNull)
 {
     RetainPtr<WebView> webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 120, 200) frameName:nil groupName:nil]);
     RetainPtr<SetDocumentURITest> testController = adoptNS([SetDocumentURITest new]);
@@ -114,8 +113,7 @@ TEST(WebKit1, SetDocumentURITestNull)
     [document setDocumentURI:nil];
     // documenturi is empty.
     EXPECT_WK_STREQ(@"", [document documentURI]);
-    // baseURI is null as well.
-    EXPECT_WK_STREQ(@"", [document baseURI]);
+    EXPECT_WK_STREQ(@"about:blank", [document baseURI]);
 }
 
 } // namespace TestWebKitAPI

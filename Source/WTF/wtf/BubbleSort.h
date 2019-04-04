@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef BubbleSort_h
-#define BubbleSort_h
+#pragma once
 
 namespace WTF {
 
@@ -89,8 +88,7 @@ void bubbleSort(IteratorType begin, IteratorType end)
 {
     bubbleSort(
         begin, end,
-        [] (const typename std::iterator_traits<IteratorType>::value_type& left,
-            const typename std::iterator_traits<IteratorType>::value_type& right) -> bool {
+        [](auto& left, auto& right) {
             return left < right;
         });
 }
@@ -98,6 +96,3 @@ void bubbleSort(IteratorType begin, IteratorType end)
 } // namespace WTF
 
 using WTF::bubbleSort;
-
-#endif // BubbleSort_h
-

@@ -28,6 +28,8 @@
 
 #if USE(CG)
 #include "GraphicsContextPlatformPrivateCG.h"
+#elif USE(DIRECT2D)
+#include "GraphicsContextPlatformPrivateDirect2D.h"
 #elif USE(CAIRO)
 #include "GraphicsContextPlatformPrivateCairo.h"
 #endif
@@ -40,7 +42,6 @@
 #include <wtf/MathExtras.h>
 #include <wtf/win/GDIObject.h>
 
-using namespace std;
 
 namespace WebCore {
 
@@ -98,10 +99,13 @@ std::unique_ptr<GraphicsContext::WindowsBitmap> GraphicsContext::createWindowsBi
 }
 #endif
 
-HDC GraphicsContext::getWindowsContext(const IntRect& dstRect, bool supportAlphaBlend, bool mayCreateBitmap)
+HDC GraphicsContext::getWindowsContext(const IntRect& dstRect, bool supportAlphaBlend)
 {
+    HDC hdc = nullptr;
+    if (!m_impl)
+        hdc = m_data->m_hdc;
     // FIXME: Should a bitmap be created also when a shadow is set?
-    if (mayCreateBitmap && (!m_data->m_hdc || isInTransparencyLayer())) {
+    if (!hdc || isInTransparencyLayer()) {
         if (dstRect.isEmpty())
             return 0;
 
@@ -113,7 +117,7 @@ HDC GraphicsContext::getWindowsContext(const IntRect& dstRect, bool supportAlpha
         if (!bitmap)
             return 0;
 
-        auto bitmapDC = adoptGDIObject(::CreateCompatibleDC(m_data->m_hdc));
+        auto bitmapDC = adoptGDIObject(::CreateCompatibleDC(hdc));
         ::SelectObject(bitmapDC.get(), bitmap);
 
         // Fill our buffer with clear if we're going to alpha blend.
@@ -144,7 +148,7 @@ HDC GraphicsContext::hdc() const
     return m_data->m_hdc;
 }
 
-#if PLATFORM(WIN)
+#if PLATFORM(WIN) && !USE(DIRECT2D)
 void GraphicsContextPlatformPrivate::save()
 {
     if (!m_hdc)
@@ -163,7 +167,8 @@ void GraphicsContextPlatformPrivate::clip(const FloatRect& clipRect)
 {
     if (!m_hdc)
         return;
-    IntersectClipRect(m_hdc, clipRect.x(), clipRect.y(), clipRect.maxX(), clipRect.maxY());
+    auto clip = enclosingIntRect(clipRect);
+    IntersectClipRect(m_hdc, clip.x(), clip.y(), clip.maxX(), clip.maxY());
 }
 
 void GraphicsContextPlatformPrivate::clip(const Path&)
@@ -179,8 +184,6 @@ void GraphicsContextPlatformPrivate::scale(const FloatSize& size)
     XFORM xform = TransformationMatrix().scaleNonUniform(size.width(), size.height());
     ModifyWorldTransform(m_hdc, &xform, MWT_LEFTMULTIPLY);
 }
-
-static const double deg2rad = 0.017453292519943295769; // pi/180
 
 void GraphicsContextPlatformPrivate::rotate(float degreesAngle)
 {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,9 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef JSArrayBufferConstructor_h
-#define JSArrayBufferConstructor_h
+#pragma once
 
+#include "ArrayBuffer.h"
 #include "InternalFunction.h"
 
 namespace JSC {
@@ -33,27 +33,35 @@ namespace JSC {
 class JSArrayBufferPrototype;
 class GetterSetter;
 
-class JSArrayBufferConstructor : public InternalFunction {
+template<ArrayBufferSharingMode sharingMode>
+class JSGenericArrayBufferConstructor final : public InternalFunction {
 public:
-    typedef InternalFunction Base;
+    using Base = InternalFunction;
 
 protected:
-    JSArrayBufferConstructor(VM&, Structure*);
+    JSGenericArrayBufferConstructor(VM&, Structure*);
     void finishCreation(VM&, JSArrayBufferPrototype*, GetterSetter* speciesSymbol);
 
-public:
-    static JSArrayBufferConstructor* create(VM&, Structure*, JSArrayBufferPrototype*, GetterSetter* speciesSymbol);
-    
-    DECLARE_INFO;
-    
-    static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
+    static EncodedJSValue JSC_HOST_CALL constructArrayBuffer(ExecState*);
 
-protected:
-    static ConstructType getConstructData(JSCell*, ConstructData&);
-    static CallType getCallData(JSCell*, CallData&);
+public:
+    static JSGenericArrayBufferConstructor* create(VM& vm, Structure* structure, JSArrayBufferPrototype* prototype, GetterSetter* speciesSymbol)
+    {
+        JSGenericArrayBufferConstructor* result =
+            new (NotNull, allocateCell<JSGenericArrayBufferConstructor>(vm.heap)) JSGenericArrayBufferConstructor(vm, structure);
+        result->finishCreation(vm, prototype, speciesSymbol);
+        return result;
+    }
+
+    static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
+    
+    static const ClassInfo s_info; // This is never accessed directly, since that would break linkage on some compilers.
+    static const ClassInfo* info();
 };
 
+using JSArrayBufferConstructor = JSGenericArrayBufferConstructor<ArrayBufferSharingMode::Default>;
+using JSSharedArrayBufferConstructor = JSGenericArrayBufferConstructor<ArrayBufferSharingMode::Shared>;
+static_assert(sizeof(JSArrayBufferConstructor::Base) == sizeof(JSArrayBufferConstructor), "");
+static_assert(sizeof(JSSharedArrayBufferConstructor::Base) == sizeof(JSSharedArrayBufferConstructor), "");
+
 } // namespace JSC
-
-#endif // JSArrayBufferConstructor_h
-

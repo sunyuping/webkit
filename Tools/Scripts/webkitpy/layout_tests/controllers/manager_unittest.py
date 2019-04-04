@@ -37,8 +37,10 @@ from webkitpy.common.host_mock import MockHost
 from webkitpy.layout_tests.controllers.manager import Manager
 from webkitpy.layout_tests.models import test_expectations
 from webkitpy.layout_tests.models.test_run_results import TestRunResults
+from webkitpy.port.test import TestPort
 from webkitpy.thirdparty.mock import Mock
 from webkitpy.tool.mocktool import MockOptions
+from webkitpy.xcode.device_type import DeviceType
 
 
 class ManagerTest(unittest.TestCase):
@@ -47,7 +49,8 @@ class ManagerTest(unittest.TestCase):
             return 'imported/w3c/wpt'
 
         def get_manager():
-            port = Mock()  # FIXME: Use a tighter mock.
+            host = MockHost()
+            port = host.port_factory.get()
             port.TEST_PATH_SEPARATOR = '/'
             port.web_platform_test_server_doc_root = get_wpt_doc_root
             manager = Manager(port, options=MockOptions(http=True), printer=Mock())
@@ -61,6 +64,9 @@ class ManagerTest(unittest.TestCase):
 
         manager = get_manager()
         self.assertTrue(manager.needs_servers(['imported/w3c/wpt/test']))
+
+        manager = get_manager()
+        self.assertTrue(manager.needs_servers(['http/wpt/funky']))
 
         manager = get_manager()
         self.assertFalse(manager.needs_servers(['imported/w3c']))

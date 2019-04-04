@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,8 +24,9 @@
  */
 
 #import "config.h"
-
 #import "WebCoreCALayerExtras.h"
+
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
 
 @implementation CALayer (WebCoreCALayerExtras)
 
@@ -53,6 +54,28 @@
             @"zPosition" : nullValue
         }
     };
+}
+
+- (void)_web_setLayerTopLeftPosition:(CGPoint)position
+{
+    CGSize layerSize = [self bounds].size;
+    CGPoint anchorPoint = [self anchorPoint];
+    CGPoint newPosition = CGPointMake(position.x + anchorPoint.x * layerSize.width, position.y + anchorPoint.y * layerSize.height);
+    if (isnan(newPosition.x) || isnan(newPosition.y)) {
+        WTFLogAlways("Attempt to call [CALayer setPosition] with NaN: newPosition=(%f, %f) position=(%f, %f) anchorPoint=(%f, %f)",
+            newPosition.x, newPosition.y, position.x, position.y, anchorPoint.x, anchorPoint.y);
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    
+    [self setPosition:newPosition];
+}
+
++ (CALayer *)_web_renderLayerWithContextID:(uint32_t)contextID
+{
+    CALayerHost *layerHost = [CALayerHost layer];
+    layerHost.contextId = contextID;
+    return layerHost;
 }
 
 @end

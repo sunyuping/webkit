@@ -23,40 +23,44 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RenderMathMLFenced_h
-#define RenderMathMLFenced_h
+#pragma once
 
 #if ENABLE(MATHML)
 
-#include "MathMLInlineContainerElement.h"
-#include "RenderMathMLOperator.h"
+#include "RenderMathMLFencedOperator.h"
 #include "RenderMathMLRow.h"
 
 namespace WebCore {
-    
-class RenderMathMLFenced final : public RenderMathMLRow {
-public:
-    RenderMathMLFenced(MathMLInlineContainerElement&, Ref<RenderStyle>&&);
-    MathMLInlineContainerElement& element() { return static_cast<MathMLInlineContainerElement&>(nodeForNonAnonymous()); }
-    
-private:
-    virtual bool isRenderMathMLFenced() const override { return true; }
-    virtual const char* renderName() const override { return "RenderMathMLFenced"; }
-    virtual void addChild(RenderObject* child, RenderObject* beforeChild) override;
-    virtual void updateFromElement() override;
 
-    RenderPtr<RenderMathMLOperator> createMathMLOperator(const String& operatorString, MathMLOperatorDictionary::Form, MathMLOperatorDictionary::Flag);
-    void makeFences();
+class MathMLRowElement;
+
+class RenderMathMLFenced final : public RenderMathMLRow {
+    WTF_MAKE_ISO_ALLOCATED(RenderMathMLFenced);
+public:
+    RenderMathMLFenced(MathMLRowElement&, RenderStyle&&);
+
+    StringImpl* separators() const { return m_separators.get(); }
+    String openingBrace() const { return m_open; }
+    String closingBrace() const { return m_close; }
+
+    RenderMathMLFencedOperator* closeFenceRenderer() const { return m_closeFenceRenderer.get(); }
+    void setCloseFenceRenderer(RenderMathMLFencedOperator& renderer) { m_closeFenceRenderer = makeWeakPtr(renderer); }
+
+    void updateFromElement();
+
+private:
+    bool isRenderMathMLFenced() const final { return true; }
+    const char* renderName() const final { return "RenderMathMLFenced"; }
 
     String m_open;
     String m_close;
     RefPtr<StringImpl> m_separators;
-    
-    RenderMathMLOperator* m_closeFenceRenderer;
+
+    WeakPtr<RenderMathMLFencedOperator> m_closeFenceRenderer;
 };
-    
+
 }
 
-#endif // ENABLE(MATHML)
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderMathMLFenced, isRenderMathMLFenced())
 
-#endif // RenderMathMLFenced_h
+#endif // ENABLE(MATHML)

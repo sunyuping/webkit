@@ -28,115 +28,152 @@
 #include "config.h"
 #include "ShadowRoot.h"
 
-#include "AuthorStyleSheets.h"
 #include "CSSStyleSheet.h"
 #include "ElementTraversal.h"
+#include "HTMLSlotElement.h"
 #include "RenderElement.h"
 #include "RuntimeEnabledFeatures.h"
 #include "SlotAssignment.h"
 #include "StyleResolver.h"
+#include "StyleScope.h"
+#include "StyleSheetList.h"
 #include "markup.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_ISO_ALLOCATED_IMPL(ShadowRoot);
+
 struct SameSizeAsShadowRoot : public DocumentFragment, public TreeScope {
     unsigned countersAndFlags[1];
-    void* styleResolver;
-    void* authorStyleSheets;
+    void* styleScope;
+    void* styleSheetList;
     void* host;
-#if ENABLE(SHADOW_DOM) || ENABLE(DETAILS_ELEMENT)
     void* slotAssignment;
-#endif
 };
 
 COMPILE_ASSERT(sizeof(ShadowRoot) == sizeof(SameSizeAsShadowRoot), shadowroot_should_stay_small);
 
-ShadowRoot::ShadowRoot(Document& document, Type type)
+ShadowRoot::ShadowRoot(Document& document, ShadowRootMode type)
     : DocumentFragment(document, CreateShadowRoot)
     , TreeScope(*this, document)
     , m_type(type)
+    , m_styleScope(std::make_unique<Style::Scope>(*this))
 {
 }
 
-#if ENABLE(SHADOW_DOM) || ENABLE(DETAILS_ELEMENT)
 
 ShadowRoot::ShadowRoot(Document& document, std::unique_ptr<SlotAssignment>&& slotAssignment)
     : DocumentFragment(document, CreateShadowRoot)
     , TreeScope(*this, document)
-    , m_type(Type::UserAgent)
+    , m_type(ShadowRootMode::UserAgent)
+    , m_styleScope(std::make_unique<Style::Scope>(*this))
     , m_slotAssignment(WTFMove(slotAssignment))
 {
 }
 
-#endif
 
 ShadowRoot::~ShadowRoot()
 {
+    if (isConnected())
+        document().didRemoveInDocumentShadowRoot(*this);
+
+    if (m_styleSheetList)
+        m_styleSheetList->detach();
+
     // We cannot let ContainerNode destructor call willBeDeletedFrom()
     // for this ShadowRoot instance because TreeScope destructor
     // clears Node::m_treeScope thus ContainerNode is no longer able
     // to access it Document reference after that.
     willBeDeletedFrom(document());
 
+    ASSERT(!m_hasBegunDeletingDetachedChildren);
+    m_hasBegunDeletingDetachedChildren = true;
+
     // We must remove all of our children first before the TreeScope destructor
-    // runs so we don't go through TreeScopeAdopter for each child with a
+    // runs so we don't go through Node::setTreeScopeRecursively for each child with a
     // destructed tree scope in each descendant.
     removeDetachedChildren();
 }
 
-StyleResolver& ShadowRoot::styleResolver()
+Node::InsertedIntoAncestorResult ShadowRoot::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    if (m_type == Type::UserAgent)
-        return document().userAgentShadowTreeStyleResolver();
+    DocumentFragment::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    if (insertionType.connectedToDocument)
+        document().didInsertInDocumentShadowRoot(*this);
+    return InsertedIntoAncestorResult::Done;
+}
 
-    if (!m_styleResolver) {
-        // FIXME: We could share style resolver with shadow roots that have identical style.
-        m_styleResolver = std::make_unique<StyleResolver>(document());
-        if (m_authorStyleSheets)
-            m_styleResolver->appendAuthorStyleSheets(m_authorStyleSheets->activeStyleSheets());
+void ShadowRoot::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+{
+    DocumentFragment::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    if (removalType.disconnectedFromDocument)
+        document().didRemoveInDocumentShadowRoot(*this);
+}
+
+void ShadowRoot::childrenChanged(const ChildChange& childChange)
+{
+    DocumentFragment::childrenChanged(childChange);
+
+    if (!m_host || m_type == ShadowRootMode::UserAgent)
+        return; // Don't support first-child, nth-of-type, etc... in UA shadow roots as an optimization.
+
+    // FIXME: Avoid always invalidating style just for first-child, etc... as done in Element::childrenChanged.
+    switch (childChange.type) {
+    case ElementInserted:
+    case ElementRemoved:
+        m_host->invalidateStyleForSubtreeInternal();
+        break;
+    case TextInserted:
+    case TextRemoved:
+    case TextChanged:
+    case AllChildrenRemoved:
+    case NonContentsChildRemoved:
+    case NonContentsChildInserted:
+    case AllChildrenReplaced:
+        break;
     }
-    return *m_styleResolver;
 }
 
-void ShadowRoot::resetStyleResolver()
+void ShadowRoot::moveShadowRootToNewParentScope(TreeScope& newScope, Document& newDocument)
 {
-    m_styleResolver = nullptr;
+    setParentTreeScope(newScope);
+    moveShadowRootToNewDocument(newDocument);
 }
 
-AuthorStyleSheets& ShadowRoot::authorStyleSheets()
+void ShadowRoot::moveShadowRootToNewDocument(Document& newDocument)
 {
-    if (!m_authorStyleSheets)
-        m_authorStyleSheets = std::make_unique<AuthorStyleSheets>(*this);
-    return *m_authorStyleSheets;
+    setDocumentScope(newDocument);
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!parentTreeScope() || &parentTreeScope()->documentScope() == &newDocument);
+
+    // Style scopes are document specific.
+    m_styleScope = std::make_unique<Style::Scope>(*this);
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(&m_styleScope->document() == &newDocument);
 }
 
-void ShadowRoot::updateStyle()
+Style::Scope& ShadowRoot::styleScope()
 {
-    bool shouldRecalcStyle = false;
+    return *m_styleScope;
+}
 
-    if (m_authorStyleSheets) {
-        // FIXME: Make optimized updated work.
-        shouldRecalcStyle = m_authorStyleSheets->updateActiveStyleSheets(AuthorStyleSheets::FullUpdate);
-    }
-
-    if (shouldRecalcStyle)
-        setNeedsStyleRecalc();
+StyleSheetList& ShadowRoot::styleSheets()
+{
+    if (!m_styleSheetList)
+        m_styleSheetList = StyleSheetList::create(*this);
+    return *m_styleSheetList;
 }
 
 String ShadowRoot::innerHTML() const
 {
-    return createMarkup(*this, ChildrenOnly);
+    return serializeFragment(*this, SerializedNodes::SubtreesOfChildren);
 }
 
-void ShadowRoot::setInnerHTML(const String& markup, ExceptionCode& ec)
+ExceptionOr<void> ShadowRoot::setInnerHTML(const String& markup)
 {
-    if (isOrphan()) {
-        ec = INVALID_ACCESS_ERR;
-        return;
-    }
-
-    if (RefPtr<DocumentFragment> fragment = createFragmentForInnerOuterHTML(markup, host(), AllowScriptingContent, ec))
-        replaceChildrenWithFragment(*this, fragment.releaseNonNull(), ec);
+    auto fragment = createFragmentForInnerOuterHTML(*host(), markup, AllowScriptingContent);
+    if (fragment.hasException())
+        return fragment.releaseException();
+    return replaceChildrenWithFragment(*this, fragment.releaseReturnValue());
 }
 
 bool ShadowRoot::childTypeAllowed(NodeType type) const
@@ -155,14 +192,8 @@ bool ShadowRoot::childTypeAllowed(NodeType type) const
 
 void ShadowRoot::setResetStyleInheritance(bool value)
 {
-    if (isOrphan())
-        return;
-
-    if (value != m_resetStyleInheritance) {
-        m_resetStyleInheritance = value;
-        if (host())
-            setNeedsStyleRecalc();
-    }
+    // If this was ever changed after initialization, child styles would need to be invalidated here.
+    m_resetStyleInheritance = value;
 }
 
 Ref<Node> ShadowRoot::cloneNodeInternal(Document&, CloningOperation)
@@ -178,38 +209,40 @@ void ShadowRoot::removeAllEventListeners()
         node->removeAllEventListeners();
 }
 
-#if ENABLE(SHADOW_DOM) || ENABLE(DETAILS_ELEMENT)
 
 HTMLSlotElement* ShadowRoot::findAssignedSlot(const Node& node)
 {
+    ASSERT(node.parentNode() == host());
     if (!m_slotAssignment)
         return nullptr;
     return m_slotAssignment->findAssignedSlot(node, *this);
 }
 
+void ShadowRoot::renameSlotElement(HTMLSlotElement& slot, const AtomicString& oldName, const AtomicString& newName)
+{
+    ASSERT(m_slotAssignment);
+    return m_slotAssignment->renameSlotElement(slot, oldName, newName, *this);
+}
+
 void ShadowRoot::addSlotElementByName(const AtomicString& name, HTMLSlotElement& slot)
 {
+    ASSERT(&slot.rootNode() == this);
     if (!m_slotAssignment)
         m_slotAssignment = std::make_unique<SlotAssignment>();
 
     return m_slotAssignment->addSlotElementByName(name, slot, *this);
 }
 
-void ShadowRoot::removeSlotElementByName(const AtomicString& name, HTMLSlotElement& slot)
+void ShadowRoot::removeSlotElementByName(const AtomicString& name, HTMLSlotElement& slot, ContainerNode& oldParentOfRemovedTree)
 {
-    return m_slotAssignment->removeSlotElementByName(name, slot, *this);
+    ASSERT(m_slotAssignment);
+    return m_slotAssignment->removeSlotElementByName(name, slot, &oldParentOfRemovedTree, *this);
 }
 
-void ShadowRoot::invalidateSlotAssignments()
+void ShadowRoot::slotFallbackDidChange(HTMLSlotElement& slot)
 {
-    if (m_slotAssignment)
-        m_slotAssignment->invalidate(*this);
-}
-
-void ShadowRoot::invalidateDefaultSlotAssignments()
-{
-    if (m_slotAssignment)
-        m_slotAssignment->invalidateDefaultSlot(*this);
+    ASSERT(&slot.rootNode() == this);
+    return m_slotAssignment->slotFallbackDidChange(slot, *this);
 }
 
 const Vector<Node*>* ShadowRoot::assignedNodesForSlot(const HTMLSlotElement& slot)
@@ -219,6 +252,14 @@ const Vector<Node*>* ShadowRoot::assignedNodesForSlot(const HTMLSlotElement& slo
     return m_slotAssignment->assignedNodesForSlot(slot, *this);
 }
 
-#endif
+Vector<ShadowRoot*> assignedShadowRootsIfSlotted(const Node& node)
+{
+    Vector<ShadowRoot*> result;
+    for (auto* slot = node.assignedSlot(); slot; slot = slot->assignedSlot()) {
+        ASSERT(slot->containingShadowRoot());
+        result.append(slot->containingShadowRoot());
+    }
+    return result;
+}
 
 }

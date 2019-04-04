@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSInternalPromise_h
-#define JSInternalPromise_h
+#pragma once
 
 #include "JSPromise.h"
 
@@ -40,7 +39,7 @@ class JSFunction;
 //     Replacing Promise.prototype.then with the user-customized one does not effect on JSInternalPromise.
 //
 // CAUTION: Must not leak the JSInternalPromise to the user space to keep its integrity.
-class JSInternalPromise : public JSPromise {
+class JSInternalPromise final : public JSPromise {
 public:
     typedef JSPromise Base;
 
@@ -56,5 +55,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // JSInternalPromise_h

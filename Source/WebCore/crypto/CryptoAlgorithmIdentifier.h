@@ -23,10 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CryptoAlgorithmIdentifier_h
-#define CryptoAlgorithmIdentifier_h
+#pragma once
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
@@ -39,23 +38,19 @@ enum class CryptoAlgorithmIdentifier {
     ECDH,
     AES_CTR,
     AES_CBC,
-    AES_CMAC,
     AES_GCM,
     AES_CFB,
     AES_KW,
     HMAC,
-    DH,
     SHA_1,
     SHA_224,
     SHA_256,
     SHA_384,
     SHA_512,
-    CONCAT,
-    HKDF_CTR,
+    HKDF,
     PBKDF2
 };
 
-}
+} // namespace WebCore
 
-#endif // ENABLE(SUBTLE_CRYPTO)
-#endif // CryptoAlgorithmIdentifier_h
+#endif // ENABLE(WEB_CRYPTO)

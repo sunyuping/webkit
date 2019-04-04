@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014 Igalia S.L
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,13 +34,17 @@
 #include "CachedResourceRequest.h"
 #include "CrossOriginAccessControl.h"
 #include "Document.h"
+#include "HTMLMediaElement.h"
+#include "InspectorInstrumentation.h"
 #include "SecurityOrigin.h"
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
-MediaResourceLoader::MediaResourceLoader(Document& document, const String& crossOriginMode)
-    : m_document(document)
+MediaResourceLoader::MediaResourceLoader(Document& document, HTMLMediaElement& mediaElement, const String& crossOriginMode)
+    : ContextDestructionObserver(&document)
+    , m_document(makeWeakPtr(document))
+    , m_mediaElement(makeWeakPtr(mediaElement))
     , m_crossOriginMode(crossOriginMode)
 {
 }
@@ -49,32 +54,73 @@ MediaResourceLoader::~MediaResourceLoader()
     ASSERT(m_resources.isEmpty());
 }
 
-RefPtr<PlatformMediaResource> MediaResourceLoader::requestResource(const ResourceRequest& request, LoadOptions options)
+void MediaResourceLoader::contextDestroyed()
 {
-    DataBufferingPolicy bufferingPolicy = options & LoadOption::BufferData ? WebCore::BufferData : WebCore::DoNotBufferData;
-    RequestOriginPolicy corsPolicy = !m_crossOriginMode.isNull() ? PotentiallyCrossOriginEnabled : UseDefaultOriginRestrictionsForType;
-    StoredCredentials allowCredentials = m_crossOriginMode.isNull() || equalLettersIgnoringASCIICase(m_crossOriginMode, "use-credentials") ? AllowStoredCredentials : DoNotAllowStoredCredentials;
+    ContextDestructionObserver::contextDestroyed();
+    m_document = nullptr;
+    m_mediaElement = nullptr;
+}
 
-    // ContentSecurityPolicyImposition::DoPolicyCheck is a placeholder value. It does not affect the request since Content Security Policy does not apply to raw resources.
-    CachedResourceRequest cacheRequest(request, ResourceLoaderOptions(SendCallbacks, DoNotSniffContent, bufferingPolicy, allowCredentials, DoNotAskClientForCrossOriginCredentials, ClientDidNotRequestCredentials, DoSecurityCheck, corsPolicy, DoNotIncludeCertificateInfo, ContentSecurityPolicyImposition::DoPolicyCheck, DefersLoadingPolicy::AllowDefersLoading, CachingPolicy::AllowCaching));
+RefPtr<PlatformMediaResource> MediaResourceLoader::requestResource(ResourceRequest&& request, LoadOptions options)
+{
+    if (!m_document)
+        return nullptr;
 
+    DataBufferingPolicy bufferingPolicy = options & LoadOption::BufferData ? DataBufferingPolicy::BufferData : DataBufferingPolicy::DoNotBufferData;
+    auto cachingPolicy = options & LoadOption::DisallowCaching ? CachingPolicy::DisallowCaching : CachingPolicy::AllowCaching;
+
+    request.setRequester(ResourceRequest::Requester::Media);
+
+    if (m_mediaElement)
+        request.setInspectorInitiatorNodeIdentifier(InspectorInstrumentation::identifierForNode(*m_mediaElement));
+
+#if HAVE(AVFOUNDATION_LOADER_DELEGATE) && PLATFORM(MAC)
+    // FIXME: Workaround for <rdar://problem/26071607>. We are not able to do CORS checking on 304 responses because they are usually missing the headers we need.
     if (!m_crossOriginMode.isNull())
-        updateRequestForAccessControl(cacheRequest.mutableResourceRequest(), m_document.securityOrigin(), allowCredentials);
+        request.makeUnconditional();
+#endif
 
-    CachedResourceHandle<CachedRawResource> resource = m_document.cachedResourceLoader().requestRawResource(cacheRequest);
+    ContentSecurityPolicyImposition contentSecurityPolicyImposition = m_mediaElement && m_mediaElement->isInUserAgentShadowTree() ? ContentSecurityPolicyImposition::SkipPolicyCheck : ContentSecurityPolicyImposition::DoPolicyCheck;
+    ResourceLoaderOptions loaderOptions {
+        SendCallbackPolicy::SendCallbacks,
+        ContentSniffingPolicy::DoNotSniffContent,
+        bufferingPolicy,
+        StoredCredentialsPolicy::Use,
+        ClientCredentialPolicy::MayAskClientForCredentials,
+        FetchOptions::Credentials::Include,
+        SecurityCheckPolicy::DoSecurityCheck,
+        FetchOptions::Mode::NoCors,
+        CertificateInfoPolicy::DoNotIncludeCertificateInfo,
+        contentSecurityPolicyImposition,
+        DefersLoadingPolicy::AllowDefersLoading,
+        cachingPolicy };
+    loaderOptions.destination = m_mediaElement && !m_mediaElement->isVideo() ? FetchOptions::Destination::Audio : FetchOptions::Destination::Video;
+    auto cachedRequest = createPotentialAccessControlRequest(WTFMove(request), *m_document, m_crossOriginMode, WTFMove(loaderOptions));
+    if (m_mediaElement)
+        cachedRequest.setInitiator(*m_mediaElement.get());
+
+    auto resource = m_document->cachedResourceLoader().requestMedia(WTFMove(cachedRequest)).value_or(nullptr);
     if (!resource)
         return nullptr;
 
     Ref<MediaResource> mediaResource = MediaResource::create(*this, resource);
     m_resources.add(mediaResource.ptr());
 
-    return WTFMove(mediaResource);
+    return mediaResource;
 }
 
 void MediaResourceLoader::removeResource(MediaResource& mediaResource)
 {
     ASSERT(m_resources.contains(&mediaResource));
     m_resources.remove(&mediaResource);
+}
+
+void MediaResourceLoader::addResponseForTesting(const ResourceResponse& response)
+{
+    const auto maximumResponsesForTesting = 5;
+    if (m_responsesForTesting.size() > maximumResponsesForTesting)
+        return;
+    m_responsesForTesting.append(response);
 }
 
 Ref<MediaResource> MediaResource::create(MediaResourceLoader& loader, CachedResourceHandle<CachedRawResource> resource)
@@ -87,7 +133,7 @@ MediaResource::MediaResource(MediaResourceLoader& loader, CachedResourceHandle<C
     , m_resource(resource)
 {
     ASSERT(resource);
-    resource->addClient(this);
+    resource->addClient(*this);
 }
 
 MediaResource::~MediaResource()
@@ -101,24 +147,22 @@ void MediaResource::stop()
     if (!m_resource)
         return;
 
-    m_resource->removeClient(this);
+    m_resource->removeClient(*this);
     m_resource = nullptr;
 }
 
-void MediaResource::setDefersLoading(bool defersLoading)
+void MediaResource::responseReceived(CachedResource& resource, const ResourceResponse& response, CompletionHandler<void()>&& completionHandler)
 {
-    if (m_resource)
-        m_resource->setDefersLoading(defersLoading);
-}
+    ASSERT_UNUSED(resource, &resource == m_resource);
+    CompletionHandlerCallingScope completionHandlerCaller(WTFMove(completionHandler));
 
-void MediaResource::responseReceived(CachedResource* resource, const ResourceResponse& response)
-{
-    ASSERT_UNUSED(resource, resource == m_resource);
+    if (!m_loader->document())
+        return;
 
-    RefPtr<MediaResource> protect(this);
-    if (!m_loader->crossOriginMode().isNull() && !resource->passesSameOriginPolicyCheck(*m_loader->document().securityOrigin())) {
+    RefPtr<MediaResource> protectedThis(this);
+    if (m_resource->resourceError().isAccessControl()) {
         static NeverDestroyed<const String> consoleMessage("Cross-origin media resource load denied by Cross-Origin Resource Sharing policy.");
-        m_loader->document().addConsoleMessage(MessageSource::Security, MessageLevel::Error, consoleMessage.get());
+        m_loader->document()->addConsoleMessage(MessageSource::Security, MessageLevel::Error, consoleMessage.get());
         m_didPassAccessControlCheck = false;
         if (m_client)
             m_client->accessControlCheckFailed(*this, ResourceError(errorDomainWebKitInternal, 0, response.url(), consoleMessage.get()));
@@ -126,59 +170,70 @@ void MediaResource::responseReceived(CachedResource* resource, const ResourceRes
         return;
     }
 
-    m_didPassAccessControlCheck = !m_loader->crossOriginMode().isNull();
+    m_didPassAccessControlCheck = m_resource->options().mode == FetchOptions::Mode::Cors;
     if (m_client)
-        m_client->responseReceived(*this, response);
+        m_client->responseReceived(*this, response, [this, protectedThis = makeRef(*this), completionHandler = completionHandlerCaller.release()] (ShouldContinue shouldContinue) mutable {
+            if (completionHandler)
+                completionHandler();
+            if (shouldContinue == ShouldContinue::No)
+                stop();
+        });
+
+    m_loader->addResponseForTesting(response);
 }
 
-void MediaResource::redirectReceived(CachedResource* resource, ResourceRequest& request, const ResourceResponse& response)
+bool MediaResource::shouldCacheResponse(CachedResource& resource, const ResourceResponse& response)
 {
-    ASSERT_UNUSED(resource, resource == m_resource);
+    ASSERT_UNUSED(resource, &resource == m_resource);
 
-    RefPtr<MediaResource> protect(this);
+    RefPtr<MediaResource> protectedThis(this);
     if (m_client)
-        m_client->redirectReceived(*this, request, response);
+        return m_client->shouldCacheResponse(*this, response);
+    return true;
 }
 
-void MediaResource::dataSent(CachedResource* resource, unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
+void MediaResource::redirectReceived(CachedResource& resource, ResourceRequest&& request, const ResourceResponse& response, CompletionHandler<void(ResourceRequest&&)>&& completionHandler)
 {
-    ASSERT_UNUSED(resource, resource == m_resource);
+    ASSERT_UNUSED(resource, &resource == m_resource);
 
-    RefPtr<MediaResource> protect(this);
+    RefPtr<MediaResource> protectedThis(this);
+    if (m_client)
+        m_client->redirectReceived(*this, WTFMove(request), response, WTFMove(completionHandler));
+    else
+        completionHandler(WTFMove(request));
+}
+
+void MediaResource::dataSent(CachedResource& resource, unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
+{
+    ASSERT_UNUSED(resource, &resource == m_resource);
+
+    RefPtr<MediaResource> protectedThis(this);
     if (m_client)
         m_client->dataSent(*this, bytesSent, totalBytesToBeSent);
 }
 
-void MediaResource::dataReceived(CachedResource* resource, const char* data, int dataLength)
+void MediaResource::dataReceived(CachedResource& resource, const char* data, int dataLength)
 {
-    ASSERT_UNUSED(resource, resource == m_resource);
+    ASSERT_UNUSED(resource, &resource == m_resource);
 
-    RefPtr<MediaResource> protect(this);
+    RefPtr<MediaResource> protectedThis(this);
     if (m_client)
         m_client->dataReceived(*this, data, dataLength);
 }
 
-void MediaResource::notifyFinished(CachedResource* resource)
+void MediaResource::notifyFinished(CachedResource& resource)
 {
-    ASSERT(resource == m_resource);
+    ASSERT_UNUSED(resource, &resource == m_resource);
 
-    RefPtr<MediaResource> protect(this);
+    RefPtr<MediaResource> protectedThis(this);
     if (m_client) {
-        if (resource->loadFailedOrCanceled())
-            m_client->loadFailed(*this, resource->resourceError());
+        if (m_resource->loadFailedOrCanceled())
+            m_client->loadFailed(*this, m_resource->resourceError());
         else
             m_client->loadFinished(*this);
     }
     stop();
 }
-
-#if USE(SOUP)
-char* MediaResource::getOrCreateReadBuffer(CachedResource* resource, size_t requestedSize, size_t& actualSize)
-{
-    ASSERT_UNUSED(resource, resource == m_resource);
-    return m_client ? m_client->getOrCreateReadBuffer(*this, requestedSize, actualSize) : nullptr;
-}
-#endif
 
 } // namespace WebCore
 

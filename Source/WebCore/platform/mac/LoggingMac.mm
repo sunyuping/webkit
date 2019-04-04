@@ -28,17 +28,20 @@
 
 #include <wtf/text/WTFString.h>
 
-#if !LOG_DISABLED
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
 namespace WebCore {
 
-static NSString * const defaultsDomain = @"WebCoreLogging";
-
 String logLevelString()
 {
+#if !LOG_DISABLED
+    static NSString * const defaultsDomain = @"WebCoreLogging";
     return [[NSUserDefaults standardUserDefaults] stringForKey:defaultsDomain];
+#else
+    return String();
+#endif
 }
 
 }
 
-#endif // !LOG_DISABLED
+#endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED

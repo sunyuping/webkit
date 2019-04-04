@@ -26,12 +26,13 @@
 #ifndef CDMSessionMediaSourceAVFObjC_h
 #define CDMSessionMediaSourceAVFObjC_h
 
-#include "CDMSession.h"
+#include "LegacyCDMSession.h"
 #include "SourceBufferPrivateAVFObjC.h"
+#include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/WeakPtr.h>
 
-#if ENABLE(ENCRYPTED_MEDIA_V2) && ENABLE(MEDIA_SOURCE)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
 OBJC_CLASS AVStreamDataParser;
 OBJC_CLASS NSError;
@@ -40,21 +41,23 @@ namespace WebCore {
 
 class CDMPrivateMediaSourceAVFObjC;
 
-class CDMSessionMediaSourceAVFObjC : public CDMSession, public SourceBufferPrivateAVFObjCErrorClient {
+class CDMSessionMediaSourceAVFObjC : public LegacyCDMSession, public SourceBufferPrivateAVFObjCErrorClient, public CanMakeWeakPtr<CDMSessionMediaSourceAVFObjC> {
 public:
-    CDMSessionMediaSourceAVFObjC(CDMPrivateMediaSourceAVFObjC&, CDMSessionClient*);
+    CDMSessionMediaSourceAVFObjC(CDMPrivateMediaSourceAVFObjC&, LegacyCDMSessionClient*);
     virtual ~CDMSessionMediaSourceAVFObjC();
 
     virtual void addParser(AVStreamDataParser*) = 0;
     virtual void removeParser(AVStreamDataParser*) = 0;
 
-    // CDMSession
-    virtual void setClient(CDMSessionClient* client) override { m_client = client; }
-    virtual const String& sessionId() const override { return m_sessionId; }
+    // LegacyCDMSession
+    void setClient(LegacyCDMSessionClient* client) override { m_client = client; }
+    const String& sessionId() const override { return m_sessionId; }
 
     // SourceBufferPrivateAVFObjCErrorClient
-    virtual void layerDidReceiveError(AVSampleBufferDisplayLayer *, NSError *, bool& shouldIgnore) override;
-    virtual void rendererDidReceiveError(AVSampleBufferAudioRenderer *, NSError *, bool& shouldIgnore) override;
+    void layerDidReceiveError(AVSampleBufferDisplayLayer *, NSError *, bool& shouldIgnore) override;
+    ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
+    void rendererDidReceiveError(AVSampleBufferAudioRenderer *, NSError *, bool& shouldIgnore) override;
+    ALLOW_NEW_API_WITHOUT_GUARDS_END
 
     void addSourceBuffer(SourceBufferPrivateAVFObjC*);
     void removeSourceBuffer(SourceBufferPrivateAVFObjC*);
@@ -66,14 +69,14 @@ protected:
     String storagePath() const;
 
     CDMPrivateMediaSourceAVFObjC* m_cdm;
-    CDMSessionClient* m_client { nullptr };
+    LegacyCDMSessionClient* m_client { nullptr };
     Vector<RefPtr<SourceBufferPrivateAVFObjC>> m_sourceBuffers;
     RefPtr<Uint8Array> m_certificate;
     String m_sessionId;
     bool m_stopped { false };
 };
 
-inline CDMSessionMediaSourceAVFObjC* toCDMSessionMediaSourceAVFObjC(CDMSession* session)
+inline CDMSessionMediaSourceAVFObjC* toCDMSessionMediaSourceAVFObjC(LegacyCDMSession* session)
 {
     if (!session || (session->type() != CDMSessionTypeAVStreamSession && session->type() != CDMSessionTypeAVContentKeySession))
         return nullptr;
@@ -82,6 +85,6 @@ inline CDMSessionMediaSourceAVFObjC* toCDMSessionMediaSourceAVFObjC(CDMSession* 
 
 }
 
-#endif // ENABLE(ENCRYPTED_MEDIA_V2) && ENABLE(MEDIA_SOURCE)
+#endif // ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
 #endif // CDMSessionMediaSourceAVFObjC_h

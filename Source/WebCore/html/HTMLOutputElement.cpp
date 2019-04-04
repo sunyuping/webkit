@@ -31,12 +31,14 @@
 #include "config.h"
 #include "HTMLOutputElement.h"
 
-#include "ExceptionCodePlaceholder.h"
 #include "HTMLFormElement.h"
 #include "HTMLNames.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLOutputElement);
 
 using namespace HTMLNames;
 
@@ -44,7 +46,7 @@ inline HTMLOutputElement::HTMLOutputElement(const QualifiedName& tagName, Docume
     : HTMLFormControlElement(tagName, document, form)
     , m_isDefaultValueMode(true)
     , m_isSetTextContentInProgress(false)
-    , m_defaultValue("")
+    , m_defaultValue(emptyString())
 {
 }
 
@@ -68,7 +70,7 @@ void HTMLOutputElement::parseAttribute(const QualifiedName& name, const AtomicSt
 {
     if (name == forAttr) {
         if (m_tokens)
-            m_tokens->attributeValueChanged(value);
+            m_tokens->associatedAttributeValueChanged(value);
     } else
         HTMLFormControlElement::parseAttribute(name, value);
 }
@@ -77,7 +79,7 @@ void HTMLOutputElement::childrenChanged(const ChildChange& change)
 {
     HTMLFormControlElement::childrenChanged(change);
 
-    if (change.source == ChildChangeSourceParser || m_isSetTextContentInProgress) {
+    if (change.source == ChildChangeSource::Parser || m_isSetTextContentInProgress) {
         m_isSetTextContentInProgress = false;
         return;
     }
@@ -130,7 +132,7 @@ void HTMLOutputElement::setDefaultValue(const String& value)
 DOMTokenList& HTMLOutputElement::htmlFor()
 {
     if (!m_tokens)
-        m_tokens = std::make_unique<AttributeDOMTokenList>(*this, forAttr);
+        m_tokens = std::make_unique<DOMTokenList>(*this, forAttr);
     return *m_tokens;
 }
 
@@ -138,7 +140,7 @@ void HTMLOutputElement::setTextContentInternal(const String& value)
 {
     ASSERT(!m_isSetTextContentInProgress);
     m_isSetTextContentInProgress = true;
-    setTextContent(value, IGNORE_EXCEPTION);
+    setTextContent(value);
 }
 
 } // namespace

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,11 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGAbstractHeap_h
-#define DFGAbstractHeap_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
+#include "DOMJITHeapRange.h"
 #include "VirtualRegister.h"
 #include <wtf/HashMap.h>
 #include <wtf/PrintStream.h>
@@ -52,12 +52,14 @@ namespace JSC { namespace DFG {
     macro(Butterfly_vectorLength) \
     macro(GetterSetter_getter) \
     macro(GetterSetter_setter) \
-    macro(JSCell_structureID) \
+    macro(JSCell_cellState) \
     macro(JSCell_indexingType) \
+    macro(JSCell_structureID) \
     macro(JSCell_typeInfoFlags) \
     macro(JSCell_typeInfoType) \
     macro(JSObject_butterfly) \
     macro(JSPropertyNameEnumerator_cachedPropertyNames) \
+    macro(RegExpObject_lastIndex) \
     macro(NamedProperties) \
     macro(IndexedInt32Properties) \
     macro(IndexedDoubleProperties) \
@@ -70,8 +72,15 @@ namespace JSC { namespace DFG {
     macro(HeapObjectCount) /* Used to reflect the fact that some allocations reveal object identity */\
     macro(RegExpState) \
     macro(MathDotRandomState) \
+    macro(JSMapFields) \
+    macro(JSSetFields) \
+    macro(JSWeakMapFields) \
+    macro(JSWeakSetFields) \
     macro(InternalState) \
+    macro(CatchLocals) \
     macro(Absolute) \
+    /* DOMJIT tells the heap range with the pair of integers. */\
+    macro(DOMState) \
     /* Use this for writes only, to indicate that this may fire watchpoints. Usually this is never directly written but instead we test to see if a node clobbers this; it just so happens that you have to write world to clobber it. */\
     macro(Watchpoint_fire) \
     /* Use these for reads only, just to indicate that if the world got clobbered, then this operation will not work. */\
@@ -232,6 +241,15 @@ public:
     bool isStrictSubtypeOf(const AbstractHeap& other) const
     {
         AbstractHeap current = *this;
+        if (current.kind() == DOMState && other.kind() == DOMState) {
+            Payload currentPayload = current.payload();
+            Payload otherPayload = other.payload();
+            if (currentPayload.isTop())
+                return false;
+            if (otherPayload.isTop())
+                return true;
+            return DOMJIT::HeapRange::fromRaw(currentPayload.value32()).isStrictSubtypeOf(DOMJIT::HeapRange::fromRaw(otherPayload.value32()));
+        }
         while (current.kind() != World) {
             current = current.supertype();
             if (current == other)
@@ -297,7 +315,7 @@ private:
     {
         int64_t kindAsInt = static_cast<int64_t>(kind);
         ASSERT(kindAsInt < (1 << topShift));
-        return kindAsInt | (payload.isTop() << topShift) | (payload.valueImpl() << valueShift);
+        return kindAsInt | (static_cast<uint64_t>(payload.isTop()) << topShift) | (bitwise_cast<uint64_t>(payload.valueImpl()) << valueShift);
     }
     
     // The layout of the value is:
@@ -330,6 +348,3 @@ template<> struct HashTraits<JSC::DFG::AbstractHeap> : SimpleClassHashTraits<JSC
 } // namespace WTF
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGAbstractHeap_h
-

@@ -2,7 +2,7 @@
  * Copyright (C) 2001 Peter Kelly (pmk@post.com)
  * Copyright (C) 2001 Tobias Anton (anton@stud.fbi.fh-darmstadt.de)
  * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
- * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2018 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,9 +21,9 @@
  *
  */
 
-#ifndef KeyboardEvent_h
-#define KeyboardEvent_h
+#pragma once
 
+#include "EventModifierInit.h"
 #include "KeypressCommand.h"
 #include "UIEventWithKeyState.h"
 #include <memory>
@@ -34,99 +34,97 @@ namespace WebCore {
 class Node;
 class PlatformKeyboardEvent;
 
-struct KeyboardEventInit : public UIEventWithKeyStateInit {
-    String keyIdentifier;
-    unsigned location { 0 };
-};
-
 class KeyboardEvent final : public UIEventWithKeyState {
 public:
     enum KeyLocationCode {
-        DOM_KEY_LOCATION_STANDARD   = 0x00,
-        DOM_KEY_LOCATION_LEFT       = 0x01,
-        DOM_KEY_LOCATION_RIGHT      = 0x02,
-        DOM_KEY_LOCATION_NUMPAD     = 0x03
-        // FIXME: The following values are not supported yet (crbug.com/265446)
-        // DOM_KEY_LOCATION_MOBILE     = 0x04,
-        // DOM_KEY_LOCATION_JOYSTICK   = 0x05
+        DOM_KEY_LOCATION_STANDARD = 0x00,
+        DOM_KEY_LOCATION_LEFT = 0x01,
+        DOM_KEY_LOCATION_RIGHT = 0x02,
+        DOM_KEY_LOCATION_NUMPAD = 0x03
     };
 
-    static Ref<KeyboardEvent> create(const PlatformKeyboardEvent& platformEvent, AbstractView* view)
-    {
-        return adoptRef(*new KeyboardEvent(platformEvent, view));
-    }
+    WEBCORE_EXPORT static Ref<KeyboardEvent> create(const PlatformKeyboardEvent&, RefPtr<WindowProxy>&&);
+    static Ref<KeyboardEvent> createForBindings();
 
-    static Ref<KeyboardEvent> createForBindings()
-    {
-        return adoptRef(*new KeyboardEvent);
-    }
+    struct Init : public EventModifierInit {
+        String key;
+        String code;
+        unsigned location;
+        bool repeat;
+        bool isComposing;
 
-    static Ref<KeyboardEvent> createForBindings(const AtomicString& type, const KeyboardEventInit& initializer)
-    {
-        return adoptRef(*new KeyboardEvent(type, initializer));
-    }
+        // Legacy.
+        String keyIdentifier;
+        Optional<unsigned> keyLocation;
+        unsigned charCode;
+        unsigned keyCode;
+        unsigned which;
+    };
 
-    // FIXME: This method should be get ride of in the future.
-    // DO NOT USE IT!
-    static Ref<KeyboardEvent> createForDummy()
-    {
-        return adoptRef(*new KeyboardEvent(WTF::HashTableDeletedValue));
-    }
+    static Ref<KeyboardEvent> create(const AtomicString& type, const Init&);
 
     virtual ~KeyboardEvent();
     
-    void initKeyboardEvent(const AtomicString& type, bool canBubble, bool cancelable, AbstractView*,
+    WEBCORE_EXPORT void initKeyboardEvent(const AtomicString& type, bool canBubble, bool cancelable, RefPtr<WindowProxy>&&,
         const String& keyIdentifier, unsigned location,
         bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool altGraphKey = false);
     
+#if ENABLE(KEYBOARD_KEY_ATTRIBUTE)
+    const String& key() const { return m_key; }
+#endif
+#if ENABLE(KEYBOARD_CODE_ATTRIBUTE)
+    const String& code() const { return m_code; }
+#endif
+
     const String& keyIdentifier() const { return m_keyIdentifier; }
     unsigned location() const { return m_location; }
+    bool repeat() const { return m_repeat; }
 
-    bool getModifierState(const String& keyIdentifier) const;
+    const PlatformKeyboardEvent* underlyingPlatformEvent() const { return m_underlyingPlatformEvent.get(); }
+    PlatformKeyboardEvent* underlyingPlatformEvent() { return m_underlyingPlatformEvent.get(); }
 
-    bool altGraphKey() const { return m_altGraphKey; }
-    
-    const PlatformKeyboardEvent* keyEvent() const { return m_keyEvent.get(); }
+    WEBCORE_EXPORT int keyCode() const; // key code for keydown and keyup, character for keypress
+    WEBCORE_EXPORT int charCode() const; // character code for keypress, 0 for keydown and keyup
 
-    virtual int keyCode() const override; // key code for keydown and keyup, character for keypress
-    virtual int charCode() const override; // character code for keypress, 0 for keydown and keyup
+    EventInterface eventInterface() const final;
+    bool isKeyboardEvent() const final;
+    int which() const final;
 
-    virtual EventInterface eventInterface() const override;
-    virtual bool isKeyboardEvent() const override;
-    virtual int which() const override;
+    bool isComposing() const { return m_isComposing; }
 
 #if PLATFORM(COCOA)
     bool handledByInputMethod() const { return m_handledByInputMethod; }
     const Vector<KeypressCommand>& keypressCommands() const { return m_keypressCommands; }
-
-    // The non-const version is still needed for WebKit1, which doesn't construct a complete KeyboardEvent with interpreted commands yet.
     Vector<KeypressCommand>& keypressCommands() { return m_keypressCommands; }
 #endif
 
 private:
-    WEBCORE_EXPORT KeyboardEvent();
-    WEBCORE_EXPORT KeyboardEvent(const PlatformKeyboardEvent&, AbstractView*);
-    KeyboardEvent(const AtomicString&, const KeyboardEventInit&);
-    // FIXME: This method should be get ride of in the future.
-    // DO NOT USE IT!
-    KeyboardEvent(WTF::HashTableDeletedValueType);
+    KeyboardEvent();
+    KeyboardEvent(const PlatformKeyboardEvent&, RefPtr<WindowProxy>&&);
+    KeyboardEvent(const AtomicString&, const Init&);
 
-    std::unique_ptr<PlatformKeyboardEvent> m_keyEvent;
+    std::unique_ptr<PlatformKeyboardEvent> m_underlyingPlatformEvent;
+#if ENABLE(KEYBOARD_KEY_ATTRIBUTE)
+    String m_key;
+#endif
+#if ENABLE(KEYBOARD_CODE_ATTRIBUTE)
+    String m_code;
+#endif
     String m_keyIdentifier;
-    unsigned m_location;
-    bool m_altGraphKey : 1;
+    unsigned m_location { DOM_KEY_LOCATION_STANDARD };
+    bool m_repeat { false };
+    bool m_isComposing { false };
+    Optional<unsigned> m_charCode;
+    Optional<unsigned> m_keyCode;
+    Optional<unsigned> m_which;
 
 #if PLATFORM(COCOA)
     // Commands that were sent by AppKit when interpreting the event. Doesn't include input method commands.
-    bool m_handledByInputMethod;
+    bool m_handledByInputMethod { false };
     Vector<KeypressCommand> m_keypressCommands;
 #endif
 };
 
-KeyboardEvent* findKeyboardEvent(Event*);
-
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_EVENT(KeyboardEvent)
-
-#endif // KeyboardEvent_h

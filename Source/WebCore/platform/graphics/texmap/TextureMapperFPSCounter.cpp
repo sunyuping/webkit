@@ -21,28 +21,25 @@
 
 #include "config.h"
 
-#if USE(TEXTURE_MAPPER)
-
 #include "TextureMapperFPSCounter.h"
 
 #include "TextureMapper.h"
-#include <wtf/CurrentTime.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 TextureMapperFPSCounter::TextureMapperFPSCounter()
     : m_isShowingFPS(false)
-    , m_fpsInterval(0)
-    , m_fpsTimestamp(0)
+    , m_fpsInterval(0_s)
     , m_lastFPS(0)
     , m_frameCount(0)
 {
     String showFPSEnvironment = getenv("WEBKIT_SHOW_FPS");
     bool ok = false;
-    m_fpsInterval = showFPSEnvironment.toDouble(&ok);
+    m_fpsInterval = Seconds(showFPSEnvironment.toDouble(&ok));
     if (ok && m_fpsInterval) {
         m_isShowingFPS = true;
-        m_fpsTimestamp = monotonicallyIncreasingTime();
+        m_fpsTimestamp = MonotonicTime::now();
     }
 }
 
@@ -52,9 +49,9 @@ void TextureMapperFPSCounter::updateFPSAndDisplay(TextureMapper& textureMapper, 
         return;
 
     m_frameCount++;
-    double delta = monotonicallyIncreasingTime() - m_fpsTimestamp;
+    Seconds delta = MonotonicTime::now() - m_fpsTimestamp;
     if (delta >= m_fpsInterval) {
-        m_lastFPS = int(m_frameCount / delta);
+        m_lastFPS = int(m_frameCount / delta.seconds());
         m_frameCount = 0;
         m_fpsTimestamp += delta;
     }
@@ -63,5 +60,3 @@ void TextureMapperFPSCounter::updateFPSAndDisplay(TextureMapper& textureMapper, 
 }
 
 } // namespace WebCore
-
-#endif // USE(TEXTURE_MAPPER)

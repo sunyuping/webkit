@@ -19,8 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef CSSUnknownRule_h
-#define CSSUnknownRule_h
+#pragma once
 
 #include "CSSRule.h"
 
@@ -33,15 +32,13 @@ public:
     {
     }
 
-    virtual ~CSSUnknownRule() { }
+    virtual ~CSSUnknownRule() = default;
 
-    virtual String cssText() const override { return String(); }
-    virtual void reattach(StyleRuleBase&) override { }
+    String cssText() const final { return String(); }
+    void reattach(StyleRuleBase&) final { }
 
 private:
-    virtual CSSRule::Type type() const override { return UNKNOWN_RULE; }
+    CSSRule::Type type() const final { return UNKNOWN_RULE; }
 };
 
 } // namespace WebCore
-
-#endif // CSSUnknownRule_h

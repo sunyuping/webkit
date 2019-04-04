@@ -26,31 +26,30 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AccessibilitySVGRoot_h
-#define AccessibilitySVGRoot_h
+#pragma once
 
-#include "AccessibilityRenderObject.h"
+#include "AccessibilitySVGElement.h"
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class AccessibilitySVGRoot final : public AccessibilityRenderObject {
+class AccessibilitySVGRoot final : public AccessibilitySVGElement {
 public:
     static Ref<AccessibilitySVGRoot> create(RenderObject*);
     virtual ~AccessibilitySVGRoot();
     
-    void setParent(AccessibilityObject* parent) { m_parent = parent; }
+    void setParent(AccessibilityRenderObject*);
 
 private:
     explicit AccessibilitySVGRoot(RenderObject*);
     
-    virtual AccessibilityObject* parentObject() const override;
-    virtual bool isAccessibilitySVGRoot() const override { return true; }
+    AccessibilityObject* parentObject() const override;
+    bool isAccessibilitySVGRoot() const override { return true; }
 
-    AccessibilityObject* m_parent;
+    WeakPtr<AccessibilityRenderObject> m_parent;
+    AccessibilityRole roleValue() const override;
 };
     
 } // namespace WebCore 
 
 SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilitySVGRoot, isAccessibilitySVGRoot())
-
-#endif // AccessibilitySVGRoot_h

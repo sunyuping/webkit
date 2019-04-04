@@ -33,13 +33,16 @@
 #include "ImageObserver.h"
 #include "Length.h"
 #include "MIMETypeRegistry.h"
+#include "SVGImage.h"
 #include "SharedBuffer.h"
-#include "TextStream.h"
 #include <math.h>
 #include <wtf/MainThread.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/URL.h>
+#include <wtf/text/TextStream.h>
 
 #if USE(CG)
+#include "PDFDocumentImage.h"
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
@@ -50,56 +53,113 @@ Image::Image(ImageObserver* observer)
 {
 }
 
-Image::~Image()
-{
-}
+Image::~Image() = default;
 
-Image* Image::nullImage()
+Image& Image::nullImage()
 {
     ASSERT(isMainThread());
     static Image& nullImage = BitmapImage::create().leakRef();
-    return &nullImage;
+    return nullImage;
+}
+
+RefPtr<Image> Image::create(ImageObserver& observer)
+{
+    auto mimeType = observer.mimeType();
+    if (mimeType == "image/svg+xml")
+        return SVGImage::create(observer);
+
+    auto url = observer.sourceUrl();
+    if (isPDFResource(mimeType, url) || isPostScriptResource(mimeType, url)) {
+#if USE(CG) && !USE(WEBKIT_IMAGE_DECODERS)
+        return PDFDocumentImage::create(&observer);
+#else
+        return nullptr;
+#endif
+    }
+
+    return BitmapImage::create(&observer);
 }
 
 bool Image::supportsType(const String& type)
 {
-    return MIMETypeRegistry::isSupportedImageResourceMIMEType(type); 
+    return MIMETypeRegistry::isSupportedImageMIMEType(type);
 } 
 
-bool Image::setData(PassRefPtr<SharedBuffer> data, bool allDataReceived)
+bool Image::isPDFResource(const String& mimeType, const URL& url)
 {
-    m_encodedImageData = data;
-    if (!m_encodedImageData.get())
-        return true;
+    if (mimeType.isEmpty())
+        return url.path().endsWithIgnoringASCIICase(".pdf");
+    return MIMETypeRegistry::isPDFMIMEType(mimeType);
+}
 
-    int length = m_encodedImageData->size();
-    if (!length)
-        return true;
-    
+bool Image::isPostScriptResource(const String& mimeType, const URL& url)
+{
+    if (mimeType.isEmpty())
+        return url.path().endsWithIgnoringASCIICase(".ps");
+    return MIMETypeRegistry::isPostScriptMIMEType(mimeType);
+}
+
+
+EncodedDataStatus Image::setData(RefPtr<SharedBuffer>&& data, bool allDataReceived)
+{
+    m_encodedImageData = WTFMove(data);
+
+    // Don't do anything; it is an empty image.
+    if (!m_encodedImageData.get() || !m_encodedImageData->size())
+        return EncodedDataStatus::Complete;
+
     return dataChanged(allDataReceived);
+}
+
+URL Image::sourceURL() const
+{
+    return imageObserver() ? imageObserver()->sourceUrl() : URL();
+}
+
+String Image::mimeType() const
+{
+    return imageObserver() ? imageObserver()->mimeType() : emptyString();
+}
+
+long long Image::expectedContentLength() const
+{
+    return imageObserver() ? imageObserver()->expectedContentLength() : 0;
 }
 
 void Image::fillWithSolidColor(GraphicsContext& ctxt, const FloatRect& dstRect, const Color& color, CompositeOperator op)
 {
-    if (!color.alpha())
+    if (!color.isVisible())
         return;
     
     CompositeOperator previousOperator = ctxt.compositeOperation();
-    ctxt.setCompositeOperation(!color.hasAlpha() && op == CompositeSourceOver ? CompositeCopy : op);
+    ctxt.setCompositeOperation(color.isOpaque() && op == CompositeSourceOver ? CompositeCopy : op);
     ctxt.fillRect(dstRect, color);
     ctxt.setCompositeOperation(previousOperator);
 }
 
-void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const FloatPoint& srcPoint, const FloatSize& scaledTileSize, const FloatSize& spacing, CompositeOperator op, BlendMode blendMode)
-{    
-    if (mayFillWithSolidColor()) {
-        fillWithSolidColor(ctxt, destRect, solidColor(), op);
+void Image::drawPattern(GraphicsContext& ctxt, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform,
+    const FloatPoint& phase, const FloatSize& spacing, CompositeOperator op, BlendMode blendMode)
+{
+    if (!nativeImageForCurrentFrame())
         return;
+
+    ctxt.drawPattern(*this, destRect, tileRect, patternTransform, phase, spacing, op, blendMode);
+
+    if (imageObserver())
+        imageObserver()->didDraw(*this);
+}
+
+ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const FloatPoint& srcPoint, const FloatSize& scaledTileSize, const FloatSize& spacing, CompositeOperator op, BlendMode blendMode, DecodingMode decodingMode)
+{
+    Color color = singlePixelSolidColor();
+    if (color.isValid()) {
+        fillWithSolidColor(ctxt, destRect, color, op);
+        return ImageDrawResult::DidDraw;
     }
 
     ASSERT(!isBitmapImage() || notSolidColor());
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     FloatSize intrinsicTileSize = originalSize();
 #else
     FloatSize intrinsicTileSize = size();
@@ -109,11 +169,10 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const Fl
     if (hasRelativeHeight())
         intrinsicTileSize.setHeight(scaledTileSize.height());
 
-    FloatSize scale(scaledTileSize.width() / intrinsicTileSize.width(),
-                    scaledTileSize.height() / intrinsicTileSize.height());
+    FloatSize scale(scaledTileSize / intrinsicTileSize);
 
     FloatRect oneTileRect;
-    FloatSize actualTileSize(scaledTileSize.width() + spacing.width(), scaledTileSize.height() + spacing.height());
+    FloatSize actualTileSize = scaledTileSize + spacing;
     oneTileRect.setX(destRect.x() + fmodf(fmodf(-srcPoint.x(), actualTileSize.width()) - actualTileSize.width(), actualTileSize.width()));
     oneTileRect.setY(destRect.y() + fmodf(fmodf(-srcPoint.y(), actualTileSize.height()) - actualTileSize.height(), actualTileSize.height()));
     oneTileRect.setSize(scaledTileSize);
@@ -125,11 +184,10 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const Fl
         visibleSrcRect.setY((destRect.y() - oneTileRect.y()) / scale.height());
         visibleSrcRect.setWidth(destRect.width() / scale.width());
         visibleSrcRect.setHeight(destRect.height() / scale.height());
-        draw(ctxt, destRect, visibleSrcRect, op, blendMode, ImageOrientationDescription());
-        return;
+        return draw(ctxt, destRect, visibleSrcRect, op, blendMode, decodingMode, ImageOrientationDescription());
     }
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     // When using accelerated drawing on iOS, it's faster to stretch an image than to tile it.
     if (ctxt.isAcceleratedContext()) {
         if (size().width() == 1 && intersection(oneTileRect, destRect).height() == destRect.height()) {
@@ -138,8 +196,7 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const Fl
             visibleSrcRect.setY((destRect.y() - oneTileRect.y()) / scale.height());
             visibleSrcRect.setWidth(1);
             visibleSrcRect.setHeight(destRect.height() / scale.height());
-            draw(ctxt, destRect, visibleSrcRect, op, BlendModeNormal, ImageOrientationDescription());
-            return;
+            return draw(ctxt, destRect, visibleSrcRect, op, BlendMode::Normal, decodingMode, ImageOrientationDescription());
         }
         if (size().height() == 1 && intersection(oneTileRect, destRect).width() == destRect.width()) {
             FloatRect visibleSrcRect;
@@ -147,8 +204,7 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const Fl
             visibleSrcRect.setY(0);
             visibleSrcRect.setWidth(destRect.width() / scale.width());
             visibleSrcRect.setHeight(1);
-            draw(ctxt, destRect, visibleSrcRect, op, BlendModeNormal, ImageOrientationDescription());
-            return;
+            return draw(ctxt, destRect, visibleSrcRect, op, BlendMode::Normal, decodingMode, ImageOrientationDescription());
         }
     }
 #endif
@@ -157,7 +213,7 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const Fl
     // tile size is large (<rdar://problem/4691859>, <rdar://problem/6239505>).
     // Memory consumption depends on the transformed tile size which can get
     // larger than the original tile if user zooms in enough.
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     const float maxPatternTilePixels = 512 * 512;
 #else
     const float maxPatternTilePixels = 2048 * 2048;
@@ -171,6 +227,7 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const Fl
 
         currentTileRect.shiftYEdgeTo(destRect.y());
         float toY = currentTileRect.y();
+        ImageDrawResult result = ImageDrawResult::DidNothing;
         while (toY < destRect.maxY()) {
             currentTileRect.shiftXEdgeTo(destRect.x());
             float toX = currentTileRect.x();
@@ -179,34 +236,32 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const Fl
                 FloatRect fromRect(toFloatPoint(currentTileRect.location() - oneTileRect.location()), currentTileRect.size());
                 fromRect.scale(1 / scale.width(), 1 / scale.height());
 
-                draw(ctxt, toRect, fromRect, op, BlendModeNormal, ImageOrientationDescription());
+                result = draw(ctxt, toRect, fromRect, op, BlendMode::Normal, decodingMode, ImageOrientationDescription());
+                if (result == ImageDrawResult::DidRequestDecoding)
+                    return result;
                 toX += currentTileRect.width();
                 currentTileRect.shiftXEdgeTo(oneTileRect.x());
             }
             toY += currentTileRect.height();
             currentTileRect.shiftYEdgeTo(oneTileRect.y());
         }
-        return;
+        return result;
     }
 
     AffineTransform patternTransform = AffineTransform().scaleNonUniform(scale.width(), scale.height());
     FloatRect tileRect(FloatPoint(), intrinsicTileSize);
-    drawPattern(ctxt, tileRect, patternTransform, oneTileRect.location(), spacing, op, destRect, blendMode);
-
-#if PLATFORM(IOS)
-    startAnimation(DoNotCatchUp);
-#else
+    drawPattern(ctxt, destRect, tileRect, patternTransform, oneTileRect.location(), spacing, op, blendMode);
     startAnimation();
-#endif
+    return ImageDrawResult::DidDraw;
 }
 
 // FIXME: Merge with the other drawTiled eventually, since we need a combination of both for some things.
-void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect, const FloatRect& srcRect,
-    const FloatSize& tileScaleFactor, TileRule hRule, TileRule vRule, CompositeOperator op)
+ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect, const FloatRect& srcRect, const FloatSize& tileScaleFactor, TileRule hRule, TileRule vRule, CompositeOperator op)
 {    
-    if (mayFillWithSolidColor()) {
-        fillWithSolidColor(ctxt, dstRect, solidColor(), op);
-        return;
+    Color color = singlePixelSolidColor();
+    if (color.isValid()) {
+        fillWithSolidColor(ctxt, dstRect, color, op);
+        return ImageDrawResult::DidDraw;
     }
     
     FloatSize tileScale = tileScaleFactor;
@@ -224,7 +279,7 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect, const Flo
     case SpaceTile: {
         int numItems = floorf(dstRect.width() / srcRect.width());
         if (!numItems)
-            return;
+            return ImageDrawResult::DidNothing;
         spacing.setWidth((dstRect.width() - srcRect.width() * numItems) / (numItems + 1));
         tileScale.setWidth(1);
         centerOnGapHorizonally = !(numItems & 1);
@@ -244,7 +299,7 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect, const Flo
     case SpaceTile: {
         int numItems = floorf(dstRect.height() / srcRect.height());
         if (!numItems)
-            return;
+            return ImageDrawResult::DidNothing;
         spacing.setHeight((dstRect.height() - srcRect.height() * numItems) / (numItems + 1));
         tileScale.setHeight(1);
         centerOnGapVertically = !(numItems & 1);
@@ -275,41 +330,29 @@ void Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect, const Flo
         vPhase -= (dstRect.height() - scaledTileHeight) / 2;
 
     FloatPoint patternPhase(dstRect.x() - hPhase, dstRect.y() - vPhase);
-    drawPattern(ctxt, srcRect, patternTransform, patternPhase, spacing, op, dstRect);
-
-#if PLATFORM(IOS)
-    startAnimation(DoNotCatchUp);
-#else
+    drawPattern(ctxt, dstRect, srcRect, patternTransform, patternPhase, spacing, op);
     startAnimation();
-#endif
+    return ImageDrawResult::DidDraw;
 }
-
-#if ENABLE(IMAGE_DECODER_DOWN_SAMPLING)
-FloatRect Image::adjustSourceRectForDownSampling(const FloatRect& srcRect, const IntSize& scaledSize) const
-{
-    const FloatSize unscaledSize = size();
-    if (unscaledSize == scaledSize)
-        return srcRect;
-
-    // Image has been down-sampled.
-    float xscale = static_cast<float>(scaledSize.width()) / unscaledSize.width();
-    float yscale = static_cast<float>(scaledSize.height()) / unscaledSize.height();
-    FloatRect scaledSrcRect = srcRect;
-    scaledSrcRect.scale(xscale, yscale);
-
-    return scaledSrcRect;
-}
-#endif
 
 void Image::computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio)
 {
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     intrinsicRatio = originalSize();
 #else
     intrinsicRatio = size();
 #endif
     intrinsicWidth = Length(intrinsicRatio.width(), Fixed);
     intrinsicHeight = Length(intrinsicRatio.height(), Fixed);
+}
+
+void Image::startAnimationAsynchronously()
+{
+    if (!m_animationStartTimer)
+        m_animationStartTimer = std::make_unique<Timer>(*this, &Image::startAnimation);
+    if (m_animationStartTimer->isActive())
+        return;
+    m_animationStartTimer->startOneShot(0_s);
 }
 
 void Image::dump(TextStream& ts) const
@@ -344,4 +387,17 @@ TextStream& operator<<(TextStream& ts, const Image& image)
     return ts;
 }
 
+#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN)
+
+void BitmapImage::invalidatePlatformData()
+{
+}
+
+Ref<Image> Image::loadPlatformResource(const char* resource)
+{
+    WTFLogAlways("WARNING: trying to load platform resource '%s'", resource);
+    return BitmapImage::create();
+}
+
+#endif // !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN)
 }

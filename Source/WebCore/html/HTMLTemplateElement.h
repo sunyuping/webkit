@@ -28,10 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLTemplateElement_h
-#define HTMLTemplateElement_h
-
-#if ENABLE(TEMPLATE_ELEMENT)
+#pragma once
 
 #include "HTMLElement.h"
 
@@ -41,23 +38,21 @@ class DocumentFragment;
 class TemplateContentDocumentFragment;
 
 class HTMLTemplateElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLTemplateElement);
 public:
     static Ref<HTMLTemplateElement> create(const QualifiedName&, Document&);
     virtual ~HTMLTemplateElement();
 
-    DocumentFragment* content() const;
+    DocumentFragment& content() const;
+    DocumentFragment* contentIfAvailable() const;
 
 private:
     HTMLTemplateElement(const QualifiedName&, Document&);
 
-    virtual Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
-    virtual void didMoveToNewDocument(Document* oldDocument) override;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation) final;
+    void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
     mutable RefPtr<TemplateContentDocumentFragment> m_content;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(TEMPLATE_ELEMENT)
-
-#endif // HTMLTemplateElement_h

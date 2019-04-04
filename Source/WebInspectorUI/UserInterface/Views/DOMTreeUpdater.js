@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007, 2008, 2013, 2016 Apple Inc.  All rights reserved.
  * Copyright (C) 2008 Matt Lilek <webkit@mattlilek.com>
  * Copyright (C) 2009 Joseph Pecoraro
  *
@@ -28,24 +28,36 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.DOMTreeUpdater = function(treeOutline)
+WI.DOMTreeUpdater = function(treeOutline)
 {
-    WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.NodeInserted, this._nodeInserted, this);
-    WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.NodeRemoved, this._nodeRemoved, this);
-    WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.AttributeModified, this._attributesUpdated, this);
-    WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.AttributeRemoved, this._attributesUpdated, this);
-    WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.CharacterDataModified, this._characterDataModified, this);
-    WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.DocumentUpdated, this._documentUpdated, this);
-    WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.ChildNodeCountUpdated, this._childNodeCountUpdated, this);
+    WI.domManager.addEventListener(WI.DOMManager.Event.NodeInserted, this._nodeInserted, this);
+    WI.domManager.addEventListener(WI.DOMManager.Event.NodeRemoved, this._nodeRemoved, this);
+    WI.domManager.addEventListener(WI.DOMManager.Event.AttributeModified, this._attributesUpdated, this);
+    WI.domManager.addEventListener(WI.DOMManager.Event.AttributeRemoved, this._attributesUpdated, this);
+    WI.domManager.addEventListener(WI.DOMManager.Event.CharacterDataModified, this._characterDataModified, this);
+    WI.domManager.addEventListener(WI.DOMManager.Event.DocumentUpdated, this._documentUpdated, this);
+    WI.domManager.addEventListener(WI.DOMManager.Event.ChildNodeCountUpdated, this._childNodeCountUpdated, this);
 
     this._treeOutline = treeOutline;
-    this._recentlyModifiedNodes = [];
+
+    this._recentlyInsertedNodes = new Map;
+    this._recentlyDeletedNodes = new Map;
+    this._recentlyModifiedNodes = new Set;
+    // Map from attribute names to nodes that had the attributes.
+    this._recentlyModifiedAttributes = new Map;
+
+    // Dummy "attribute" that is used to track textContent changes.
+    this._textContentAttributeSymbol = Symbol("text-content-attribute");
+
+    this._updateModifiedNodesDebouncer = new Debouncer(() => {
+        this._updateModifiedNodes();
+    });
 };
 
-WebInspector.DOMTreeUpdater.prototype = {
+WI.DOMTreeUpdater.prototype = {
     close: function()
     {
-        WebInspector.domTreeManager.removeEventListener(null, null, this);
+        WI.domManager.removeEventListener(null, null, this);
     },
 
     _documentUpdated: function(event)
@@ -55,30 +67,39 @@ WebInspector.DOMTreeUpdater.prototype = {
 
     _attributesUpdated: function(event)
     {
-        this._recentlyModifiedNodes.push({node: event.data.node, updated: true, attribute: event.data.name});
-        if (this._treeOutline._visible)
-            this._updateModifiedNodesSoon();
+        let {node, name} = event.data;
+        this._nodeAttributeModified(node, name);
     },
 
     _characterDataModified: function(event)
     {
-        this._recentlyModifiedNodes.push({node: event.data.node, updated: true});
-        if (this._treeOutline._visible)
-            this._updateModifiedNodesSoon();
+        let {node} = event.data;
+        this._nodeAttributeModified(node, this._textContentAttributeSymbol);
     },
+
+    _nodeAttributeModified: function(node, attribute)
+    {
+        if (!this._recentlyModifiedAttributes.has(attribute))
+            this._recentlyModifiedAttributes.set(attribute, new Set);
+        this._recentlyModifiedAttributes.get(attribute).add(node);
+        this._recentlyModifiedNodes.add(node);
+
+        if (this._treeOutline._visible)
+            this._updateModifiedNodesDebouncer.delayForFrame();
+      },
 
     _nodeInserted: function(event)
     {
-        this._recentlyModifiedNodes.push({node: event.data.node, parent: event.data.parent, inserted: true});
+        this._recentlyInsertedNodes.set(event.data.node, {parent: event.data.parent});
         if (this._treeOutline._visible)
-            this._updateModifiedNodesSoon();
+            this._updateModifiedNodesDebouncer.delayForFrame();
     },
 
     _nodeRemoved: function(event)
     {
-        this._recentlyModifiedNodes.push({node: event.data.node, parent: event.data.parent, removed: true});
+        this._recentlyDeletedNodes.set(event.data.node, {parent: event.data.parent});
         if (this._treeOutline._visible)
-            this._updateModifiedNodesSoon();
+            this._updateModifiedNodesDebouncer.delayForFrame();
     },
 
     _childNodeCountUpdated: function(event)
@@ -88,60 +109,57 @@ WebInspector.DOMTreeUpdater.prototype = {
             treeElement.hasChildren = event.data.hasChildNodes();
     },
 
-    _updateModifiedNodesSoon: function()
-    {
-        if (this._updateModifiedNodesTimeout)
-            return;
-        this._updateModifiedNodesTimeout = setTimeout(this._updateModifiedNodes.bind(this), 0);
-    },
-
     _updateModifiedNodes: function()
     {
-        if (this._updateModifiedNodesTimeout) {
-            clearTimeout(this._updateModifiedNodesTimeout);
-            this._updateModifiedNodesTimeout = null;
+        // Update for insertions and deletions before attribute modifications. This ensures
+        // tree elements get created for newly attached children before we try to update them.
+        let parentElementsToUpdate = new Set;
+        let markNodeParentForUpdate = (value, key, map) => {
+            let parentNode = value.parent;
+            let parentTreeElement = this._treeOutline.findTreeElement(parentNode);
+            if (parentTreeElement)
+                parentElementsToUpdate.add(parentTreeElement);
+        };
+        this._recentlyInsertedNodes.forEach(markNodeParentForUpdate);
+        this._recentlyDeletedNodes.forEach(markNodeParentForUpdate);
+
+        for (let parentTreeElement of parentElementsToUpdate) {
+            if (parentTreeElement.treeOutline) {
+                parentTreeElement.updateTitle();
+                parentTreeElement.updateChildren();
+            }
         }
 
-        let updatedParentTreeElements = [];
-        for (let recentlyModifiedNode of this._recentlyModifiedNodes) {
-            let parent = recentlyModifiedNode.parent;
-            let node = recentlyModifiedNode.node;
-            let changeInfo = null;
-            if (recentlyModifiedNode.attribute)
-                changeInfo = {type: WebInspector.DOMTreeElement.ChangeType.Attribute, attribute: recentlyModifiedNode.attribute};
+        for (let node of this._recentlyModifiedNodes.values()) {
+            let nodeTreeElement = this._treeOutline.findTreeElement(node);
+            if (!nodeTreeElement)
+                return;
 
-            if (recentlyModifiedNode.updated) {
-                let nodeTreeElement = this._treeOutline.findTreeElement(node);
-                if (!nodeTreeElement)
+            for (let [attribute, nodes] of this._recentlyModifiedAttributes.entries()) {
+                // Don't report textContent changes as attribute modifications.
+                if (attribute === this._textContentAttributeSymbol)
                     continue;
 
-                if (changeInfo)
-                    nodeTreeElement.nodeStateChanged(changeInfo);
-
-                nodeTreeElement.updateTitle();
+                if (nodes.has(node))
+                    nodeTreeElement.attributeDidChange(attribute);
             }
 
-            if (!parent)
-                continue;
-
-            let parentNodeItem = this._treeOutline.findTreeElement(parent);
-            if (parentNodeItem && !parentNodeItem.alreadyUpdatedChildren) {
-                parentNodeItem.updateTitle();
-                parentNodeItem.updateChildren();
-                parentNodeItem.alreadyUpdatedChildren = true;
-                updatedParentTreeElements.push(parentNodeItem);
-            }
+            nodeTreeElement.updateTitle();
         }
 
-        for (let i = 0; i < updatedParentTreeElements.length; ++i)
-            updatedParentTreeElements[i].alreadyUpdatedChildren = null;
-
-        this._recentlyModifiedNodes = [];
+        this._recentlyInsertedNodes.clear();
+        this._recentlyDeletedNodes.clear();
+        this._recentlyModifiedNodes.clear();
+        this._recentlyModifiedAttributes.clear();
     },
 
     _reset: function()
     {
-        WebInspector.domTreeManager.hideDOMNodeHighlight();
-        this._recentlyModifiedNodes = [];
+        WI.domManager.hideDOMNodeHighlight();
+
+        this._recentlyInsertedNodes.clear();
+        this._recentlyDeletedNodes.clear();
+        this._recentlyModifiedNodes.clear();
+        this._recentlyModifiedAttributes.clear();
     }
 };

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012 Google Inc. All rights reserved.
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,177 +24,260 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef Internals_h
-#define Internals_h
+#pragma once
 
 #include "CSSComputedStyleDeclaration.h"
 #include "ContextDestructionObserver.h"
-#include "ExceptionCodePlaceholder.h"
-#include "NodeList.h"
+#include "Cookie.h"
+#include "ExceptionOr.h"
+#include "HEVCUtilities.h"
+#include "JSDOMPromiseDeferred.h"
+#include "OrientationNotifier.h"
 #include "PageConsoleClient.h"
-#include "ScriptState.h"
-#include <bindings/ScriptValue.h>
-#include <runtime/ArrayBuffer.h>
-#include <runtime/Float32Array.h>
-#include <wtf/RefCounted.h>
-#include <wtf/text/WTFString.h>
+#include "RealtimeMediaSource.h"
+#include <JavaScriptCore/Float32Array.h>
+#include <wtf/Optional.h>
+
+#if ENABLE(MEDIA_SESSION)
+#include "MediaSessionInterruptionProvider.h"
+#endif
+
+#if ENABLE(VIDEO)
+#include "MediaElementSession.h"
+#endif
 
 namespace WebCore {
 
+class AnimationTimeline;
 class AudioContext;
-class ClientRect;
-class ClientRectList;
-class DOMPath;
-class DOMStringList;
+class CacheStorageConnection;
+class DOMRect;
+class DOMRectList;
 class DOMURL;
 class DOMWindow;
 class Document;
 class Element;
+class ExtendableEvent;
+class FetchResponse;
 class File;
 class Frame;
+class GCObservation;
+class HTMLAnchorElement;
+class HTMLImageElement;
+class HTMLInputElement;
+class HTMLLinkElement;
 class HTMLMediaElement;
+class HTMLPictureElement;
+class HTMLSelectElement;
+class ImageData;
 class InspectorStubFrontend;
 class InternalSettings;
 class MallocStatistics;
 class MediaSession;
+class MediaStream;
+class MediaStreamTrack;
 class MemoryInfo;
+class MockCDMFactory;
+class MockContentFilterSettings;
 class MockPageOverlay;
-class Node;
+class MockPaymentCoordinator;
+class NodeList;
 class Page;
+class RTCPeerConnection;
 class Range;
 class RenderedDocumentMarker;
-class ScriptExecutionContext;
+class SVGSVGElement;
 class SerializedScriptValue;
 class SourceBuffer;
+class StringCallback;
+class StyleSheet;
 class TimeRanges;
 class TypeConversions;
+class VoidCallback;
+class WebGLRenderingContext;
 class XMLHttpRequest;
 
-#if ENABLE(CONTENT_FILTERING)
-class MockContentFilterSettings;
+#if ENABLE(SERVICE_WORKER)
+class ServiceWorker;
 #endif
 
-typedef int ExceptionCode;
-
-class Internals : public RefCounted<Internals>
-                , public ContextDestructionObserver {
+class Internals final : public RefCounted<Internals>, private ContextDestructionObserver
+#if ENABLE(MEDIA_STREAM)
+    , private RealtimeMediaSource::Observer
+#endif
+    {
 public:
-    static Ref<Internals> create(Document*);
+    static Ref<Internals> create(Document&);
     virtual ~Internals();
 
-    static void resetToConsistentState(Page*);
+    static void resetToConsistentState(Page&);
 
-    String elementRenderTreeAsText(Element*, ExceptionCode&);
-    bool hasPausedImageAnimations(Element*, ExceptionCode&);
+    ExceptionOr<String> elementRenderTreeAsText(Element&);
+    bool hasPausedImageAnimations(Element&);
 
-    String address(Node*);
-    bool nodeNeedsStyleRecalc(Node*, ExceptionCode&);
-    String styleChangeType(Node*, ExceptionCode&);
-    String description(Deprecated::ScriptValue);
+    bool isPaintingFrequently(Element&);
+    void incrementFrequentPaintCounter(Element&);
+
+    String address(Node&);
+    bool nodeNeedsStyleRecalc(Node&);
+    String styleChangeType(Node&);
+    String description(JSC::JSValue);
 
     bool isPreloaded(const String& url);
     bool isLoadingFromMemoryCache(const String& url);
-    String xhrResponseSource(XMLHttpRequest*);
-    bool isSharingStyleSheetContents(Element* linkA, Element* linkB);
-    bool isStyleSheetLoadingSubresources(Element* link);
-    void setOverrideCachePolicy(const String&);
-    void setOverrideResourceLoadPriority(const String&);
+    String fetchResponseSource(FetchResponse&);
+    String xhrResponseSource(XMLHttpRequest&);
+    bool isSharingStyleSheetContents(HTMLLinkElement&, HTMLLinkElement&);
+    bool isStyleSheetLoadingSubresources(HTMLLinkElement&);
+    enum class CachePolicy { UseProtocolCachePolicy, ReloadIgnoringCacheData, ReturnCacheDataElseLoad, ReturnCacheDataDontLoad };
+    void setOverrideCachePolicy(CachePolicy);
+    ExceptionOr<void> setCanShowModalDialogOverride(bool allow);
+    enum class ResourceLoadPriority { ResourceLoadPriorityVeryLow, ResourceLoadPriorityLow, ResourceLoadPriorityMedium, ResourceLoadPriorityHigh, ResourceLoadPriorityVeryHigh };
+    void setOverrideResourceLoadPriority(ResourceLoadPriority);
     void setStrictRawResourceValidationPolicyDisabled(bool);
 
     void clearMemoryCache();
     void pruneMemoryCacheToSize(unsigned size);
+    void destroyDecodedDataForAllImages();
     unsigned memoryCacheSize() const;
 
-    size_t imageFrameIndex(Element*, ExceptionCode&);
+    unsigned imageFrameIndex(HTMLImageElement&);
+    void setImageFrameDecodingDuration(HTMLImageElement&, float duration);
+    void resetImageAnimation(HTMLImageElement&);
+    bool isImageAnimating(HTMLImageElement&);
+    void setClearDecoderAfterAsyncFrameRequestForTesting(HTMLImageElement&, bool enabled);
+    unsigned imageDecodeCount(HTMLImageElement&);
+    unsigned pdfDocumentCachingCount(HTMLImageElement&);
+    void setLargeImageAsyncDecodingEnabledForTesting(HTMLImageElement&, bool enabled);
+    void setForceUpdateImageDataEnabledForTesting(HTMLImageElement&, bool enabled);
+
+    void setGridMaxTracksLimit(unsigned);
 
     void clearPageCache();
     unsigned pageCacheSize() const;
 
-    RefPtr<CSSComputedStyleDeclaration> computedStyleIncludingVisitedInfo(Node*, ExceptionCode&) const;
+    void disableTileSizeUpdateDelay();
 
-    Node* ensureShadowRoot(Element* host, ExceptionCode&);
-    Node* ensureUserAgentShadowRoot(Element* host, ExceptionCode&);
-    Node* createShadowRoot(Element* host, ExceptionCode&);
-    Node* shadowRoot(Element* host, ExceptionCode&);
-    String shadowRootType(const Node*, ExceptionCode&) const;
-    Element* includerFor(Node*, ExceptionCode&);
-    String shadowPseudoId(Element*, ExceptionCode&);
-    void setShadowPseudoId(Element*, const String&, ExceptionCode&);
+    void setSpeculativeTilingDelayDisabledForTesting(bool);
+
+    Ref<CSSComputedStyleDeclaration> computedStyleIncludingVisitedInfo(Element&) const;
+
+    Node* ensureUserAgentShadowRoot(Element& host);
+    Node* shadowRoot(Element& host);
+    ExceptionOr<String> shadowRootType(const Node&) const;
+    String shadowPseudoId(Element&);
+    void setShadowPseudoId(Element&, const String&);
+
+    // CSS Deferred Parsing Testing
+    unsigned deferredStyleRulesCount(StyleSheet&);
+    unsigned deferredGroupRulesCount(StyleSheet&);
+    unsigned deferredKeyframesRulesCount(StyleSheet&);
 
     // DOMTimers throttling testing.
-    bool isTimerThrottled(int timeoutId, ExceptionCode&);
+    ExceptionOr<bool> isTimerThrottled(int timeoutId);
     bool isRequestAnimationFrameThrottled() const;
+    double requestAnimationFrameInterval() const;
+    bool scriptedAnimationsAreSuspended() const;
     bool areTimersThrottled() const;
 
+    enum EventThrottlingBehavior { Responsive, Unresponsive };
+    void setEventThrottlingBehaviorOverride(Optional<EventThrottlingBehavior>);
+    Optional<EventThrottlingBehavior> eventThrottlingBehaviorOverride() const;
+
     // Spatial Navigation testing.
-    unsigned lastSpatialNavigationCandidateCount(ExceptionCode&) const;
+    ExceptionOr<unsigned> lastSpatialNavigationCandidateCount() const;
 
     // CSS Animation testing.
     unsigned numberOfActiveAnimations() const;
-    bool animationsAreSuspended(ExceptionCode&) const;
-    void suspendAnimations(ExceptionCode&) const;
-    void resumeAnimations(ExceptionCode&) const;
-    bool pauseAnimationAtTimeOnElement(const String& animationName, double pauseTime, Element*, ExceptionCode&);
-    bool pauseAnimationAtTimeOnPseudoElement(const String& animationName, double pauseTime, Element*, const String& pseudoId, ExceptionCode&);
+    ExceptionOr<bool> animationsAreSuspended() const;
+    ExceptionOr<void> suspendAnimations() const;
+    ExceptionOr<void> resumeAnimations() const;
+    ExceptionOr<bool> pauseAnimationAtTimeOnElement(const String& animationName, double pauseTime, Element&);
+    ExceptionOr<bool> pauseAnimationAtTimeOnPseudoElement(const String& animationName, double pauseTime, Element&, const String& pseudoId);
+    double animationsInterval() const;
 
     // CSS Transition testing.
-    bool pauseTransitionAtTimeOnElement(const String& propertyName, double pauseTime, Element*, ExceptionCode&);
-    bool pauseTransitionAtTimeOnPseudoElement(const String& property, double pauseTime, Element*, const String& pseudoId, ExceptionCode&);
+    ExceptionOr<bool> pauseTransitionAtTimeOnElement(const String& propertyName, double pauseTime, Element&);
+    ExceptionOr<bool> pauseTransitionAtTimeOnPseudoElement(const String& property, double pauseTime, Element&, const String& pseudoId);
 
-    Node* treeScopeRootNode(Node*, ExceptionCode&);
-    Node* parentTreeScope(Node*, ExceptionCode&);
+    // Web Animations testing.
+    struct AcceleratedAnimation {
+        String property;
+        double speed;
+    };
+    Vector<AcceleratedAnimation> acceleratedAnimationsForElement(Element&);
+    unsigned numberOfAnimationTimelineInvalidations() const;
 
-    bool attached(Node*, ExceptionCode&);
+    // For animations testing, we need a way to get at pseudo elements.
+    ExceptionOr<RefPtr<Element>> pseudoElement(Element&, const String&);
 
-    String visiblePlaceholder(Element*);
-    void selectColorInColorChooser(Element*, const String& colorValue);
-    Vector<String> formControlStateOfPreviousHistoryItem(ExceptionCode&);
-    void setFormControlStateOfPreviousHistoryItem(const Vector<String>&, ExceptionCode&);
+    Node* treeScopeRootNode(Node&);
+    Node* parentTreeScope(Node&);
 
-    Ref<ClientRect> absoluteCaretBounds(ExceptionCode&);
+    String visiblePlaceholder(Element&);
+    void selectColorInColorChooser(HTMLInputElement&, const String& colorValue);
+    ExceptionOr<Vector<String>> formControlStateOfPreviousHistoryItem();
+    ExceptionOr<void> setFormControlStateOfPreviousHistoryItem(const Vector<String>&);
 
-    Ref<ClientRect> boundingBox(Element*, ExceptionCode&);
+    ExceptionOr<Ref<DOMRect>> absoluteCaretBounds();
+    ExceptionOr<bool> isCaretBlinkingSuspended();
 
-    Ref<ClientRectList> inspectorHighlightRects(ExceptionCode&);
-    String inspectorHighlightObject(ExceptionCode&);
+    Ref<DOMRect> boundingBox(Element&);
 
-    unsigned markerCountForNode(Node*, const String&, ExceptionCode&);
-    RefPtr<Range> markerRangeForNode(Node*, const String& markerType, unsigned index, ExceptionCode&);
-    String markerDescriptionForNode(Node*, const String& markerType, unsigned index, ExceptionCode&);
-    String dumpMarkerRects(const String& markerType, ExceptionCode&);
-    void addTextMatchMarker(const Range*, bool isActive);
-    void setMarkedTextMatchesAreHighlighted(bool, ExceptionCode&);
+    ExceptionOr<Ref<DOMRectList>> inspectorHighlightRects();
+
+    ExceptionOr<unsigned> markerCountForNode(Node&, const String&);
+    ExceptionOr<RefPtr<Range>> markerRangeForNode(Node&, const String& markerType, unsigned index);
+    ExceptionOr<String> markerDescriptionForNode(Node&, const String& markerType, unsigned index);
+    ExceptionOr<String> dumpMarkerRects(const String& markerType);
+    void addTextMatchMarker(const Range&, bool isActive);
+    ExceptionOr<void> setMarkedTextMatchesAreHighlighted(bool);
 
     void invalidateFontCache();
+    void setFontSmoothingEnabled(bool);
 
-    void setScrollViewPosition(long x, long y, ExceptionCode&);
-    void setViewBaseBackgroundColor(const String& colorValue, ExceptionCode&);
+    ExceptionOr<void> setLowPowerModeEnabled(bool);
 
-    void setPagination(const String& mode, int gap, ExceptionCode& ec) { setPagination(mode, gap, 0, ec); }
-    void setPagination(const String& mode, int gap, int pageLength, ExceptionCode&);
-    void setPaginationLineGridEnabled(bool, ExceptionCode&);
-    String configurationForViewport(float devicePixelRatio, int deviceWidth, int deviceHeight, int availableWidth, int availableHeight, ExceptionCode&);
+    ExceptionOr<void> setScrollViewPosition(int x, int y);
+    ExceptionOr<void> unconstrainedScrollTo(Element&, double x, double y);
 
-    bool wasLastChangeUserEdit(Element* textField, ExceptionCode&);
-    bool elementShouldAutoComplete(Element* inputElement, ExceptionCode&);
-    void setEditingValue(Element* inputElement, const String&, ExceptionCode&);
-    void setAutofilled(Element*, bool enabled, ExceptionCode&);
-    void setShowAutoFillButton(Element*, const String& autoFillButtonType, ExceptionCode&);
-    void scrollElementToRect(Element*, long x, long y, long w, long h, ExceptionCode&);
+    ExceptionOr<Ref<DOMRect>> layoutViewportRect();
+    ExceptionOr<Ref<DOMRect>> visualViewportRect();
 
-    void paintControlTints(ExceptionCode&);
+    ExceptionOr<void> setViewIsTransparent(bool);
 
-    RefPtr<Range> rangeFromLocationAndLength(Element* scope, int rangeLocation, int rangeLength, ExceptionCode&);
-    unsigned locationFromRange(Element* scope, const Range*, ExceptionCode&);
-    unsigned lengthFromRange(Element* scope, const Range*, ExceptionCode&);
-    String rangeAsText(const Range*, ExceptionCode&);
-    RefPtr<Range> subrange(Range*, int rangeLocation, int rangeLength, ExceptionCode&);
-    RefPtr<Range> rangeForDictionaryLookupAtLocation(int x, int y, ExceptionCode&);
+    ExceptionOr<String> viewBaseBackgroundColor();
+    ExceptionOr<void> setViewBaseBackgroundColor(const String& colorValue);
 
-    void setDelegatesScrolling(bool enabled, ExceptionCode&);
+    ExceptionOr<void> setPagination(const String& mode, int gap, int pageLength);
+    ExceptionOr<void> setPaginationLineGridEnabled(bool);
+    ExceptionOr<String> configurationForViewport(float devicePixelRatio, int deviceWidth, int deviceHeight, int availableWidth, int availableHeight);
 
-    int lastSpellCheckRequestSequence(ExceptionCode&);
-    int lastSpellCheckProcessedSequence(ExceptionCode&);
+    ExceptionOr<bool> wasLastChangeUserEdit(Element& textField);
+    bool elementShouldAutoComplete(HTMLInputElement&);
+    void setAutofilled(HTMLInputElement&, bool enabled);
+    enum class AutoFillButtonType { None, Contacts, Credentials, StrongPassword, CreditCard };
+    void setShowAutoFillButton(HTMLInputElement&, AutoFillButtonType);
+    AutoFillButtonType autoFillButtonType(const HTMLInputElement&);
+    AutoFillButtonType lastAutoFillButtonType(const HTMLInputElement&);
+    ExceptionOr<void> scrollElementToRect(Element&, int x, int y, int w, int h);
+
+    ExceptionOr<String> autofillFieldName(Element&);
+
+    ExceptionOr<void> invalidateControlTints();
+
+    RefPtr<Range> rangeFromLocationAndLength(Element& scope, int rangeLocation, int rangeLength);
+    unsigned locationFromRange(Element& scope, const Range&);
+    unsigned lengthFromRange(Element& scope, const Range&);
+    String rangeAsText(const Range&);
+    Ref<Range> subrange(Range&, int rangeLocation, int rangeLength);
+    ExceptionOr<RefPtr<Range>> rangeForDictionaryLookupAtLocation(int x, int y);
+    RefPtr<Range> rangeOfStringNearLocation(const Range&, const String&, unsigned);
+
+    ExceptionOr<void> setDelegatesScrolling(bool enabled);
+
+    ExceptionOr<int> lastSpellCheckRequestSequence();
+    ExceptionOr<int> lastSpellCheckProcessedSequence();
 
     Vector<String> userPreferredLanguages() const;
     void setUserPreferredLanguages(const Vector<String>&);
@@ -202,45 +285,56 @@ public:
     Vector<String> userPreferredAudioCharacteristics() const;
     void setUserPreferredAudioCharacteristic(const String&);
 
-    unsigned wheelEventHandlerCount(ExceptionCode&);
-    unsigned touchEventHandlerCount(ExceptionCode&);
+    ExceptionOr<unsigned> wheelEventHandlerCount();
+    ExceptionOr<unsigned> touchEventHandlerCount();
 
-    RefPtr<NodeList> nodesFromRect(Document*, int x, int y, unsigned topPadding, unsigned rightPadding,
-        unsigned bottomPadding, unsigned leftPadding, bool ignoreClipping, bool allowShadowContent, bool allowChildFrameContent, ExceptionCode&) const;
+    ExceptionOr<Ref<DOMRectList>> touchEventRectsForEvent(const String&);
+    ExceptionOr<Ref<DOMRectList>> passiveTouchEventListenerRects();
 
-    String parserMetaData(Deprecated::ScriptValue = Deprecated::ScriptValue());
+    ExceptionOr<RefPtr<NodeList>> nodesFromRect(Document&, int x, int y, unsigned topPadding, unsigned rightPadding, unsigned bottomPadding, unsigned leftPadding, bool ignoreClipping, bool allowUserAgentShadowContent, bool allowChildFrameContent) const;
+
+    String parserMetaData(JSC::JSValue = JSC::JSValue::JSUndefined);
 
     void updateEditorUINowIfScheduled();
 
-    bool hasSpellingMarker(int from, int length, ExceptionCode&);
-    bool hasGrammarMarker(int from, int length, ExceptionCode&);
-    bool hasAutocorrectedMarker(int from, int length, ExceptionCode&);
-    void setContinuousSpellCheckingEnabled(bool enabled, ExceptionCode&);
-    void setAutomaticQuoteSubstitutionEnabled(bool enabled, ExceptionCode&);
-    void setAutomaticLinkDetectionEnabled(bool enabled, ExceptionCode&);
-    void setAutomaticDashSubstitutionEnabled(bool enabled, ExceptionCode&);
-    void setAutomaticTextReplacementEnabled(bool enabled, ExceptionCode&);
-    void setAutomaticSpellingCorrectionEnabled(bool enabled, ExceptionCode&);
+    bool sentenceRetroCorrectionEnabled() const
+    {
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
+        return true;
+#else
+        return false;
+#endif
+    }
+    bool hasSpellingMarker(int from, int length);
+    bool hasGrammarMarker(int from, int length);
+    bool hasAutocorrectedMarker(int from, int length);
+    void setContinuousSpellCheckingEnabled(bool);
+    void setAutomaticQuoteSubstitutionEnabled(bool);
+    void setAutomaticLinkDetectionEnabled(bool);
+    void setAutomaticDashSubstitutionEnabled(bool);
+    void setAutomaticTextReplacementEnabled(bool);
+    void setAutomaticSpellingCorrectionEnabled(bool);
 
-    void handleAcceptedCandidate(const String& candidate, ExceptionCode&);
+    void handleAcceptedCandidate(const String& candidate, unsigned location, unsigned length);
+    void changeSelectionListType();
 
-    bool isOverwriteModeEnabled(ExceptionCode&);
-    void toggleOverwriteModeEnabled(ExceptionCode&);
+    bool isOverwriteModeEnabled();
+    void toggleOverwriteModeEnabled();
 
-    unsigned countMatchesForText(const String&, unsigned findOptions, const String& markMatches, ExceptionCode&);
+    ExceptionOr<RefPtr<Range>> rangeOfString(const String&, RefPtr<Range>&&, const Vector<String>& findOptions);
+    ExceptionOr<unsigned> countMatchesForText(const String&, const Vector<String>& findOptions, const String& markMatches);
+    ExceptionOr<unsigned> countFindMatches(const String&, const Vector<String>& findOptions);
 
-    unsigned numberOfScrollableAreas(ExceptionCode&);
+    unsigned numberOfScrollableAreas();
 
-    bool isPageBoxVisible(int pageNumber, ExceptionCode&);
+    ExceptionOr<bool> isPageBoxVisible(int pageNumber);
 
     static const char* internalsId;
 
     InternalSettings* settings() const;
     unsigned workerThreadCount() const;
-
-    void setBatteryStatus(const String& eventType, bool charging, double chargingTime, double dischargingTime, double level, ExceptionCode&);
-
-    void setDeviceProximity(const String& eventType, double value, double min, double max, ExceptionCode&);
+    ExceptionOr<bool> areSVGAnimationsPaused() const;
+    ExceptionOr<double> svgAnimationsInterval(SVGSVGElement&) const;
 
     enum {
         // Values need to be kept in sync with Internals.idl.
@@ -248,58 +342,82 @@ public:
         LAYER_TREE_INCLUDES_TILE_CACHES = 2,
         LAYER_TREE_INCLUDES_REPAINT_RECTS = 4,
         LAYER_TREE_INCLUDES_PAINTING_PHASES = 8,
-        LAYER_TREE_INCLUDES_CONTENT_LAYERS = 16
+        LAYER_TREE_INCLUDES_CONTENT_LAYERS = 16,
+        LAYER_TREE_INCLUDES_ACCELERATES_DRAWING = 32,
+        LAYER_TREE_INCLUDES_BACKING_STORE_ATTACHED = 64,
+        LAYER_TREE_INCLUDES_ROOT_LAYER_PROPERTIES = 128,
+        LAYER_TREE_INCLUDES_EVENT_REGION = 256,
     };
-    String layerTreeAsText(Document*, unsigned flags, ExceptionCode&) const;
-    String layerTreeAsText(Document*, ExceptionCode&) const;
-    String repaintRectsAsText(ExceptionCode&) const;
-    String scrollingStateTreeAsText(ExceptionCode&) const;
-    String mainThreadScrollingReasons(ExceptionCode&) const;
-    RefPtr<ClientRectList> nonFastScrollableRects(ExceptionCode&) const;
+    ExceptionOr<String> layerTreeAsText(Document&, unsigned short flags) const;
+    ExceptionOr<uint64_t> layerIDForElement(Element&);
+    ExceptionOr<String> repaintRectsAsText() const;
 
-    void setElementUsesDisplayListDrawing(Element*, bool usesDisplayListDrawing, ExceptionCode&);
-    void setElementTracksDisplayListReplay(Element*, bool isTrackingReplay, ExceptionCode&);
+    ExceptionOr<String> scrollbarOverlayStyle(Node*) const;
+    ExceptionOr<bool> scrollbarUsingDarkAppearance(Node*) const;
+
+    ExceptionOr<String> scrollingStateTreeAsText() const;
+    ExceptionOr<String> mainThreadScrollingReasons() const;
+    ExceptionOr<Ref<DOMRectList>> nonFastScrollableRects() const;
+
+    ExceptionOr<void> setElementUsesDisplayListDrawing(Element&, bool usesDisplayListDrawing);
+    ExceptionOr<void> setElementTracksDisplayListReplay(Element&, bool isTrackingReplay);
 
     enum {
         // Values need to be kept in sync with Internals.idl.
         DISPLAY_LIST_INCLUDES_PLATFORM_OPERATIONS = 1,
     };
-    String displayListForElement(Element*, unsigned flags, ExceptionCode&);
-    String displayListForElement(Element*, ExceptionCode&);
+    ExceptionOr<String> displayListForElement(Element&, unsigned short flags);
+    ExceptionOr<String> replayDisplayListForElement(Element&, unsigned short flags);
 
-    String replayDisplayListForElement(Element*, unsigned flags, ExceptionCode&);
-    String replayDisplayListForElement(Element*, ExceptionCode&);
+    ExceptionOr<void> garbageCollectDocumentResources() const;
 
-    void garbageCollectDocumentResources(ExceptionCode&) const;
+    void beginSimulatedMemoryPressure();
+    void endSimulatedMemoryPressure();
+    bool isUnderMemoryPressure();
 
-    void insertAuthorCSS(const String&, ExceptionCode&) const;
-    void insertUserCSS(const String&, ExceptionCode&) const;
+    ExceptionOr<void> insertAuthorCSS(const String&) const;
+    ExceptionOr<void> insertUserCSS(const String&) const;
 
-    const ProfilesArray& consoleProfiles() const;
+    unsigned numberOfIDBTransactions() const;
 
     unsigned numberOfLiveNodes() const;
     unsigned numberOfLiveDocuments() const;
+    unsigned referencingNodeCount(const Document&) const;
 
-    RefPtr<DOMWindow> openDummyInspectorFrontend(const String& url);
+#if ENABLE(INTERSECTION_OBSERVER)
+    unsigned numberOfIntersectionObservers(const Document&) const;
+#endif
+
+    uint64_t documentIdentifier(const Document&) const;
+    bool isDocumentAlive(uint64_t documentIdentifier) const;
+
+    bool isAnyWorkletGlobalScopeAlive() const;
+
+    String serviceWorkerClientIdentifier(const Document&) const;
+
+    RefPtr<WindowProxy> openDummyInspectorFrontend(const String& url);
     void closeDummyInspectorFrontend();
-    void setLegacyJavaScriptProfilingEnabled(bool enabled, ExceptionCode&);
-    void setInspectorIsUnderTest(bool isUnderTest, ExceptionCode&);
+    ExceptionOr<void> setInspectorIsUnderTest(bool);
 
-    String counterValue(Element*);
+    String counterValue(Element&);
 
-    int pageNumber(Element*, float pageWidth = 800, float pageHeight = 600);
+    int pageNumber(Element&, float pageWidth = 800, float pageHeight = 600);
     Vector<String> shortcutIconURLs() const;
 
     int numberOfPages(float pageWidthInPixels = 800, float pageHeightInPixels = 600);
-    String pageProperty(String, int, ExceptionCode& = ASSERT_NO_EXCEPTION) const;
-    String pageSizeAndMarginsInPixels(int, int, int, int, int, int, int, ExceptionCode& = ASSERT_NO_EXCEPTION) const;
+    ExceptionOr<String> pageProperty(const String& propertyName, int pageNumber) const;
+    ExceptionOr<String> pageSizeAndMarginsInPixels(int pageNumber, int width, int height, int marginTop, int marginRight, int marginBottom, int marginLeft) const;
 
-    void setPageScaleFactor(float scaleFactor, int x, int y, ExceptionCode&);
-    void setPageZoomFactor(float zoomFactor, ExceptionCode&);
-    void setTextZoomFactor(float zoomFactor, ExceptionCode&);
+    ExceptionOr<float> pageScaleFactor() const;
 
-    void setUseFixedLayout(bool useFixedLayout, ExceptionCode&);
-    void setFixedLayoutSize(int width, int height, ExceptionCode&);
+    ExceptionOr<void> setPageScaleFactor(float scaleFactor, int x, int y);
+    ExceptionOr<void> setPageZoomFactor(float);
+    ExceptionOr<void> setTextZoomFactor(float);
+
+    ExceptionOr<void> setUseFixedLayout(bool);
+    ExceptionOr<void> setFixedLayoutSize(int width, int height);
+    ExceptionOr<void> setViewExposedRect(float left, float top, float width, float height);
+    void setPrinting(int width, int height);
 
     void setHeaderHeight(float);
     void setFooterHeight(float);
@@ -307,16 +425,29 @@ public:
     void setTopContentInset(float);
 
 #if ENABLE(FULLSCREEN_API)
-    void webkitWillEnterFullScreenForElement(Element*);
-    void webkitDidEnterFullScreenForElement(Element*);
-    void webkitWillExitFullScreenForElement(Element*);
-    void webkitDidExitFullScreenForElement(Element*);
+    void webkitWillEnterFullScreenForElement(Element&);
+    void webkitDidEnterFullScreenForElement(Element&);
+    void webkitWillExitFullScreenForElement(Element&);
+    void webkitDidExitFullScreenForElement(Element&);
+    bool isAnimatingFullScreen() const;
 #endif
+
+    struct FullscreenInsets {
+        float top { 0 };
+        float left { 0 };
+        float bottom { 0 };
+        float right { 0 };
+    };
+    void setFullscreenInsets(FullscreenInsets);
+    void setFullscreenAutoHideDuration(double);
+    void setFullscreenControlsHidden(bool);
 
     WEBCORE_TESTSUPPORT_EXPORT void setApplicationCacheOriginQuota(unsigned long long);
 
     void registerURLSchemeAsBypassingContentSecurityPolicy(const String& scheme);
     void removeURLSchemeRegisteredAsBypassingContentSecurityPolicy(const String& scheme);
+
+    void registerDefaultPortForProtocol(unsigned short port, const String& protocol);
 
     Ref<MallocStatistics> mallocStatistics() const;
     Ref<TypeConversions> typeConversions() const;
@@ -324,124 +455,159 @@ public:
 
     Vector<String> getReferencedFilePaths() const;
 
-    void startTrackingRepaints(ExceptionCode&);
-    void stopTrackingRepaints(ExceptionCode&);
+    ExceptionOr<void> startTrackingRepaints();
+    ExceptionOr<void> stopTrackingRepaints();
 
-    void startTrackingLayerFlushes(ExceptionCode&);
-    unsigned long layerFlushCount(ExceptionCode&);
-    
-    void startTrackingStyleRecalcs(ExceptionCode&);
-    unsigned long styleRecalcCount(ExceptionCode&);
+    ExceptionOr<void> startTrackingLayerFlushes();
+    ExceptionOr<unsigned> layerFlushCount();
 
-    void startTrackingCompositingUpdates(ExceptionCode&);
-    unsigned long compositingUpdateCount(ExceptionCode&);
+    ExceptionOr<void> startTrackingStyleRecalcs();
+    ExceptionOr<unsigned> styleRecalcCount();
+    unsigned lastStyleUpdateSize() const;
 
-    void updateLayoutIgnorePendingStylesheetsAndRunPostLayoutTasks(ExceptionCode&);
-    void updateLayoutIgnorePendingStylesheetsAndRunPostLayoutTasks(Node*, ExceptionCode&);
+    ExceptionOr<void> startTrackingCompositingUpdates();
+    ExceptionOr<unsigned> compositingUpdateCount();
+
+    enum CompositingPolicy { Normal, Conservative };
+    ExceptionOr<void> setCompositingPolicyOverride(Optional<CompositingPolicy>);
+    ExceptionOr<Optional<CompositingPolicy>> compositingPolicyOverride() const;
+
+    ExceptionOr<void> updateLayoutIgnorePendingStylesheetsAndRunPostLayoutTasks(Node*);
     unsigned layoutCount() const;
 
-    RefPtr<ArrayBuffer> serializeObject(PassRefPtr<SerializedScriptValue>) const;
-    RefPtr<SerializedScriptValue> deserializeBuffer(PassRefPtr<ArrayBuffer>) const;
+    Ref<ArrayBuffer> serializeObject(const RefPtr<SerializedScriptValue>&) const;
+    Ref<SerializedScriptValue> deserializeBuffer(ArrayBuffer&) const;
 
-    bool isFromCurrentWorld(Deprecated::ScriptValue) const;
+    bool isFromCurrentWorld(JSC::JSValue) const;
 
-    void setUsesOverlayScrollbars(bool enabled);
+    void setUsesOverlayScrollbars(bool);
+    void setUsesMockScrollAnimator(bool);
 
-    String getCurrentCursorInfo(ExceptionCode&);
+    ExceptionOr<String> getCurrentCursorInfo();
 
-    String markerTextForListItem(Element*, ExceptionCode&);
+    String markerTextForListItem(Element&);
 
-    String toolTipFromElement(Element*, ExceptionCode&) const;
+    String toolTipFromElement(Element&) const;
 
     void forceReload(bool endToEnd);
+    void reloadExpiredOnly();
 
     void enableAutoSizeMode(bool enabled, int minimumWidth, int minimumHeight, int maximumWidth, int maximumHeight);
 
-#if ENABLE(ENCRYPTED_MEDIA_V2)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     void initializeMockCDM();
 #endif
+
+#if ENABLE(ENCRYPTED_MEDIA)
+    Ref<MockCDMFactory> registerMockCDM();
+#endif
+
+    void enableMockMediaCapabilities();
 
 #if ENABLE(SPEECH_SYNTHESIS)
     void enableMockSpeechSynthesizer();
 #endif
 
 #if ENABLE(MEDIA_STREAM)
-    void enableMockRTCPeerConnectionHandler();
     void setMockMediaCaptureDevicesEnabled(bool);
+    void setMediaCaptureRequiresSecureConnection(bool);
+    void setCustomPrivateRecorderCreator();
 #endif
 
-    String getImageSourceURL(Element*, ExceptionCode&);
+#if ENABLE(WEB_RTC)
+    void emulateRTCPeerConnectionPlatformEvent(RTCPeerConnection&, const String& action);
+    void useMockRTCPeerConnectionFactory(const String&);
+    void setICECandidateFiltering(bool);
+    void setEnumeratingAllNetworkInterfacesEnabled(bool);
+    void stopPeerConnection(RTCPeerConnection&);
+    void clearPeerConnectionFactory();
+    void applyRotationForOutgoingVideoSources(RTCPeerConnection&);
+#endif
+
+    String getImageSourceURL(Element&);
 
 #if ENABLE(VIDEO)
-    void simulateAudioInterruption(Node*);
-    bool mediaElementHasCharacteristic(Node*, const String&, ExceptionCode&);
+    Vector<String> mediaResponseSources(HTMLMediaElement&);
+    Vector<String> mediaResponseContentRanges(HTMLMediaElement&);
+    void simulateAudioInterruption(HTMLMediaElement&);
+    ExceptionOr<bool> mediaElementHasCharacteristic(HTMLMediaElement&, const String&);
+    void beginSimulatedHDCPError(HTMLMediaElement&);
+    void endSimulatedHDCPError(HTMLMediaElement&);
+
+    bool elementShouldBufferData(HTMLMediaElement&);
 #endif
 
-    bool isSelectPopupVisible(Node*);
+    bool isSelectPopupVisible(HTMLSelectElement&);
 
-    String captionsStyleSheetOverride(ExceptionCode&);
-    void setCaptionsStyleSheetOverride(const String&, ExceptionCode&);
-    void setPrimaryAudioTrackLanguageOverride(const String&, ExceptionCode&);
-    void setCaptionDisplayMode(const String&, ExceptionCode&);
+    ExceptionOr<String> captionsStyleSheetOverride();
+    ExceptionOr<void> setCaptionsStyleSheetOverride(const String&);
+    ExceptionOr<void> setPrimaryAudioTrackLanguageOverride(const String&);
+    ExceptionOr<void> setCaptionDisplayMode(const String&);
 
 #if ENABLE(VIDEO)
-    Ref<TimeRanges> createTimeRanges(Float32Array* startTimes, Float32Array* endTimes);
-    double closestTimeToTimeRanges(double time, TimeRanges*);
+    Ref<TimeRanges> createTimeRanges(Float32Array& startTimes, Float32Array& endTimes);
+    double closestTimeToTimeRanges(double time, TimeRanges&);
 #endif
 
-    Ref<ClientRect> selectionBounds(ExceptionCode&);
+    ExceptionOr<Ref<DOMRect>> selectionBounds();
+    void setSelectionWithoutValidation(Ref<Node> baseNode, unsigned baseOffset, RefPtr<Node> extentNode, unsigned extentOffset);
 
-#if ENABLE(VIBRATION)
-    bool isVibrating();
-#endif
-
-    bool isPluginUnavailabilityIndicatorObscured(Element*, ExceptionCode&);
-    bool isPluginSnapshotted(Element*, ExceptionCode&);
+    ExceptionOr<bool> isPluginUnavailabilityIndicatorObscured(Element&);
+    ExceptionOr<String> unavailablePluginReplacementText(Element&);
+    bool isPluginSnapshotted(Element&);
+    bool pluginIsBelowSizeThreshold(Element&);
 
 #if ENABLE(MEDIA_SOURCE)
     WEBCORE_TESTSUPPORT_EXPORT void initializeMockMediaSource();
-    Vector<String> bufferedSamplesForTrackID(SourceBuffer*, const AtomicString&);
-    void setShouldGenerateTimestamps(SourceBuffer*, bool);
+    Vector<String> bufferedSamplesForTrackID(SourceBuffer&, const AtomicString&);
+    Vector<String> enqueuedSamplesForTrackID(SourceBuffer&, const AtomicString&);
+    void setShouldGenerateTimestamps(SourceBuffer&, bool);
 #endif
 
 #if ENABLE(VIDEO)
-    void beginMediaSessionInterruption(const String&, ExceptionCode&);
+    ExceptionOr<void> beginMediaSessionInterruption(const String&);
     void endMediaSessionInterruption(const String&);
-    void applicationDidEnterForeground() const;
-    void applicationWillEnterBackground() const;
-    void setMediaSessionRestrictions(const String& mediaType, const String& restrictions, ExceptionCode&);
-    void setMediaElementRestrictions(HTMLMediaElement*, const String& restrictions, ExceptionCode&);
-    void postRemoteControlCommand(const String&, ExceptionCode&);
-    bool elementIsBlockingDisplaySleep(Element*) const;
+    void applicationWillBecomeInactive();
+    void applicationDidBecomeActive();
+    void applicationWillEnterForeground(bool suspendedUnderLock) const;
+    void applicationDidEnterBackground(bool suspendedUnderLock) const;
+    ExceptionOr<void> setMediaSessionRestrictions(const String& mediaType, StringView restrictionsString);
+    ExceptionOr<String> mediaSessionRestrictions(const String& mediaType) const;
+    void setMediaElementRestrictions(HTMLMediaElement&, StringView restrictionsString);
+    ExceptionOr<void> postRemoteControlCommand(const String&, float argument);
+    bool elementIsBlockingDisplaySleep(HTMLMediaElement&) const;
 #endif
 
 #if ENABLE(MEDIA_SESSION)
-    void sendMediaSessionStartOfInterruptionNotification(const String&);
-    void sendMediaSessionEndOfInterruptionNotification(const String&);
-    String mediaSessionCurrentState(MediaSession*) const;
-    double mediaElementPlayerVolume(HTMLMediaElement*) const;
-    void sendMediaControlEvent(const String&);
+    void sendMediaSessionStartOfInterruptionNotification(MediaSessionInterruptingCategory);
+    void sendMediaSessionEndOfInterruptionNotification(MediaSessionInterruptingCategory);
+    String mediaSessionCurrentState(MediaSession&) const;
+    double mediaElementPlayerVolume(HTMLMediaElement&) const;
+    enum class MediaControlEvent { PlayPause, NextTrack, PreviousTrack };
+    void sendMediaControlEvent(MediaControlEvent);
 #endif
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     void setMockMediaPlaybackTargetPickerEnabled(bool);
-    void setMockMediaPlaybackTargetPickerState(const String& deviceName, const String& deviceState, ExceptionCode&);
+    ExceptionOr<void> setMockMediaPlaybackTargetPickerState(const String& deviceName, const String& deviceState);
 #endif
 
 #if ENABLE(WEB_AUDIO)
-    void setAudioContextRestrictions(AudioContext*, const String& restrictions, ExceptionCode&);
+    void setAudioContextRestrictions(AudioContext&, StringView restrictionsString);
 #endif
 
     void simulateSystemSleep() const;
     void simulateSystemWake() const;
 
-    RefPtr<MockPageOverlay> installMockPageOverlay(const String& overlayType, ExceptionCode&);
-    String pageOverlayLayerTreeAsText(ExceptionCode&) const;
+    enum class PageOverlayType { View, Document };
+    ExceptionOr<Ref<MockPageOverlay>> installMockPageOverlay(PageOverlayType);
+    ExceptionOr<String> pageOverlayLayerTreeAsText(unsigned short flags) const;
 
-    void setPageMuted(bool);
-    bool isPagePlayingAudio();
+    void setPageMuted(StringView);
+    String pageMediaState();
 
     void setPageDefersLoading(bool);
+    ExceptionOr<bool> pageDefersLoading();
 
     RefPtr<File> createFile(const String&);
     void queueMicroTask(int);
@@ -452,33 +618,213 @@ public:
 #endif
 
 #if ENABLE(CSS_SCROLL_SNAP)
-    String scrollSnapOffsets(Element*, ExceptionCode&);
+    ExceptionOr<String> scrollSnapOffsets(Element&);
+    void setPlatformMomentumScrollingPredictionEnabled(bool);
 #endif
 
-    String pathStringWithShrinkWrappedRects(Vector<double> rectComponents, double radius, ExceptionCode&);
+    ExceptionOr<String> pathStringWithShrinkWrappedRects(const Vector<double>& rectComponents, double radius);
 
-    String getCurrentMediaControlsStatusForElement(HTMLMediaElement*);
+    String getCurrentMediaControlsStatusForElement(HTMLMediaElement&);
 
-    String userVisibleString(const DOMURL*);
+    String userVisibleString(const DOMURL&);
     void setShowAllPlugins(bool);
 
-    String resourceLoadStatisticsForOrigin(String origin);
+    String resourceLoadStatisticsForURL(const DOMURL&);
     void setResourceLoadStatisticsEnabled(bool);
+    void setUserGrantsStorageAccess(bool);
 
 #if ENABLE(STREAMS_API)
-    bool isReadableStreamDisturbed(ScriptState&, JSC::JSValue);
+    bool isReadableStreamDisturbed(JSC::ExecState&, JSC::JSValue);
+    JSC::JSValue cloneArrayBuffer(JSC::ExecState&, JSC::JSValue, JSC::JSValue, JSC::JSValue);
 #endif
 
+    String composedTreeAsText(Node&);
+
+    bool isProcessingUserGesture();
+    double lastHandledUserGestureTimestamp();
+
+    void withUserGesture(RefPtr<VoidCallback>&&);
+
+    RefPtr<GCObservation> observeGC(JSC::JSValue);
+
+    enum class UserInterfaceLayoutDirection : uint8_t { LTR, RTL };
+    void setUserInterfaceLayoutDirection(UserInterfaceLayoutDirection);
+
+    bool userPrefersReducedMotion() const;
+
+    void reportBacktrace();
+
+    enum class BaseWritingDirection { Natural, Ltr, Rtl };
+    void setBaseWritingDirection(BaseWritingDirection);
+
+#if ENABLE(POINTER_LOCK)
+    bool pageHasPendingPointerLock() const;
+    bool pageHasPointerLock() const;
+#endif
+
+    Vector<String> accessKeyModifiers() const;
+
+    void setQuickLookPassword(const String&);
+
+    void setAsRunningUserScripts(Document&);
+#if ENABLE(APPLE_PAY)
+    void setHasStartedApplePaySession(Document&);
+#endif
+
+#if ENABLE(WEBGL)
+    void simulateWebGLContextChanged(WebGLRenderingContext&);
+    void failNextGPUStatusCheck(WebGLRenderingContext&);
+    bool hasLowAndHighPowerGPUs();
+#endif
+
+    void setPageVisibility(bool isVisible);
+    void setPageIsFocusedAndActive(bool);
+
+
+#if ENABLE(WEB_RTC)
+    void setH264HardwareEncoderAllowed(bool allowed);
+#endif
+
+#if ENABLE(MEDIA_STREAM)
+    void setCameraMediaStreamTrackOrientation(MediaStreamTrack&, int orientation);
+    unsigned long trackAudioSampleCount() const { return m_trackAudioSampleCount; }
+    unsigned long trackVideoSampleCount() const { return m_trackVideoSampleCount; }
+    void observeMediaStreamTrack(MediaStreamTrack&);
+    using TrackFramePromise = DOMPromiseDeferred<IDLInterface<ImageData>>;
+    void grabNextMediaStreamTrackFrame(TrackFramePromise&&);
+    void delayMediaStreamTrackSamples(MediaStreamTrack&, float);
+    void setMediaStreamTrackMuted(MediaStreamTrack&, bool);
+    void removeMediaStreamTrack(MediaStream&, MediaStreamTrack&);
+    void simulateMediaStreamTrackCaptureSourceFailure(MediaStreamTrack&);
+    void setMediaStreamTrackIdentifier(MediaStreamTrack&, String&& id);
+    void setMediaStreamSourceInterrupted(MediaStreamTrack&, bool);
+#endif
+
+    String audioSessionCategory() const;
+    double preferredAudioBufferSize() const;
+    bool audioSessionActive() const;
+
+    void clearCacheStorageMemoryRepresentation(DOMPromiseDeferred<void>&&);
+    void cacheStorageEngineRepresentation(DOMPromiseDeferred<IDLDOMString>&&);
+    void setResponseSizeWithPadding(FetchResponse&, uint64_t size);
+    uint64_t responseSizeWithPadding(FetchResponse&) const;
+
+    void updateQuotaBasedOnSpaceUsage();
+
+    void setConsoleMessageListener(RefPtr<StringCallback>&&);
+
+#if ENABLE(SERVICE_WORKER)
+    using HasRegistrationPromise = DOMPromiseDeferred<IDLBoolean>;
+    void hasServiceWorkerRegistration(const String& clientURL, HasRegistrationPromise&&);
+    void terminateServiceWorker(ServiceWorker&);
+    bool hasServiceWorkerConnection();
+#endif
+
+#if ENABLE(APPLE_PAY)
+    MockPaymentCoordinator& mockPaymentCoordinator(Document&);
+#endif
+
+    bool isSystemPreviewLink(Element&) const;
+    bool isSystemPreviewImage(Element&) const;
+
+    void postTask(RefPtr<VoidCallback>&&);
+    void markContextAsInsecure();
+
+    bool usingAppleInternalSDK() const;
+
+    struct NowPlayingState {
+        String title;
+        double duration;
+        double elapsedTime;
+        uint64_t uniqueIdentifier;
+        bool hasActiveSession;
+        bool registeredAsNowPlayingApplication;
+    };
+    ExceptionOr<NowPlayingState> nowPlayingState() const;
+
+#if ENABLE(VIDEO)
+    using PlaybackControlsPurpose = MediaElementSession::PlaybackControlsPurpose;
+    RefPtr<HTMLMediaElement> bestMediaElementForShowingPlaybackControlsManager(PlaybackControlsPurpose);
+
+    using MediaSessionState = PlatformMediaSession::State;
+    MediaSessionState mediaSessionState(HTMLMediaElement&);
+#endif
+
+    void setCaptureExtraNetworkLoadMetricsEnabled(bool);
+    String ongoingLoadsDescriptions() const;
+
+    void reloadWithoutContentExtensions();
+
+    void setUseSystemAppearance(bool);
+
+    size_t pluginCount();
+
+    void notifyResourceLoadObserver();
+
+    unsigned primaryScreenDisplayID();
+
+    bool capsLockIsOn();
+        
+    bool supportsVCPEncoder();
+        
+    using HEVCParameterSet = WebCore::HEVCParameterSet;
+    Optional<HEVCParameterSet> parseHEVCCodecParameters(const String& codecString);
+
+    struct CookieData {
+        String name;
+        String value;
+        String domain;
+        // Expiration dates are expressed as milliseconds since the UNIX epoch.
+        double expires { 0 };
+        bool isHttpOnly { false };
+        bool isSecure { false };
+        bool isSession { false };
+        bool isSameSiteLax { false };
+        bool isSameSiteStrict { false };
+
+        CookieData(Cookie cookie)
+            : name(cookie.name)
+            , value(cookie.value)
+            , domain(cookie.domain)
+            , expires(cookie.expires)
+            , isHttpOnly(cookie.httpOnly)
+            , isSecure(cookie.secure)
+            , isSession(cookie.session)
+            , isSameSiteLax(cookie.sameSite == Cookie::SameSitePolicy::Lax)
+            , isSameSiteStrict(cookie.sameSite == Cookie::SameSitePolicy::Strict)
+        {
+            ASSERT(!(isSameSiteLax && isSameSiteStrict));
+        }
+
+        CookieData()
+        {
+        }
+    };
+    Vector<CookieData> getCookies() const;
+
+    void setAlwaysAllowLocalWebarchive(bool);
+
 private:
-    explicit Internals(Document*);
+    explicit Internals(Document&);
     Document* contextDocument() const;
     Frame* frame() const;
 
-    RenderedDocumentMarker* markerAt(Node*, const String& markerType, unsigned index, ExceptionCode&);
+    ExceptionOr<RenderedDocumentMarker*> markerAt(Node&, const String& markerType, unsigned index);
+
+    // RealtimeMediaSource::Observer API
+#if ENABLE(MEDIA_STREAM)
+    void videoSampleAvailable(MediaSample&) final;
+    void audioSamplesAvailable(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t) final { m_trackAudioSampleCount++; }
+
+    OrientationNotifier m_orientationNotifier;
+    unsigned long m_trackVideoSampleCount { 0 };
+    unsigned long m_trackAudioSampleCount { 0 };
+    RefPtr<MediaStreamTrack> m_track;
+    Optional<TrackFramePromise> m_nextTrackFramePromise;
+#endif
 
     std::unique_ptr<InspectorStubFrontend> m_inspectorFrontend;
+    RefPtr<CacheStorageConnection> m_cacheStorageConnection;
 };
 
 } // namespace WebCore
-
-#endif

@@ -23,19 +23,19 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController extends WebInspector.Object
+WI.JavaScriptLogViewController = class JavaScriptLogViewController extends WI.Object
 {
     constructor(element, scrollElement, textPrompt, delegate, historySettingIdentifier)
     {
         super();
 
-        console.assert(textPrompt instanceof WebInspector.ConsolePrompt);
+        console.assert(textPrompt instanceof WI.ConsolePrompt);
         console.assert(historySettingIdentifier);
 
         this._element = element;
         this._scrollElement = scrollElement;
 
-        this._promptHistorySetting = new WebInspector.Setting(historySettingIdentifier, null);
+        this._promptHistorySetting = new WI.Setting(historySettingIdentifier, null);
 
         this._prompt = textPrompt;
         this._prompt.delegate = this;
@@ -49,65 +49,67 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
         this._repeatCountWasInterrupted = false;
 
         this._sessions = [];
+        this._currentSessionOrGroup = null;
 
-        this.messagesClearKeyboardShortcut = new WebInspector.KeyboardShortcut(WebInspector.KeyboardShortcut.Modifier.CommandOrControl, "K", this._handleClearShortcut.bind(this));
-        this.messagesAlternateClearKeyboardShortcut = new WebInspector.KeyboardShortcut(WebInspector.KeyboardShortcut.Modifier.Control, "L", this._handleClearShortcut.bind(this), this._element);
+        this.messagesAlternateClearKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.Control, "L", this.requestClearMessages.bind(this), this._element);
 
-        this._messagesFindNextKeyboardShortcut = new WebInspector.KeyboardShortcut(WebInspector.KeyboardShortcut.Modifier.CommandOrControl, "G", this._handleFindNextShortcut.bind(this), this._element);
-        this._messagesFindPreviousKeyboardShortcut = new WebInspector.KeyboardShortcut(WebInspector.KeyboardShortcut.Modifier.CommandOrControl | WebInspector.KeyboardShortcut.Modifier.Shift, "G", this._handleFindPreviousShortcut.bind(this), this._element);
+        this._messagesFindNextKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl, "G", this._handleFindNextShortcut.bind(this), this._element);
+        this._messagesFindPreviousKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl | WI.KeyboardShortcut.Modifier.Shift, "G", this._handleFindPreviousShortcut.bind(this), this._element);
 
-        this._promptAlternateClearKeyboardShortcut = new WebInspector.KeyboardShortcut(WebInspector.KeyboardShortcut.Modifier.Control, "L", this._handleClearShortcut.bind(this), this._prompt.element);
-        this._promptFindNextKeyboardShortcut = new WebInspector.KeyboardShortcut(WebInspector.KeyboardShortcut.Modifier.CommandOrControl, "G", this._handleFindNextShortcut.bind(this), this._prompt.element);
-        this._promptFindPreviousKeyboardShortcut = new WebInspector.KeyboardShortcut(WebInspector.KeyboardShortcut.Modifier.CommandOrControl | WebInspector.KeyboardShortcut.Modifier.Shift, "G", this._handleFindPreviousShortcut.bind(this), this._prompt.element);
+        this._promptAlternateClearKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.Control, "L", this.requestClearMessages.bind(this), this._prompt.element);
+        this._promptFindNextKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl, "G", this._handleFindNextShortcut.bind(this), this._prompt.element);
+        this._promptFindPreviousKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl | WI.KeyboardShortcut.Modifier.Shift, "G", this._handleFindPreviousShortcut.bind(this), this._prompt.element);
+
+        this._pendingMessagesForSessionOrGroup = new Map;
+        this._scheduledRenderIdentifier = 0;
 
         this.startNewSession();
     }
 
     // Public
 
-    get prompt()
-    {
-        return this._prompt;
-    }
-
-    get currentConsoleGroup()
-    {
-        return this._currentConsoleGroup;
-    }
-
     clear()
     {
         this._cleared = true;
 
-        this.startNewSession(true);
+        const clearPreviousSessions = true;
+        this.startNewSession(clearPreviousSessions, {newSessionReason: WI.ConsoleSession.NewSessionReason.ConsoleCleared});
     }
 
-    startNewSession(clearPreviousSessions)
+    startNewSession(clearPreviousSessions = false, data = {})
     {
-        if (this._sessions.length && clearPreviousSessions) {
-            for (var i = 0; i < this._sessions.length; ++i)
-                this._element.removeChild(this._sessions[i].element);
+        if (clearPreviousSessions) {
+            this._pendingMessagesForSessionOrGroup.clear();
 
-            this._sessions = [];
-            this._currentConsoleGroup = null;
+            if (this._sessions.length) {
+                for (let session of this._sessions)
+                    session.element.remove();
+
+                this._sessions = [];
+                this._currentSessionOrGroup = null;
+            }
         }
 
-        var lastSession = this._sessions.lastValue;
-        // Reuse the last session if it has no messages.
-        if (lastSession && !lastSession.hasMessages()) {
-            // Make sure the session is visible.
-            lastSession.element.scrollIntoView();
-            return;
+        // First session shows the time when the console was opened.
+        if (!this._sessions.length)
+            data.timestamp = Date.now();
+
+        let lastSession = this._sessions.lastValue;
+
+        // Remove empty session.
+        if (lastSession && !lastSession.hasMessages() && !this._pendingMessagesForSessionOrGroup.has(lastSession)) {
+            this._sessions.pop();
+            lastSession.element.remove();
         }
 
-        var consoleSession = new WebInspector.ConsoleSession;
+        let consoleSession = new WI.ConsoleSession(data);
 
         this._previousMessageView = null;
         this._lastCommitted = "";
         this._repeatCountWasInterrupted = false;
 
         this._sessions.push(consoleSession);
-        this._currentConsoleGroup = consoleSession;
+        this._currentSessionOrGroup = consoleSession;
 
         this._element.appendChild(consoleSession.element);
 
@@ -115,26 +117,26 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
         consoleSession.element.scrollIntoView();
     }
 
-    appendImmediateExecutionWithResult(text, result, addSpecialUserLogClass, synthetic)
+    appendImmediateExecutionWithResult(text, result, addSpecialUserLogClass, shouldRevealConsole)
     {
-        console.assert(result instanceof WebInspector.RemoteObject);
+        console.assert(result instanceof WI.RemoteObject);
 
-        var commandMessageView = new WebInspector.ConsoleCommandView(text, addSpecialUserLogClass ? "special-user-log" : null);
+        var commandMessageView = new WI.ConsoleCommandView(text, addSpecialUserLogClass ? "special-user-log" : null);
         this._appendConsoleMessageView(commandMessageView, true);
 
         function saveResultCallback(savedResultIndex)
         {
-            let commandResultMessage = new WebInspector.ConsoleCommandResultMessage(result, false, savedResultIndex, synthetic);
-            let commandResultMessageView = new WebInspector.ConsoleMessageView(commandResultMessage);
+            let commandResultMessage = new WI.ConsoleCommandResultMessage(result.target, result, false, savedResultIndex, shouldRevealConsole);
+            let commandResultMessageView = new WI.ConsoleMessageView(commandResultMessage);
             this._appendConsoleMessageView(commandResultMessageView, true);
         }
 
-        WebInspector.runtimeManager.saveResult(result, saveResultCallback.bind(this));
+        WI.runtimeManager.saveResult(result, saveResultCallback.bind(this));
     }
 
     appendConsoleMessage(consoleMessage)
     {
-        var consoleMessageView = new WebInspector.ConsoleMessageView(consoleMessage);
+        var consoleMessageView = new WI.ConsoleMessageView(consoleMessage);
         this._appendConsoleMessageView(consoleMessageView);
         return consoleMessageView;
     }
@@ -145,7 +147,7 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
         if (!this._previousMessageView)
             return false;
 
-        var previousIgnoredCount = this._previousMessageView[WebInspector.JavaScriptLogViewController.IgnoredRepeatCount] || 0;
+        var previousIgnoredCount = this._previousMessageView[WI.JavaScriptLogViewController.IgnoredRepeatCount] || 0;
         var previousVisibleCount = this._previousMessageView.repeatCount;
 
         if (!this._repeatCountWasInterrupted) {
@@ -154,8 +156,8 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
         }
 
         var consoleMessage = this._previousMessageView.message;
-        var duplicatedConsoleMessageView = new WebInspector.ConsoleMessageView(consoleMessage);
-        duplicatedConsoleMessageView[WebInspector.JavaScriptLogViewController.IgnoredRepeatCount] = previousIgnoredCount + previousVisibleCount;
+        var duplicatedConsoleMessageView = new WI.ConsoleMessageView(consoleMessage);
+        duplicatedConsoleMessageView[WI.JavaScriptLogViewController.IgnoredRepeatCount] = previousIgnoredCount + previousVisibleCount;
         duplicatedConsoleMessageView.repeatCount = 1;
         this._appendConsoleMessageView(duplicatedConsoleMessageView);
 
@@ -184,11 +186,16 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
         this._scrollToBottomTimeout = setTimeout(delayedWork.bind(this), 0);
     }
 
+    requestClearMessages()
+    {
+        WI.consoleManager.requestClearMessages();
+    }
+
     // Protected
 
     consolePromptHistoryDidChange(prompt)
     {
-        this._promptHistorySetting.value = this.prompt.history;
+        this._promptHistorySetting.value = this._prompt.history;
     }
 
     consolePromptShouldCommitText(prompt, text, cursorIsAtLastPosition, handler)
@@ -204,7 +211,7 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
             handler(result !== RuntimeAgent.SyntaxErrorType.Recoverable);
         }
 
-        RuntimeAgent.parse(text, parseFinished.bind(this));
+        WI.runtimeManager.activeExecutionContext.target.RuntimeAgent.parse(text, parseFinished.bind(this));
     }
 
     consolePromptTextCommitted(prompt, text)
@@ -212,7 +219,7 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
         console.assert(text);
 
         if (this._lastCommitted !== text) {
-            let commandMessageView = new WebInspector.ConsoleCommandView(text);
+            let commandMessageView = new WI.ConsoleCommandView(text);
             this._appendConsoleMessageView(commandMessageView, true);
             this._lastCommitted = text;
         }
@@ -222,21 +229,27 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
             if (!result || this._cleared)
                 return;
 
-            let synthetic = false;
-            let commandResultMessage = new WebInspector.ConsoleCommandResultMessage(result, wasThrown, savedResultIndex, synthetic);
-            let commandResultMessageView = new WebInspector.ConsoleMessageView(commandResultMessage);
+            let shouldRevealConsole = true;
+            let commandResultMessage = new WI.ConsoleCommandResultMessage(result.target, result, wasThrown, savedResultIndex, shouldRevealConsole);
+            let commandResultMessageView = new WI.ConsoleMessageView(commandResultMessage);
             this._appendConsoleMessageView(commandResultMessageView, true);
         }
 
-        WebInspector.runtimeManager.evaluateInInspectedWindow(text, WebInspector.RuntimeManager.ConsoleObjectGroup, true, false, false, true, true, printResult.bind(this));
+        let options = {
+            objectGroup: WI.RuntimeManager.ConsoleObjectGroup,
+            includeCommandLineAPI: true,
+            doNotPauseOnExceptionsAndMuteConsole: false,
+            returnByValue: false,
+            generatePreview: true,
+            saveResult: true,
+            emulateUserGesture: WI.settings.emulateInUserGesture.value,
+            sourceURLAppender: appendWebInspectorConsoleEvaluationSourceURL,
+        };
+
+        WI.runtimeManager.evaluateInInspectedWindow(text, options, printResult.bind(this));
     }
 
     // Private
-
-    _handleClearShortcut()
-    {
-        WebInspector.logManager.requestClearMessages();
-    }
 
     _handleFindNextShortcut()
     {
@@ -250,7 +263,12 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
 
     _appendConsoleMessageView(messageView, repeatCountWasInterrupted)
     {
-        var wasScrolledToBottom = this.isScrolledToBottom();
+        let pendingMessagesForSession = this._pendingMessagesForSessionOrGroup.get(this._currentSessionOrGroup);
+        if (!pendingMessagesForSession) {
+            pendingMessagesForSession = [];
+            this._pendingMessagesForSessionOrGroup.set(this._currentSessionOrGroup, pendingMessagesForSession);
+        }
+        pendingMessagesForSession.push(messageView);
 
         this._cleared = false;
         this._repeatCountWasInterrupted = repeatCountWasInterrupted || false;
@@ -258,31 +276,91 @@ WebInspector.JavaScriptLogViewController = class JavaScriptLogViewController ext
         if (!repeatCountWasInterrupted)
             this._previousMessageView = messageView;
 
-        if (messageView.message && messageView.message.source !== WebInspector.ConsoleMessage.MessageSource.JS)
+        if (messageView.message && messageView.message.source !== WI.ConsoleMessage.MessageSource.JS)
             this._lastCommitted = "";
 
-        var type = messageView instanceof WebInspector.ConsoleCommandView ? null : messageView.message.type;
-        if (type === WebInspector.ConsoleMessage.MessageType.EndGroup) {
-            var parentGroup = this._currentConsoleGroup.parentGroup;
-            if (parentGroup)
-                this._currentConsoleGroup = parentGroup;
-        } else {
-            if (type === WebInspector.ConsoleMessage.MessageType.StartGroup || type === WebInspector.ConsoleMessage.MessageType.StartGroupCollapsed) {
-                var group = new WebInspector.ConsoleGroup(this._currentConsoleGroup);
-                var groupElement = group.render(messageView);
-                this._currentConsoleGroup.append(groupElement);
-                this._currentConsoleGroup = group;
-            } else
-                this._currentConsoleGroup.addMessageView(messageView);
+        if (WI.consoleContentView.visible)
+            this.renderPendingMessagesSoon();
+
+        if (!WI.isShowingConsoleTab() && messageView.message && messageView.message.shouldRevealConsole)
+            WI.showSplitConsole();
+    }
+
+    renderPendingMessages()
+    {
+        if (this._scheduledRenderIdentifier) {
+            cancelAnimationFrame(this._scheduledRenderIdentifier);
+            this._scheduledRenderIdentifier = 0;
         }
 
-        if (type === WebInspector.ConsoleMessage.MessageType.Result || wasScrolledToBottom)
+        if (!this._pendingMessagesForSessionOrGroup.size)
+            return;
+
+        let wasScrolledToBottom = this.isScrolledToBottom();
+        let savedCurrentConsoleGroup = this._currentSessionOrGroup;
+        let lastMessageView = null;
+
+        const maxMessagesPerFrame = 100;
+        let renderedMessages = 0;
+        for (let [session, messages] of this._pendingMessagesForSessionOrGroup) {
+            this._currentSessionOrGroup = session;
+
+            let messagesToRender = messages.splice(0, maxMessagesPerFrame - renderedMessages);
+            for (let message of messagesToRender) {
+                message.render();
+                this._didRenderConsoleMessageView(message);
+            }
+
+            lastMessageView = messagesToRender.lastValue;
+
+            if (!messages.length)
+                this._pendingMessagesForSessionOrGroup.delete(session);
+
+            renderedMessages += messagesToRender.length;
+            if (renderedMessages >= maxMessagesPerFrame)
+                break;
+        }
+
+        this._currentSessionOrGroup = savedCurrentConsoleGroup;
+
+        if (wasScrolledToBottom || lastMessageView instanceof WI.ConsoleCommandView || lastMessageView.message.type === WI.ConsoleMessage.MessageType.Result || lastMessageView.message.type === WI.ConsoleMessage.MessageType.Image)
             this.scrollToBottom();
+
+        WI.quickConsole.needsLayout();
+
+        if (this._pendingMessagesForSessionOrGroup.size)
+            this.renderPendingMessagesSoon();
+    }
+
+    renderPendingMessagesSoon()
+    {
+        if (this._scheduledRenderIdentifier)
+            return;
+
+        this._scheduledRenderIdentifier = requestAnimationFrame(() => this.renderPendingMessages());
+    }
+
+    _didRenderConsoleMessageView(messageView)
+    {
+        var type = messageView instanceof WI.ConsoleCommandView ? null : messageView.message.type;
+        if (type === WI.ConsoleMessage.MessageType.EndGroup) {
+            var parentGroup = this._currentSessionOrGroup.parentGroup;
+            if (parentGroup)
+                this._currentSessionOrGroup = parentGroup;
+        } else {
+            if (type === WI.ConsoleMessage.MessageType.StartGroup || type === WI.ConsoleMessage.MessageType.StartGroupCollapsed) {
+                var group = new WI.ConsoleGroup(this._currentSessionOrGroup);
+                var groupElement = group.render(messageView);
+                this._currentSessionOrGroup.append(groupElement);
+                this._currentSessionOrGroup = group;
+            } else
+                this._currentSessionOrGroup.addMessageView(messageView);
+        }
 
         if (this.delegate && typeof this.delegate.didAppendConsoleMessageView === "function")
             this.delegate.didAppendConsoleMessageView(messageView);
     }
 };
 
-WebInspector.JavaScriptLogViewController.CachedPropertiesDuration = 30000;
-WebInspector.JavaScriptLogViewController.IgnoredRepeatCount = Symbol("ignored-repeat-count");
+WI.JavaScriptLogViewController.CachedPropertiesDuration = 30000;
+WI.JavaScriptLogViewController.IgnoredRepeatCount = Symbol("ignored-repeat-count");

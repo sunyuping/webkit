@@ -32,18 +32,22 @@
     display: flex;
 
     justify-content: center;
+    align-items: center;
+
+    padding: 15px;
 }
 
 .content-view.resource.image img {
-    min-width: 0;
     max-width: 100%;
 
     -webkit-user-select: text;
     -webkit-user-drag: auto;
 
- /* A border is used instead of padding or margin so when there is overflow
-    there will be space on all sides. */
-    border: 15px solid transparent;
-
     margin: auto 0;
+}
+
+@media (prefers-color-scheme: dark) {
+    .content-view.resource.image {
+        background: var(--background-color-content);
+    }
 }

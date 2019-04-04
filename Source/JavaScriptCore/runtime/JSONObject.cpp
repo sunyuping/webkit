@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,14 +26,14 @@
 #include "config.h"
 #include "JSONObject.h"
 
+#include "ArrayConstructor.h"
+#include "BigIntObject.h"
 #include "BooleanObject.h"
 #include "Error.h"
 #include "ExceptionHelpers.h"
 #include "JSArray.h"
 #include "JSGlobalObject.h"
 #include "LiteralParser.h"
-#include "Local.h"
-#include "LocalScope.h"
 #include "Lookup.h"
 #include "ObjectConstructor.h"
 #include "JSCInlines.h"
@@ -62,9 +62,9 @@ JSONObject::JSONObject(VM& vm, Structure* structure)
 void JSONObject::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(info()));
+    ASSERT(inherits(vm, info()));
 
-    putDirectWithoutTransition(vm, vm.propertyNames->toStringTagSymbol, jsString(&vm, "JSON"), DontEnum | ReadOnly);
+    putDirectWithoutTransition(vm, vm.propertyNames->toStringTagSymbol, jsString(&vm, "JSON"), PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
 }
 
 // PropertyNameForFunctionCall objects must be on the stack, since the JSValue that they create is not marked.
@@ -83,51 +83,55 @@ private:
 
 class Stringifier {
     WTF_MAKE_NONCOPYABLE(Stringifier);
+    WTF_FORBID_HEAP_ALLOCATION;
 public:
-    Stringifier(ExecState*, const Local<Unknown>& replacer, const Local<Unknown>& space);
-    Local<Unknown> stringify(Handle<Unknown>);
-
-    void visitAggregate(SlotVisitor&);
+    Stringifier(ExecState*, JSValue replacer, JSValue space);
+    JSValue stringify(JSValue);
 
 private:
     class Holder {
     public:
-        Holder(VM&, JSObject*);
+        enum RootHolderTag { RootHolder };
+        Holder(ExecState*, JSObject*);
+        Holder(RootHolderTag, JSObject*);
 
-        JSObject* object() const { return m_object.get(); }
+        JSObject* object() const { return m_object; }
+        bool isArray() const { return m_isArray; }
 
         bool appendNextProperty(Stringifier&, StringBuilder&);
 
     private:
-        Local<JSObject> m_object;
+        JSObject* m_object;
+        const bool m_isJSArray;
         const bool m_isArray;
-        bool m_isJSArray;
-        unsigned m_index;
-        unsigned m_size;
+        unsigned m_index { 0 };
+        unsigned m_size { 0 };
         RefPtr<PropertyNameArrayData> m_propertyNames;
     };
 
     friend class Holder;
 
     JSValue toJSON(JSValue, const PropertyNameForFunctionCall&);
-    JSValue toJSONImpl(JSValue, const PropertyNameForFunctionCall&);
+    JSValue toJSONImpl(VM&, JSValue, JSValue toJSONFunction, const PropertyNameForFunctionCall&);
 
     enum StringifyResult { StringifyFailed, StringifySucceeded, StringifyFailedDueToUndefinedOrSymbolValue };
-    StringifyResult appendStringifiedValue(StringBuilder&, JSValue, JSObject* holder, const PropertyNameForFunctionCall&);
+    StringifyResult appendStringifiedValue(StringBuilder&, JSValue, const Holder&, const PropertyNameForFunctionCall&);
 
     bool willIndent() const;
     void indent();
     void unindent();
     void startNewLine(StringBuilder&) const;
+    bool isCallableReplacer() const { return m_replacerCallType != CallType::None; }
 
     ExecState* const m_exec;
-    const Local<Unknown> m_replacer;
-    bool m_usingArrayReplacer;
+    JSValue m_replacer;
+    bool m_usingArrayReplacer { false };
     PropertyNameArray m_arrayReplacerPropertyNames;
-    CallType m_replacerCallType;
+    CallType m_replacerCallType { CallType::None };
     CallData m_replacerCallData;
-    const String m_gap;
+    String m_gap;
 
+    MarkedArgumentBuffer m_objectStack;
     Vector<Holder, 16, UnsafeVectorOverflow> m_holderStack;
     String m_repeatedGap;
     String m_indent;
@@ -137,15 +141,16 @@ private:
 
 static inline JSValue unwrapBoxedPrimitive(ExecState* exec, JSValue value)
 {
+    VM& vm = exec->vm();
     if (!value.isObject())
         return value;
     JSObject* object = asObject(value);
-    if (object->inherits(NumberObject::info()))
+    if (object->inherits<NumberObject>(vm))
         return jsNumber(object->toNumber(exec));
-    if (object->inherits(StringObject::info()))
+    if (object->inherits<StringObject>(vm))
         return object->toString(exec);
-    if (object->inherits(BooleanObject::info()))
-        return object->toPrimitive(exec);
+    if (object->inherits<BooleanObject>(vm) || object->inherits<BigIntObject>(vm))
+        return jsCast<JSWrapperObject*>(object)->internalValue();
 
     // Do not unwrap SymbolObject to Symbol. It is not performed in the spec.
     // http://www.ecma-international.org/ecma-262/6.0/#sec-serializejsonproperty
@@ -154,8 +159,12 @@ static inline JSValue unwrapBoxedPrimitive(ExecState* exec, JSValue value)
 
 static inline String gap(ExecState* exec, JSValue space)
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     const unsigned maxGapLength = 10;
     space = unwrapBoxedPrimitive(exec, space);
+    RETURN_IF_EXCEPTION(scope, { });
 
     // If the space value is a number, create a gap string with that number of spaces.
     if (space.isNumber()) {
@@ -167,7 +176,7 @@ static inline String gap(ExecState* exec, JSValue space)
             count = 0;
         else
             count = static_cast<int>(spaceCount);
-        UChar spaces[maxGapLength];
+        char spaces[maxGapLength];
         for (int i = 0; i < count; ++i)
             spaces[i] = ' ';
         return String(spaces, count);
@@ -175,10 +184,9 @@ static inline String gap(ExecState* exec, JSValue space)
 
     // If the space value is a string, use it as the gap string, otherwise use no gap string.
     String spaces = space.getString(exec);
-    if (spaces.length() > maxGapLength) {
-        spaces = spaces.substringSharingImpl(0, maxGapLength);
-    }
-    return spaces;
+    if (spaces.length() <= maxGapLength)
+        return spaces;
+    return spaces.substringSharingImpl(0, maxGapLength);
 }
 
 // ------------------------------ PropertyNameForFunctionCall --------------------------------
@@ -199,112 +207,142 @@ JSValue PropertyNameForFunctionCall::value(ExecState* exec) const
     if (!m_value) {
         if (m_identifier)
             m_value = jsString(exec, m_identifier->string());
-        else
-            m_value = jsNumber(m_number);
+        else {
+            VM& vm = exec->vm();
+            if (m_number <= 9)
+                return vm.smallStrings.singleCharacterString(m_number + '0');
+            m_value = jsNontrivialString(&vm, vm.numericStrings.add(m_number));
+        }
     }
     return m_value;
 }
 
 // ------------------------------ Stringifier --------------------------------
 
-Stringifier::Stringifier(ExecState* exec, const Local<Unknown>& replacer, const Local<Unknown>& space)
+Stringifier::Stringifier(ExecState* exec, JSValue replacer, JSValue space)
     : m_exec(exec)
     , m_replacer(replacer)
-    , m_usingArrayReplacer(false)
-    , m_arrayReplacerPropertyNames(exec, PropertyNameMode::Strings)
-    , m_replacerCallType(CallTypeNone)
-    , m_gap(gap(exec, space.get()))
+    , m_arrayReplacerPropertyNames(&exec->vm(), PropertyNameMode::Strings, PrivateSymbolMode::Exclude)
 {
-    if (!m_replacer.isObject())
-        return;
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (m_replacer.asObject()->inherits(JSArray::info())) {
-        m_usingArrayReplacer = true;
-        Handle<JSObject> array = m_replacer.asObject();
-        unsigned length = array->get(exec, exec->vm().propertyNames->length).toUInt32(exec);
-        for (unsigned i = 0; i < length; ++i) {
-            JSValue name = array->get(exec, i);
-            if (exec->hadException())
-                break;
+    if (m_replacer.isObject()) {
+        JSObject* replacerObject = asObject(m_replacer);
 
-            if (name.isObject()) {
-                if (!asObject(name)->inherits(NumberObject::info()) && !asObject(name)->inherits(StringObject::info()))
-                    continue;
-            } else if (!name.isNumber() && !name.isString())
-                continue;
-
-            m_arrayReplacerPropertyNames.add(name.toString(exec)->toIdentifier(exec));
+        m_replacerCallType = CallType::None;
+        if (!replacerObject->isCallable(vm, m_replacerCallType, m_replacerCallData)) {
+            bool isArrayReplacer = JSC::isArray(exec, replacerObject);
+            RETURN_IF_EXCEPTION(scope, );
+            if (isArrayReplacer) {
+                m_usingArrayReplacer = true;
+                unsigned length = replacerObject->get(exec, vm.propertyNames->length).toUInt32(exec);
+                RETURN_IF_EXCEPTION(scope, );
+                for (unsigned i = 0; i < length; ++i) {
+                    JSValue name = replacerObject->get(exec, i);
+                    RETURN_IF_EXCEPTION(scope, );
+                    if (name.isObject()) {
+                        auto* nameObject = jsCast<JSObject*>(name);
+                        if (!nameObject->inherits<NumberObject>(vm) && !nameObject->inherits<StringObject>(vm))
+                            continue;
+                    } else if (!name.isNumber() && !name.isString())
+                        continue;
+                    JSString* propertyNameString = name.toString(exec);
+                    RETURN_IF_EXCEPTION(scope, );
+                    auto propertyName = propertyNameString->toIdentifier(exec);
+                    RETURN_IF_EXCEPTION(scope, );
+                    m_arrayReplacerPropertyNames.add(WTFMove(propertyName));
+                }
+            }
         }
-        return;
     }
 
-    m_replacerCallType = m_replacer.asObject()->methodTable()->getCallData(m_replacer.asObject().get(), m_replacerCallData);
+    scope.release();
+    m_gap = gap(exec, space);
 }
 
-Local<Unknown> Stringifier::stringify(Handle<Unknown> value)
+JSValue Stringifier::stringify(JSValue value)
 {
-    JSObject* object = constructEmptyObject(m_exec);
-    if (m_exec->hadException())
-        return Local<Unknown>(m_exec->vm(), jsNull());
+    VM& vm = m_exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
-    PropertyNameForFunctionCall emptyPropertyName(m_exec->vm().propertyNames->emptyIdentifier);
-    object->putDirect(m_exec->vm(), m_exec->vm().propertyNames->emptyIdentifier, value.get());
+    PropertyNameForFunctionCall emptyPropertyName(vm.propertyNames->emptyIdentifier);
 
-    StringBuilder result;
-    if (appendStringifiedValue(result, value.get(), object, emptyPropertyName) != StringifySucceeded)
-        return Local<Unknown>(m_exec->vm(), jsUndefined());
-    if (m_exec->hadException())
-        return Local<Unknown>(m_exec->vm(), jsNull());
+    // If the replacer is not callable, root object wrapper is non-user-observable.
+    // We can skip creating this wrapper object.
+    JSObject* object = nullptr;
+    if (isCallableReplacer()) {
+        object = constructEmptyObject(m_exec);
+        RETURN_IF_EXCEPTION(scope, jsUndefined());
+        object->putDirect(vm, vm.propertyNames->emptyIdentifier, value);
+    }
 
-    return Local<Unknown>(m_exec->vm(), jsString(m_exec, result.toString()));
+    StringBuilder result(StringBuilder::OverflowHandler::RecordOverflow);
+    Holder root(Holder::RootHolder, object);
+    auto stringifyResult = appendStringifiedValue(result, value, root, emptyPropertyName);
+    RETURN_IF_EXCEPTION(scope, jsUndefined());
+    if (UNLIKELY(result.hasOverflowed())) {
+        throwOutOfMemoryError(m_exec, scope);
+        return jsUndefined();
+    }
+    if (UNLIKELY(stringifyResult != StringifySucceeded))
+        return jsUndefined();
+    RELEASE_AND_RETURN(scope, jsString(m_exec, result.toString()));
 }
 
-ALWAYS_INLINE JSValue Stringifier::toJSON(JSValue value, const PropertyNameForFunctionCall& propertyName)
+ALWAYS_INLINE JSValue Stringifier::toJSON(JSValue baseValue, const PropertyNameForFunctionCall& propertyName)
 {
-    ASSERT(!m_exec->hadException());
-    if (!value.isObject() || !asObject(value)->hasProperty(m_exec, m_exec->vm().propertyNames->toJSON))
-        return value;
-    return toJSONImpl(value, propertyName);
+    VM& vm = m_exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    scope.assertNoException();
+
+    PropertySlot slot(baseValue, PropertySlot::InternalMethodType::Get);
+    bool hasProperty = baseValue.getPropertySlot(m_exec, vm.propertyNames->toJSON, slot);
+    EXCEPTION_ASSERT(!scope.exception() || !hasProperty);
+    if (!hasProperty)
+        return baseValue;
+
+    JSValue toJSONFunction = slot.getValue(m_exec, vm.propertyNames->toJSON);
+    RETURN_IF_EXCEPTION(scope, { });
+    RELEASE_AND_RETURN(scope, toJSONImpl(vm, baseValue, toJSONFunction, propertyName));
 }
 
-JSValue Stringifier::toJSONImpl(JSValue value, const PropertyNameForFunctionCall& propertyName)
+JSValue Stringifier::toJSONImpl(VM& vm, JSValue baseValue, JSValue toJSONFunction, const PropertyNameForFunctionCall& propertyName)
 {
-    JSValue toJSONFunction = asObject(value)->get(m_exec, m_exec->vm().propertyNames->toJSON);
-    if (m_exec->hadException())
-        return jsNull();
-
-    if (!toJSONFunction.isObject())
-        return value;
-
-    JSObject* object = asObject(toJSONFunction);
+    CallType callType;
     CallData callData;
-    CallType callType = object->methodTable()->getCallData(object, callData);
-    if (callType == CallTypeNone)
-        return value;
+    if (!toJSONFunction.isCallable(vm, callType, callData))
+        return baseValue;
 
     MarkedArgumentBuffer args;
     args.append(propertyName.value(m_exec));
-    return call(m_exec, object, callType, callData, value, args);
+    ASSERT(!args.hasOverflowed());
+    return call(m_exec, asObject(toJSONFunction), callType, callData, baseValue, args);
 }
 
-Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& builder, JSValue value, JSObject* holder, const PropertyNameForFunctionCall& propertyName)
+Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& builder, JSValue value, const Holder& holder, const PropertyNameForFunctionCall& propertyName)
 {
+    VM& vm = m_exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     // Call the toJSON function.
-    value = toJSON(value, propertyName);
-    if (m_exec->hadException())
-        return StringifyFailed;
+    if (value.isObject() || value.isBigInt()) {
+        value = toJSON(value, propertyName);
+        RETURN_IF_EXCEPTION(scope, StringifyFailed);
+    }
 
     // Call the replacer function.
-    if (m_replacerCallType != CallTypeNone) {
+    if (isCallableReplacer()) {
         MarkedArgumentBuffer args;
         args.append(propertyName.value(m_exec));
         args.append(value);
-        value = call(m_exec, m_replacer.get(), m_replacerCallType, m_replacerCallData, holder, args);
-        if (m_exec->hadException())
-            return StringifyFailed;
+        ASSERT(!args.hasOverflowed());
+        ASSERT(holder.object());
+        value = call(m_exec, m_replacer, m_replacerCallType, m_replacerCallData, holder.object(), args);
+        RETURN_IF_EXCEPTION(scope, StringifyFailed);
     }
 
-    if ((value.isUndefined() || value.isSymbol()) && !holder->inherits(JSArray::info()))
+    if ((value.isUndefined() || value.isSymbol()) && !holder.isArray())
         return StringifyFailedDueToUndefinedOrSymbolValue;
 
     if (value.isNull()) {
@@ -314,8 +352,7 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
 
     value = unwrapBoxedPrimitive(m_exec, value);
 
-    if (m_exec->hadException())
-        return StringifyFailed;
+    RETURN_IF_EXCEPTION(scope, StringifyFailed);
 
     if (value.isBoolean()) {
         if (value.isTrue())
@@ -326,7 +363,9 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
     }
 
     if (value.isString()) {
-        builder.appendQuotedJSONString(asString(value)->value(m_exec));
+        const String& string = asString(value)->value(m_exec);
+        RETURN_IF_EXCEPTION(scope, StringifyFailed);
+        builder.appendQuotedJSONString(string);
         return StringifySucceeded;
     }
 
@@ -343,38 +382,49 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
         return StringifySucceeded;
     }
 
+    if (value.isBigInt()) {
+        throwTypeError(m_exec, scope, "JSON.stringify cannot serialize BigInt."_s);
+        return StringifyFailed;
+    }
+
     if (!value.isObject())
         return StringifyFailed;
 
     JSObject* object = asObject(value);
-
-    CallData callData;
-    if (object->methodTable()->getCallData(object, callData) != CallTypeNone) {
-        if (holder->inherits(JSArray::info())) {
+    if (object->isFunction(vm)) {
+        if (holder.isArray()) {
             builder.appendLiteral("null");
             return StringifySucceeded;
         }
         return StringifyFailedDueToUndefinedOrSymbolValue;
     }
 
+    if (UNLIKELY(builder.hasOverflowed()))
+        return StringifyFailed;
+
     // Handle cycle detection, and put the holder on the stack.
     for (unsigned i = 0; i < m_holderStack.size(); i++) {
         if (m_holderStack[i].object() == object) {
-            m_exec->vm().throwException(m_exec, createTypeError(m_exec, ASCIILiteral("JSON.stringify cannot serialize cyclic structures.")));
+            throwTypeError(m_exec, scope, "JSON.stringify cannot serialize cyclic structures."_s);
             return StringifyFailed;
         }
     }
+
     bool holderStackWasEmpty = m_holderStack.isEmpty();
-    m_holderStack.append(Holder(m_exec->vm(), object));
+    m_holderStack.append(Holder(m_exec, object));
+    m_objectStack.appendWithCrashOnOverflow(object);
+    RETURN_IF_EXCEPTION(scope, StringifyFailed);
     if (!holderStackWasEmpty)
         return StringifySucceeded;
 
     do {
-        while (m_holderStack.last().appendNextProperty(*this, builder)) {
-            if (m_exec->hadException())
-                return StringifyFailed;
-        }
+        while (m_holderStack.last().appendNextProperty(*this, builder))
+            RETURN_IF_EXCEPTION(scope, StringifyFailed);
+        RETURN_IF_EXCEPTION(scope, StringifyFailed);
+        if (UNLIKELY(builder.hasOverflowed()))
+            return StringifyFailed;
         m_holderStack.removeLast();
+        m_objectStack.removeLast();
     } while (!m_holderStack.isEmpty());
     return StringifySucceeded;
 }
@@ -408,13 +458,17 @@ inline void Stringifier::startNewLine(StringBuilder& builder) const
     builder.append(m_indent);
 }
 
-inline Stringifier::Holder::Holder(VM& vm, JSObject* object)
-    : m_object(vm, object)
-    , m_isArray(object->inherits(JSArray::info()))
-    , m_index(0)
-#ifndef NDEBUG
-    , m_size(0)
-#endif
+inline Stringifier::Holder::Holder(ExecState* exec, JSObject* object)
+    : m_object(object)
+    , m_isJSArray(isJSArray(object))
+    , m_isArray(JSC::isArray(exec, object))
+{
+}
+
+inline Stringifier::Holder::Holder(RootHolderTag, JSObject* object)
+    : m_object(object)
+    , m_isJSArray(false)
+    , m_isArray(false)
 {
 }
 
@@ -423,22 +477,28 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
     ASSERT(m_index <= m_size);
 
     ExecState* exec = stringifier.m_exec;
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
     // First time through, initialize.
     if (!m_index) {
         if (m_isArray) {
-            m_isJSArray = isJSArray(m_object.get());
             if (m_isJSArray)
-                m_size = asArray(m_object.get())->length();
-            else
-                m_size = m_object->get(exec, exec->vm().propertyNames->length).toUInt32(exec);
+                m_size = asArray(m_object)->length();
+            else {
+                JSValue value = m_object->get(exec, vm.propertyNames->length);
+                RETURN_IF_EXCEPTION(scope, false);
+                m_size = value.toUInt32(exec);
+                RETURN_IF_EXCEPTION(scope, false);
+            }
             builder.append('[');
         } else {
             if (stringifier.m_usingArrayReplacer)
                 m_propertyNames = stringifier.m_arrayReplacerPropertyNames.data();
             else {
-                PropertyNameArray objectPropertyNames(exec, PropertyNameMode::Strings);
-                m_object->methodTable()->getOwnPropertyNames(m_object.get(), exec, objectPropertyNames, EnumerationMode());
+                PropertyNameArray objectPropertyNames(&vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
+                m_object->methodTable(vm)->getOwnPropertyNames(m_object, exec, objectPropertyNames, EnumerationMode());
+                RETURN_IF_EXCEPTION(scope, false);
                 m_propertyNames = objectPropertyNames.releaseData();
             }
             m_size = m_propertyNames->propertyNameVector().size();
@@ -446,6 +506,8 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
         }
         stringifier.indent();
     }
+    if (UNLIKELY(builder.hasOverflowed()))
+        return false;
 
     // Last time through, finish up and return false.
     if (m_index == m_size) {
@@ -463,16 +525,17 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
     if (m_isArray) {
         // Get the value.
         JSValue value;
-        if (m_isJSArray && asArray(m_object.get())->canGetIndexQuickly(index))
-            value = asArray(m_object.get())->getIndexQuickly(index);
+        if (m_isJSArray && asArray(m_object)->canGetIndexQuickly(index))
+            value = asArray(m_object)->getIndexQuickly(index);
         else {
-            PropertySlot slot(m_object.get());
-            if (m_object->methodTable()->getOwnPropertySlotByIndex(m_object.get(), exec, index, slot)) {
+            PropertySlot slot(m_object, PropertySlot::InternalMethodType::Get);
+            bool hasProperty = m_object->getPropertySlot(exec, index, slot);
+            EXCEPTION_ASSERT(!scope.exception() || !hasProperty);
+            if (hasProperty)
                 value = slot.getValue(exec, index);
-                if (exec->hadException())
-                    return false;
-            } else
+            else
                 value = jsUndefined();
+            RETURN_IF_EXCEPTION(scope, false);
         }
 
         // Append the separator string.
@@ -481,16 +544,18 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
         stringifier.startNewLine(builder);
 
         // Append the stringified value.
-        stringifyResult = stringifier.appendStringifiedValue(builder, value, m_object.get(), index);
+        stringifyResult = stringifier.appendStringifiedValue(builder, value, *this, index);
+        ASSERT(stringifyResult != StringifyFailedDueToUndefinedOrSymbolValue);
     } else {
         // Get the value.
-        PropertySlot slot(m_object.get());
+        PropertySlot slot(m_object, PropertySlot::InternalMethodType::Get);
         Identifier& propertyName = m_propertyNames->propertyNameVector()[index];
-        if (!m_object->methodTable()->getOwnPropertySlot(m_object.get(), exec, propertyName, slot))
+        bool hasProperty = m_object->getPropertySlot(exec, propertyName, slot);
+        EXCEPTION_ASSERT(!scope.exception() || !hasProperty);
+        if (!hasProperty)
             return true;
         JSValue value = slot.getValue(exec, propertyName);
-        if (exec->hadException())
-            return false;
+        RETURN_IF_EXCEPTION(scope, false);
 
         rollBackPoint = builder.length();
 
@@ -506,8 +571,9 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
             builder.append(' ');
 
         // Append the stringified value.
-        stringifyResult = stringifier.appendStringifiedValue(builder, value, m_object.get(), propertyName);
+        stringifyResult = stringifier.appendStringifiedValue(builder, value, *this, propertyName);
     }
+    RETURN_IF_EXCEPTION(scope, false);
 
     // From this point on, no access to the this pointer or to any members, because the
     // Holder object may have moved if the call to stringify pushed a new Holder onto
@@ -532,7 +598,7 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
 
 // ------------------------------ JSONObject --------------------------------
 
-const ClassInfo JSONObject::s_info = { "JSON", &JSNonFinalObject::s_info, &jsonTable, CREATE_METHOD_TABLE(JSONObject) };
+const ClassInfo JSONObject::s_info = { "JSON", &JSNonFinalObject::s_info, &jsonTable, nullptr, CREATE_METHOD_TABLE(JSONObject) };
 
 /* Source for JSONObject.lut.h
 @begin jsonTable
@@ -543,16 +609,13 @@ const ClassInfo JSONObject::s_info = { "JSON", &JSNonFinalObject::s_info, &jsonT
 
 // ECMA 15.8
 
-bool JSONObject::getOwnPropertySlot(JSObject* object, ExecState* exec, PropertyName propertyName, PropertySlot& slot)
-{
-    return getStaticFunctionSlot<JSObject>(exec, jsonTable, jsCast<JSONObject*>(object), propertyName, slot);
-}
-
 class Walker {
+    WTF_MAKE_NONCOPYABLE(Walker);
+    WTF_FORBID_HEAP_ALLOCATION;
 public:
-    Walker(ExecState* exec, Handle<JSObject> function, CallType callType, CallData callData)
+    Walker(ExecState* exec, JSObject* function, CallType callType, CallData callData)
         : m_exec(exec)
-        , m_function(exec->vm(), function)
+        , m_function(function)
         , m_callType(callType)
         , m_callData(callData)
     {
@@ -564,13 +627,14 @@ private:
         MarkedArgumentBuffer args;
         args.append(property);
         args.append(unfiltered);
-        return call(m_exec, m_function.get(), m_callType, m_callData, thisObj, args);
+        ASSERT(!args.hasOverflowed());
+        return call(m_exec, m_function, m_callType, m_callData, thisObj, args);
     }
 
     friend class Holder;
 
     ExecState* m_exec;
-    Local<JSObject> m_function;
+    JSObject* m_function;
     CallType m_callType;
     CallData m_callData;
 };
@@ -581,10 +645,13 @@ enum WalkerState { StateUnknown, ArrayStartState, ArrayStartVisitMember, ArrayEn
                                  ObjectStartState, ObjectStartVisitMember, ObjectEndVisitMember };
 NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
 {
+    VM& vm = m_exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     Vector<PropertyNameArray, 16, UnsafeVectorOverflow> propertyStack;
     Vector<uint32_t, 16, UnsafeVectorOverflow> indexStack;
-    LocalStack<JSObject, 16> objectStack(m_exec->vm());
-    LocalStack<JSArray, 16> arrayStack(m_exec->vm());
+    MarkedArgumentBuffer markedStack;
+    Vector<unsigned, 16, UnsafeVectorOverflow> arrayLengthStack;
     
     Vector<WalkerState, 16, UnsafeVectorOverflow> stateStack;
     WalkerState state = StateUnknown;
@@ -596,33 +663,37 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
             arrayStartState:
             case ArrayStartState: {
                 ASSERT(inValue.isObject());
-                ASSERT(isJSArray(asObject(inValue)) || asObject(inValue)->inherits(JSArray::info()));
-                if (objectStack.size() + arrayStack.size() > maximumFilterRecursion)
-                    return throwStackOverflowError(m_exec);
+                ASSERT(asObject(inValue)->inherits<JSArray>(vm));
+                if (markedStack.size() > maximumFilterRecursion)
+                    return throwStackOverflowError(m_exec, scope);
 
                 JSArray* array = asArray(inValue);
-                arrayStack.push(array);
+                markedStack.appendWithCrashOnOverflow(array);
+                arrayLengthStack.append(array->length());
                 indexStack.append(0);
             }
             arrayStartVisitMember:
             FALLTHROUGH;
             case ArrayStartVisitMember: {
-                JSArray* array = arrayStack.peek();
+                JSArray* array = jsCast<JSArray*>(markedStack.last());
                 uint32_t index = indexStack.last();
-                if (index == array->length()) {
+                unsigned arrayLength = arrayLengthStack.last();
+                if (index == arrayLength) {
                     outValue = array;
-                    arrayStack.pop();
+                    markedStack.removeLast();
+                    arrayLengthStack.removeLast();
                     indexStack.removeLast();
                     break;
                 }
                 if (isJSArray(array) && array->canGetIndexQuickly(index))
                     inValue = array->getIndexQuickly(index);
                 else {
-                    PropertySlot slot(array);
-                    if (array->methodTable()->getOwnPropertySlotByIndex(array, m_exec, index, slot))
+                    PropertySlot slot(array, PropertySlot::InternalMethodType::Get);
+                    if (array->methodTable(vm)->getOwnPropertySlotByIndex(array, m_exec, index, slot))
                         inValue = slot.getValue(m_exec, index);
                     else
                         inValue = jsUndefined();
+                    RETURN_IF_EXCEPTION(scope, { });
                 }
                     
                 if (inValue.isObject()) {
@@ -633,52 +704,52 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                 FALLTHROUGH;
             }
             case ArrayEndVisitMember: {
-                JSArray* array = arrayStack.peek();
+                JSArray* array = jsCast<JSArray*>(markedStack.last());
                 JSValue filteredValue = callReviver(array, jsString(m_exec, String::number(indexStack.last())), outValue);
+                RETURN_IF_EXCEPTION(scope, { });
                 if (filteredValue.isUndefined())
-                    array->methodTable()->deletePropertyByIndex(array, m_exec, indexStack.last());
+                    array->methodTable(vm)->deletePropertyByIndex(array, m_exec, indexStack.last());
                 else
-                    array->putDirectIndex(m_exec, indexStack.last(), filteredValue);
-                if (m_exec->hadException())
-                    return jsNull();
+                    array->putDirectIndex(m_exec, indexStack.last(), filteredValue, 0, PutDirectIndexShouldNotThrow);
+                RETURN_IF_EXCEPTION(scope, { });
                 indexStack.last()++;
                 goto arrayStartVisitMember;
             }
             objectStartState:
             case ObjectStartState: {
                 ASSERT(inValue.isObject());
-                ASSERT(!isJSArray(asObject(inValue)) && !asObject(inValue)->inherits(JSArray::info()));
-                if (objectStack.size() + arrayStack.size() > maximumFilterRecursion)
-                    return throwStackOverflowError(m_exec);
+                ASSERT(!asObject(inValue)->inherits<JSArray>(vm));
+                if (markedStack.size() > maximumFilterRecursion)
+                    return throwStackOverflowError(m_exec, scope);
 
                 JSObject* object = asObject(inValue);
-                objectStack.push(object);
+                markedStack.appendWithCrashOnOverflow(object);
                 indexStack.append(0);
-                propertyStack.append(PropertyNameArray(m_exec, PropertyNameMode::Strings));
-                object->methodTable()->getOwnPropertyNames(object, m_exec, propertyStack.last(), EnumerationMode());
+                propertyStack.append(PropertyNameArray(&vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
+                object->methodTable(vm)->getOwnPropertyNames(object, m_exec, propertyStack.last(), EnumerationMode());
+                RETURN_IF_EXCEPTION(scope, { });
             }
             objectStartVisitMember:
             FALLTHROUGH;
             case ObjectStartVisitMember: {
-                JSObject* object = objectStack.peek();
+                JSObject* object = jsCast<JSObject*>(markedStack.last());
                 uint32_t index = indexStack.last();
                 PropertyNameArray& properties = propertyStack.last();
                 if (index == properties.size()) {
                     outValue = object;
-                    objectStack.pop();
+                    markedStack.removeLast();
                     indexStack.removeLast();
                     propertyStack.removeLast();
                     break;
                 }
-                PropertySlot slot(object);
-                if (object->methodTable()->getOwnPropertySlot(object, m_exec, properties[index], slot))
+                PropertySlot slot(object, PropertySlot::InternalMethodType::Get);
+                if (object->methodTable(vm)->getOwnPropertySlot(object, m_exec, properties[index], slot))
                     inValue = slot.getValue(m_exec, properties[index]);
                 else
                     inValue = jsUndefined();
 
                 // The holder may be modified by the reviver function so any lookup may throw
-                if (m_exec->hadException())
-                    return jsNull();
+                RETURN_IF_EXCEPTION(scope, { });
 
                 if (inValue.isObject()) {
                     stateStack.append(ObjectEndVisitMember);
@@ -688,16 +759,16 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                 FALLTHROUGH;
             }
             case ObjectEndVisitMember: {
-                JSObject* object = objectStack.peek();
+                JSObject* object = jsCast<JSObject*>(markedStack.last());
                 Identifier prop = propertyStack.last()[indexStack.last()];
                 PutPropertySlot slot(object);
                 JSValue filteredValue = callReviver(object, jsString(m_exec, prop.string()), outValue);
+                RETURN_IF_EXCEPTION(scope, { });
                 if (filteredValue.isUndefined())
-                    object->methodTable()->deleteProperty(object, m_exec, prop);
+                    object->methodTable(vm)->deleteProperty(object, m_exec, prop);
                 else
-                    object->methodTable()->put(object, m_exec, prop, filteredValue, slot);
-                if (m_exec->hadException())
-                    return jsNull();
+                    object->methodTable(vm)->put(object, m_exec, prop, filteredValue, slot);
+                RETURN_IF_EXCEPTION(scope, { });
                 indexStack.last()++;
                 goto objectStartVisitMember;
             }
@@ -708,7 +779,7 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                     break;
                 }
                 JSObject* object = asObject(inValue);
-                if (isJSArray(object) || object->inherits(JSArray::info()))
+                if (object->inherits<JSArray>(vm))
                     goto arrayStartState;
                 goto objectStartState;
         }
@@ -720,31 +791,40 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
     }
     JSObject* finalHolder = constructEmptyObject(m_exec);
     PutPropertySlot slot(finalHolder);
-    finalHolder->methodTable()->put(finalHolder, m_exec, m_exec->vm().propertyNames->emptyIdentifier, outValue, slot);
-    return callReviver(finalHolder, jsEmptyString(m_exec), outValue);
+    finalHolder->methodTable(vm)->put(finalHolder, m_exec, vm.propertyNames->emptyIdentifier, outValue, slot);
+    RETURN_IF_EXCEPTION(scope, { });
+    RELEASE_AND_RETURN(scope, callReviver(finalHolder, jsEmptyString(m_exec), outValue));
 }
 
 // ECMA-262 v5 15.12.2
 EncodedJSValue JSC_HOST_CALL JSONProtoFuncParse(ExecState* exec)
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     if (!exec->argumentCount())
-        return throwVMError(exec, createError(exec, ASCIILiteral("JSON.parse requires at least one parameter")));
-    JSString::SafeView source = exec->uncheckedArgument(0).toString(exec)->view(exec);
-    if (exec->hadException())
-        return JSValue::encode(jsNull());
+        return throwVMError(exec, scope, createError(exec, "JSON.parse requires at least one parameter"_s));
+    auto viewWithString = exec->uncheckedArgument(0).toString(exec)->viewWithUnderlyingString(exec);
+    RETURN_IF_EXCEPTION(scope, { });
+    StringView view = viewWithString.view;
 
     JSValue unfiltered;
-    LocalScope scope(exec->vm());
-    if (source.is8Bit()) {
-        LiteralParser<LChar> jsonParser(exec, source.characters8(), source.length(), StrictJSON);
+    if (view.is8Bit()) {
+        LiteralParser<LChar> jsonParser(exec, view.characters8(), view.length(), StrictJSON);
         unfiltered = jsonParser.tryLiteralParse();
-        if (!unfiltered)
-            return throwVMError(exec, createSyntaxError(exec, jsonParser.getErrorMessage()));
+        EXCEPTION_ASSERT(!scope.exception() || !unfiltered);
+        if (!unfiltered) {
+            RETURN_IF_EXCEPTION(scope, { });
+            return throwVMError(exec, scope, createSyntaxError(exec, jsonParser.getErrorMessage()));
+        }
     } else {
-        LiteralParser<UChar> jsonParser(exec, source.characters16(), source.length(), StrictJSON);
+        LiteralParser<UChar> jsonParser(exec, view.characters16(), view.length(), StrictJSON);
         unfiltered = jsonParser.tryLiteralParse();
-        if (!unfiltered)
-            return throwVMError(exec, createSyntaxError(exec, jsonParser.getErrorMessage()));        
+        EXCEPTION_ASSERT(!scope.exception() || !unfiltered);
+        if (!unfiltered) {
+            RETURN_IF_EXCEPTION(scope, { });
+            return throwVMError(exec, scope, createSyntaxError(exec, jsonParser.getErrorMessage()));
+        }
     }
     
     if (exec->argumentCount() < 2)
@@ -752,28 +832,29 @@ EncodedJSValue JSC_HOST_CALL JSONProtoFuncParse(ExecState* exec)
     
     JSValue function = exec->uncheckedArgument(1);
     CallData callData;
-    CallType callType = getCallData(function, callData);
-    if (callType == CallTypeNone)
+    CallType callType = getCallData(vm, function, callData);
+    if (callType == CallType::None)
         return JSValue::encode(unfiltered);
-    return JSValue::encode(Walker(exec, Local<JSObject>(exec->vm(), asObject(function)), callType, callData).walk(unfiltered));
+    scope.release();
+    Walker walker(exec, asObject(function), callType, callData);
+    return JSValue::encode(walker.walk(unfiltered));
 }
 
 // ECMA-262 v5 15.12.3
 EncodedJSValue JSC_HOST_CALL JSONProtoFuncStringify(ExecState* exec)
 {
-    if (!exec->argumentCount())
-        return throwVMError(exec, createError(exec, ASCIILiteral("No input to stringify")));
-    LocalScope scope(exec->vm());
-    Local<Unknown> value(exec->vm(), exec->uncheckedArgument(0));
-    Local<Unknown> replacer(exec->vm(), exec->argument(1));
-    Local<Unknown> space(exec->vm(), exec->argument(2));
-    JSValue result = Stringifier(exec, replacer, space).stringify(value).get();
-    return JSValue::encode(result);
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    Stringifier stringifier(exec, exec->argument(1), exec->argument(2));
+    RETURN_IF_EXCEPTION(scope, { });
+    RELEASE_AND_RETURN(scope, JSValue::encode(stringifier.stringify(exec->argument(0))));
 }
 
 JSValue JSONParse(ExecState* exec, const String& json)
 {
-    LocalScope scope(exec->vm());
+    if (json.isNull())
+        return JSValue();
 
     if (json.is8Bit()) {
         LiteralParser<LChar> jsonParser(exec, json.characters8(), json.length(), StrictJSON);
@@ -784,13 +865,21 @@ JSValue JSONParse(ExecState* exec, const String& json)
     return jsonParser.tryLiteralParse();
 }
 
-String JSONStringify(ExecState* exec, JSValue value, unsigned indent)
+String JSONStringify(ExecState* exec, JSValue value, JSValue space)
 {
-    LocalScope scope(exec->vm());
-    Local<Unknown> result = Stringifier(exec, Local<Unknown>(exec->vm(), jsNull()), Local<Unknown>(exec->vm(), jsNumber(indent))).stringify(Local<Unknown>(exec->vm(), value));
-    if (result.isUndefinedOrNull())
+    VM& vm = exec->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+    Stringifier stringifier(exec, jsNull(), space);
+    RETURN_IF_EXCEPTION(throwScope, { });
+    JSValue result = stringifier.stringify(value);
+    if (UNLIKELY(throwScope.exception()) || result.isUndefinedOrNull())
         return String();
     return result.getString(exec);
+}
+
+String JSONStringify(ExecState* exec, JSValue value, unsigned indent)
+{
+    return JSONStringify(exec, value, jsNumber(indent));
 }
 
 } // namespace JSC

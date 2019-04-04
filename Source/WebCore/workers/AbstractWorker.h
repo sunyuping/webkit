@@ -28,40 +28,29 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AbstractWorker_h
-#define AbstractWorker_h
+#pragma once
 
-#include "ActiveDOMObject.h"
-#include "EventListener.h"
 #include "EventTarget.h"
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
-#include <wtf/text/AtomicStringHash.h>
+#include "ExceptionOr.h"
 
 namespace WebCore {
 
-    class URL;
+class AbstractWorker : public RefCounted<AbstractWorker>, public EventTargetWithInlineData {
+public:
+    using RefCounted::ref;
+    using RefCounted::deref;
 
-    class AbstractWorker : public RefCounted<AbstractWorker>, public EventTargetWithInlineData {
-    public:
-        using RefCounted<AbstractWorker>::ref;
-        using RefCounted<AbstractWorker>::deref;
+protected:
+    AbstractWorker() = default;
 
-        virtual ~AbstractWorker();
+    // Helper function that converts a URL to an absolute URL and checks the result for validity.
+    ExceptionOr<URL> resolveURL(const String& url, bool shouldBypassMainWorldContentSecurityPolicy);
 
-    protected:
-        AbstractWorker() = default;
+    intptr_t asID() const { return reinterpret_cast<intptr_t>(this); }
 
-        // Helper function that converts a URL to an absolute URL and checks the result for validity.
-        URL resolveURL(const String& url, bool shouldBypassMainWorldContentSecurityPolicy, ExceptionCode&);
-        intptr_t asID() const { return reinterpret_cast<intptr_t>(this); }
-
-    private:
-        virtual void refEventTarget() override final { ref(); }
-        virtual void derefEventTarget() override final { deref(); }
-    };
+private:
+    void refEventTarget() final { ref(); }
+    void derefEventTarget() final { deref(); }
+};
 
 } // namespace WebCore
-
-#endif // AbstractWorker_h

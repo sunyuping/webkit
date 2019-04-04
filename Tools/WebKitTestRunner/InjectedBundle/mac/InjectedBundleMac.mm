@@ -23,13 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import "config.h"
 #import "InjectedBundle.h"
 
 #import <Foundation/Foundation.h>
-
-@interface NSURLRequest (PrivateThingsWeShouldntReallyUse)
-+(void)setAllowsAnyHTTPSCertificate:(BOOL)allow forHost:(NSString *)host;
-@end
 
 @interface NSSound ()
 + (void)_setAlertType:(NSUInteger)alertType;
@@ -37,13 +34,13 @@
 
 namespace WTR {
 
-void InjectedBundle::platformInitialize(WKTypeRef)
+void InjectedBundle::platformInitialize(WKTypeRef initializationUserData)
 {
-    static const int NoFontSmoothing = 0;
     static const int BlueTintedAppearance = 1;
 
     // Work around missing /etc/catalog <rdar://problem/4292995>.
     setenv("XML_CATALOG_FILES", "", 0);
+    setenv("XTYPE_ALLOW_AUTOACTIVATION", "1", 0);
 
     // Language was set up earlier in main(). Don't clobber it.
     NSArray *languages = [[[NSUserDefaults standardUserDefaults] volatileDomainForName:NSArgumentDomain] valueForKey:@"AppleLanguages"];
@@ -52,9 +49,6 @@ void InjectedBundle::platformInitialize(WKTypeRef)
 
     NSDictionary *dict = @{
         @"AppleAntiAliasingThreshold": @4,
-        // FIXME: Setting AppleFontSmoothing is likely unnecessary and ineffective. WebKit2 has its own preference for font smoothing, which is
-        // applied to each context via CGContextSetShouldSmoothFonts, presumably overriding the default.
-        @"AppleFontSmoothing": @(NoFontSmoothing),
         @"AppleAquaColorVariant": @(BlueTintedAppearance),
         @"AppleHighlightColor": @"0.709800 0.835300 1.000000",
         @"AppleOtherHighlightColor": @"0.500000 0.500000 0.500000",
@@ -74,24 +68,16 @@ void InjectedBundle::platformInitialize(WKTypeRef)
             @"wellcome": @"welcome",
             @"hellolfworld": @"hello\nworld"
         },
-#if __MAC_OS_X_VERSION_MIN_REQUIRED > 101000
-        @"AppleSystemFontOSSubversion": @(10),
-#endif
         @"AppleEnableSwipeNavigateWithScrolls": @YES,
         @"com.apple.swipescrolldirection": @1,
+        @"com.apple.trackpad.forceClick": @1,
     };
 
     [[NSUserDefaults standardUserDefaults] setVolatileDomain:dict forName:NSArgumentDomain];
 
-    // Make NSFont use the new defaults.
-    [NSFont initialize];
-
     // Underlying frameworks have already read AppleAntiAliasingThreshold default before we changed it.
     // A distributed notification is delivered to all applications, but it should be harmless, and it's the only way to update all underlying frameworks anyway.
     [[NSDistributedNotificationCenter defaultCenter] postNotificationName:@"AppleAquaAntiAliasingChanged" object:nil userInfo:nil deliverImmediately:YES];
-
-    [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:@"localhost"];
-    [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:@"127.0.0.1"];
 
     [NSSound _setAlertType:0];
 }

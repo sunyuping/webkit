@@ -28,12 +28,17 @@
 
 #if PLATFORM(COCOA)
 
-#import "CFNetworkSPI.h"
 #import "HTTPParsers.h"
 #import "WebCoreURLResponse.h"
 #import <Foundation/Foundation.h>
 #import <limits>
+#import <pal/spi/cf/CFNetworkSPI.h>
+#import <wtf/NeverDestroyed.h>
 #import <wtf/StdLibExtras.h>
+#import <wtf/cf/TypeCastsCF.h>
+#import <wtf/text/StringView.h>
+
+WTF_DECLARE_CF_TYPE_TRAIT(SecTrust);
 
 namespace WebCore {
 
@@ -65,16 +70,14 @@ void ResourceResponse::initNSURLResponse() const
     [m_nsResponse.get() _setMIMEType:(NSString *)m_mimeType];
 }
 
+void ResourceResponse::disableLazyInitialization()
+{
+    lazyInit(AllFields);
+}
+
 CertificateInfo ResourceResponse::platformCertificateInfo() const
 {
-#if USE(CFNETWORK)
-    ASSERT(m_cfResponse);
-    CFURLResponseRef cfResponse = m_cfResponse.get();
-#else
-    ASSERT(m_nsResponse);
     CFURLResponseRef cfResponse = [m_nsResponse _CFURLResponse];
-#endif
-
     if (!cfResponse)
         return { };
 
@@ -85,8 +88,7 @@ CertificateInfo ResourceResponse::platformCertificateInfo() const
     auto trustValue = CFDictionaryGetValue(context, kCFStreamPropertySSLPeerTrust);
     if (!trustValue)
         return { };
-    ASSERT(CFGetTypeID(trustValue) == SecTrustGetTypeID());
-    auto trust = (SecTrustRef)trustValue;
+    auto trust = checked_cf_cast<SecTrustRef>(trustValue);
 
     SecTrustResultType trustResultType;
     OSStatus result = SecTrustGetTrustResult(trust, &trustResultType);
@@ -94,52 +96,20 @@ CertificateInfo ResourceResponse::platformCertificateInfo() const
         return { };
 
     if (trustResultType == kSecTrustResultInvalid) {
+        // FIXME: This is deprecated <rdar://problem/45894288>.
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         result = SecTrustEvaluate(trust, &trustResultType);
+        ALLOW_DEPRECATED_DECLARATIONS_END
         if (result != errSecSuccess)
             return { };
     }
 
-    CFIndex count = SecTrustGetCertificateCount(trust);
-    auto certificateChain = CFArrayCreateMutable(0, count, &kCFTypeArrayCallBacks);
-    for (CFIndex i = 0; i < count; i++)
-        CFArrayAppendValue(certificateChain, SecTrustGetCertificateAtIndex(trust, i));
-
-    return CertificateInfo(adoptCF(certificateChain));
-}
-
-#if USE(CFNETWORK)
-
-NSURLResponse *ResourceResponse::nsURLResponse() const
-{
-    if (!m_nsResponse && !m_cfResponse && !m_isNull) {
-        initNSURLResponse();
-        m_cfResponse = [m_nsResponse.get() _CFURLResponse];
-        return m_nsResponse.get();
-    }
-
-    if (!m_cfResponse)
-        return nil;
-
-    if (!m_nsResponse)
-        m_nsResponse = [NSURLResponse _responseWithCFURLResponse:m_cfResponse.get()];
-
-    return m_nsResponse.get();
-}
-
-ResourceResponse::ResourceResponse(NSURLResponse* nsResponse)
-    : m_initLevel(Uninitialized)
-    , m_platformResponseIsUpToDate(true)
-    , m_cfResponse([nsResponse _CFURLResponse])
-    , m_nsResponse(nsResponse)
-{
-    m_isNull = !nsResponse;
-}
-
+#if HAVE(SEC_TRUST_SERIALIZATION)
+    return CertificateInfo(trust);
 #else
-
-static NSString* const commonHeaderFields[] = {
-    @"Age", @"Cache-Control", @"Content-Type", @"Date", @"Etag", @"Expires", @"Last-Modified", @"Pragma"
-};
+    return CertificateInfo(CertificateInfo::certificateChainFromSecTrust(trust));
+#endif
+}
 
 NSURLResponse *ResourceResponse::nsURLResponse() const
 {
@@ -147,77 +117,68 @@ NSURLResponse *ResourceResponse::nsURLResponse() const
         initNSURLResponse();
     return m_nsResponse.get();
 }
-    
-static NSString *copyNSURLResponseStatusLine(NSURLResponse *response)
+
+static void addToHTTPHeaderMap(const void* key, const void* value, void* context)
 {
-    CFURLResponseRef cfResponse = [response _CFURLResponse];
-    if (!cfResponse)
-        return nil;
+    HTTPHeaderMap* httpHeaderMap = (HTTPHeaderMap*)context;
+    httpHeaderMap->set((CFStringRef)key, (CFStringRef)value);
+}
 
-    CFHTTPMessageRef cfHTTPMessage = CFURLResponseGetHTTPResponse(cfResponse);
-    if (!cfHTTPMessage)
-        return nil;
+static inline AtomicString stripLeadingAndTrailingDoubleQuote(const String& value)
+{
+    unsigned length = value.length();
+    if (length < 2 || value[0u] != '"' || value[length - 1] != '"')
+        return value;
 
-    return (NSString *)CFHTTPMessageCopyResponseStatusLine(cfHTTPMessage);
+    return StringView(value).substring(1, length - 2).toAtomicString();
+}
+
+static inline HTTPHeaderMap initializeHTTPHeaders(CFHTTPMessageRef messageRef)
+{
+    // Avoid calling [NSURLResponse allHeaderFields] to minimize copying (<rdar://problem/26778863>).
+    auto headers = adoptCF(CFHTTPMessageCopyAllHeaderFields(messageRef));
+
+    HTTPHeaderMap headersMap;
+    CFDictionaryApplyFunction(headers.get(), addToHTTPHeaderMap, &headersMap);
+    return headersMap;
+}
+
+static inline AtomicString extractHTTPStatusText(CFHTTPMessageRef messageRef)
+{
+    if (auto httpStatusLine = adoptCF(CFHTTPMessageCopyResponseStatusLine(messageRef)))
+        return extractReasonPhraseFromHTTPStatusLine(httpStatusLine.get());
+
+    static NeverDestroyed<AtomicString> defaultStatusText("OK", AtomicString::ConstructFromLiteral);
+    return defaultStatusText;
 }
 
 void ResourceResponse::platformLazyInit(InitLevel initLevel)
 {
+    ASSERT(initLevel >= CommonFieldsOnly);
+
     if (m_initLevel >= initLevel)
         return;
 
     if (m_isNull || !m_nsResponse)
         return;
     
-    if (m_initLevel < CommonFieldsOnly && initLevel >= CommonFieldsOnly) {
-        NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
+    @autoreleasepool {
 
-        m_httpHeaderFields.clear();
-        m_url = [m_nsResponse.get() URL];
-        m_mimeType = [m_nsResponse.get() MIMEType];
-        m_expectedContentLength = [m_nsResponse.get() expectedContentLength];
-        m_textEncodingName = [m_nsResponse.get() textEncodingName];
+        auto messageRef = [m_nsResponse.get() isKindOfClass:[NSHTTPURLResponse class]] ? CFURLResponseGetHTTPResponse([ (NSHTTPURLResponse *)m_nsResponse.get() _CFURLResponse]) : nullptr;
 
-        // Workaround for <rdar://problem/8757088>, can be removed once that is fixed.
-        unsigned textEncodingNameLength = m_textEncodingName.length();
-        if (textEncodingNameLength >= 2 && m_textEncodingName[0U] == '"' && m_textEncodingName[textEncodingNameLength - 1] == '"')
-            m_textEncodingName = m_textEncodingName.string().substring(1, textEncodingNameLength - 2);
-
-        if ([m_nsResponse.get() isKindOfClass:[NSHTTPURLResponse class]]) {
-            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)m_nsResponse.get();
-
-            CFHTTPMessageRef messageRef = CFURLResponseGetHTTPResponse([httpResponse _CFURLResponse]);
+        if (m_initLevel < CommonFieldsOnly) {
+            m_url = [m_nsResponse.get() URL];
+            m_mimeType = [m_nsResponse.get() MIMEType];
+            m_expectedContentLength = [m_nsResponse.get() expectedContentLength];
+            // Stripping double quotes as a workaround for <rdar://problem/8757088>, can be removed once that is fixed.
+            m_textEncodingName = stripLeadingAndTrailingDoubleQuote([m_nsResponse.get() textEncodingName]);
+            m_httpStatusCode = messageRef ? CFHTTPMessageGetResponseStatusCode(messageRef) : 0;
+            if (messageRef)
+                m_httpHeaderFields = initializeHTTPHeaders(messageRef);
+        }
+        if (messageRef && initLevel == AllFields) {
+            m_httpStatusText = extractHTTPStatusText(messageRef);
             m_httpVersion = String(adoptCF(CFHTTPMessageCopyVersion(messageRef)).get()).convertToASCIIUppercase();
-            m_httpStatusCode = [httpResponse statusCode];
-            
-            if (initLevel < AllFields) {
-                NSDictionary *headers = [httpResponse allHeaderFields];
-                for (NSString *name : commonHeaderFields) {
-                    if (NSString* headerValue = [headers objectForKey:name])
-                        m_httpHeaderFields.set(name, headerValue);
-                }
-            }
-        } else
-            m_httpStatusCode = 0;
-        
-        [pool drain];
-    }
-
-    if (m_initLevel < AllFields && initLevel == AllFields) {
-        if ([m_nsResponse.get() isKindOfClass:[NSHTTPURLResponse class]]) {
-            NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
-
-            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)m_nsResponse.get();
-            if (RetainPtr<NSString> httpStatusLine = adoptNS(copyNSURLResponseStatusLine(httpResponse)))
-                m_httpStatusText = extractReasonPhraseFromHTTPStatusLine(httpStatusLine.get());
-            else
-                m_httpStatusText = AtomicString("OK", AtomicString::ConstructFromLiteral);
-
-            NSDictionary *headers = [httpResponse allHeaderFields];
-            for (NSString *name in headers)
-                m_httpHeaderFields.set(name, [headers objectForKey:name]);
-            
-            [pool drain];
         }
     }
 
@@ -233,8 +194,6 @@ bool ResourceResponse::platformCompare(const ResourceResponse& a, const Resource
 {
     return a.nsURLResponse() == b.nsURLResponse();
 }
-
-#endif // USE(CFNETWORK)
 
 } // namespace WebCore
 

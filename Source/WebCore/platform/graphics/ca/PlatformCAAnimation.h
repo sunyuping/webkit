@@ -30,9 +30,10 @@
 #include "FilterOperation.h"
 #include "FloatPoint3D.h"
 #include "TransformationMatrix.h"
+#include <wtf/Forward.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/RefCounted.h>
 #include <wtf/TypeCasts.h>
-#include <wtf/Vector.h>
 
 namespace WebCore {
 
@@ -41,17 +42,17 @@ class TimingFunction;
 
 class PlatformCAAnimation : public RefCounted<PlatformCAAnimation> {
 public:
-    enum AnimationType { Basic, Keyframe };
+    enum AnimationType { Basic, Keyframe, Spring };
     enum FillModeType { NoFillMode, Forwards, Backwards, Both };
     enum ValueFunctionType { NoValueFunction, RotateX, RotateY, RotateZ, ScaleX, ScaleY, ScaleZ, Scale, TranslateX, TranslateY, TranslateZ, Translate };
 
-    virtual ~PlatformCAAnimation() { }
+    virtual ~PlatformCAAnimation() = default;
 
     virtual bool isPlatformCAAnimationCocoa() const { return false; }
     virtual bool isPlatformCAAnimationWin() const { return false; }
     virtual bool isPlatformCAAnimationRemote() const { return false; }
     
-    virtual PassRefPtr<PlatformCAAnimation> copy() const = 0;
+    virtual Ref<PlatformCAAnimation> copy() const = 0;
     
     AnimationType animationType() const { return m_type; }
     virtual String keyPath() const = 0;
@@ -123,6 +124,8 @@ public:
         if (beginTime() <= 0)
             setBeginTime(t);
     }
+
+    bool isBasicAnimation() const;
     
 protected:
     PlatformCAAnimation(AnimationType type = Basic)
@@ -136,9 +139,9 @@ private:
     AnimationType m_type;
 };
 
-WEBCORE_EXPORT TextStream& operator<<(TextStream&, PlatformCAAnimation::AnimationType);
-WEBCORE_EXPORT TextStream& operator<<(TextStream&, PlatformCAAnimation::FillModeType);
-WEBCORE_EXPORT TextStream& operator<<(TextStream&, PlatformCAAnimation::ValueFunctionType);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, PlatformCAAnimation::AnimationType);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, PlatformCAAnimation::FillModeType);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, PlatformCAAnimation::ValueFunctionType);
 
 } // namespace WebCore
 

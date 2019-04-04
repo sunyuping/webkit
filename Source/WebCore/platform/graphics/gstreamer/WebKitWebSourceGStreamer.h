@@ -16,12 +16,16 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#ifndef WebKitWebSourceGStreamer_h
-#define WebKitWebSourceGStreamer_h
+#pragma once
+
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
-#include "MediaPlayer.h"
+#include <gst/base/gstpushsrc.h>
 #include <gst/gst.h>
+
+namespace WebCore {
+class MediaPlayer;
+}
 
 G_BEGIN_DECLS
 
@@ -31,18 +35,20 @@ G_BEGIN_DECLS
 #define WEBKIT_IS_WEB_SRC(obj)         (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WEBKIT_TYPE_WEB_SRC))
 #define WEBKIT_IS_WEB_SRC_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), WEBKIT_TYPE_WEB_SRC))
 
+#define WEBKIT_WEB_SRC_PLAYER_CONTEXT_TYPE_NAME  "webkit.media-player"
+
 typedef struct _WebKitWebSrc        WebKitWebSrc;
 typedef struct _WebKitWebSrcClass   WebKitWebSrcClass;
 typedef struct _WebKitWebSrcPrivate WebKitWebSrcPrivate;
 
 struct _WebKitWebSrc {
-    GstBin parent;
+    GstPushSrc parent;
 
     WebKitWebSrcPrivate *priv;
 };
 
 struct _WebKitWebSrcClass {
-    GstBinClass parentClass;
+    GstPushSrcClass parentClass;
 };
 
 GType webkit_web_src_get_type(void);
@@ -51,5 +57,4 @@ bool webKitSrcPassedCORSAccessCheck(WebKitWebSrc*);
 
 G_END_DECLS
 
-#endif // USE(GSTREAMER)
-#endif
+#endif // ENABLE(VIDEO) && USE(GSTREAMER)

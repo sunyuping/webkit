@@ -23,10 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if ENABLE(REMOTE_INSPECTOR)
+#pragma once
 
-#ifndef RemoteAutomationTarget_h
-#define RemoteAutomationTarget_h
+#if ENABLE(REMOTE_INSPECTOR)
 
 #include "RemoteControllableTarget.h"
 #include <wtf/text/WTFString.h>
@@ -37,14 +36,14 @@ class FrontendChannel;
 
 class JS_EXPORT_PRIVATE RemoteAutomationTarget : public RemoteControllableTarget {
 public:
-    virtual ~RemoteAutomationTarget() { }
+    virtual ~RemoteAutomationTarget();
 
     bool isPaired() const { return m_paired; }
     void setIsPaired(bool);
 
     virtual String name() const = 0;
-    virtual RemoteControllableTarget::Type type() const override { return RemoteControllableTarget::Type::Automation; }
-    virtual bool remoteControlAllowed() const override { return !m_paired; };
+    RemoteControllableTarget::Type type() const override { return RemoteControllableTarget::Type::Automation; }
+    bool remoteControlAllowed() const override { return !m_paired; };
 
 private:
     bool m_paired { false };
@@ -53,7 +52,5 @@ private:
 } // namespace Inspector
 
 SPECIALIZE_TYPE_TRAITS_CONTROLLABLE_TARGET(Inspector::RemoteAutomationTarget, Automation)
-
-#endif // RemoteAutomationTarget_h
 
 #endif // ENABLE(REMOTE_INSPECTOR)

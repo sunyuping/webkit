@@ -23,23 +23,29 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RefCounter_h
-#define RefCounter_h
+#pragma once
 
-#include <functional>
+#include <wtf/Function.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
+#include <wtf/SetForScope.h>
 
 namespace WTF {
 
+enum class RefCounterEvent { Decrement, Increment };
+
+template<typename T>
 class RefCounter {
+    WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(RefCounter);
 
     class Count {
         WTF_MAKE_NONCOPYABLE(Count);
     public:
-        WTF_EXPORT_PRIVATE void ref();
-        WTF_EXPORT_PRIVATE void deref();
+        void ref();
+        void deref();
+
+        void refCounterWasDeleted();
 
     private:
         friend class RefCounter;
@@ -51,91 +57,92 @@ class RefCounter {
         }
 
         RefCounter* m_refCounter;
-        unsigned m_value;
+        size_t m_value;
+        bool m_inValueDidChange { false };
     };
 
 public:
-    template<typename T>
-    class Token  {
-    public:
-        Token() { }
-        Token(std::nullptr_t) { }
-        inline Token(const Token<T>&);
-        inline Token(Token<T>&&);
+    using Token = RefPtr<Count>;
+    using ValueChangeFunction = WTF::Function<void (RefCounterEvent)>;
 
-        inline Token<T>& operator=(std::nullptr_t);
-        inline Token<T>& operator=(const Token<T>&);
-        inline Token<T>& operator=(Token<T>&&);
+    RefCounter(ValueChangeFunction&& = nullptr);
+    ~RefCounter();
 
-        explicit operator bool() const { return m_ptr; }
-
-    private:
-        friend class RefCounter;
-        inline Token(Count* count);
-
-        RefPtr<Count> m_ptr;
-    };
-
-    WTF_EXPORT_PRIVATE RefCounter(std::function<void(bool)> = [](bool) { });
-    WTF_EXPORT_PRIVATE ~RefCounter();
-
-    template<typename T>
-    Token<T> token() const
+    Token count() const
     {
-        return Token<T>(m_count);
+        return m_count;
     }
 
-    unsigned value() const
+    size_t value() const
     {
         return m_count->m_value;
     }
 
 private:
-    std::function<void(bool)> m_valueDidChange;
+    ValueChangeFunction m_valueDidChange;
     Count* m_count;
 };
 
-template<class T>
-inline RefCounter::Token<T>::Token(Count* count)
-    : m_ptr(count)
+template<typename T>
+inline void RefCounter<T>::Count::ref()
+{
+    ++m_value;
+    if (m_refCounter && m_refCounter->m_valueDidChange)
+        m_refCounter->m_valueDidChange(RefCounterEvent::Increment);
+}
+
+template<typename T>
+inline void RefCounter<T>::Count::deref()
+{
+    ASSERT(m_value);
+
+    --m_value;
+
+    if (m_refCounter && m_refCounter->m_valueDidChange) {
+        SetForScope<bool> inCallback(m_inValueDidChange, true);
+        m_refCounter->m_valueDidChange(RefCounterEvent::Decrement);
+    }
+
+    // The Count object is kept alive so long as either the RefCounter that created it remains
+    // allocated, or so long as its reference count is non-zero.
+    // If the RefCounter has already been deallocted then delete the Count when its reference
+    // count reaches zero.
+    if (!m_refCounter && !m_value)
+        delete this;
+}
+
+template<typename T>
+inline void RefCounter<T>::Count::refCounterWasDeleted()
+{
+    // The Count object is kept alive so long as either the RefCounter that created it remains
+    // allocated, or so long as its reference count is non-zero.
+    // If the reference count of the Count is already zero then delete it now, otherwise
+    // clear its m_refCounter pointer.
+
+    m_refCounter = nullptr;
+
+    if (m_inValueDidChange)
+        return;
+
+    if (!m_value)
+        delete this;
+}
+
+template<typename T>
+inline RefCounter<T>::RefCounter(ValueChangeFunction&& valueDidChange)
+    : m_valueDidChange(WTFMove(valueDidChange))
+    , m_count(new Count(*this))
 {
 }
 
-template<class T>
-inline RefCounter::Token<T>::Token(const RefCounter::Token<T>& token)
-    : m_ptr(token.m_ptr)
+template<typename T>
+inline RefCounter<T>::~RefCounter()
 {
-}
+    m_count->refCounterWasDeleted();
 
-template<class T>
-inline RefCounter::Token<T>::Token(RefCounter::Token<T>&& token)
-    : m_ptr(token.m_ptr)
-{
-}
-
-template<class T>
-inline RefCounter::Token<T>& RefCounter::Token<T>::operator=(std::nullptr_t)
-{
-    m_ptr = nullptr;
-    return *this;
-}
-
-template<class T>
-inline RefCounter::Token<T>& RefCounter::Token<T>::operator=(const RefCounter::Token<T>& token)
-{
-    m_ptr = token.m_ptr;
-    return *this;
-}
-
-template<class T>
-inline RefCounter::Token<T>& RefCounter::Token<T>::operator=(RefCounter::Token<T>&& token)
-{
-    m_ptr = token.m_ptr;
-    return *this;
 }
 
 } // namespace WTF
 
 using WTF::RefCounter;
-
-#endif // RefCounter_h
+using WTF::RefCounterEvent;

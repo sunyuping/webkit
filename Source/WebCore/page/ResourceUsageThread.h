@@ -23,18 +23,23 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ResourceUsageThread_h
-#define ResourceUsageThread_h
+#pragma once
 
 #if ENABLE(RESOURCE_USAGE)
 
 #include "ResourceUsageData.h"
+#include <array>
 #include <functional>
 #include <wtf/Condition.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/Threading.h>
+
+#if OS(DARWIN)
+#include <mach/mach.h>
+#endif
 
 namespace JSC {
 class VM;
@@ -42,11 +47,18 @@ class VM;
 
 namespace WebCore {
 
+enum ResourceUsageCollectionMode {
+    None = 0,
+    CPU = 1 << 0,
+    Memory = 1 << 1,
+    All = CPU | Memory,
+};
+
 class ResourceUsageThread {
     WTF_MAKE_NONCOPYABLE(ResourceUsageThread);
 
 public:
-    static void addObserver(void* key, std::function<void (const ResourceUsageData&)>);
+    static void addObserver(void* key, ResourceUsageCollectionMode, std::function<void (const ResourceUsageData&)>);
     static void removeObserver(void* key);
 
 private:
@@ -55,25 +67,46 @@ private:
     static ResourceUsageThread& singleton();
 
     void waitUntilObservers();
-    void notifyObservers(ResourceUsageData&);
+    void notifyObservers(ResourceUsageData&&);
+
+    void recomputeCollectionMode();
 
     void createThreadIfNeeded();
-    static void threadCallback(void* scrollingThread);
     void threadBody();
-    void platformThreadBody(JSC::VM*, ResourceUsageData&);
 
-    ThreadIdentifier m_threadIdentifier { 0 };
+    void platformSaveStateBeforeStarting();
+    void platformCollectCPUData(JSC::VM*, ResourceUsageData&);
+    void platformCollectMemoryData(JSC::VM*, ResourceUsageData&);
+
+    RefPtr<Thread> m_thread;
     Lock m_lock;
     Condition m_condition;
-    HashMap<void*, std::function<void (const ResourceUsageData&)>> m_observers;
+    HashMap<void*, std::pair<ResourceUsageCollectionMode, std::function<void (const ResourceUsageData&)>>> m_observers;
+    ResourceUsageCollectionMode m_collectionMode { None };
 
     // Platforms may need to access some data from the common VM.
     // They should ensure their use of the VM is thread safe.
     JSC::VM* m_vm { nullptr };
+
+#if ENABLE(SAMPLING_PROFILER) && OS(DARWIN)
+    mach_port_t m_samplingProfilerMachThread { MACH_PORT_NULL };
+#endif
+
 };
+
+#if PLATFORM(COCOA)
+struct TagInfo {
+    TagInfo() { }
+    size_t dirty { 0 };
+    size_t reclaimable { 0 };
+};
+
+const char* displayNameForVMTag(unsigned);
+size_t vmPageSize();
+std::array<TagInfo, 256> pagesPerVMTag();
+void logFootprintComparison(const std::array<TagInfo, 256>&, const std::array<TagInfo, 256>&);
+#endif
 
 } // namespace WebCore
 
 #endif // ENABLE(RESOURCE_USAGE)
-
-#endif // ResourceUsageThread_h

@@ -34,17 +34,11 @@
 #include "FrameWin.h"
 #include "GraphicsContext.h"
 #include "IntRect.h"
-#include "Page.h"
 
 #include <winsock2.h>
 #include <windows.h>
 
 namespace WebCore {
-
-Widget::Widget(PlatformWidget widget)
-{
-    init(widget);
-}
 
 Widget::~Widget() 
 {
@@ -76,7 +70,7 @@ void Widget::setCursor(const Cursor& cursor)
     view->hostWindow()->setCursor(cursor);
 }
 
-void Widget::paint(GraphicsContext&, const IntRect&)
+void Widget::paint(GraphicsContext&, const IntRect&, SecurityOriginPaintPolicy)
 {
 }
 
@@ -86,11 +80,6 @@ void Widget::setFocus(bool focused)
 
 void Widget::setIsSelected(bool)
 {
-}
-
-IntRect Widget::frameRect() const
-{
-    return m_frame;
 }
 
 void Widget::setFrameRect(const IntRect& rect)

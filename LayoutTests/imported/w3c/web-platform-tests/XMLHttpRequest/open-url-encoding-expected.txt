@@ -1,3 +1,0 @@
-
-FAIL XMLHttpRequest: open() - URL encoding assert_equals: expected "%C3%9F" but got "%DF"
-

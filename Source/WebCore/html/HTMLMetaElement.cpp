@@ -25,9 +25,14 @@
 
 #include "Attribute.h"
 #include "Document.h"
+#include "HTMLHeadElement.h"
 #include "HTMLNames.h"
+#include "RuntimeEnabledFeatures.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLMetaElement);
 
 using namespace HTMLNames;
 
@@ -35,6 +40,11 @@ inline HTMLMetaElement::HTMLMetaElement(const QualifiedName& tagName, Document& 
     : HTMLElement(tagName, document)
 {
     ASSERT(hasTagName(metaTag));
+}
+
+Ref<HTMLMetaElement> HTMLMetaElement::create(Document& document)
+{
+    return adoptRef(*new HTMLMetaElement(metaTag, document));
 }
 
 Ref<HTMLMetaElement> HTMLMetaElement::create(const QualifiedName& tagName, Document& document)
@@ -54,49 +64,59 @@ void HTMLMetaElement::parseAttribute(const QualifiedName& name, const AtomicStri
         HTMLElement::parseAttribute(name, value);
 }
 
-Node::InsertionNotificationRequest HTMLMetaElement::insertedInto(ContainerNode& insertionPoint)
+Node::InsertedIntoAncestorResult HTMLMetaElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedInto(insertionPoint);
-    if (insertionPoint.inDocument())
-        process();
-    return InsertionDone;
+    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    if (insertionType.connectedToDocument)
+        return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
+    return InsertedIntoAncestorResult::Done;
+}
+
+void HTMLMetaElement::didFinishInsertingNode()
+{
+    process();
 }
 
 void HTMLMetaElement::process()
 {
-    if (!inDocument())
+    // Changing a meta tag while it's not in the tree shouldn't have any effect on the document.
+    if (!isConnected())
         return;
 
-    const AtomicString& contentValue = fastGetAttribute(contentAttr);
+    const AtomicString& contentValue = attributeWithoutSynchronization(contentAttr);
     if (contentValue.isNull())
         return;
 
     if (equalLettersIgnoringASCIICase(name(), "viewport"))
         document().processViewport(contentValue, ViewportArguments::ViewportMeta);
-#if PLATFORM(IOS)
+    else if (RuntimeEnabledFeatures::sharedFeatures().disabledAdaptationsMetaTagEnabled() && equalLettersIgnoringASCIICase(name(), "disabled-adaptations"))
+        document().processDisabledAdaptations(contentValue);
+#if ENABLE(DARK_MODE_CSS)
+    else if (RuntimeEnabledFeatures::sharedFeatures().darkModeCSSEnabled() && equalLettersIgnoringASCIICase(name(), "supported-color-schemes"))
+        document().processSupportedColorSchemes(contentValue);
+#endif
+#if PLATFORM(IOS_FAMILY)
     else if (equalLettersIgnoringASCIICase(name(), "format-detection"))
         document().processFormatDetection(contentValue);
     else if (equalLettersIgnoringASCIICase(name(), "apple-mobile-web-app-orientations"))
         document().processWebAppOrientations();
 #endif
     else if (equalLettersIgnoringASCIICase(name(), "referrer"))
-        document().processReferrerPolicy(contentValue);
+        document().processReferrerPolicy(contentValue, ReferrerPolicySource::MetaTag);
 
-    // Get the document to process the tag, but only if we're actually part of DOM tree (changing a meta tag while
-    // it's not in the tree shouldn't have any effect on the document)
-    const AtomicString& httpEquivValue = fastGetAttribute(http_equivAttr);
+    const AtomicString& httpEquivValue = attributeWithoutSynchronization(http_equivAttr);
     if (!httpEquivValue.isNull())
-        document().processHttpEquiv(httpEquivValue, contentValue);
+        document().processHttpEquiv(httpEquivValue, contentValue, isDescendantOf(document().head()));
 }
 
 const AtomicString& HTMLMetaElement::content() const
 {
-    return fastGetAttribute(contentAttr);
+    return attributeWithoutSynchronization(contentAttr);
 }
 
 const AtomicString& HTMLMetaElement::httpEquiv() const
 {
-    return fastGetAttribute(http_equivAttr);
+    return attributeWithoutSynchronization(http_equivAttr);
 }
 
 const AtomicString& HTMLMetaElement::name() const

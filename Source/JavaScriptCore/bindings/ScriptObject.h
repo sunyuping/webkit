@@ -29,8 +29,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ScriptObject_h
-#define ScriptObject_h
+#pragma once
 
 #include "JSObject.h"
 #include "ScriptValue.h"
@@ -40,16 +39,17 @@ namespace Deprecated {
 class ScriptObject : public ScriptValue {
 public:
     JS_EXPORT_PRIVATE ScriptObject(JSC::ExecState*, JSC::JSObject*);
-    JS_EXPORT_PRIVATE ScriptObject(JSC::ExecState*, const ScriptValue&);
-    ScriptObject() : m_scriptState(nullptr) { }
+    ScriptObject() = default;
+
+    operator JSC::JSObject*() const { return jsObject(); }
 
     JSC::JSObject* jsObject() const { return asObject(jsValue()); }
     JSC::ExecState* scriptState() const { return m_scriptState; }
 
-protected:
-    JSC::ExecState* m_scriptState;
+    using ScriptValue::hasNoValue;
+
+private:
+    JSC::ExecState* m_scriptState { nullptr };
 };
 
 } // namespace Deprecated
-
-#endif // ScriptObject_h

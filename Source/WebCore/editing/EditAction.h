@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004-2018 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,54 +23,79 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef EditAction_h
-#define EditAction_h
+#pragma once
 
-namespace WebCore {
-    typedef enum {
-        EditActionUnspecified,
-        EditActionInsert,
-        EditActionSetColor,
-        EditActionSetBackgroundColor,
-        EditActionTurnOffKerning,
-        EditActionTightenKerning,
-        EditActionLoosenKerning,
-        EditActionUseStandardKerning,
-        EditActionTurnOffLigatures,
-        EditActionUseStandardLigatures,
-        EditActionUseAllLigatures,
-        EditActionRaiseBaseline,
-        EditActionLowerBaseline,
-        EditActionSetTraditionalCharacterShape,
-        EditActionSetFont,
-        EditActionChangeAttributes,
-        EditActionAlignLeft,
-        EditActionAlignRight,
-        EditActionCenter,
-        EditActionJustify,
-        EditActionSetWritingDirection,
-        EditActionSubscript,
-        EditActionSuperscript,
-        EditActionUnderline,
-        EditActionOutline,
-        EditActionUnscript,
-        EditActionDrag,
-        EditActionCut,
-        EditActionBold,
-        EditActionItalics,
-        EditActionDelete,
-        EditActionDictation,
-        EditActionPaste,
-        EditActionPasteFont,
-        EditActionPasteRuler,
-        EditActionTyping,
-        EditActionCreateLink,
-        EditActionUnlink,
-        EditActionFormatBlock,
-        EditActionInsertList,
-        EditActionIndent,
-        EditActionOutdent
-    } EditAction;    
+namespace WTF {
+class String;
 }
 
-#endif
+namespace WebCore {
+
+enum class EditAction : uint8_t {
+    Unspecified,
+    Insert,
+    InsertReplacement,
+    InsertFromDrop,
+    SetColor,
+    SetBackgroundColor,
+    TurnOffKerning,
+    TightenKerning,
+    LoosenKerning,
+    UseStandardKerning,
+    TurnOffLigatures,
+    UseStandardLigatures,
+    UseAllLigatures,
+    RaiseBaseline,
+    LowerBaseline,
+    SetTraditionalCharacterShape,
+    SetFont,
+    ChangeAttributes,
+    AlignLeft,
+    AlignRight,
+    Center,
+    Justify,
+    SetInlineWritingDirection,
+    SetBlockWritingDirection,
+    Subscript,
+    Superscript,
+    Underline,
+    Outline,
+    Unscript,
+    DeleteByDrag,
+    Cut,
+    Bold,
+    Italics,
+    Delete,
+    Dictation,
+    Paste,
+    PasteFont,
+    PasteRuler,
+    TypingDeleteSelection,
+    TypingDeleteBackward,
+    TypingDeleteForward,
+    TypingDeleteWordBackward,
+    TypingDeleteWordForward,
+    TypingDeleteLineBackward,
+    TypingDeleteLineForward,
+    TypingDeletePendingComposition,
+    TypingDeleteFinalComposition,
+    TypingInsertText,
+    TypingInsertLineBreak,
+    TypingInsertParagraph,
+    TypingInsertPendingComposition,
+    TypingInsertFinalComposition,
+    CreateLink,
+    Unlink,
+    FormatBlock,
+    InsertOrderedList,
+    InsertUnorderedList,
+    ConvertToOrderedList,
+    ConvertToUnorderedList,
+    Indent,
+    Outdent,
+    InsertEditableImage
+};
+
+WTF::String undoRedoLabel(EditAction);
+
+} // namespace WebCore

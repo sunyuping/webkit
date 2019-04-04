@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGBlockMapInlines_h
-#define DFGBlockMapInlines_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -36,11 +35,9 @@ namespace JSC { namespace DFG {
 template<typename T>
 BlockMap<T>::BlockMap(Graph& graph)
 {
-    m_vector.resize(graph.numBlocks());
+    m_vector.grow(graph.numBlocks());
 }
 
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGBlockMapInlines_h

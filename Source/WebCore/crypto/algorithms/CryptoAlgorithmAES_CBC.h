@@ -23,43 +23,38 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CryptoAlgorithmAES_CBC_h
-#define CryptoAlgorithmAES_CBC_h
+#pragma once
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
-class CryptoAlgorithmAesCbcParams;
+class CryptoAlgorithmAesCbcCfbParams;
 class CryptoKeyAES;
 
 class CryptoAlgorithmAES_CBC final : public CryptoAlgorithm {
 public:
-    static const char* const s_name;
-    static const CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::AES_CBC;
-
-    static std::unique_ptr<CryptoAlgorithm> create();
-
-    virtual CryptoAlgorithmIdentifier identifier() const override;
-
-    virtual void encrypt(const CryptoAlgorithmParameters&, const CryptoKey&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void decrypt(const CryptoAlgorithmParameters&, const CryptoKey&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void generateKey(const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsage, KeyOrKeyPairCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
-    virtual void importKey(const CryptoAlgorithmParameters&, const CryptoKeyData&, bool extractable, CryptoKeyUsage, KeyCallback&&, VoidCallback&& failureCallback, ExceptionCode&) override;
+    static constexpr const char* s_name = "AES-CBC";
+    static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::AES_CBC;
+    static Ref<CryptoAlgorithm> create();
 
 private:
-    CryptoAlgorithmAES_CBC();
-    virtual ~CryptoAlgorithmAES_CBC();
+    CryptoAlgorithmAES_CBC() = default;
+    CryptoAlgorithmIdentifier identifier() const final;
 
-    bool keyAlgorithmMatches(const CryptoAlgorithmAesCbcParams& algorithmParameters, const CryptoKey&) const;
-    void platformEncrypt(const CryptoAlgorithmAesCbcParams&, const CryptoKeyAES&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&);
-    void platformDecrypt(const CryptoAlgorithmAesCbcParams&, const CryptoKeyAES&, const CryptoOperationData&, VectorCallback&&, VoidCallback&& failureCallback, ExceptionCode&);
+    void encrypt(const CryptoAlgorithmParameters&, Ref<CryptoKey>&&, Vector<uint8_t>&&, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&) final;
+    void decrypt(const CryptoAlgorithmParameters&, Ref<CryptoKey>&&, Vector<uint8_t>&&, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&) final;
+    void generateKey(const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyOrKeyPairCallback&&, ExceptionCallback&&, ScriptExecutionContext&) final;
+    void importKey(CryptoKeyFormat, KeyData&&, const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyCallback&&, ExceptionCallback&&) final;
+    void exportKey(CryptoKeyFormat, Ref<CryptoKey>&&, KeyDataCallback&&, ExceptionCallback&&) final;
+    ExceptionOr<size_t> getKeyLength(const CryptoAlgorithmParameters&) final;
+
+    static ExceptionOr<Vector<uint8_t>> platformEncrypt(const CryptoAlgorithmAesCbcCfbParams&, const CryptoKeyAES&, const Vector<uint8_t>&);
+    static ExceptionOr<Vector<uint8_t>> platformDecrypt(const CryptoAlgorithmAesCbcCfbParams&, const CryptoKeyAES&, const Vector<uint8_t>&);
 };
 
-}
+} // namespace WebCore
 
-#endif // ENABLE(SUBTLE_CRYPTO)
-
-#endif // CryptoAlgorithmAES_CBC_h
+#endif // ENABLE(WEB_CRYPTO)

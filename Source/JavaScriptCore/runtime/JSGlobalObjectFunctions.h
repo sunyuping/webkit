@@ -21,12 +21,10 @@
  *
  */
 
-#ifndef JSGlobalObjectFunctions_h
-#define JSGlobalObjectFunctions_h
+#pragma once
 
 #include "JSCJSValue.h"
 #include <unicode/uchar.h>
-#include <wtf/text/LChar.h>
 
 namespace JSC {
 
@@ -37,11 +35,11 @@ class JSObject;
 // FIXME: These functions should really be in JSGlobalObject.cpp, but putting them there
 // is a 0.5% reduction.
 
+extern const ASCIILiteral ObjectProtoCalledOnNullOrUndefinedError;
+
 EncodedJSValue JSC_HOST_CALL globalFuncEval(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncParseInt(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncParseFloat(ExecState*);
-EncodedJSValue JSC_HOST_CALL globalFuncIsNaN(ExecState*);
-EncodedJSValue JSC_HOST_CALL globalFuncIsFinite(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncDecodeURI(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncDecodeURIComponent(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncEncodeURI(ExecState*);
@@ -49,17 +47,18 @@ EncodedJSValue JSC_HOST_CALL globalFuncEncodeURIComponent(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncEscape(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncUnescape(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncThrowTypeError(ExecState*);
+EncodedJSValue JSC_HOST_CALL globalFuncThrowTypeErrorArgumentsCalleeAndCaller(ExecState*);
+EncodedJSValue JSC_HOST_CALL globalFuncMakeTypeError(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncProtoGetter(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncProtoSetter(ExecState*);
+EncodedJSValue JSC_HOST_CALL globalFuncHostPromiseRejectionTracker(ExecState*);
 EncodedJSValue JSC_HOST_CALL globalFuncBuiltinLog(ExecState*);
+EncodedJSValue JSC_HOST_CALL globalFuncBuiltinDescribe(ExecState*);
+EncodedJSValue JSC_HOST_CALL globalFuncImportModule(ExecState*);
+EncodedJSValue JSC_HOST_CALL globalFuncPropertyIsEnumerable(ExecState*);
+EncodedJSValue JSC_HOST_CALL globalFuncOwnKeys(ExecState*);
+EncodedJSValue JSC_HOST_CALL globalFuncDateTimeFormat(ExecState*);
 
-bool checkProtoSetterAccessAllowed(ExecState*, JSObject*);
-
-static const double mantissaOverflowLowerBound = 9007199254740992.0;
-double parseIntOverflow(const LChar*, unsigned length, int radix);
-bool isStrWhiteSpace(UChar);
 double jsToNumber(StringView);
 
 } // namespace JSC
-
-#endif // JSGlobalObjectFunctions_h

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ProfilerOSRExit_h
-#define ProfilerOSRExit_h
+#pragma once
 
 #include "ExitKind.h"
 #include "JSCJSValue.h"
@@ -44,18 +43,16 @@ public:
     
     uint64_t* counterAddress() { return &m_counter; }
     uint64_t count() const { return m_counter; }
-    
+    void incCount() { m_counter++; }
+
     JSValue toJS(ExecState*) const;
 
 private:
-    unsigned m_id;
     OriginStack m_origin;
+    unsigned m_id;
     ExitKind m_exitKind;
     bool m_isWatchpoint;
     uint64_t m_counter;
 };
 
 } } // namespace JSC::Profiler
-
-#endif // ProfilerOSRExit_h
-

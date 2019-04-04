@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef B3ConstPtrValue_h
-#define B3ConstPtrValue_h
+#pragma once
 
 #if ENABLE(B3_JIT)
 
@@ -37,7 +36,7 @@ namespace JSC { namespace B3 {
 // platform-agnostic code. Note that a ConstPtrValue will behave like either a Const32Value or
 // Const64Value depending on platform.
 
-#if USE(JSVALUE64)
+#if CPU(ADDRESS64)
 typedef Const64Value ConstPtrValueBase;
 #else
 typedef Const32Value ConstPtrValueBase;
@@ -68,6 +67,3 @@ private:
 } } // namespace JSC::B3
 
 #endif // ENABLE(B3_JIT)
-
-#endif // B3ConstPtrValue_h
-

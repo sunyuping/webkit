@@ -20,6 +20,7 @@
 #include "config.h"
 #include "SVGTextLayoutAttributesBuilder.h"
 
+#include "RenderChildIterator.h"
 #include "RenderSVGInline.h"
 #include "RenderSVGInlineText.h"
 #include "RenderSVGText.h"
@@ -79,17 +80,20 @@ void SVGTextLayoutAttributesBuilder::rebuildMetricsForTextRenderer(RenderSVGInli
 
 static inline void processRenderSVGInlineText(const RenderSVGInlineText& text, unsigned& atCharacter, bool& lastCharacterWasSpace)
 {
-    if (text.style().whiteSpace() == PRE) {
-        atCharacter += text.textLength();
+    auto& string = text.text();
+    auto length = string.length();
+    if (text.style().whiteSpace() == WhiteSpace::Pre) {
+        atCharacter += length;
         return;
     }
 
-    for (unsigned textPosition = 0, textLength = text.textLength(); textPosition < textLength; ++textPosition) {
-        const UChar currentCharacter = text[textPosition];
-        if (currentCharacter == ' ' && lastCharacterWasSpace)
+    // FIXME: This is not a complete whitespace collapsing implementation; it doesn't handle newlines or tabs.
+    for (unsigned i = 0; i < length; ++i) {
+        UChar character = string[i];
+        if (character == ' ' && lastCharacterWasSpace)
             continue;
 
-        lastCharacterWasSpace = currentCharacter == ' ';
+        lastCharacterWasSpace = character == ' ';
         ++atCharacter;
     }
 }
@@ -98,16 +102,16 @@ void SVGTextLayoutAttributesBuilder::collectTextPositioningElements(RenderBoxMod
 {
     ASSERT(!is<RenderSVGText>(start) || m_textPositions.isEmpty());
 
-    for (RenderObject* child = start.firstChild(); child; child = child->nextSibling()) {
-        if (is<RenderSVGInlineText>(*child)) {
-            processRenderSVGInlineText(downcast<RenderSVGInlineText>(*child), m_textLength, lastCharacterWasSpace);
+    for (auto& child : childrenOfType<RenderObject>(start)) {
+        if (is<RenderSVGInlineText>(child)) {
+            processRenderSVGInlineText(downcast<RenderSVGInlineText>(child), m_textLength, lastCharacterWasSpace);
             continue;
         }
 
-        if (!is<RenderSVGInline>(*child))
+        if (!is<RenderSVGInline>(child))
             continue;
 
-        RenderSVGInline& inlineChild = downcast<RenderSVGInline>(*child);
+        auto& inlineChild = downcast<RenderSVGInline>(child);
         SVGTextPositioningElement* element = SVGTextPositioningElement::elementFromRenderer(inlineChild);
 
         unsigned atPosition = m_textPositions.size();
@@ -159,43 +163,43 @@ void SVGTextLayoutAttributesBuilder::buildCharacterDataMap(RenderSVGText& textRo
 static inline void updateCharacterData(unsigned i, float& lastRotation, SVGCharacterData& data, const SVGLengthContext& lengthContext, const SVGLengthList* xList, const SVGLengthList* yList, const SVGLengthList* dxList, const SVGLengthList* dyList, const SVGNumberList* rotateList)
 {
     if (xList)
-        data.x = xList->at(i).value(lengthContext);
+        data.x = xList->items()[i]->value().value(lengthContext);
     if (yList)
-        data.y = yList->at(i).value(lengthContext);
+        data.y = yList->items()[i]->value().value(lengthContext);
     if (dxList)
-        data.dx = dxList->at(i).value(lengthContext);
+        data.dx = dxList->items()[i]->value().value(lengthContext);
     if (dyList)
-        data.dy = dyList->at(i).value(lengthContext);
+        data.dy = dyList->items()[i]->value().value(lengthContext);
     if (rotateList) {
-        data.rotate = rotateList->at(i);
+        data.rotate = rotateList->items()[i]->value();
         lastRotation = data.rotate;
     }
 }
 
 void SVGTextLayoutAttributesBuilder::fillCharacterDataMap(const TextPosition& position)
 {
-    const SVGLengthList& xList = position.element->x();
-    const SVGLengthList& yList = position.element->y();
-    const SVGLengthList& dxList = position.element->dx();
-    const SVGLengthList& dyList = position.element->dy();
-    const SVGNumberList& rotateList = position.element->rotate();
+    const auto& xList = position.element->x();
+    const auto& yList = position.element->y();
+    const auto& dxList = position.element->dx();
+    const auto& dyList = position.element->dy();
+    const auto& rotateList = position.element->rotate();
 
     unsigned xListSize = xList.size();
     unsigned yListSize = yList.size();
     unsigned dxListSize = dxList.size();
     unsigned dyListSize = dyList.size();
-    unsigned rotateListSize = rotateList.size();
+    unsigned rotateListSize = rotateList.items().size();
     if (!xListSize && !yListSize && !dxListSize && !dyListSize && !rotateListSize)
         return;
 
     float lastRotation = SVGTextLayoutAttributes::emptyValue();
     SVGLengthContext lengthContext(position.element);
     for (unsigned i = 0; i < position.length; ++i) {
-        const SVGLengthList* xListPtr = i < xListSize ? &xList : 0;
-        const SVGLengthList* yListPtr = i < yListSize ? &yList : 0;
-        const SVGLengthList* dxListPtr = i < dxListSize ? &dxList : 0;
-        const SVGLengthList* dyListPtr = i < dyListSize ? &dyList : 0;
-        const SVGNumberList* rotateListPtr = i < rotateListSize ? &rotateList : 0;
+        const SVGLengthList* xListPtr = i < xListSize ? &xList : nullptr;
+        const SVGLengthList* yListPtr = i < yListSize ? &yList : nullptr;
+        const SVGLengthList* dxListPtr = i < dxListSize ? &dxList : nullptr;
+        const SVGLengthList* dyListPtr = i < dyListSize ? &dyList : nullptr;
+        const SVGNumberList* rotateListPtr = i < rotateListSize ? &rotateList : nullptr;
         if (!xListPtr && !yListPtr && !dxListPtr && !dyListPtr && !rotateListPtr)
             break;
 
@@ -214,7 +218,7 @@ void SVGTextLayoutAttributesBuilder::fillCharacterDataMap(const TextPosition& po
     if (lastRotation == SVGTextLayoutAttributes::emptyValue())
         return;
 
-    for (unsigned i = rotateList.size(); i < position.length; ++i) {
+    for (unsigned i = rotateList.items().size(); i < position.length; ++i) {
         SVGCharacterDataMap::iterator it = m_characterDataMap.find(position.start + i + 1);
         if (it == m_characterDataMap.end()) {
             SVGCharacterData data;

@@ -23,24 +23,21 @@
  *
  */
 
-#ifndef HTMLTableCaptionElement_h
-#define HTMLTableCaptionElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLTableCaptionElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLTableCaptionElement);
 public:
     static Ref<HTMLTableCaptionElement> create(const QualifiedName&, Document&);
 
 private:
     HTMLTableCaptionElement(const QualifiedName&, Document&);
 
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
 };
 
-} // namespace
-
-#endif
+} // namespace WebCore

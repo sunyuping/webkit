@@ -26,11 +26,13 @@
 #include "config.h"
 #include "SelectionRect.h"
 
+#include <wtf/text/TextStream.h>
+
 namespace WebCore {
 
 SelectionRect::SelectionRect(const IntRect& rect, bool isHorizontal, int pageNumber)
     : m_rect(rect)
-    , m_direction(LTR)
+    , m_direction(TextDirection::LTR)
     , m_minX(0)
     , m_maxX(0)
     , m_maxY(0)
@@ -70,7 +72,7 @@ SelectionRect::SelectionRect(const IntRect& rect, TextDirection direction, int m
 }
 
 SelectionRect::SelectionRect()
-    : m_direction(LTR)
+    : m_direction(TextDirection::LTR)
     , m_minX(0)
     , m_maxX(0)
     , m_maxY(0)
@@ -85,6 +87,45 @@ SelectionRect::SelectionRect()
     , m_isRubyText(false)
     , m_pageNumber(0)
 {
+}
+
+TextStream& operator<<(TextStream& stream, SelectionRect rect)
+{
+    TextStream::GroupScope group(stream);
+    stream << "selection rect";
+
+    stream.dumpProperty("rect", rect.rect());
+    stream.dumpProperty("direction", isLeftToRightDirection(rect.direction()) ? "ltr" : "rtl");
+
+    stream.dumpProperty("min-x", rect.minX());
+    stream.dumpProperty("max-x", rect.maxX());
+    stream.dumpProperty("max-y", rect.maxY());
+
+    stream.dumpProperty("line number", rect.lineNumber());
+    if (rect.isLineBreak())
+        stream.dumpProperty("is line break", true);
+    if (rect.isFirstOnLine())
+        stream.dumpProperty("is first on line", true);
+    if (rect.isLastOnLine())
+        stream.dumpProperty("is last on line", true);
+
+    if (rect.containsStart())
+        stream.dumpProperty("contains start", true);
+
+    if (rect.containsEnd())
+        stream.dumpProperty("contains end", true);
+
+    if (rect.isHorizontal())
+        stream.dumpProperty("is horizontal", true);
+
+    if (rect.isInFixedPosition())
+        stream.dumpProperty("is in fixed position", true);
+
+    if (rect.isRubyText())
+        stream.dumpProperty("is ruby text", true);
+
+    stream.dumpProperty("page number", rect.pageNumber());
+    return stream;
 }
 
 } // namespace WebCore

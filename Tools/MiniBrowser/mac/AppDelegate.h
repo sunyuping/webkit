@@ -27,20 +27,20 @@
 
 @interface BrowserAppDelegate : NSObject <NSApplicationDelegate> {
     NSMutableSet *_browserWindowControllers;
-#if WK_API_ENABLED
     ExtensionManagerWindowController *_extensionManagerWindowController;
-#endif
 
     IBOutlet NSMenuItem *_newWebKit1WindowItem;
     IBOutlet NSMenuItem *_newWebKit2WindowItem;
+    IBOutlet NSMenuItem *_newWebKit1EditorItem;
+    IBOutlet NSMenuItem *_newWebKit2EditorItem;
 }
 
 - (void)browserWindowWillClose:(NSWindow *)window;
 
 - (void)didChangeSettings;
 
-#if WK_API_ENABLED
 @property (readonly) WKUserContentController *userContentContoller;
-#endif
 
 @end
+
+WKPreferences *defaultPreferences(void);

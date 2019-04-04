@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,20 +23,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef AirArg_h
-#define AirArg_h
+#pragma once
 
 #if ENABLE(B3_JIT)
 
 #include "AirTmp.h"
+#include "B3Bank.h"
 #include "B3Common.h"
 #include "B3Type.h"
+#include "B3Value.h"
+#include "B3Width.h"
 #include <wtf/Optional.h>
 
-#if COMPILER(GCC) && ASSERT_DISABLED
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wreturn-type"
-#endif // COMPILER(GCC) && ASSERT_DISABLED
+#if ASSERT_DISABLED
+IGNORE_RETURN_TYPE_WARNINGS_BEGIN
+#endif
 
 namespace JSC { namespace B3 {
 
@@ -60,15 +61,20 @@ public:
         Tmp,
 
         // This is an immediate that the instruction will materialize. Imm is the immediate that can be
-        // inlined into most instructions, while Imm64 indicates a constant materialization and is
+        // inlined into most instructions, while BigImm indicates a constant materialization and is
         // usually only usable with Move. Specials may also admit it, for example for stackmaps used for
         // OSR exit and tail calls.
+        // BitImm is an immediate for Bitwise operation (And, Xor, etc).
         Imm,
-        Imm64,
+        BigImm,
+        BitImm,
+        BitImm64,
 
         // These are the addresses. Instructions may load from (Use), store to (Def), or evaluate
         // (UseAddr) addresses.
+        SimpleAddr,
         Addr,
+        ExtendedOffsetAddr,
         Stack,
         CallArg,
         Index,
@@ -78,8 +84,25 @@ public:
         RelCond,
         ResCond,
         DoubleCond,
+        StatusCond,
         Special,
         WidthArg
+    };
+    
+    enum Temperature : int8_t {
+        Cold,
+        Warm
+    };
+    
+    enum Phase : int8_t {
+        Early,
+        Late
+    };
+    
+    enum Timing : int8_t {
+        OnlyEarly,
+        OnlyLate,
+        EarlyAndLate
     };
 
     enum Role : int8_t {
@@ -147,6 +170,8 @@ public:
         // as Use has undefined behavior: the use may happen before the def, or it may happen after
         // it.
         EarlyDef,
+            
+        EarlyZDef,
 
         // Some instructions need a scratch register. We model this by saying that the temporary is
         // defined early and used late. This role implies that.
@@ -159,34 +184,6 @@ public:
         // imply that we're Use'ing any registers that the Arg contains.
         UseAddr
     };
-
-    enum Type : int8_t {
-        GP,
-        FP
-    };
-
-    static const unsigned numTypes = 2;
-
-    template<typename Functor>
-    static void forEachType(const Functor& functor)
-    {
-        functor(GP);
-        functor(FP);
-    }
-
-    enum Width : int8_t {
-        Width8,
-        Width16,
-        Width32,
-        Width64
-    };
-
-    static Width pointerWidth()
-    {
-        if (sizeof(void*) == 8)
-            return Width64;
-        return Width32;
-    }
 
     enum Signedness : int8_t {
         Signed,
@@ -210,6 +207,7 @@ public:
         case ZDef:
         case UseAddr:
         case EarlyDef:
+        case EarlyZDef:
             return false;
         }
         ASSERT_NOT_REACHED();
@@ -230,6 +228,7 @@ public:
         case UseAddr:
         case Scratch:
         case EarlyDef:
+        case EarlyZDef:
             return false;
         }
         ASSERT_NOT_REACHED();
@@ -252,6 +251,7 @@ public:
         case UseAddr:
         case Scratch:
         case EarlyDef:
+        case EarlyZDef:
             return role;
         case Use:
             return ColdUse;
@@ -260,7 +260,87 @@ public:
         }
         ASSERT_NOT_REACHED();
     }
-
+    
+    static Temperature temperature(Role role)
+    {
+        return isColdUse(role) ? Cold : Warm;
+    }
+    
+    static bool activeAt(Role role, Phase phase)
+    {
+        switch (role) {
+        case Use:
+        case ColdUse:
+        case EarlyDef:
+        case EarlyZDef:
+        case UseAddr:
+            return phase == Early;
+        case LateUse:
+        case LateColdUse:
+        case Def:
+        case ZDef:
+            return phase == Late;
+        case UseDef:
+        case UseZDef:
+        case Scratch:
+            return true;
+        }
+        ASSERT_NOT_REACHED();
+    }
+    
+    static bool activeAt(Timing timing, Phase phase)
+    {
+        switch (timing) {
+        case OnlyEarly:
+            return phase == Early;
+        case OnlyLate:
+            return phase == Late;
+        case EarlyAndLate:
+            return true;
+        }
+        ASSERT_NOT_REACHED();
+    }
+    
+    static Timing timing(Role role)
+    {
+        switch (role) {
+        case Use:
+        case ColdUse:
+        case EarlyDef:
+        case EarlyZDef:
+        case UseAddr:
+            return OnlyEarly;
+        case LateUse:
+        case LateColdUse:
+        case Def:
+        case ZDef:
+            return OnlyLate;
+        case UseDef:
+        case UseZDef:
+        case Scratch:
+            return EarlyAndLate;
+        }
+        ASSERT_NOT_REACHED();
+    }
+    
+    template<typename Func>
+    static void forEachPhase(Timing timing, const Func& func)
+    {
+        if (activeAt(timing, Early))
+            func(Early);
+        if (activeAt(timing, Late))
+            func(Late);
+    }
+    
+    template<typename Func>
+    static void forEachPhase(Role role, const Func& func)
+    {
+        if (activeAt(role, Early))
+            func(Early);
+        if (activeAt(role, Late))
+            func(Late);
+    }
+    
     // Returns true if the Role implies that the Inst will Use the Arg before doing anything else.
     static bool isEarlyUse(Role role)
     {
@@ -277,6 +357,7 @@ public:
         case LateColdUse:
         case Scratch:
         case EarlyDef:
+        case EarlyZDef:
             return false;
         }
         ASSERT_NOT_REACHED();
@@ -298,6 +379,7 @@ public:
         case ZDef:
         case UseAddr:
         case EarlyDef:
+        case EarlyZDef:
             return false;
         }
         ASSERT_NOT_REACHED();
@@ -318,6 +400,7 @@ public:
         case ZDef:
         case UseZDef:
         case EarlyDef:
+        case EarlyZDef:
         case Scratch:
             return true;
         }
@@ -339,6 +422,7 @@ public:
         case LateColdUse:
             return false;
         case EarlyDef:
+        case EarlyZDef:
         case Scratch:
             return true;
         }
@@ -354,6 +438,7 @@ public:
         case UseAddr:
         case LateUse:
         case EarlyDef:
+        case EarlyZDef:
         case Scratch:
         case LateColdUse:
             return false;
@@ -382,73 +467,10 @@ public:
             return false;
         case ZDef:
         case UseZDef:
+        case EarlyZDef:
             return true;
         }
         ASSERT_NOT_REACHED();
-    }
-
-    static Type typeForB3Type(B3::Type type)
-    {
-        switch (type) {
-        case Void:
-            ASSERT_NOT_REACHED();
-            return GP;
-        case Int32:
-        case Int64:
-            return GP;
-        case Float:
-        case Double:
-            return FP;
-        }
-        ASSERT_NOT_REACHED();
-        return GP;
-    }
-
-    static Width widthForB3Type(B3::Type type)
-    {
-        switch (type) {
-        case Void:
-            ASSERT_NOT_REACHED();
-            return Width8;
-        case Int32:
-        case Float:
-            return Width32;
-        case Int64:
-        case Double:
-            return Width64;
-        }
-        ASSERT_NOT_REACHED();
-    }
-
-    static Width conservativeWidth(Type type)
-    {
-        return type == GP ? pointerWidth() : Width64;
-    }
-
-    static Width minimumWidth(Type type)
-    {
-        return type == GP ? Width8 : Width32;
-    }
-
-    static unsigned bytes(Width width)
-    {
-        return 1 << width;
-    }
-
-    static Width widthForBytes(unsigned bytes)
-    {
-        switch (bytes) {
-        case 0:
-        case 1:
-            return Width8;
-        case 2:
-            return Width16;
-        case 3:
-        case 4:
-            return Width32;
-        default:
-            return Width64;
-        }
     }
 
     Arg()
@@ -475,20 +497,46 @@ public:
         return result;
     }
 
-    static Arg imm64(int64_t value)
+    static Arg bigImm(int64_t value)
     {
         Arg result;
-        result.m_kind = Imm64;
+        result.m_kind = BigImm;
+        result.m_offset = value;
+        return result;
+    }
+
+    static Arg bitImm(int64_t value)
+    {
+        Arg result;
+        result.m_kind = BitImm;
+        result.m_offset = value;
+        return result;
+    }
+
+    static Arg bitImm64(int64_t value)
+    {
+        Arg result;
+        result.m_kind = BitImm64;
         result.m_offset = value;
         return result;
     }
 
     static Arg immPtr(const void* address)
     {
-        return imm64(bitwise_cast<intptr_t>(address));
+        return bigImm(bitwise_cast<intptr_t>(address));
     }
 
-    static Arg addr(Air::Tmp base, int32_t offset = 0)
+    static Arg simpleAddr(Air::Tmp ptr)
+    {
+        ASSERT(ptr.isGP());
+        Arg result;
+        result.m_kind = SimpleAddr;
+        result.m_base = ptr;
+        return result;
+    }
+
+    template<typename Int, typename = Value::IsLegalOffset<Int>>
+    static Arg addr(Air::Tmp base, Int offset)
     {
         ASSERT(base.isGP());
         Arg result;
@@ -498,7 +546,23 @@ public:
         return result;
     }
 
-    static Arg stack(StackSlot* value, int32_t offset = 0)
+    template<typename Int, typename = Value::IsLegalOffset<Int>>
+    static Arg extendedOffsetAddr(Int offsetFromFP)
+    {
+        Arg result;
+        result.m_kind = ExtendedOffsetAddr;
+        result.m_base = Air::Tmp(MacroAssembler::framePointerRegister);
+        result.m_offset = offsetFromFP;
+        return result;
+    }
+
+    static Arg addr(Air::Tmp base)
+    {
+        return addr(base, 0);
+    }
+
+    template<typename Int, typename = Value::IsLegalOffset<Int>>
+    static Arg stack(StackSlot* value, Int offset)
     {
         Arg result;
         result.m_kind = Stack;
@@ -507,7 +571,13 @@ public:
         return result;
     }
 
-    static Arg callArg(int32_t offset)
+    static Arg stack(StackSlot* value)
+    {
+        return stack(value, 0);
+    }
+
+    template<typename Int, typename = Value::IsLegalOffset<Int>>
+    static Arg callArg(Int offset)
     {
         Arg result;
         result.m_kind = CallArg;
@@ -515,19 +585,8 @@ public:
         return result;
     }
 
-    static Arg stackAddr(int32_t offsetFromFP, unsigned frameSize, Width width)
-    {
-        Arg result = Arg::addr(Air::Tmp(GPRInfo::callFrameRegister), offsetFromFP);
-        if (!result.isValidForm(width)) {
-            result = Arg::addr(
-                Air::Tmp(MacroAssembler::stackPointerRegister),
-                offsetFromFP + frameSize);
-        }
-        return result;
-    }
-
     // If you don't pass a Width, this optimistically assumes that you're using the right width.
-    static bool isValidScale(unsigned scale, Optional<Width> width = Nullopt)
+    static bool isValidScale(unsigned scale, Optional<Width> width = WTF::nullopt)
     {
         switch (scale) {
         case 1:
@@ -567,7 +626,8 @@ public:
         }
     }
 
-    static Arg index(Air::Tmp base, Air::Tmp index, unsigned scale = 1, int32_t offset = 0)
+    template<typename Int, typename = Value::IsLegalOffset<Int>>
+    static Arg index(Air::Tmp base, Air::Tmp index, unsigned scale, Int offset)
     {
         ASSERT(base.isGP());
         ASSERT(index.isGP());
@@ -579,6 +639,11 @@ public:
         result.m_scale = static_cast<int32_t>(scale);
         result.m_offset = offset;
         return result;
+    }
+
+    static Arg index(Air::Tmp base, Air::Tmp index, unsigned scale = 1)
+    {
+        return Arg::index(base, index, scale, 0);
     }
 
     static Arg relCond(MacroAssembler::RelationalCondition condition)
@@ -601,6 +666,14 @@ public:
     {
         Arg result;
         result.m_kind = DoubleCond;
+        result.m_offset = condition;
+        return result;
+    }
+
+    static Arg statusCond(MacroAssembler::StatusCondition condition)
+    {
+        Arg result;
+        result.m_kind = StatusCond;
         result.m_offset = condition;
         return result;
     }
@@ -652,19 +725,47 @@ public:
         return kind() == Imm;
     }
 
-    bool isImm64() const
+    bool isBigImm() const
     {
-        return kind() == Imm64;
+        return kind() == BigImm;
+    }
+
+    bool isBitImm() const
+    {
+        return kind() == BitImm;
+    }
+
+    bool isBitImm64() const
+    {
+        return kind() == BitImm64;
     }
 
     bool isSomeImm() const
     {
-        return isImm() || isImm64();
+        switch (kind()) {
+        case Imm:
+        case BigImm:
+        case BitImm:
+        case BitImm64:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool isSimpleAddr() const
+    {
+        return kind() == SimpleAddr;
     }
 
     bool isAddr() const
     {
         return kind() == Addr;
+    }
+
+    bool isExtendedOffsetAddr() const
+    {
+        return kind() == ExtendedOffsetAddr;
     }
 
     bool isStack() const
@@ -685,7 +786,9 @@ public:
     bool isMemory() const
     {
         switch (kind()) {
+        case SimpleAddr:
         case Addr:
+        case ExtendedOffsetAddr:
         case Stack:
         case CallArg:
         case Index:
@@ -695,6 +798,14 @@ public:
         }
     }
 
+    // Returns true if this is an idiomatic stack reference. It may return false for some kinds of
+    // stack references. The following idioms are recognized:
+    // - the Stack kind
+    // - the CallArg kind
+    // - the ExtendedOffsetAddr kind
+    // - the Addr kind with the base being either SP or FP
+    // Callers of this function are allowed to expect that if it returns true, then it must be one of
+    // these easy-to-recognize kinds. So, making this function recognize more kinds could break things.
     bool isStackMemory() const;
 
     bool isRelCond() const
@@ -712,12 +823,18 @@ public:
         return kind() == DoubleCond;
     }
 
+    bool isStatusCond() const
+    {
+        return kind() == StatusCond;
+    }
+
     bool isCondition() const
     {
         switch (kind()) {
         case RelCond:
         case ResCond:
         case DoubleCond:
+        case StatusCond:
             return true;
         default:
             return false;
@@ -747,7 +864,7 @@ public:
 
     int64_t value() const
     {
-        ASSERT(kind() == Imm || kind() == Imm64);
+        ASSERT(isSomeImm());
         return m_offset;
     }
 
@@ -756,8 +873,68 @@ public:
     {
         return B3::isRepresentableAs<T>(value());
     }
+    
+    static bool isRepresentableAs(Width width, Signedness signedness, int64_t value)
+    {
+        switch (signedness) {
+        case Signed:
+            switch (width) {
+            case Width8:
+                return B3::isRepresentableAs<int8_t>(value);
+            case Width16:
+                return B3::isRepresentableAs<int16_t>(value);
+            case Width32:
+                return B3::isRepresentableAs<int32_t>(value);
+            case Width64:
+                return B3::isRepresentableAs<int64_t>(value);
+            }
+            RELEASE_ASSERT_NOT_REACHED();
+        case Unsigned:
+            switch (width) {
+            case Width8:
+                return B3::isRepresentableAs<uint8_t>(value);
+            case Width16:
+                return B3::isRepresentableAs<uint16_t>(value);
+            case Width32:
+                return B3::isRepresentableAs<uint32_t>(value);
+            case Width64:
+                return B3::isRepresentableAs<uint64_t>(value);
+            }
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    }
 
     bool isRepresentableAs(Width, Signedness) const;
+    
+    static int64_t castToType(Width width, Signedness signedness, int64_t value)
+    {
+        switch (signedness) {
+        case Signed:
+            switch (width) {
+            case Width8:
+                return static_cast<int8_t>(value);
+            case Width16:
+                return static_cast<int16_t>(value);
+            case Width32:
+                return static_cast<int32_t>(value);
+            case Width64:
+                return static_cast<int64_t>(value);
+            }
+            RELEASE_ASSERT_NOT_REACHED();
+        case Unsigned:
+            switch (width) {
+            case Width8:
+                return static_cast<uint8_t>(value);
+            case Width16:
+                return static_cast<uint16_t>(value);
+            case Width32:
+                return static_cast<uint32_t>(value);
+            case Width64:
+                return static_cast<uint64_t>(value);
+            }
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    }
 
     template<typename T>
     T asNumber() const
@@ -767,30 +944,36 @@ public:
 
     void* pointerValue() const
     {
-        ASSERT(kind() == Imm64);
+        ASSERT(kind() == BigImm);
         return bitwise_cast<void*>(static_cast<intptr_t>(m_offset));
+    }
+    
+    Air::Tmp ptr() const
+    {
+        ASSERT(kind() == SimpleAddr);
+        return m_base;
     }
 
     Air::Tmp base() const
     {
-        ASSERT(kind() == Addr || kind() == Index);
+        ASSERT(kind() == SimpleAddr || kind() == Addr || kind() == ExtendedOffsetAddr || kind() == Index);
         return m_base;
     }
 
     bool hasOffset() const { return isMemory(); }
     
-    int32_t offset() const
+    Value::OffsetType offset() const
     {
         if (kind() == Stack)
-            return static_cast<int32_t>(m_scale);
-        ASSERT(kind() == Addr || kind() == CallArg || kind() == Index);
-        return static_cast<int32_t>(m_offset);
+            return static_cast<Value::OffsetType>(m_scale);
+        ASSERT(kind() == Addr || kind() == ExtendedOffsetAddr || kind() == CallArg || kind() == Index);
+        return static_cast<Value::OffsetType>(m_offset);
     }
 
     StackSlot* stackSlot() const
     {
         ASSERT(kind() == Stack);
-        return bitwise_cast<StackSlot*>(m_offset);
+        return bitwise_cast<StackSlot*>(static_cast<uintptr_t>(m_offset));
     }
 
     Air::Tmp index() const
@@ -813,7 +996,7 @@ public:
     Air::Special* special() const
     {
         ASSERT(kind() == Special);
-        return bitwise_cast<Air::Special*>(m_offset);
+        return bitwise_cast<Air::Special*>(static_cast<uintptr_t>(m_offset));
     }
 
     Width width() const
@@ -837,14 +1020,19 @@ public:
     {
         switch (kind()) {
         case Imm:
-        case Imm64:
+        case BigImm:
+        case BitImm:
+        case BitImm64:
+        case SimpleAddr:
         case Addr:
+        case ExtendedOffsetAddr:
         case Index:
         case Stack:
         case CallArg:
         case RelCond:
         case ResCond:
         case DoubleCond:
+        case StatusCond:
         case Special:
         case WidthArg:
             return true;
@@ -861,18 +1049,23 @@ public:
     {
         switch (kind()) {
         case Imm:
+        case BitImm:
+        case BitImm64:
         case RelCond:
         case ResCond:
         case DoubleCond:
+        case StatusCond:
         case Special:
         case WidthArg:
         case Invalid:
             return false;
+        case SimpleAddr:
         case Addr:
+        case ExtendedOffsetAddr:
         case Index:
         case Stack:
         case CallArg:
-        case Imm64: // Yes, we allow Imm64 as a double immediate. We use this for implementing stackmaps.
+        case BigImm: // Yes, we allow BigImm as a double immediate. We use this for implementing stackmaps.
             return true;
         case Tmp:
             return isFPTmp();
@@ -880,10 +1073,12 @@ public:
         ASSERT_NOT_REACHED();
     }
 
-    bool hasType() const
+    bool hasBank() const
     {
         switch (kind()) {
         case Imm:
+        case BitImm:
+        case BitImm64:
         case Special:
         case Tmp:
             return true;
@@ -893,14 +1088,14 @@ public:
     }
     
     // The type is ambiguous for some arg kinds. Call with care.
-    Type type() const
+    Bank bank() const
     {
         return isGP() ? GP : FP;
     }
 
-    bool isType(Type type) const
+    bool isBank(Bank bank) const
     {
-        switch (type) {
+        switch (bank) {
         case GP:
             return isGP();
         case FP:
@@ -911,7 +1106,7 @@ public:
 
     bool canRepresent(Value* value) const;
 
-    bool isCompatibleType(const Arg& other) const;
+    bool isCompatibleBank(const Arg& other) const;
 
     bool isGPR() const
     {
@@ -958,33 +1153,6 @@ public:
         return tmp().tmpIndex();
     }
 
-    // If 'this' is an address Arg, then it returns a new address Arg with the additional offset applied.
-    // Note that this does not consider whether doing so produces a valid Arg or not. Unless you really
-    // know what you're doing, you should call Arg::isValidForm() on the result. Some code won't do that,
-    // like if you're applying a very small offset to a Arg::stack() that you know has no offset to begin
-    // with. It's safe to assume that all targets allow small offsets (like, 0..7) for Addr, Stack, and
-    // CallArg.
-    Arg withOffset(int64_t additionalOffset) const
-    {
-        if (!hasOffset())
-            return Arg();
-        if (sumOverflows<int64_t>(offset(), additionalOffset))
-            return Arg();
-        switch (kind()) {
-        case Addr:
-            return addr(base(), offset() + additionalOffset);
-        case Stack:
-            return stack(stackSlot(), offset() + additionalOffset);
-        case CallArg:
-            return callArg(offset() + additionalOffset);
-        case Index:
-            return index(base(), index(), scale(), offset() + additionalOffset);
-        default:
-            RELEASE_ASSERT_NOT_REACHED();
-            return Arg();
-        }
-    }
-
     static bool isValidImmForm(int64_t value)
     {
         if (isX86())
@@ -994,7 +1162,26 @@ public:
         return false;
     }
 
-    static bool isValidAddrForm(int32_t offset, Optional<Width> width = Nullopt)
+    static bool isValidBitImmForm(int64_t value)
+    {
+        if (isX86())
+            return B3::isRepresentableAs<int32_t>(value);
+        if (isARM64())
+            return ARM64LogicalImmediate::create32(value).isValid();
+        return false;
+    }
+
+    static bool isValidBitImm64Form(int64_t value)
+    {
+        if (isX86())
+            return B3::isRepresentableAs<int32_t>(value);
+        if (isARM64())
+            return ARM64LogicalImmediate::create64(value).isValid();
+        return false;
+    }
+
+    template<typename Int, typename = Value::IsLegalOffset<Int>>
+    static bool isValidAddrForm(Int offset, Optional<Width> width = WTF::nullopt)
     {
         if (isX86())
             return true;
@@ -1019,7 +1206,8 @@ public:
         return false;
     }
 
-    static bool isValidIndexForm(unsigned scale, int32_t offset, Optional<Width> width = Nullopt)
+    template<typename Int, typename = Value::IsLegalOffset<Int>>
+    static bool isValidIndexForm(unsigned scale, Int offset, Optional<Width> width = WTF::nullopt)
     {
         if (!isValidScale(scale, width))
             return false;
@@ -1033,7 +1221,7 @@ public:
     // If you don't pass a width then this optimistically assumes that you're using the right width. But
     // the width is relevant to validity, so passing a null width is only useful for assertions. Don't
     // pass null widths when cascading through Args in the instruction selector!
-    bool isValidForm(Optional<Width> width = Nullopt) const
+    bool isValidForm(Optional<Width> width = WTF::nullopt) const
     {
         switch (kind()) {
         case Invalid:
@@ -1042,7 +1230,14 @@ public:
             return true;
         case Imm:
             return isValidImmForm(value());
-        case Imm64:
+        case BigImm:
+            return true;
+        case BitImm:
+            return isValidBitImmForm(value());
+        case BitImm64:
+            return isValidBitImm64Form(value());
+        case SimpleAddr:
+        case ExtendedOffsetAddr:
             return true;
         case Addr:
         case Stack:
@@ -1053,6 +1248,7 @@ public:
         case RelCond:
         case ResCond:
         case DoubleCond:
+        case StatusCond:
         case Special:
         case WidthArg:
             return true;
@@ -1065,7 +1261,9 @@ public:
     {
         switch (m_kind) {
         case Tmp:
+        case SimpleAddr:
         case Addr:
+        case ExtendedOffsetAddr:
             functor(m_base);
             break;
         case Index:
@@ -1089,7 +1287,7 @@ public:
     void forEachFast(const Functor&);
 
     template<typename Thing, typename Functor>
-    void forEach(Role, Type, Width, const Functor&);
+    void forEach(Role, Bank, Width, const Functor&);
 
     // This is smart enough to know that an address arg in a Def or UseDef rule will use its
     // tmps and never def them. For example, this:
@@ -1098,14 +1296,16 @@ public:
     //
     // This defs (%rcx) but uses %rcx.
     template<typename Functor>
-    void forEachTmp(Role argRole, Type argType, Width argWidth, const Functor& functor)
+    void forEachTmp(Role argRole, Bank argBank, Width argWidth, const Functor& functor)
     {
         switch (m_kind) {
         case Tmp:
             ASSERT(isAnyUse(argRole) || isAnyDef(argRole));
-            functor(m_base, argRole, argType, argWidth);
+            functor(m_base, argRole, argBank, argWidth);
             break;
+        case SimpleAddr:
         case Addr:
+        case ExtendedOffsetAddr:
             functor(m_base, Use, GP, argRole == UseAddr ? argWidth : pointerWidth());
             break;
         case Index:
@@ -1119,14 +1319,14 @@ public:
 
     MacroAssembler::TrustedImm32 asTrustedImm32() const
     {
-        ASSERT(isImm());
-        return MacroAssembler::TrustedImm32(static_cast<int32_t>(m_offset));
+        ASSERT(isImm() || isBitImm());
+        return MacroAssembler::TrustedImm32(static_cast<Value::OffsetType>(m_offset));
     }
 
 #if USE(JSVALUE64)
     MacroAssembler::TrustedImm64 asTrustedImm64() const
     {
-        ASSERT(isImm64());
+        ASSERT(isBigImm() || isBitImm64());
         return MacroAssembler::TrustedImm64(value());
     }
 #endif
@@ -1134,16 +1334,18 @@ public:
     MacroAssembler::TrustedImmPtr asTrustedImmPtr() const
     {
         if (is64Bit())
-            ASSERT(isImm64());
+            ASSERT(isBigImm());
         else
             ASSERT(isImm());
         return MacroAssembler::TrustedImmPtr(pointerValue());
     }
-
+    
     MacroAssembler::Address asAddress() const
     {
-        ASSERT(isAddr());
-        return MacroAssembler::Address(m_base.gpr(), static_cast<int32_t>(m_offset));
+        if (isSimpleAddr())
+            return MacroAssembler::Address(m_base.gpr());
+        ASSERT(isAddr() || isExtendedOffsetAddr());
+        return MacroAssembler::Address(m_base.gpr(), static_cast<Value::OffsetType>(m_offset));
     }
 
     MacroAssembler::BaseIndex asBaseIndex() const
@@ -1151,7 +1353,7 @@ public:
         ASSERT(isIndex());
         return MacroAssembler::BaseIndex(
             m_base.gpr(), m_index.gpr(), static_cast<MacroAssembler::Scale>(logScale()),
-            static_cast<int32_t>(m_offset));
+            static_cast<Value::OffsetType>(m_offset));
     }
 
     MacroAssembler::RelationalCondition asRelationalCondition() const
@@ -1171,7 +1373,13 @@ public:
         ASSERT(isDoubleCond());
         return static_cast<MacroAssembler::DoubleCondition>(m_offset);
     }
-
+    
+    MacroAssembler::StatusCondition asStatusCondition() const
+    {
+        ASSERT(isStatusCond());
+        return static_cast<MacroAssembler::StatusCondition>(m_offset);
+    }
+    
     // Tells you if the Arg is invertible. Only condition arguments are invertible, and even for those, there
     // are a few exceptions - notably Overflow and Signed.
     bool isInvertible() const
@@ -1179,6 +1387,7 @@ public:
         switch (kind()) {
         case RelCond:
         case DoubleCond:
+        case StatusCond:
             return true;
         case ResCond:
             return MacroAssembler::isInvertible(asResultCondition());
@@ -1199,6 +1408,8 @@ public:
             return resCond(MacroAssembler::invert(asResultCondition()));
         case DoubleCond:
             return doubleCond(MacroAssembler::invert(asDoubleCondition()));
+        case StatusCond:
+            return statusCond(MacroAssembler::invert(asStatusCondition()));
         default:
             RELEASE_ASSERT_NOT_REACHED();
             return Arg();
@@ -1222,6 +1433,9 @@ public:
         return isRelCond() && MacroAssembler::isUnsigned(asRelationalCondition());
     }
 
+    // This computes a hash for comparing this to JSAir's Arg.
+    unsigned jsHash() const;
+    
     void dump(PrintStream&) const;
 
     Arg(WTF::HashTableDeletedValueType)
@@ -1259,11 +1473,12 @@ struct ArgHash {
 
 namespace WTF {
 
-void printInternal(PrintStream&, JSC::B3::Air::Arg::Kind);
-void printInternal(PrintStream&, JSC::B3::Air::Arg::Role);
-void printInternal(PrintStream&, JSC::B3::Air::Arg::Type);
-void printInternal(PrintStream&, JSC::B3::Air::Arg::Width);
-void printInternal(PrintStream&, JSC::B3::Air::Arg::Signedness);
+JS_EXPORT_PRIVATE void printInternal(PrintStream&, JSC::B3::Air::Arg::Kind);
+JS_EXPORT_PRIVATE void printInternal(PrintStream&, JSC::B3::Air::Arg::Temperature);
+JS_EXPORT_PRIVATE void printInternal(PrintStream&, JSC::B3::Air::Arg::Phase);
+JS_EXPORT_PRIVATE void printInternal(PrintStream&, JSC::B3::Air::Arg::Timing);
+JS_EXPORT_PRIVATE void printInternal(PrintStream&, JSC::B3::Air::Arg::Role);
+JS_EXPORT_PRIVATE void printInternal(PrintStream&, JSC::B3::Air::Arg::Signedness);
 
 template<typename T> struct DefaultHash;
 template<> struct DefaultHash<JSC::B3::Air::Arg> {
@@ -1278,11 +1493,8 @@ template<> struct HashTraits<JSC::B3::Air::Arg> : SimpleClassHashTraits<JSC::B3:
 
 } // namespace WTF
 
-#if COMPILER(GCC) && ASSERT_DISABLED
-#pragma GCC diagnostic pop
-#endif // COMPILER(GCC) && ASSERT_DISABLED
+#if ASSERT_DISABLED
+IGNORE_RETURN_TYPE_WARNINGS_END
+#endif
 
 #endif // ENABLE(B3_JIT)
-
-#endif // AirArg_h
-

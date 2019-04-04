@@ -9,6 +9,7 @@ Block span in a link in a paragraph
 
 Inline span in a paragraph
 Block span in a paragraph
+
 Block span in a link in a div
 Inline span in a link in a div
 Block span in a div
@@ -34,10 +35,8 @@ PASS link.role is 'AXRole: AXLink'
 PASS link.childrenCount is 0
 PASS element.role is 'AXRole: AXParagraph'
 PASS element.childrenCount is 0
-PASS element.role is 'AXRole: AXSection'
-PASS element.childrenCount is 1
-PASS link.role is 'AXRole: AXLink'
-PASS link.childrenCount is 0
+PASS element.role is 'AXRole: AXLink'
+PASS element.childrenCount is 0
 PASS element.role is 'AXRole: AXSection'
 PASS element.childrenCount is 0
 PASS element.role is 'AXRole: AXSection'

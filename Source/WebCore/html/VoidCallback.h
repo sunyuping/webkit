@@ -23,19 +23,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef VoidCallback_h
-#define VoidCallback_h
+#pragma once
 
+#include "ActiveDOMCallback.h"
+#include "CallbackResult.h"
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
-class VoidCallback : public RefCounted<VoidCallback> {
+class VoidCallback : public RefCounted<VoidCallback>, public ActiveDOMCallback {
 public:
-    virtual ~VoidCallback() { }
-    virtual bool handleEvent() = 0;
+    using ActiveDOMCallback::ActiveDOMCallback;
+
+    virtual CallbackResult<void> handleEvent() = 0;
 };
 
 } // namespace WebCore
-
-#endif

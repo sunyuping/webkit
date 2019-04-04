@@ -13,13 +13,14 @@ set(MiniBrowser_SOURCES
     ${MINIBROWSER_DIR}/BrowserSearchBar.h
     ${MINIBROWSER_DIR}/BrowserSettingsDialog.c
     ${MINIBROWSER_DIR}/BrowserSettingsDialog.h
+    ${MINIBROWSER_DIR}/BrowserTab.c
+    ${MINIBROWSER_DIR}/BrowserTab.h
     ${MINIBROWSER_DIR}/BrowserWindow.c
     ${MINIBROWSER_DIR}/BrowserWindow.h
     ${MINIBROWSER_DIR}/main.c
 )
 
 set(MiniBrowser_INCLUDE_DIRECTORIES
-    ${CMAKE_BINARY_DIR}
     ${DERIVED_SOURCES_MINIBROWSER_DIR}
     ${DERIVED_SOURCES_WEBKIT2GTK_DIR}
     ${FORWARDING_HEADERS_WEBKIT2GTK_DIR}
@@ -31,13 +32,16 @@ set(MiniBrowser_SYSTEM_INCLUDE_DIRECTORIES
     ${GTK3_INCLUDE_DIRS}
     ${GLIB_INCLUDE_DIRS}
     ${LIBSOUP_INCLUDE_DIRS}
+    ${GSTREAMER_INCLUDE_DIRS}
 )
 
 set(MiniBrowser_LIBRARIES
     ${JavaScriptCore_LIBRARY_NAME}
-    WebKit2
+    WebKit
     ${GTK3_LIBRARIES}
     ${GLIB_LIBRARIES}
+    ${LIBSOUP_LIBRARIES}
+    ${GSTREAMER_LIBRARIES}
 )
 
 add_custom_command(
@@ -58,6 +62,7 @@ include_directories(${MiniBrowser_INCLUDE_DIRECTORIES})
 include_directories(SYSTEM ${MiniBrowser_SYSTEM_INCLUDE_DIRECTORIES})
 add_executable(MiniBrowser ${MiniBrowser_SOURCES})
 target_link_libraries(MiniBrowser ${MiniBrowser_LIBRARIES})
-set_target_properties(MiniBrowser PROPERTIES FOLDER "Tools")
 
-install(TARGETS MiniBrowser DESTINATION "${EXEC_INSTALL_DIR}")
+WEBKIT_ADD_TARGET_CXX_FLAGS(MiniBrowser -Wno-unused-parameter)
+
+install(TARGETS MiniBrowser DESTINATION "${LIBEXEC_INSTALL_DIR}")

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,10 @@
 
 #include <wtf/PrintStream.h>
 
+#if ASSERT_DISABLED
+IGNORE_RETURN_TYPE_WARNINGS_BEGIN
+#endif
+
 namespace JSC { namespace B3 {
 
 Optional<Opcode> invertedCompare(Opcode opcode, Type type)
@@ -42,19 +46,19 @@ Optional<Opcode> invertedCompare(Opcode opcode, Type type)
     case LessThan:
         if (isInt(type))
             return GreaterEqual;
-        return Nullopt;
+        return WTF::nullopt;
     case GreaterThan:
         if (isInt(type))
             return LessEqual;
-        return Nullopt;
+        return WTF::nullopt;
     case LessEqual:
         if (isInt(type))
             return GreaterThan;
-        return Nullopt;
+        return WTF::nullopt;
     case GreaterEqual:
         if (isInt(type))
             return LessThan;
-        return Nullopt;
+        return WTF::nullopt;
     case Above:
         return BelowEqual;
     case Below:
@@ -64,8 +68,26 @@ Optional<Opcode> invertedCompare(Opcode opcode, Type type)
     case BelowEqual:
         return Above;
     default:
-        return Nullopt;
+        return WTF::nullopt;
     }
+}
+
+Opcode storeOpcode(Bank bank, Width width)
+{
+    switch (bank) {
+    case GP:
+        switch (width) {
+        case Width8:
+            return Store8;
+        case Width16:
+            return Store16;
+        default:
+            return Store;
+        }
+    case FP:
+        return Store;
+    }
+    ASSERT_NOT_REACHED();
 }
 
 } } // namespace JSC::B3
@@ -82,6 +104,9 @@ void printInternal(PrintStream& out, Opcode opcode)
         return;
     case Identity:
         out.print("Identity");
+        return;
+    case Opaque:
+        out.print("Opaque");
         return;
     case Const32:
         out.print("Const32");
@@ -122,17 +147,17 @@ void printInternal(PrintStream& out, Opcode opcode)
     case Div:
         out.print("Div");
         return;
+    case UDiv:
+        out.print("UDiv");
+        return;
     case Mod:
         out.print("Mod");
         return;
+    case UMod:
+        out.print("UMod");
+        return;
     case Neg:
         out.print("Neg");
-        return;
-    case ChillDiv:
-        out.print("ChillDiv");
-        return;
-    case ChillMod:
-        out.print("ChillMod");
         return;
     case BitAnd:
         out.print("BitAnd");
@@ -152,6 +177,12 @@ void printInternal(PrintStream& out, Opcode opcode)
     case ZShr:
         out.print("ZShr");
         return;
+    case RotR:
+        out.print("RotR");
+        return;
+    case RotL:
+        out.print("RotL");
+        return;
     case Clz:
         out.print("Clz");
         return;
@@ -160,6 +191,9 @@ void printInternal(PrintStream& out, Opcode opcode)
         return;
     case Ceil:
         out.print("Ceil");
+        return;
+    case Floor:
+        out.print("Floor");
         return;
     case Sqrt:
         out.print("Sqrt");
@@ -184,6 +218,9 @@ void printInternal(PrintStream& out, Opcode opcode)
         return;
     case IToD:
         out.print("IToD");
+        return;
+    case IToF:
+        out.print("IToF");
         return;
     case FloatToDouble:
         out.print("FloatToDouble");
@@ -251,6 +288,39 @@ void printInternal(PrintStream& out, Opcode opcode)
     case Store:
         out.print("Store");
         return;
+    case AtomicWeakCAS:
+        out.print("AtomicWeakCAS");
+        return;
+    case AtomicStrongCAS:
+        out.print("AtomicStrongCAS");
+        return;
+    case AtomicXchgAdd:
+        out.print("AtomicXchgAdd");
+        return;
+    case AtomicXchgAnd:
+        out.print("AtomicXchgAnd");
+        return;
+    case AtomicXchgOr:
+        out.print("AtomicXchgOr");
+        return;
+    case AtomicXchgSub:
+        out.print("AtomicXchgSub");
+        return;
+    case AtomicXchgXor:
+        out.print("AtomicXchgXor");
+        return;
+    case AtomicXchg:
+        out.print("AtomicXchg");
+        return;
+    case Depend:
+        out.print("Depend");
+        return;
+    case WasmAddress:
+        out.print("WasmAddress");
+        return;
+    case Fence:
+        out.print("Fence");
+        return;
     case CCall:
         out.print("CCall");
         return;
@@ -269,6 +339,9 @@ void printInternal(PrintStream& out, Opcode opcode)
     case Check:
         out.print("Check");
         return;
+    case WasmBoundsCheck:
+        out.print("WasmBoundsCheck");
+        return;
     case Upsilon:
         out.print("Upsilon");
         return;
@@ -284,6 +357,9 @@ void printInternal(PrintStream& out, Opcode opcode)
     case Switch:
         out.print("Switch");
         return;
+    case EntrySwitch:
+        out.print("EntrySwitch");
+        return;
     case Return:
         out.print("Return");
         return;
@@ -295,5 +371,9 @@ void printInternal(PrintStream& out, Opcode opcode)
 }
 
 } // namespace WTF
+
+#if ASSERT_DISABLED
+IGNORE_RETURN_TYPE_WARNINGS_END
+#endif
 
 #endif // ENABLE(B3_JIT)

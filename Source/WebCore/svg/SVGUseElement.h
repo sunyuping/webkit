@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2007, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006, 2007 Rob Buis <buis@kde.org>
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -19,13 +19,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGUseElement_h
-#define SVGUseElement_h
+#pragma once
 
 #include "CachedResourceHandle.h"
 #include "CachedSVGDocumentClient.h"
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedLength.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGGraphicsElement.h"
 #include "SVGURIReference.h"
@@ -36,43 +33,51 @@ class CachedSVGDocument;
 class SVGGElement;
 
 class SVGUseElement final : public SVGGraphicsElement, public SVGExternalResourcesRequired, public SVGURIReference, private CachedSVGDocumentClient {
-
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGUseElement)
-        DECLARE_ANIMATED_LENGTH(X, x)
-        DECLARE_ANIMATED_LENGTH(Y, y)
-        DECLARE_ANIMATED_LENGTH(Width, width)
-        DECLARE_ANIMATED_LENGTH(Height, height)
-        DECLARE_ANIMATED_STRING_OVERRIDE(Href, href)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
-
+    WTF_MAKE_ISO_ALLOCATED(SVGUseElement);
 public:
     static Ref<SVGUseElement> create(const QualifiedName&, Document&);
     virtual ~SVGUseElement();
 
     void invalidateShadowTree();
+    bool shadowTreeNeedsUpdate() const { return m_shadowTreeNeedsUpdate; }
+    void updateShadowTree();
 
     RenderElement* rendererClipChild() const;
+
+    const SVGLengthValue& x() const { return m_x->currentValue(); }
+    const SVGLengthValue& y() const { return m_y->currentValue(); }
+    const SVGLengthValue& width() const { return m_width->currentValue(); }
+    const SVGLengthValue& height() const { return m_height->currentValue(); }
+
+    SVGAnimatedLength& xAnimated() { return m_x; }
+    SVGAnimatedLength& yAnimated() { return m_y; }
+    SVGAnimatedLength& widthAnimated() { return m_width; }
+    SVGAnimatedLength& heightAnimated() { return m_height; }
 
 private:
     SVGUseElement(const QualifiedName&, Document&);
 
-    virtual bool isValid() const override;
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    virtual void removedFrom(ContainerNode&) override;
-    virtual void buildPendingResource() override;
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-    virtual void willAttachRenderers() override;
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual void toClipPath(Path&) override;
-    virtual bool haveLoadedRequiredResources() override;
-    virtual void finishParsingChildren() override;
-    virtual bool selfHasRelativeLengths() const override;
-    virtual void setHaveFiredLoadEvent(bool) override;
-    virtual bool haveFiredLoadEvent() const override;
-    virtual Timer* svgLoadEventTimer() override;
-    virtual void notifyFinished(CachedResource*) override;
+    bool isValid() const override;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
+    void didFinishInsertingNode() final;
+    void removedFromAncestor(RemovalType, ContainerNode&) override;
+    void buildPendingResource() override;
+
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGUseElement, SVGGraphicsElement, SVGExternalResourcesRequired, SVGURIReference>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
+
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
+
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    Path toClipPath() override;
+    bool haveLoadedRequiredResources() override;
+    void finishParsingChildren() override;
+    bool selfHasRelativeLengths() const override;
+    void setHaveFiredLoadEvent(bool) override;
+    bool haveFiredLoadEvent() const override;
+    Timer* svgLoadEventTimer() override;
+    void notifyFinished(CachedResource&) final;
 
     Document* externalDocument() const;
     void updateExternalDocument();
@@ -80,9 +85,8 @@ private:
     SVGElement* findTarget(String* targetID = nullptr) const;
 
     void cloneTarget(ContainerNode&, SVGElement& target) const;
-    SVGElement* targetClone() const;
+    RefPtr<SVGElement> targetClone() const;
 
-    void updateShadowTree();
     void expandUseElementsInShadowTree() const;
     void expandSymbolElementsInShadowTree() const;
     void transferEventListenersToShadowTree() const;
@@ -91,6 +95,12 @@ private:
     void clearShadowTree();
     void invalidateDependentShadowTrees();
 
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, LengthModeHeight) };
+    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, LengthModeHeight) };
+
     bool m_haveFiredLoadEvent { false };
     bool m_shadowTreeNeedsUpdate { true };
     CachedResourceHandle<CachedSVGDocument> m_externalDocument;
@@ -98,5 +108,3 @@ private:
 };
 
 }
-
-#endif

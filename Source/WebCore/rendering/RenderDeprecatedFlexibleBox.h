@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef RenderDeprecatedFlexibleBox_h
-#define RenderDeprecatedFlexibleBox_h
+#pragma once
 
 #include "RenderBlock.h"
 
@@ -30,37 +29,38 @@ namespace WebCore {
 class FlexBoxIterator;
 
 class RenderDeprecatedFlexibleBox final : public RenderBlock {
+    WTF_MAKE_ISO_ALLOCATED(RenderDeprecatedFlexibleBox);
 public:
-    RenderDeprecatedFlexibleBox(Element&, Ref<RenderStyle>&&);
+    RenderDeprecatedFlexibleBox(Element&, RenderStyle&&);
     virtual ~RenderDeprecatedFlexibleBox();
 
     Element& element() const { return downcast<Element>(nodeForNonAnonymous()); }
 
-    virtual const char* renderName() const override;
+    const char* renderName() const override;
 
-    virtual void styleWillChange(StyleDifference, const RenderStyle& newStyle) override;
+    void styleWillChange(StyleDifference, const RenderStyle& newStyle) override;
 
-    virtual void layoutBlock(bool relayoutChildren, LayoutUnit pageHeight = 0) override;
+    void layoutBlock(bool relayoutChildren, LayoutUnit pageHeight = 0_lu) override;
     void layoutHorizontalBox(bool relayoutChildren);
     void layoutVerticalBox(bool relayoutChildren);
 
     bool isStretchingChildren() const { return m_stretchingChildren; }
 
-    virtual bool avoidsFloats() const override { return true; }
-    virtual bool canDropAnonymousBlockChild() const override { return false; }
+    bool avoidsFloats() const override { return true; }
+    bool canDropAnonymousBlockChild() const override { return false; }
 
     void placeChild(RenderBox* child, const LayoutPoint& location, LayoutSize* childLayoutDelta = nullptr);
 
 private:
-    virtual bool isDeprecatedFlexibleBox() const override { return true; }
-    virtual void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
-    virtual void computePreferredLogicalWidths() override;
+    bool isDeprecatedFlexibleBox() const override { return true; }
+    void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
+    void computePreferredLogicalWidths() override;
 
     LayoutUnit allowedChildFlex(RenderBox* child, bool expanding, unsigned group);
 
-    bool hasMultipleLines() const { return style().boxLines() == MULTIPLE; }
-    bool isVertical() const { return style().boxOrient() == VERTICAL; }
-    bool isHorizontal() const { return style().boxOrient() == HORIZONTAL; }
+    bool hasMultipleLines() const { return style().boxLines() == BoxLines::Multiple; }
+    bool isVertical() const { return style().boxOrient() == BoxOrient::Vertical; }
+    bool isHorizontal() const { return style().boxOrient() == BoxOrient::Horizontal; }
 
     void applyLineClamp(FlexBoxIterator&, bool relayoutChildren);
     void clearLineClamp();
@@ -71,5 +71,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderDeprecatedFlexibleBox, isDeprecatedFlexibleBox())
-
-#endif // RenderDeprecatedFlexibleBox_h

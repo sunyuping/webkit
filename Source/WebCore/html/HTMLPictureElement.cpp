@@ -27,10 +27,15 @@
 #include "HTMLPictureElement.h"
 
 #include "ElementChildIterator.h"
+#include "HTMLAnchorElement.h"
 #include "HTMLImageElement.h"
-#include "HTMLNames.h"
+#include "Logging.h"
+#include "RuntimeEnabledFeatures.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLPictureElement);
 
 HTMLPictureElement::HTMLPictureElement(const QualifiedName& tagName, Document& document)
     : HTMLElement(tagName, document)
@@ -40,13 +45,14 @@ HTMLPictureElement::HTMLPictureElement(const QualifiedName& tagName, Document& d
 HTMLPictureElement::~HTMLPictureElement()
 {
     document().removeViewportDependentPicture(*this);
+    document().removeAppearanceDependentPicture(*this);
 }
 
-void HTMLPictureElement::didMoveToNewDocument(Document* oldDocument)
+void HTMLPictureElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
 {
-    if (oldDocument)
-        oldDocument->removeViewportDependentPicture(*this);
-    HTMLElement::didMoveToNewDocument(oldDocument);
+    oldDocument.removeViewportDependentPicture(*this);
+    oldDocument.removeAppearanceDependentPicture(*this);
+    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
     sourcesChanged();
 }
 
@@ -57,20 +63,46 @@ Ref<HTMLPictureElement> HTMLPictureElement::create(const QualifiedName& tagName,
 
 void HTMLPictureElement::sourcesChanged()
 {
-    for (auto& imageElement : childrenOfType<HTMLImageElement>(*this))
-        imageElement.selectImageSource();
+    for (auto& element : childrenOfType<HTMLImageElement>(*this))
+        element.selectImageSource();
 }
 
-bool HTMLPictureElement::viewportChangeAffectedPicture()
+bool HTMLPictureElement::viewportChangeAffectedPicture() const
 {
-    MediaQueryEvaluator evaluator(document().printing() ? "print" : "screen", document().frame(), document().documentElement() ? document().documentElement()->computedStyle() : nullptr);
-    unsigned numResults = m_viewportDependentMediaQueryResults.size();
-    for (unsigned i = 0; i < numResults; i++) {
-        if (evaluator.eval(&m_viewportDependentMediaQueryResults[i]->m_expression) != m_viewportDependentMediaQueryResults[i]->m_result)
+    auto documentElement = makeRefPtr(document().documentElement());
+    MediaQueryEvaluator evaluator { document().printing() ? "print" : "screen", document(), documentElement ? documentElement->computedStyle() : nullptr };
+    for (auto& result : m_viewportDependentMediaQueryResults) {
+        LOG(MediaQueries, "HTMLPictureElement %p viewportChangeAffectedPicture evaluating media queries", this);
+        if (evaluator.evaluate(result.expression) != result.result)
             return true;
     }
     return false;
 }
+
+bool HTMLPictureElement::appearanceChangeAffectedPicture() const
+{
+    auto documentElement = makeRefPtr(document().documentElement());
+    MediaQueryEvaluator evaluator { document().printing() ? "print" : "screen", document(), documentElement ? documentElement->computedStyle() : nullptr };
+    for (auto& result : m_appearanceDependentMediaQueryResults) {
+        LOG(MediaQueries, "HTMLPictureElement %p appearanceChangeAffectedPicture evaluating media queries", this);
+        if (evaluator.evaluate(result.expression) != result.result)
+            return true;
+    }
+    return false;
+}
+
+#if USE(SYSTEM_PREVIEW)
+bool HTMLPictureElement::isSystemPreviewImage() const
+{
+    if (!RuntimeEnabledFeatures::sharedFeatures().systemPreviewEnabled())
+        return false;
+
+    const auto* parent = parentElement();
+    if (!is<HTMLAnchorElement>(parent))
+        return false;
+    return downcast<HTMLAnchorElement>(parent)->isSystemPreviewLink();
+}
+#endif
 
 }
 

@@ -28,8 +28,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DOMTimeStamp_h
-#define DOMTimeStamp_h
+#pragma once
+
+#include <wtf/Seconds.h>
 
 namespace WebCore {
 
@@ -40,11 +41,14 @@ inline DOMTimeStamp convertSecondsToDOMTimeStamp(double seconds)
     return static_cast<DOMTimeStamp>(seconds * 1000.0);
 }
 
+inline DOMTimeStamp convertSecondsToDOMTimeStamp(Seconds seconds)
+{
+    return static_cast<DOMTimeStamp>(seconds.milliseconds());
+}
+
 inline double convertDOMTimeStampToSeconds(DOMTimeStamp milliseconds)
 {
     return milliseconds / 1000.0;
 }
 
 } // namespace WebCore
-
-#endif // DOMTimeStamp_h

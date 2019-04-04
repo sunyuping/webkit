@@ -29,10 +29,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ScriptWrappable_h
-#define ScriptWrappable_h
+#pragma once
 
-#include <heap/Weak.h>
+#include <JavaScriptCore/Weak.h>
 
 namespace JSC {
 class WeakHandleOwner;
@@ -48,13 +47,14 @@ public:
     void setWrapper(JSDOMObject*, JSC::WeakHandleOwner*, void*);
     void clearWrapper(JSDOMObject*);
 
+    template<typename Derived>
+    static ptrdiff_t offsetOfWrapper() { return CAST_OFFSET(Derived*, ScriptWrappable*) + OBJECT_OFFSETOF(ScriptWrappable, m_wrapper); }
+
 protected:
-    ~ScriptWrappable() { }
+    ~ScriptWrappable() = default;
 
 private:
     JSC::Weak<JSDOMObject> m_wrapper;
 };
 
 } // namespace WebCore
-
-#endif // ScriptWrappable_h

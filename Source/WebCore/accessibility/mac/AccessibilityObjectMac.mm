@@ -30,7 +30,7 @@
 #import "RenderObject.h"
 #import "Settings.h"
 
-#if HAVE(ACCESSIBILITY)
+#if HAVE(ACCESSIBILITY) && PLATFORM(MAC)
 
 #import "WebAccessibilityObjectWrapperMac.h"
 #import "Widget.h"
@@ -55,12 +55,17 @@ void AccessibilityObject::overrideAttachmentParent(AccessibilityObject* parent)
         parentWrapper = parent->wrapper();
     }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [[wrapper() attachmentView] accessibilitySetOverrideValue:parentWrapper forAttribute:NSAccessibilityParentAttribute];
-#pragma clang diagnostic pop
+    ALLOW_DEPRECATED_DECLARATIONS_END
 }
-    
+
+// On iOS, we don't have to return the value in the title. We can return the actual title, given the API.
+bool AccessibilityObject::fileUploadButtonReturnsValueInTitle() const
+{
+    return true;
+}
+
 bool AccessibilityObject::accessibilityIgnoreAttachment() const
 {
     // FrameView attachments are now handled by AccessibilityScrollView, 
@@ -69,11 +74,10 @@ bool AccessibilityObject::accessibilityIgnoreAttachment() const
     if (isAttachment() && (widget = widgetForAttachmentView()) && widget->isFrameView())
         return true;
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if ([wrapper() attachmentView])
         return [[wrapper() attachmentView] accessibilityIsIgnored];
-#pragma clang diagnostic pop
+    ALLOW_DEPRECATED_DECLARATIONS_END
 
     // Attachments are ignored by default (unless we determine that we should expose them).
     return true;
@@ -82,29 +86,32 @@ bool AccessibilityObject::accessibilityIgnoreAttachment() const
 AccessibilityObjectInclusion AccessibilityObject::accessibilityPlatformIncludesObject() const
 {
     if (isMenuListPopup() || isMenuListOption())
-        return IgnoreObject;
+        return AccessibilityObjectInclusion::IgnoreObject;
 
-    if (roleValue() == CaptionRole)
-        return IgnoreObject;
+    if (roleValue() == AccessibilityRole::Caption && ariaRoleAttribute() == AccessibilityRole::Unknown)
+        return AccessibilityObjectInclusion::IgnoreObject;
+    
+    if (roleValue() == AccessibilityRole::Mark)
+        return AccessibilityObjectInclusion::IncludeObject;
 
     // Never expose an unknown object on the Mac. Clients of the AX API will not know what to do with it.
     // Special case is when the unknown object is actually an attachment.
-    if (roleValue() == UnknownRole && !isAttachment())
-        return IgnoreObject;
+    if (roleValue() == AccessibilityRole::Unknown && !isAttachment())
+        return AccessibilityObjectInclusion::IgnoreObject;
     
-    if (roleValue() == InlineRole)
-        return IgnoreObject;
+    if (roleValue() == AccessibilityRole::Inline && !isStyleFormatGroup())
+        return AccessibilityObjectInclusion::IgnoreObject;
 
     if (RenderObject* renderer = this->renderer()) {
         // The legend element is ignored if it lives inside of a fieldset element that uses it to generate alternative text.
         if (renderer->isLegend()) {
             Element* element = this->element();
             if (element && ancestorsOfType<HTMLFieldSetElement>(*element).first())
-                return IgnoreObject;
+                return AccessibilityObjectInclusion::IgnoreObject;
         }
     }
     
-    return DefaultBehavior;
+    return AccessibilityObjectInclusion::DefaultBehavior;
 }
     
 bool AccessibilityObject::caretBrowsingEnabled() const
@@ -123,4 +130,4 @@ void AccessibilityObject::setCaretBrowsingEnabled(bool on)
 
 } // WebCore
 
-#endif // HAVE(ACCESSIBILITY)
+#endif // HAVE(ACCESSIBILITY) && PLATFORM(MAC)

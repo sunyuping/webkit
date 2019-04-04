@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef DatePrototype_h
-#define DatePrototype_h
+#pragma once
 
 #include "DateInstance.h"
 
@@ -27,13 +26,13 @@ namespace JSC {
 
 class ObjectPrototype;
 
-class DatePrototype : public JSNonFinalObject {
+class DatePrototype final : public JSNonFinalObject {
 private:
     DatePrototype(VM&, Structure*);
 
 public:
     typedef JSNonFinalObject Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot;
+    static const unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
     static DatePrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
     {
@@ -41,7 +40,6 @@ public:
         prototype->finishCreation(vm, globalObject);
         return prototype;
     }
-    static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
 
     DECLARE_INFO;
 
@@ -57,5 +55,3 @@ protected:
 EncodedJSValue JSC_HOST_CALL dateProtoFuncGetTime(ExecState*);
 
 } // namespace JSC
-
-#endif // DatePrototype_h

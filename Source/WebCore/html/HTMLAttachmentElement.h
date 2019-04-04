@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLAttachmentElement_h
-#define HTMLAttachmentElement_h
+#pragma once
 
 #if ENABLE(ATTACHMENT_ELEMENT)
 
@@ -33,30 +32,63 @@
 namespace WebCore {
 
 class File;
+class HTMLImageElement;
+class RenderAttachment;
+class SharedBuffer;
 
 class HTMLAttachmentElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLAttachmentElement);
 public:
     static Ref<HTMLAttachmentElement> create(const QualifiedName&, Document&);
-    File* file() const;
-    void setFile(File*);
+    static const String& getAttachmentIdentifier(HTMLImageElement&);
+    static URL archiveResourceURL(const String&);
 
-    String attachmentTitle() const;
+    WEBCORE_EXPORT URL blobURL() const;
+    WEBCORE_EXPORT File* file() const;
+
+    enum class UpdateDisplayAttributes { No, Yes };
+    void setFile(RefPtr<File>&&, UpdateDisplayAttributes = UpdateDisplayAttributes::No);
+
+    const String& uniqueIdentifier() const { return m_uniqueIdentifier; }
+    void setUniqueIdentifier(const String& uniqueIdentifier) { m_uniqueIdentifier = uniqueIdentifier; }
+
+    void copyNonAttributePropertiesFromElement(const Element&) final;
+
+    WEBCORE_EXPORT void updateAttributes(Optional<uint64_t>&& newFileSize, const String& newContentType, const String& newFilename);
+    WEBCORE_EXPORT void updateEnclosingImageWithData(const String& contentType, Ref<SharedBuffer>&& data);
+
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
+
+    const String& ensureUniqueIdentifier();
+    bool hasEnclosingImage() const;
+
+    WEBCORE_EXPORT String attachmentTitle() const;
+    String attachmentTitleForDisplay() const;
     String attachmentType() const;
+    String attachmentPath() const;
+
+    RenderAttachment* renderer() const;
 
 private:
     HTMLAttachmentElement(const QualifiedName&, Document&);
     virtual ~HTMLAttachmentElement();
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-
-    virtual bool shouldSelectOnMouseDown() override { return true; }
-    virtual bool canContainRangeEndPoint() const override { return false; }
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    bool shouldSelectOnMouseDown() final {
+#if PLATFORM(IOS_FAMILY)
+        return false;
+#else
+        return true;
+#endif
+    }
+    bool canContainRangeEndPoint() const final { return false; }
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
     
     RefPtr<File> m_file;
+    String m_uniqueIdentifier;
 };
 
 } // namespace WebCore
 
 #endif // ENABLE(ATTACHMENT_ELEMENT)
-#endif // HTMLAttachmentElement_h

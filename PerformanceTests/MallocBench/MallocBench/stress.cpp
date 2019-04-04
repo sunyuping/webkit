@@ -27,6 +27,7 @@
 #include "CPUCount.h"
 #include "stress.h"
 #include <array>
+#include <cassert>
 #include <chrono>
 #include <cstdlib>
 #include <memory>
@@ -86,6 +87,8 @@ public:
             return random() % largeMax;
         }
         }
+        assert(0);
+        return 0;
     }
 
 private:
@@ -120,11 +123,11 @@ void deallocate(const Object& object)
     mbfree(object.pointer, object.size);
 }
 
-void benchmark_stress(bool isParallel)
+void benchmark_stress(CommandLine&)
 {
     const size_t heapSize = 100 * MB;
     const size_t churnSize = .05 * heapSize;
-    const size_t churnCount = 10000;
+    const size_t churnCount = 100;
     
     srandom(1); // For consistency between runs.
 

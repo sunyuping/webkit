@@ -43,7 +43,7 @@ void AXObjectCache::detachWrapper(AccessibilityObject* obj, AccessibilityDetachm
 
     // If an object is being detached NOT because of the AXObjectCache being destroyed,
     // then it's being removed from the accessibility tree and we should emit a signal.
-    if (detachmentType != CacheDestroyed) {
+    if (detachmentType != AccessibilityDetachmentType::CacheDestroyed) {
         if (obj->document()) {
             // Look for the right object to emit the signal from, but using the implementation
             // of atk_object_get_parent from AtkObject class (which uses a cached pointer if set)
@@ -99,7 +99,7 @@ void AXObjectCache::attachWrapper(AccessibilityObject* obj)
         return;
 
     size_t index = coreParent->children(false).find(obj);
-    g_signal_emit_by_name(atkParent, "children-changed::add", index, atkObj);
+    g_signal_emit_by_name(atkParent, "children-changed::add", index != notFound ? index : -1, atkObj);
 }
 
 static AccessibilityObject* getListObject(AccessibilityObject* object)
@@ -239,6 +239,52 @@ void AXObjectCache::postPlatformNotification(AccessibilityObject* coreObject, AX
         atk_object_notify_state_change(axObject, ATK_STATE_INVALID_ENTRY, coreObject->invalidStatus() != "false");
         break;
 
+    case AXElementBusyChanged:
+        atk_object_notify_state_change(axObject, ATK_STATE_BUSY, coreObject->isBusy());
+        break;
+
+    case AXCurrentChanged:
+        atk_object_notify_state_change(axObject, ATK_STATE_ACTIVE, coreObject->currentState() != AccessibilityCurrentState::False);
+        break;
+
+    case AXRowExpanded:
+        atk_object_notify_state_change(axObject, ATK_STATE_EXPANDED, true);
+        break;
+
+    case AXRowCollapsed:
+        atk_object_notify_state_change(axObject, ATK_STATE_EXPANDED, false);
+        break;
+
+    case AXExpandedChanged:
+        atk_object_notify_state_change(axObject, ATK_STATE_EXPANDED, coreObject->isExpanded());
+        break;
+
+    case AXDisabledStateChanged: {
+        bool enabledState = coreObject->isEnabled();
+        atk_object_notify_state_change(axObject, ATK_STATE_ENABLED, enabledState);
+        atk_object_notify_state_change(axObject, ATK_STATE_SENSITIVE, enabledState);
+        break;
+    }
+
+    case AXPressedStateChanged:
+        atk_object_notify_state_change(axObject, ATK_STATE_PRESSED, coreObject->isPressed());
+        break;
+
+    case AXReadOnlyStatusChanged:
+#if ATK_CHECK_VERSION(2,15,3)
+        atk_object_notify_state_change(axObject, ATK_STATE_READ_ONLY, !coreObject->canSetValueAttribute());
+#endif
+        break;
+
+    case AXRequiredStatusChanged:
+        atk_object_notify_state_change(axObject, ATK_STATE_REQUIRED, coreObject->isRequired());
+        break;
+
+    case AXActiveDescendantChanged:
+        if (AccessibilityObject* descendant = coreObject->activeDescendant())
+            platformHandleFocusedUIElementChanged(nullptr, descendant->node());
+        break;
+
     default:
         break;
     }
@@ -249,7 +295,7 @@ void AXObjectCache::nodeTextChangePlatformNotification(AccessibilityObject* obje
     if (!object || text.isEmpty())
         return;
 
-    AccessibilityObject* parentObject = object->parentObjectUnignored();
+    AccessibilityObject* parentObject = object->isNonNativeTextControl() ? object : object->parentObjectUnignored();
     if (!parentObject)
         return;
 
@@ -291,8 +337,8 @@ void AXObjectCache::nodeTextChangePlatformNotification(AccessibilityObject* obje
         // Consider previous text objects that might be present for
         // the current accessibility object to ensure we emit the
         // right offset (e.g. multiline text areas).
-        RefPtr<Range> range = Range::create(document, node->parentNode(), 0, node, 0);
-        offsetToEmit = offset + TextIterator::rangeLength(range.get());
+        auto range = Range::create(document, node->parentNode(), 0, node, 0);
+        offsetToEmit = offset + TextIterator::rangeLength(range.ptr());
     }
 
     g_signal_emit_by_name(wrapper, detail.data(), offsetToEmit, textToEmit.length(), textToEmit.utf8().data());

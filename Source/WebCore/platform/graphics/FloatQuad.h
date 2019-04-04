@@ -39,6 +39,7 @@ namespace WebCore {
 // mapping a rectangle through transforms. When initialized from a rect, the
 // points are in clockwise order from top left.
 class FloatQuad {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     FloatQuad()
     {
@@ -60,10 +61,10 @@ public:
     {
     }
 
-    FloatPoint p1() const { return m_p1; }
-    FloatPoint p2() const { return m_p2; }
-    FloatPoint p3() const { return m_p3; }
-    FloatPoint p4() const { return m_p4; }
+    const FloatPoint& p1() const { return m_p1; }
+    const FloatPoint& p2() const { return m_p2; }
+    const FloatPoint& p3() const { return m_p3; }
+    const FloatPoint& p4() const { return m_p4; }
 
     void setP1(const FloatPoint& p) { m_p1 = p; }
     void setP2(const FloatPoint& p) { m_p2 = p; }
@@ -124,6 +125,11 @@ public:
         m_p2.move(dx, dy);
         m_p3.move(dx, dy);
         m_p4.move(dx, dy);
+    }
+    
+    void scale(float s)
+    {
+        scale(s, s);
     }
 
     void scale(float dx, float dy)

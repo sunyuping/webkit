@@ -41,13 +41,13 @@ static const AtomicString& stringForPlaybackTargetAvailability(bool available)
 }
 
 WebKitPlaybackTargetAvailabilityEvent::WebKitPlaybackTargetAvailabilityEvent(const AtomicString& eventType, bool available)
-    : Event(eventType, false, false)
+    : Event(eventType, CanBubble::No, IsCancelable::No)
     , m_availability(stringForPlaybackTargetAvailability(available))
 {
 }
 
-WebKitPlaybackTargetAvailabilityEvent::WebKitPlaybackTargetAvailabilityEvent(const AtomicString& eventType, const WebKitPlaybackTargetAvailabilityEventInit& initializer)
-    : Event(eventType, initializer)
+WebKitPlaybackTargetAvailabilityEvent::WebKitPlaybackTargetAvailabilityEvent(const AtomicString& eventType, const Init& initializer, IsTrusted isTrusted)
+    : Event(eventType, initializer, isTrusted)
     , m_availability(initializer.availability)
 {
 }

@@ -64,12 +64,18 @@ public:
                     if (node->children.isEmpty())
                         kill = true;
                     break;
+                case CheckVarargs:
+                    kill = true;
+                    m_graph.doToChildren(node, [&] (Edge edge) {
+                        kill &= !edge;
+                    });
+                    break;
                 default:
                     break;
                 }
                 
                 if (kill)
-                    m_graph.m_allocator.free(node);
+                    m_graph.deleteNode(node);
                 else
                     block->at(targetIndex++) = node;
             }
@@ -82,7 +88,6 @@ public:
     
 bool performCleanUp(Graph& graph)
 {
-    SamplingRegion samplingRegion("DFG Clean Up Phase");
     return runPhase<CleanUpPhase>(graph);
 }
 

@@ -29,6 +29,9 @@
 #if ENABLE(ASYNC_SCROLLING)
 
 #include "ScrollingStateTree.h"
+#include "ScrollingTree.h"
+#include "ScrollingTreeFrameScrollingNode.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -40,26 +43,23 @@ ScrollingTreeNode::ScrollingTreeNode(ScrollingTree& scrollingTree, ScrollingNode
 {
 }
 
-ScrollingTreeNode::~ScrollingTreeNode()
-{
-}
+ScrollingTreeNode::~ScrollingTreeNode() = default;
 
-void ScrollingTreeNode::appendChild(PassRefPtr<ScrollingTreeNode> childNode)
+void ScrollingTreeNode::appendChild(Ref<ScrollingTreeNode>&& childNode)
 {
     childNode->setParent(this);
 
     if (!m_children)
-        m_children = std::make_unique<ScrollingTreeChildrenVector>();
-
-    m_children->append(childNode);
+        m_children = std::make_unique<Vector<RefPtr<ScrollingTreeNode>>>();
+    m_children->append(WTFMove(childNode));
 }
 
-void ScrollingTreeNode::removeChild(ScrollingTreeNode* node)
+void ScrollingTreeNode::removeChild(ScrollingTreeNode& node)
 {
     if (!m_children)
         return;
 
-    size_t index = m_children->find(node);
+    size_t index = m_children->find(&node);
 
     // The index will be notFound if the node to remove is a deeper-than-1-level descendant or
     // if node is the root state node.
@@ -70,6 +70,67 @@ void ScrollingTreeNode::removeChild(ScrollingTreeNode* node)
 
     for (auto& child : *m_children)
         child->removeChild(node);
+}
+
+bool ScrollingTreeNode::isRootNode() const
+{
+    return m_scrollingTree.rootNode() == this;
+}
+
+void ScrollingTreeNode::relatedNodeScrollPositionDidChange(const ScrollingTreeScrollingNode&, const FloatRect& layoutViewport, FloatSize& cumulativeDelta)
+{
+    applyLayerPositions(layoutViewport, cumulativeDelta);
+}
+
+void ScrollingTreeNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
+{
+    if (behavior & ScrollingStateTreeAsTextBehaviorIncludeNodeIDs)
+        ts.dumpProperty("nodeID", scrollingNodeID());
+}
+
+ScrollingTreeFrameScrollingNode* ScrollingTreeNode::enclosingFrameNodeIncludingSelf()
+{
+    auto* node = this;
+    while (node && !node->isFrameScrollingNode())
+        node = node->parent();
+
+    return downcast<ScrollingTreeFrameScrollingNode>(node);
+}
+
+ScrollingTreeScrollingNode* ScrollingTreeNode::enclosingScrollingNodeIncludingSelf()
+{
+    auto* node = this;
+    while (node && !node->isScrollingNode())
+        node = node->parent();
+
+    return downcast<ScrollingTreeScrollingNode>(node);
+}
+
+void ScrollingTreeNode::dump(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
+{
+    dumpProperties(ts, behavior);
+
+    if (m_children) {
+        for (auto& child : *m_children) {
+            TextStream::GroupScope scope(ts);
+            child->dump(ts, behavior);
+        }
+    }
+}
+
+ScrollingTreeScrollingNode* ScrollingTreeNode::scrollingNodeForPoint(LayoutPoint parentPoint) const
+{
+    LayoutPoint localPoint = parentToLocalPoint(parentPoint);
+    LayoutPoint contentsPoint = localToContentsPoint(localPoint);
+
+    if (children()) {
+        for (auto iterator = children()->rbegin(), end = children()->rend(); iterator != end; iterator++) {
+            if (auto node = (**iterator).scrollingNodeForPoint(contentsPoint))
+                return node;
+        }
+    }
+
+    return nullptr;
 }
 
 } // namespace WebCore

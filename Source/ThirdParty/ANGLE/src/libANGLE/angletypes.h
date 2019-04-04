@@ -9,65 +9,70 @@
 #ifndef LIBANGLE_ANGLETYPES_H_
 #define LIBANGLE_ANGLETYPES_H_
 
+#include "common/bitset_utils.h"
 #include "libANGLE/Constants.h"
+#include "libANGLE/Error.h"
+#include "libANGLE/PackedGLEnums.h"
 #include "libANGLE/RefCountObject.h"
 
 #include <stdint.h>
 
+#include <bitset>
+#include <map>
+#include <unordered_map>
+
 namespace gl
 {
 class Buffer;
-class State;
-class Program;
-struct VertexAttribute;
-struct VertexAttribCurrentValueData;
+class Texture;
+
+enum PrimitiveType
+{
+    PRIMITIVE_POINTS,
+    PRIMITIVE_LINES,
+    PRIMITIVE_LINE_STRIP,
+    PRIMITIVE_LINE_LOOP,
+    PRIMITIVE_TRIANGLES,
+    PRIMITIVE_TRIANGLE_STRIP,
+    PRIMITIVE_TRIANGLE_FAN,
+    PRIMITIVE_TYPE_MAX,
+};
+
+PrimitiveType GetPrimitiveType(GLenum drawMode);
 
 enum SamplerType
 {
     SAMPLER_PIXEL,
-    SAMPLER_VERTEX
+    SAMPLER_VERTEX,
+    SAMPLER_COMPUTE
 };
 
-template <typename T>
-struct Color
+enum ShaderType
 {
-    T red;
-    T green;
-    T blue;
-    T alpha;
-
-    Color() : red(0), green(0), blue(0), alpha(0) { }
-    Color(T r, T g, T b, T a) : red(r), green(g), blue(b), alpha(a) { }
+    SHADER_VERTEX,
+    SHADER_FRAGMENT,
+    SHADER_GEOMETRY,
+    SHADER_COMPUTE,
+    SHADER_TYPE_MAX
 };
-
-template <typename T>
-bool operator==(const Color<T> &a, const Color<T> &b)
-{
-    return a.red == b.red &&
-           a.green == b.green &&
-           a.blue == b.blue &&
-           a.alpha == b.alpha;
-}
-
-template <typename T>
-bool operator!=(const Color<T> &a, const Color<T> &b)
-{
-    return !(a == b);
-}
-
-typedef Color<float> ColorF;
-typedef Color<int> ColorI;
-typedef Color<unsigned int> ColorUI;
 
 struct Rectangle
 {
+    Rectangle() : x(0), y(0), width(0), height(0) {}
+    Rectangle(int x_in, int y_in, int width_in, int height_in)
+        : x(x_in), y(y_in), width(width_in), height(height_in)
+    {
+    }
+
+    int x0() const { return x; }
+    int y0() const { return y; }
+    int x1() const { return x + width; }
+    int y1() const { return y + height; }
+
     int x;
     int y;
     int width;
     int height;
-
-    Rectangle() : x(0), y(0), width(0), height(0) { }
-    Rectangle(int x_in, int y_in, int width_in, int height_in) : x(x_in), y(y_in), width(width_in), height(height_in) { }
 };
 
 bool operator==(const Rectangle &a, const Rectangle &b);
@@ -85,6 +90,9 @@ struct Offset
     Offset(int x_in, int y_in, int z_in) : x(x_in), y(y_in), z(z_in) { }
 };
 
+bool operator==(const Offset &a, const Offset &b);
+bool operator!=(const Offset &a, const Offset &b);
+
 struct Extents
 {
     int width;
@@ -94,8 +102,14 @@ struct Extents
     Extents() : width(0), height(0), depth(0) { }
     Extents(int width_, int height_, int depth_) : width(width_), height(height_), depth(depth_) { }
 
+    Extents(const Extents &other) = default;
+    Extents &operator=(const Extents &other) = default;
+
     bool empty() const { return (width * height * depth) == 0; }
 };
+
+bool operator==(const Extents &lhs, const Extents &rhs);
+bool operator!=(const Extents &lhs, const Extents &rhs);
 
 struct Box
 {
@@ -113,11 +127,13 @@ struct Box
     bool operator!=(const Box &other) const;
 };
 
-
-struct RasterizerState
+struct RasterizerState final
 {
+    // This will zero-initialize the struct, including padding.
+    RasterizerState();
+
     bool cullFace;
-    GLenum cullMode;
+    CullFaceMode cullMode;
     GLenum frontFace;
 
     bool polygonOffsetFill;
@@ -130,8 +146,15 @@ struct RasterizerState
     bool rasterizerDiscard;
 };
 
-struct BlendState
+bool operator==(const RasterizerState &a, const RasterizerState &b);
+bool operator!=(const RasterizerState &a, const RasterizerState &b);
+
+struct BlendState final
 {
+    // This will zero-initialize the struct, including padding.
+    BlendState();
+    BlendState(const BlendState &other);
+
     bool blend;
     GLenum sourceBlendRGB;
     GLenum destBlendRGB;
@@ -150,8 +173,15 @@ struct BlendState
     bool dither;
 };
 
-struct DepthStencilState
+bool operator==(const BlendState &a, const BlendState &b);
+bool operator!=(const BlendState &a, const BlendState &b);
+
+struct DepthStencilState final
 {
+    // This will zero-initialize the struct, including padding.
+    DepthStencilState();
+    DepthStencilState(const DepthStencilState &other);
+
     bool depthTest;
     GLenum depthFunc;
     bool depthMask;
@@ -171,124 +201,119 @@ struct DepthStencilState
     GLuint stencilBackWritemask;
 };
 
-struct SamplerState
+bool operator==(const DepthStencilState &a, const DepthStencilState &b);
+bool operator!=(const DepthStencilState &a, const DepthStencilState &b);
+
+// State from Table 6.10 (state per sampler object)
+struct SamplerState final
 {
+    // This will zero-initialize the struct, including padding.
     SamplerState();
+    SamplerState(const SamplerState &other);
+
+    static SamplerState CreateDefaultForTarget(GLenum target);
 
     GLenum minFilter;
     GLenum magFilter;
+
     GLenum wrapS;
     GLenum wrapT;
     GLenum wrapR;
+
+    // From EXT_texture_filter_anisotropic
     float maxAnisotropy;
 
-    GLint baseLevel;
-    GLint maxLevel;
     GLfloat minLod;
     GLfloat maxLod;
 
     GLenum compareMode;
     GLenum compareFunc;
 
-    GLenum swizzleRed;
-    GLenum swizzleGreen;
-    GLenum swizzleBlue;
-    GLenum swizzleAlpha;
-
-    bool swizzleRequired() const;
-
-    bool operator==(const SamplerState &other) const;
-    bool operator!=(const SamplerState &other) const;
+    GLenum sRGBDecode;
 };
 
-struct PixelUnpackState
+bool operator==(const SamplerState &a, const SamplerState &b);
+bool operator!=(const SamplerState &a, const SamplerState &b);
+
+struct DrawArraysIndirectCommand
 {
-    BindingPointer<Buffer> pixelBuffer;
-    GLint alignment;
-    GLint rowLength;
-    GLint skipRows;
-    GLint skipPixels;
-    GLint imageHeight;
-    GLint skipImages;
-
-    PixelUnpackState()
-        : alignment(4),
-          rowLength(0),
-          skipRows(0),
-          skipPixels(0),
-          imageHeight(0),
-          skipImages(0)
-    {}
-
-    PixelUnpackState(GLint alignmentIn, GLint rowLengthIn)
-        : alignment(alignmentIn),
-          rowLength(rowLengthIn),
-          skipRows(0),
-          skipPixels(0),
-          imageHeight(0),
-          skipImages(0)
-    {}
+    GLuint count;
+    GLuint instanceCount;
+    GLuint first;
+    GLuint baseInstance;
 };
+static_assert(sizeof(DrawArraysIndirectCommand) == 16,
+              "Unexpected size of DrawArraysIndirectCommand");
 
-struct PixelPackState
+struct DrawElementsIndirectCommand
 {
-    BindingPointer<Buffer> pixelBuffer;
-    GLint alignment;
-    bool reverseRowOrder;
-    GLint rowLength;
-    GLint skipRows;
-    GLint skipPixels;
-
-    PixelPackState()
-        : alignment(4),
-          reverseRowOrder(false),
-          rowLength(0),
-          skipRows(0),
-          skipPixels(0)
-    {}
-
-    explicit PixelPackState(GLint alignmentIn, bool reverseRowOrderIn)
-        : alignment(alignmentIn),
-          reverseRowOrder(reverseRowOrderIn),
-          rowLength(0),
-          skipRows(0),
-          skipPixels(0)
-    {}
+    GLuint count;
+    GLuint primCount;
+    GLuint firstIndex;
+    GLint baseVertex;
+    GLuint baseInstance;
 };
+static_assert(sizeof(DrawElementsIndirectCommand) == 20,
+              "Unexpected size of DrawElementsIndirectCommand");
 
-struct VertexFormat
+struct ImageUnit
 {
-    GLenum      mType;
-    GLboolean   mNormalized;
-    GLuint      mComponents;
-    bool        mPureInteger;
+    ImageUnit();
+    ImageUnit(const ImageUnit &other);
+    ~ImageUnit();
 
-    VertexFormat();
-    VertexFormat(GLenum type, GLboolean normalized, GLuint components, bool pureInteger);
-    explicit VertexFormat(const VertexAttribute &attribute);
-    VertexFormat(const VertexAttribute &attribute, GLenum currentValueType);
-
-    static void GetInputLayout(VertexFormat *inputLayout,
-                               Program *program,
-                               const State& currentValues);
-
-    bool operator==(const VertexFormat &other) const;
-    bool operator!=(const VertexFormat &other) const;
-    bool operator<(const VertexFormat& other) const;
+    BindingPointer<Texture> texture;
+    GLint level;
+    GLboolean layered;
+    GLint layer;
+    GLenum access;
+    GLenum format;
 };
 
-}
+struct PixelStoreStateBase
+{
+    GLint alignment   = 4;
+    GLint rowLength   = 0;
+    GLint skipRows    = 0;
+    GLint skipPixels  = 0;
+    GLint imageHeight = 0;
+    GLint skipImages  = 0;
+};
+
+struct PixelUnpackState : PixelStoreStateBase
+{
+};
+
+struct PixelPackState : PixelStoreStateBase
+{
+    bool reverseRowOrder = false;
+};
+
+// Used in Program and VertexArray.
+using AttributesMask = angle::BitSet<MAX_VERTEX_ATTRIBS>;
+
+// Used in Program
+using UniformBlockBindingMask = angle::BitSet<IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS>;
+
+// Used in Framebuffer
+using DrawBufferMask = angle::BitSet<IMPLEMENTATION_MAX_DRAW_BUFFERS>;
+
+using ContextID = uintptr_t;
+
+constexpr size_t CUBE_FACE_COUNT = 6;
+
+using TextureMap = std::map<GLenum, BindingPointer<Texture>>;
+
+template <typename T>
+using AttachmentArray = std::array<T, IMPLEMENTATION_MAX_FRAMEBUFFER_ATTACHMENTS>;
+
+template <typename T>
+using DrawBuffersArray = std::array<T, IMPLEMENTATION_MAX_DRAW_BUFFERS>;
+
+}  // namespace gl
 
 namespace rx
 {
-
-enum VendorID : uint32_t
-{
-    VENDOR_ID_AMD = 0x1002,
-    VENDOR_ID_INTEL = 0x8086,
-    VENDOR_ID_NVIDIA = 0x10DE,
-};
-
 // A macro that determines whether an object has a given runtime type.
 #if defined(__clang__)
 #if __has_feature(cxx_rtti)
@@ -330,11 +355,133 @@ inline DestT *GetImplAs(SrcT *src)
 }
 
 template <typename DestT, typename SrcT>
-inline const DestT *GetImplAs(const SrcT *src)
+inline DestT *SafeGetImplAs(SrcT *src)
 {
-    return GetAs<const DestT>(src->getImplementation());
+    return src != nullptr ? GetAs<DestT>(src->getImplementation()) : nullptr;
 }
 
+}  // namespace rx
+
+#include "angletypes.inl"
+
+namespace angle
+{
+// Zero-based for better array indexing
+enum FramebufferBinding
+{
+    FramebufferBindingRead = 0,
+    FramebufferBindingDraw,
+    FramebufferBindingSingletonMax,
+    FramebufferBindingBoth = FramebufferBindingSingletonMax,
+    FramebufferBindingMax,
+    FramebufferBindingUnknown = FramebufferBindingMax,
+};
+
+inline FramebufferBinding EnumToFramebufferBinding(GLenum enumValue)
+{
+    switch (enumValue)
+    {
+        case GL_READ_FRAMEBUFFER:
+            return FramebufferBindingRead;
+        case GL_DRAW_FRAMEBUFFER:
+            return FramebufferBindingDraw;
+        case GL_FRAMEBUFFER:
+            return FramebufferBindingBoth;
+        default:
+            UNREACHABLE();
+            return FramebufferBindingUnknown;
+    }
 }
+
+inline GLenum FramebufferBindingToEnum(FramebufferBinding binding)
+{
+    switch (binding)
+    {
+        case FramebufferBindingRead:
+            return GL_READ_FRAMEBUFFER;
+        case FramebufferBindingDraw:
+            return GL_DRAW_FRAMEBUFFER;
+        case FramebufferBindingBoth:
+            return GL_FRAMEBUFFER;
+        default:
+            UNREACHABLE();
+            return GL_NONE;
+    }
+}
+
+template <typename ObjT, typename ContextT>
+class DestroyThenDelete
+{
+  public:
+    DestroyThenDelete(const ContextT *context) : mContext(context) {}
+
+    void operator()(ObjT *obj)
+    {
+        ANGLE_SWALLOW_ERR(obj->onDestroy(mContext));
+        delete obj;
+    }
+
+  private:
+    const ContextT *mContext;
+};
+
+// Helper class for wrapping an onDestroy function.
+template <typename ObjT, typename DeleterT>
+class UniqueObjectPointerBase : angle::NonCopyable
+{
+  public:
+    template <typename ContextT>
+    UniqueObjectPointerBase(const ContextT *context) : mObject(nullptr), mDeleter(context)
+    {
+    }
+
+    template <typename ContextT>
+    UniqueObjectPointerBase(ObjT *obj, const ContextT *context) : mObject(obj), mDeleter(context)
+    {
+    }
+
+    ~UniqueObjectPointerBase()
+    {
+        if (mObject)
+        {
+            mDeleter(mObject);
+        }
+    }
+
+    ObjT *operator->() const { return mObject; }
+
+    ObjT *release()
+    {
+        auto obj = mObject;
+        mObject  = nullptr;
+        return obj;
+    }
+
+    ObjT *get() const { return mObject; }
+
+    void reset(ObjT *obj)
+    {
+        if (mObject)
+        {
+            mDeleter(mObject);
+        }
+        mObject = obj;
+    }
+
+  private:
+    ObjT *mObject;
+    DeleterT mDeleter;
+};
+
+template <typename ObjT, typename ContextT>
+using UniqueObjectPointer = UniqueObjectPointerBase<ObjT, DestroyThenDelete<ObjT, ContextT>>;
+
+}  // namespace angle
+
+namespace gl
+{
+class ContextState;
+
+}  // namespace gl
 
 #endif // LIBANGLE_ANGLETYPES_H_

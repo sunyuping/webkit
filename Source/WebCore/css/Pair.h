@@ -18,15 +18,13 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef Pair_h
-#define Pair_h
+#pragma once
 
 #include <wtf/RefCounted.h>
-#include "CSSPrimitiveValue.h"
-#include <wtf/PassRefPtr.h>
-#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
+
+class CSSPrimitiveValue;
 
 // A primitive value representing a pair.  This is useful for properties like border-radius, background-size/position,
 // and border-spacing (all of which are space-separated sets of two values).  At the moment we are only using it for
@@ -34,7 +32,7 @@ namespace WebCore {
 // it (eliminating some extra -webkit- internal properties).
 class Pair : public RefCounted<Pair> {
 public:
-    enum class IdenticalValueEncoding {
+    enum class IdenticalValueEncoding : uint8_t {
         DoNotCoalesce,
         Coalesce
     };
@@ -47,8 +45,6 @@ public:
     {
         return adoptRef(*new Pair(WTFMove(first), WTFMove(second), encoding));
     }
-    virtual ~Pair() { }
-
     CSSPrimitiveValue* first() const { return m_first.get(); }
     CSSPrimitiveValue* second() const { return m_second.get(); }
 
@@ -64,14 +60,20 @@ public:
     bool equals(const Pair& other) const { return compareCSSValuePtr(m_first, other.m_first) && compareCSSValuePtr(m_second, other.m_second); }
 
 private:
-    Pair(RefPtr<CSSPrimitiveValue>&& first, RefPtr<CSSPrimitiveValue>&& second) : m_first(WTFMove(first)), m_second(WTFMove(second)) { }
-    Pair(RefPtr<CSSPrimitiveValue>&& first, RefPtr<CSSPrimitiveValue>&& second, IdenticalValueEncoding encoding) : m_first(WTFMove(first)), m_second(WTFMove(second)), m_encoding(encoding) { }
+    Pair(RefPtr<CSSPrimitiveValue>&& first, RefPtr<CSSPrimitiveValue>&& second)
+        : m_first(WTFMove(first))
+        , m_second(WTFMove(second))
+    { }
 
+    Pair(RefPtr<CSSPrimitiveValue>&& first, RefPtr<CSSPrimitiveValue>&& second, IdenticalValueEncoding encoding)
+        : m_encoding(encoding)
+        , m_first(WTFMove(first))
+        , m_second(WTFMove(second))
+    { }
+
+    IdenticalValueEncoding m_encoding { IdenticalValueEncoding::Coalesce };
     RefPtr<CSSPrimitiveValue> m_first;
     RefPtr<CSSPrimitiveValue> m_second;
-    IdenticalValueEncoding m_encoding { IdenticalValueEncoding::Coalesce };
 };
 
 } // namespace
-
-#endif

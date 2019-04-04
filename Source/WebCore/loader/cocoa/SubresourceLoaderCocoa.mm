@@ -26,31 +26,21 @@
 #include "config.h"
 #include "SubresourceLoader.h"
 
-#include "CFNetworkSPI.h"
 #include "CachedResource.h"
 #include "DiskCacheMonitorCocoa.h"
 #include "ResourceHandle.h"
 #include "ResourceLoader.h"
 #include "SharedBuffer.h"
+#include <pal/spi/cf/CFNetworkSPI.h>
 
 namespace WebCore {
 
-#if USE(CFNETWORK)
-
-CFCachedURLResponseRef SubresourceLoader::willCacheResponse(ResourceHandle* handle, CFCachedURLResponseRef cachedResponse)
-{
-    DiskCacheMonitor::monitorFileBackingStoreCreation(request(), m_resource->sessionID(), cachedResponse);
-    return ResourceLoader::willCacheResponse(handle, cachedResponse);
-}
-
-#else
-
-NSCachedURLResponse* SubresourceLoader::willCacheResponse(ResourceHandle* handle, NSCachedURLResponse* response)
+void SubresourceLoader::willCacheResponseAsync(ResourceHandle* handle, NSCachedURLResponse* response, CompletionHandler<void(NSCachedURLResponse *)>&& completionHandler)
 {
     DiskCacheMonitor::monitorFileBackingStoreCreation(request(), m_resource->sessionID(), [response _CFCachedURLResponse]);
-    return ResourceLoader::willCacheResponse(handle, response);
+    if (!m_resource->shouldCacheResponse(response.response))
+        return completionHandler(nullptr);
+    ResourceLoader::willCacheResponseAsync(handle, response, WTFMove(completionHandler));
 }
-
-#endif
 
 }

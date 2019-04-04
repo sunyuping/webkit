@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,17 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSPropertyNameEnumerator_h
-#define JSPropertyNameEnumerator_h
+#pragma once
 
-#include "JSCell.h"
+#include "JSCast.h"
 #include "Operations.h"
 #include "PropertyNameArray.h"
 #include "Structure.h"
 
 namespace JSC {
-
-class Identifier;
 
 class JSPropertyNameEnumerator final : public JSCell {
 public:
@@ -41,7 +38,7 @@ public:
     static const unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
     static JSPropertyNameEnumerator* create(VM&);
-    static JSPropertyNameEnumerator* create(VM&, Structure*, uint32_t, uint32_t, PropertyNameArray&);
+    static JSPropertyNameEnumerator* create(VM&, Structure*, uint32_t, uint32_t, PropertyNameArray&&);
 
     static const bool needsDestruction = true;
     static void destroy(JSCell*);
@@ -88,7 +85,7 @@ public:
 
 private:
     JSPropertyNameEnumerator(VM&, StructureID, uint32_t);
-    void finishCreation(VM&, uint32_t, uint32_t, PassRefPtr<PropertyNameArrayData>);
+    void finishCreation(VM&, uint32_t, uint32_t, RefPtr<PropertyNameArrayData>&&);
 
     Vector<WriteBarrier<JSString>> m_propertyNames;
     StructureID m_cachedStructureID;
@@ -102,6 +99,7 @@ private:
 inline JSPropertyNameEnumerator* propertyNameEnumerator(ExecState* exec, JSObject* base)
 {
     VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
     uint32_t indexedLength = base->methodTable(vm)->getEnumerableLength(exec, base);
 
@@ -110,15 +108,16 @@ inline JSPropertyNameEnumerator* propertyNameEnumerator(ExecState* exec, JSObjec
     Structure* structure = base->structure(vm);
     if (!indexedLength
         && (enumerator = structure->cachedPropertyNameEnumerator())
-        && enumerator->cachedPrototypeChain() == structure->prototypeChain(exec))
+        && enumerator->cachedPrototypeChain() == structure->prototypeChain(exec, base))
         return enumerator;
 
     uint32_t numberStructureProperties = 0;
 
-    PropertyNameArray propertyNames(exec, PropertyNameMode::Strings);
+    PropertyNameArray propertyNames(&vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
 
-    if (structure->canAccessPropertiesQuickly() && indexedLength == base->getArrayLength()) {
+    if (structure->canAccessPropertiesQuicklyForEnumeration() && indexedLength == base->getArrayLength()) {
         base->methodTable(vm)->getStructurePropertyNames(base, exec, propertyNames, EnumerationMode());
+        scope.assertNoException();
 
         numberStructureProperties = propertyNames.size();
 
@@ -129,18 +128,21 @@ inline JSPropertyNameEnumerator* propertyNameEnumerator(ExecState* exec, JSObjec
         indexedLength = 0;
         base->methodTable(vm)->getPropertyNames(base, exec, propertyNames, EnumerationMode());
     }
+    RETURN_IF_EXCEPTION(scope, nullptr);
 
     ASSERT(propertyNames.size() < UINT32_MAX);
 
-    normalizePrototypeChain(exec, structure);
+    bool sawPolyProto;
+    bool successfullyNormalizedChain = normalizePrototypeChain(exec, base, sawPolyProto) != InvalidPrototypeChain;
 
-    enumerator = JSPropertyNameEnumerator::create(vm, structure, indexedLength, numberStructureProperties, propertyNames);
-    enumerator->setCachedPrototypeChain(vm, structure->prototypeChain(exec));
-    if (!indexedLength && structure->canCachePropertyNameEnumerator())
-        structure->setCachedPropertyNameEnumerator(vm, enumerator);
+    Structure* structureAfterGettingPropertyNames = base->structure(vm);
+    enumerator = JSPropertyNameEnumerator::create(vm, structureAfterGettingPropertyNames, indexedLength, numberStructureProperties, WTFMove(propertyNames));
+    if (!indexedLength && successfullyNormalizedChain && structureAfterGettingPropertyNames == structure) {
+        enumerator->setCachedPrototypeChain(vm, structure->prototypeChain(exec, base));
+        if (structure->canCachePropertyNameEnumerator())
+            structure->setCachedPropertyNameEnumerator(vm, enumerator);
+    }
     return enumerator;
 }
 
 } // namespace JSC
-
-#endif // JSPropertyNameEnumerator_h

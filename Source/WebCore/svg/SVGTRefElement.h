@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,8 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGTRefElement_h
-#define SVGTRefElement_h
+#pragma once
 
 #include "SVGTextPositioningElement.h"
 #include "SVGURIReference.h"
@@ -29,6 +29,7 @@ namespace WebCore {
 class SVGTRefTargetEventListener;
 
 class SVGTRefElement final : public SVGTextPositioningElement, public SVGURIReference {
+    WTF_MAKE_ISO_ALLOCATED(SVGTRefElement);
 public:
     static Ref<SVGTRefElement> create(const QualifiedName&, Document&);
 
@@ -38,32 +39,27 @@ private:
     SVGTRefElement(const QualifiedName&, Document&);
     virtual ~SVGTRefElement();
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGTRefElement, SVGTextPositioningElement, SVGURIReference>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual bool childShouldCreateRenderer(const Node&) const override;
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    virtual void removedFrom(ContainerNode&) override;
-    virtual void finishedInsertingSubtree() override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    bool childShouldCreateRenderer(const Node&) const override;
+    bool rendererIsNeeded(const RenderStyle&) override;
 
-    virtual void clearTarget() override;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
+    void removedFromAncestor(RemovalType, ContainerNode&) override;
+    void didFinishInsertingNode() override;
 
+    void clearTarget() override;
     void updateReferencedText(Element*);
-
     void detachTarget();
+    void buildPendingResource() override;
 
-    virtual void buildPendingResource() override;
-
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGTRefElement)
-        DECLARE_ANIMATED_STRING_OVERRIDE(Href, href)
-    END_DECLARE_ANIMATED_PROPERTIES
-
+    PropertyRegistry m_propertyRegistry { *this };
     Ref<SVGTRefTargetEventListener> m_targetListener;
 };
 
 } // namespace WebCore
-
-#endif

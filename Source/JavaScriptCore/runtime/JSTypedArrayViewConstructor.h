@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSTypedArrayViewConstructor_h
-#define JSTypedArrayViewConstructor_h
+#pragma once
 
 #include "InternalFunction.h"
 
@@ -33,7 +32,7 @@ namespace JSC {
 class JSTypedArrayViewPrototype;
 class GetterSetter;
 
-class JSTypedArrayViewConstructor : public InternalFunction {
+class JSTypedArrayViewConstructor final : public InternalFunction {
 public:
     typedef InternalFunction Base;
 
@@ -52,13 +51,6 @@ public:
     DECLARE_INFO;
 
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
-protected:
-    static ConstructType getConstructData(JSCell*, ConstructData&);
-    static CallType getCallData(JSCell*, CallData&);
 };
-
-
     
 } // namespace JSC
-
-#endif /* JSTypedArrayViewConstructor_h */

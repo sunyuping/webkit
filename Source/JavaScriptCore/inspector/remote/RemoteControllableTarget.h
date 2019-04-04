@@ -23,14 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+
 #if ENABLE(REMOTE_INSPECTOR)
 
-#ifndef RemoteControllableTarget_h
-#define RemoteControllableTarget_h
-
-#include <CoreFoundation/CFRunLoop.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/WTFString.h>
+
+#if USE(CF)
+#include <CoreFoundation/CFRunLoop.h>
+#endif
 
 namespace Inspector {
 
@@ -43,21 +45,24 @@ public:
     void init();
     void update();
 
-    virtual void connect(FrontendChannel*, bool isAutomaticConnection = false) = 0;
-    virtual void disconnect(FrontendChannel*) = 0;
+    virtual void connect(FrontendChannel&, bool isAutomaticConnection = false, bool immediatelyPause = false) = 0;
+    virtual void disconnect(FrontendChannel&) = 0;
 
     unsigned targetIdentifier() const { return m_identifier; }
     void setTargetIdentifier(unsigned identifier) { m_identifier = identifier; }
 
-    enum class Type { JavaScript, Web, Automation };
+    enum class Type { JavaScript, ServiceWorker, Web, Automation };
     virtual Type type() const = 0;
     virtual bool remoteControlAllowed() const = 0;
     virtual void dispatchMessageFromRemote(const String& message) = 0;
 
+#if USE(CF)
     // The dispatch block will be scheduled on a global run loop if null is returned.
-    virtual CFRunLoopRef targetRunLoop() { return nullptr; }
+    virtual CFRunLoopRef targetRunLoop() const { return nullptr; }
+#endif
+
 private:
-    unsigned m_identifier {0};
+    unsigned m_identifier { 0 };
 };
 
 } // namespace Inspector
@@ -66,7 +71,5 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(ToClassName) \
     static bool isType(const Inspector::RemoteControllableTarget& target) { return target.type() == Inspector::RemoteControllableTarget::Type::ToClassType; } \
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // RemoteControllableTarget_h
 
 #endif // ENABLE(REMOTE_INSPECTOR)

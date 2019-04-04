@@ -112,11 +112,25 @@ Value* Const32Value::divConstant(Procedure& proc, const Value* other) const
     return proc.add<Const32Value>(origin(), chillDiv(m_value, other->asInt32()));
 }
 
+Value* Const32Value::uDivConstant(Procedure& proc, const Value* other) const
+{
+    if (!other->hasInt32())
+        return nullptr;
+    return proc.add<Const32Value>(origin(), chillUDiv(m_value, other->asInt32()));
+}
+
 Value* Const32Value::modConstant(Procedure& proc, const Value* other) const
 {
     if (!other->hasInt32())
         return nullptr;
     return proc.add<Const32Value>(origin(), chillMod(m_value, other->asInt32()));
+}
+
+Value* Const32Value::uModConstant(Procedure& proc, const Value* other) const
+{
+    if (!other->hasInt32())
+        return nullptr;
+    return proc.add<Const32Value>(origin(), chillUMod(m_value, other->asInt32()));
 }
 
 Value* Const32Value::bitAndConstant(Procedure& proc, const Value* other) const
@@ -161,9 +175,33 @@ Value* Const32Value::zShrConstant(Procedure& proc, const Value* other) const
     return proc.add<Const32Value>(origin(), static_cast<int32_t>(static_cast<uint32_t>(m_value) >> (other->asInt32() & 31)));
 }
 
+Value* Const32Value::rotRConstant(Procedure& proc, const Value* other) const
+{
+    if (!other->hasInt32())
+        return nullptr;
+    return proc.add<Const32Value>(origin(), rotateRight(m_value, other->asInt32()));
+}
+
+Value* Const32Value::rotLConstant(Procedure& proc, const Value* other) const
+{
+    if (!other->hasInt32())
+        return nullptr;
+    return proc.add<Const32Value>(origin(), rotateLeft(m_value, other->asInt32()));
+}
+
 Value* Const32Value::bitwiseCastConstant(Procedure& proc) const
 {
     return proc.add<ConstFloatValue>(origin(), bitwise_cast<float>(m_value));
+}
+
+Value* Const32Value::iToDConstant(Procedure& proc) const
+{
+    return proc.add<ConstDoubleValue>(origin(), static_cast<double>(m_value));
+}
+
+Value* Const32Value::iToFConstant(Procedure& proc) const
+{
+    return proc.add<ConstFloatValue>(origin(), static_cast<float>(m_value));
 }
 
 TriState Const32Value::equalConstant(const Value* other) const
@@ -182,6 +220,9 @@ TriState Const32Value::notEqualConstant(const Value* other) const
 
 TriState Const32Value::lessThanConstant(const Value* other) const
 {
+    // INT32_MAX < x is always false.
+    if (static_cast<int32_t>(m_value) == std::numeric_limits<int32_t>::max())
+        return FalseTriState;
     if (!other->hasInt32())
         return MixedTriState;
     return triState(m_value < other->asInt32());
@@ -189,6 +230,9 @@ TriState Const32Value::lessThanConstant(const Value* other) const
 
 TriState Const32Value::greaterThanConstant(const Value* other) const
 {
+    // INT32_MIN > x is always false.
+    if (static_cast<int32_t>(m_value) == std::numeric_limits<int32_t>::min())
+        return FalseTriState;
     if (!other->hasInt32())
         return MixedTriState;
     return triState(m_value > other->asInt32());
@@ -196,6 +240,9 @@ TriState Const32Value::greaterThanConstant(const Value* other) const
 
 TriState Const32Value::lessEqualConstant(const Value* other) const
 {
+    // INT32_MIN <= x is always true.
+    if (static_cast<int32_t>(m_value) == std::numeric_limits<int32_t>::min())
+        return TrueTriState;
     if (!other->hasInt32())
         return MixedTriState;
     return triState(m_value <= other->asInt32());
@@ -203,6 +250,9 @@ TriState Const32Value::lessEqualConstant(const Value* other) const
 
 TriState Const32Value::greaterEqualConstant(const Value* other) const
 {
+    // INT32_MAX >= x is always true.
+    if (static_cast<int32_t>(m_value) == std::numeric_limits<int32_t>::max())
+        return TrueTriState;
     if (!other->hasInt32())
         return MixedTriState;
     return triState(m_value >= other->asInt32());
@@ -210,6 +260,9 @@ TriState Const32Value::greaterEqualConstant(const Value* other) const
 
 TriState Const32Value::aboveConstant(const Value* other) const
 {
+    // UINT32_MIN > x is always false.
+    if (static_cast<uint32_t>(m_value) == std::numeric_limits<uint32_t>::min())
+        return FalseTriState;
     if (!other->hasInt32())
         return MixedTriState;
     return triState(static_cast<uint32_t>(m_value) > static_cast<uint32_t>(other->asInt32()));
@@ -217,6 +270,9 @@ TriState Const32Value::aboveConstant(const Value* other) const
 
 TriState Const32Value::belowConstant(const Value* other) const
 {
+    // UINT32_MAX < x is always false.
+    if (static_cast<uint32_t>(m_value) == std::numeric_limits<uint32_t>::max())
+        return FalseTriState;
     if (!other->hasInt32())
         return MixedTriState;
     return triState(static_cast<uint32_t>(m_value) < static_cast<uint32_t>(other->asInt32()));
@@ -224,6 +280,9 @@ TriState Const32Value::belowConstant(const Value* other) const
 
 TriState Const32Value::aboveEqualConstant(const Value* other) const
 {
+    // UINT32_MAX >= x is always true.
+    if (static_cast<uint32_t>(m_value) == std::numeric_limits<uint32_t>::max())
+        return TrueTriState;
     if (!other->hasInt32())
         return MixedTriState;
     return triState(static_cast<uint32_t>(m_value) >= static_cast<uint32_t>(other->asInt32()));
@@ -231,6 +290,9 @@ TriState Const32Value::aboveEqualConstant(const Value* other) const
 
 TriState Const32Value::belowEqualConstant(const Value* other) const
 {
+    // UINT32_MIN <= x is always true.
+    if (static_cast<uint32_t>(m_value) == std::numeric_limits<uint32_t>::min())
+        return TrueTriState;
     if (!other->hasInt32())
         return MixedTriState;
     return triState(static_cast<uint32_t>(m_value) <= static_cast<uint32_t>(other->asInt32()));

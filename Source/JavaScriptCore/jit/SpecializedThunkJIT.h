@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,16 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SpecializedThunkJIT_h
-#define SpecializedThunkJIT_h
+#pragma once
 
 #if ENABLE(JIT)
 
-#include "Executable.h"
 #include "JIT.h"
 #include "JITInlines.h"
 #include "JSInterfaceJIT.h"
-#include "JSStack.h"
 #include "LinkBuffer.h"
 
 namespace JSC {
@@ -46,7 +43,7 @@ namespace JSC {
             emitFunctionPrologue();
             emitSaveThenMaterializeTagRegisters();
             // Check that we have the expected number of arguments
-            m_failures.append(branch32(NotEqual, payloadFor(JSStack::ArgumentCount), TrustedImm32(expectedArgCount + 1)));
+            m_failures.append(branch32(NotEqual, payloadFor(CallFrameSlot::argumentCount), TrustedImm32(expectedArgCount + 1)));
         }
         
         explicit SpecializedThunkJIT(VM* vm)
@@ -68,21 +65,10 @@ namespace JSC {
             m_failures.append(emitLoadJSCell(src, dst));
         }
         
-        void loadJSStringArgument(VM& vm, int argument, RegisterID dst)
+        void loadJSStringArgument(int argument, RegisterID dst)
         {
             loadCellArgument(argument, dst);
-            m_failures.append(branchStructure(NotEqual, 
-                Address(dst, JSCell::structureIDOffset()), 
-                vm.stringStructure.get()));
-        }
-        
-        void loadArgumentWithSpecificClass(const ClassInfo* classInfo, int argument, RegisterID dst, RegisterID scratch)
-        {
-            loadCellArgument(argument, dst);
-            emitLoadStructure(dst, scratch, dst);
-            appendFailure(branchPtr(NotEqual, Address(scratch, Structure::classInfoOffset()), TrustedImmPtr(classInfo)));
-            // We have to reload the argument since emitLoadStructure clobbered it.
-            loadCellArgument(argument, dst);
+            m_failures.append(branchIfNotString(dst));
         }
         
         void loadInt32Argument(int argument, RegisterID dst, Jump& failTarget)
@@ -138,7 +124,7 @@ namespace JSC {
             Jump lowNonZero = branchTestPtr(NonZero, regT1);
             Jump highNonZero = branchTestPtr(NonZero, regT0);
             move(TrustedImm32(0), regT0);
-            move(TrustedImm32(Int32Tag), regT1);
+            move(TrustedImm32(JSValue::Int32Tag), regT1);
             lowNonZero.link(this);
             highNonZero.link(this);
 #endif
@@ -167,23 +153,23 @@ namespace JSC {
             ret();
         }
         
-        MacroAssemblerCodeRef finalize(MacroAssemblerCodePtr fallback, const char* thunkKind)
+        MacroAssemblerCodeRef<JITThunkPtrTag> finalize(MacroAssemblerCodePtr<JITThunkPtrTag> fallback, const char* thunkKind)
         {
-            LinkBuffer patchBuffer(*m_vm, *this, GLOBAL_THUNK_ID);
-            patchBuffer.link(m_failures, CodeLocationLabel(fallback));
+            LinkBuffer patchBuffer(*this, GLOBAL_THUNK_ID);
+            patchBuffer.link(m_failures, CodeLocationLabel<JITThunkPtrTag>(fallback));
             for (unsigned i = 0; i < m_calls.size(); i++)
                 patchBuffer.link(m_calls[i].first, m_calls[i].second);
-            return FINALIZE_CODE(patchBuffer, ("Specialized thunk for %s", thunkKind));
+            return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, "Specialized thunk for %s", thunkKind);
         }
 
         // Assumes that the target function uses fpRegister0 as the first argument
         // and return value. Like any sensible architecture would.
-        void callDoubleToDouble(FunctionPtr function)
+        void callDoubleToDouble(FunctionPtr<CFunctionPtrTag> function)
         {
-            m_calls.append(std::make_pair(call(), function));
+            m_calls.append(std::make_pair(call(JITThunkPtrTag), function.retagged<JITThunkPtrTag>()));
         }
         
-        void callDoubleToDoublePreservingReturn(FunctionPtr function)
+        void callDoubleToDoublePreservingReturn(FunctionPtr<CFunctionPtrTag> function)
         {
             if (!isX86())
                 preserveReturnAddressAfterCall(regT3);
@@ -193,31 +179,6 @@ namespace JSC {
         }
 
     private:
-        void emitSaveThenMaterializeTagRegisters()
-        {
-#if USE(JSVALUE64)
-#if CPU(ARM64)
-            pushPair(tagTypeNumberRegister, tagMaskRegister);
-#else
-            push(tagTypeNumberRegister);
-            push(tagMaskRegister);
-#endif
-            emitMaterializeTagCheckRegisters();
-#endif
-        }
-
-        void emitRestoreSavedTagRegisters()
-        {
-#if USE(JSVALUE64)
-#if CPU(ARM64)
-            popPair(tagTypeNumberRegister, tagMaskRegister);
-#else
-            pop(tagMaskRegister);
-            pop(tagTypeNumberRegister);
-#endif
-#endif
-        }
-        
         void tagReturnAsInt32()
         {
 #if USE(JSVALUE64)
@@ -235,11 +196,9 @@ namespace JSC {
         }
         
         MacroAssembler::JumpList m_failures;
-        Vector<std::pair<Call, FunctionPtr>> m_calls;
+        Vector<std::pair<Call, FunctionPtr<JITThunkPtrTag>>> m_calls;
     };
 
 }
 
 #endif // ENABLE(JIT)
-
-#endif // SpecializedThunkJIT_h

@@ -23,19 +23,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef PreciseJumpTargets_h
-#define PreciseJumpTargets_h
+#pragma once
 
 #include "CodeBlock.h"
 
 namespace JSC {
 
-// Return a sorted list of bytecode index that are the destination of a jump.
-void computePreciseJumpTargets(CodeBlock*, Vector<unsigned, 32>& out);
+class UnlinkedCodeBlock;
 
-void findJumpTargetsForBytecodeOffset(CodeBlock*, unsigned bytecodeOffset, Vector<unsigned, 1>& out);
+// Return a sorted list of bytecode index that are the destination of a jump.
+void computePreciseJumpTargets(CodeBlock*, Vector<InstructionStream::Offset, 32>& out);
+void computePreciseJumpTargets(CodeBlock*, const InstructionStream& instructions, Vector<InstructionStream::Offset, 32>& out);
+void computePreciseJumpTargets(UnlinkedCodeBlock*, const InstructionStream&, Vector<InstructionStream::Offset, 32>& out);
+
+void recomputePreciseJumpTargets(UnlinkedCodeBlock*, const InstructionStream&, Vector<InstructionStream::Offset>& out);
+
+void findJumpTargetsForInstruction(CodeBlock*, const InstructionStream::Ref&, Vector<InstructionStream::Offset, 1>& out);
+void findJumpTargetsForInstruction(UnlinkedCodeBlock*, const InstructionStream::Ref&, Vector<InstructionStream::Offset, 1>& out);
 
 } // namespace JSC
-
-#endif // PreciseJumpTargets_h
-

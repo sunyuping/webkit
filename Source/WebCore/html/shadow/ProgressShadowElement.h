@@ -29,8 +29,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ProgressShadowElement_h
-#define ProgressShadowElement_h
+#pragma once
 
 #include "HTMLDivElement.h"
 #include <wtf/Forward.h>
@@ -40,6 +39,7 @@ namespace WebCore {
 class HTMLProgressElement;
 
 class ProgressShadowElement : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(ProgressShadowElement);
 public:
     HTMLProgressElement* progressElement() const;
 
@@ -47,8 +47,11 @@ protected:
     ProgressShadowElement(Document&);
 
 private:
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
+    bool rendererIsNeeded(const RenderStyle&) override;
 };
+
+// The subclasses of ProgressShadowElement share the same isoheap, because they don't add any more
+// fields to the class.
 
 class ProgressInnerElement final : public ProgressShadowElement {
 public:
@@ -57,8 +60,8 @@ public:
 private:
     ProgressInnerElement(Document&);
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    bool rendererIsNeeded(const RenderStyle&) override;
 };
 
 inline Ref<ProgressInnerElement> ProgressInnerElement::create(Document& document)
@@ -99,5 +102,4 @@ inline Ref<ProgressValueElement> ProgressValueElement::create(Document& document
     return result;
 }
 
-}
-#endif // ProgressShadowElement_h
+} // namespace WebCore

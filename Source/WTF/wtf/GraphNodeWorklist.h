@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef GraphNodeWorklist_h
-#define GraphNodeWorklist_h
+#pragma once
 
 #include <wtf/HashSet.h>
 
@@ -63,6 +62,8 @@ public:
     }
 
     bool saw(Node node) { return m_seen.contains(node); }
+    
+    const Set& seen() const { return m_seen; }
 
 private:
     Set m_seen;
@@ -83,7 +84,7 @@ struct GraphNodeWith {
     {
     }
 
-    explicit operator bool() const { return node; }
+    explicit operator bool() const { return !!node; }
     
     Node node;
     T data;
@@ -216,6 +217,3 @@ using WTF::ExtendedGraphNodeWorklist;
 using WTF::GraphVisitOrder;
 using WTF::GraphNodeWithOrder;
 using WTF::PostOrderGraphNodeWorklist;
-
-#endif // GraphNodeWorklist_h
-

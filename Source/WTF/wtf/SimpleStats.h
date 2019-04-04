@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef SimpleStats_h
-#define SimpleStats_h
+#pragma once
 
 #include <wtf/MathExtras.h>
 #include <wtf/StdLibExtras.h>
@@ -34,6 +33,7 @@ namespace WTF {
 // Simple and cheap way of tracking statistics if you're not worried about chopping on
 // the sum of squares (i.e. the sum of squares is unlikely to exceed 2^52).
 class SimpleStats {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     SimpleStats()
         : m_count(0)
@@ -49,9 +49,9 @@ public:
         m_sumOfSquares += value * value;
     }
     
-    bool operator!() const
+    explicit operator bool() const
     {
-        return !m_count;
+        return !!m_count;
     }
     
     double count() const
@@ -110,5 +110,4 @@ private:
 
 } // namespace WTF
 
-#endif // SimpleStats_h
-
+using WTF::SimpleStats;

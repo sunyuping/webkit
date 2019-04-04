@@ -23,15 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef UniqueIDBDatabaseConnection_h
-#define UniqueIDBDatabaseConnection_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
 #include "UniqueIDBDatabaseTransaction.h"
 #include <wtf/HashMap.h>
+#include <wtf/Identified.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -41,19 +42,21 @@ class IDBResultData;
 namespace IDBServer {
 
 class IDBConnectionToClient;
+class ServerOpenDBRequest;
 class UniqueIDBDatabase;
 class UniqueIDBDatabaseTransaction;
 
-class UniqueIDBDatabaseConnection : public RefCounted<UniqueIDBDatabaseConnection> {
+class UniqueIDBDatabaseConnection : public RefCounted<UniqueIDBDatabaseConnection>, public Identified<UniqueIDBDatabaseConnection> {
 public:
-    static Ref<UniqueIDBDatabaseConnection> create(UniqueIDBDatabase&, IDBConnectionToClient&);
+    static Ref<UniqueIDBDatabaseConnection> create(UniqueIDBDatabase&, ServerOpenDBRequest&);
 
     ~UniqueIDBDatabaseConnection();
 
-    uint64_t identifier() const { return m_identifier; }
-    UniqueIDBDatabase& database() { return m_database; }
+    const IDBResourceIdentifier& openRequestIdentifier() { return m_openRequestIdentifier; }
+    UniqueIDBDatabase* database() { return m_database.get(); }
     IDBConnectionToClient& connectionToClient() { return m_connectionToClient; }
 
+    void connectionPendingCloseFromClient();
     void connectionClosedFromClient();
 
     bool closePending() const { return m_closePending; }
@@ -68,17 +71,27 @@ public:
     void didCommitTransaction(UniqueIDBDatabaseTransaction&, const IDBError&);
     void didCreateObjectStore(const IDBResultData&);
     void didDeleteObjectStore(const IDBResultData&);
+    void didRenameObjectStore(const IDBResultData&);
     void didClearObjectStore(const IDBResultData&);
     void didCreateIndex(const IDBResultData&);
     void didDeleteIndex(const IDBResultData&);
+    void didRenameIndex(const IDBResultData&);
     void didFireVersionChangeEvent(const IDBResourceIdentifier& requestIdentifier);
+    void didFinishHandlingVersionChange(const IDBResourceIdentifier& transactionIdentifier);
+    void confirmDidCloseFromServer();
+
+    void abortTransactionWithoutCallback(UniqueIDBDatabaseTransaction&);
+
+    bool connectionIsClosing() const;
+
+    void deleteTransaction(UniqueIDBDatabaseTransaction&);
 
 private:
-    UniqueIDBDatabaseConnection(UniqueIDBDatabase&, IDBConnectionToClient&);
+    UniqueIDBDatabaseConnection(UniqueIDBDatabase&, ServerOpenDBRequest&);
 
-    uint64_t m_identifier { 0 };
-    UniqueIDBDatabase& m_database;
-    IDBConnectionToClient& m_connectionToClient;
+    WeakPtr<UniqueIDBDatabase> m_database;
+    Ref<IDBConnectionToClient> m_connectionToClient;
+    IDBResourceIdentifier m_openRequestIdentifier;
 
     bool m_closePending { false };
 
@@ -89,4 +102,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(INDEXED_DATABASE)
-#endif // UniqueIDBDatabaseConnection_h

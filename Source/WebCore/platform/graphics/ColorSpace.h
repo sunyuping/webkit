@@ -23,17 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ColorSpace_h
-#define ColorSpace_h
+#pragma once
 
 namespace WebCore {
 
 enum ColorSpace {
-    ColorSpaceDeviceRGB,
     ColorSpaceSRGB,
-    ColorSpaceLinearRGB
+    ColorSpaceLinearRGB,
+    ColorSpaceDisplayP3
 };
     
 } // namespace WebCore
 
-#endif // ColorSpace_h

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,31 +23,38 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef HandlerInfo_h
-#define HandlerInfo_h
+#pragma once
 
 #include "CodeLocation.h"
+#include <wtf/Forward.h>
 
 namespace JSC {
 
 enum class HandlerType {
-    Illegal = 0,
-    Catch = 1,
-    Finally = 2,
+    Catch = 0,
+    Finally = 1,
+    SynthesizedCatch = 2,
     SynthesizedFinally = 3
+};
+
+enum class RequiredHandler {
+    CatchHandler,
+    AnyHandler
 };
 
 struct HandlerInfoBase {
     HandlerType type() const { return static_cast<HandlerType>(typeBits); }
     void setType(HandlerType type) { typeBits = static_cast<uint32_t>(type); }
 
-    const char* typeName()
+    const char* typeName() const
     {
         switch (type()) {
         case HandlerType::Catch:
             return "catch";
         case HandlerType::Finally:
             return "finally";
+        case HandlerType::SynthesizedCatch:
+            return "synthesized catch";
         case HandlerType::SynthesizedFinally:
             return "synthesized finally";
         default:
@@ -58,6 +65,23 @@ struct HandlerInfoBase {
 
     bool isCatchHandler() const { return type() == HandlerType::Catch; }
 
+    template<typename Handler>
+    static Handler* handlerForIndex(Vector<Handler>& exeptionHandlers, unsigned index, RequiredHandler requiredHandler)
+    {
+        for (Handler& handler : exeptionHandlers) {
+            if ((requiredHandler == RequiredHandler::CatchHandler) && !handler.isCatchHandler())
+                continue;
+
+            // Handlers are ordered innermost first, so the first handler we encounter
+            // that contains the source address is the correct handler to use.
+            // This index used is either the BytecodeOffset or a CallSiteIndex.
+            if (handler.start <= index && handler.end > index)
+                return &handler;
+        }
+
+        return nullptr;
+    }
+
     uint32_t start;
     uint32_t end;
     uint32_t target;
@@ -65,6 +89,10 @@ struct HandlerInfoBase {
 };
 
 struct UnlinkedHandlerInfo : public HandlerInfoBase {
+    UnlinkedHandlerInfo()
+    {
+    }
+
     UnlinkedHandlerInfo(uint32_t start, uint32_t end, uint32_t target, HandlerType handlerType)
     {
         this->start = start;
@@ -85,17 +113,14 @@ struct HandlerInfo : public HandlerInfoBase {
     }
 
 #if ENABLE(JIT)
-    void initialize(const UnlinkedHandlerInfo& unlinkedInfo, CodeLocationLabel label)
+    void initialize(const UnlinkedHandlerInfo& unlinkedInfo, CodeLocationLabel<ExceptionHandlerPtrTag> label)
     {
         initialize(unlinkedInfo);
         nativeCode = label;
     }
 
-    CodeLocationLabel nativeCode;
+    CodeLocationLabel<ExceptionHandlerPtrTag> nativeCode;
 #endif
 };
 
 } // namespace JSC
-
-#endif // HandlerInfo_h
-

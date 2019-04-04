@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TileGrid_h
-#define TileGrid_h
+#pragma once
 
 #include "IntPointHash.h"
 #include "IntRect.h"
@@ -51,7 +50,9 @@ public:
     TileGrid(TileController&);
     ~TileGrid();
 
+#if USE(CA)
     PlatformCALayer& containerLayer() { return m_containerLayer; }
+#endif
 
     void setIsZoomedOutTileGrid(bool);
 
@@ -77,18 +78,23 @@ public:
 
     IntRect tileCoverageRect() const;
     IntRect extent() const;
+    
+    IntSize tileSize() const { return m_tileSize; }
 
     double retainedTileBackingStoreMemory() const;
     unsigned blankPixelCount() const;
 
+#if USE(CG)
     void drawTileMapContents(CGContextRef, CGRect layerBounds) const;
+#endif
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     unsigned numberOfUnparentedTiles() const { return m_cohortList.size(); }
     void removeUnparentedTilesNow();
 #endif
 
     typedef IntPoint TileIndex;
+
     typedef unsigned TileCohort;
     static const TileCohort VisibleTileCohort = UINT_MAX;
 
@@ -107,22 +113,23 @@ private:
     void setTileNeedsDisplayInRect(const TileIndex&, TileInfo&, const IntRect& repaintRectInTileCoords, const IntRect& coverageRectInTileCoords);
 
     IntRect rectForTileIndex(const TileIndex&) const;
-    void getTileIndexRangeForRect(const IntRect&, TileIndex& topLeft, TileIndex& bottomRight) const;
+    bool getTileIndexRangeForRect(const IntRect&, TileIndex& topLeft, TileIndex& bottomRight) const;
 
     enum class CoverageType { PrimaryTiles, SecondaryTiles };
     IntRect ensureTilesForRect(const FloatRect&, CoverageType);
 
     struct TileCohortInfo {
         TileCohort cohort;
-        double creationTime; // in monotonicallyIncreasingTime().
-        TileCohortInfo(TileCohort inCohort, double inTime)
+        MonotonicTime creationTime;
+        TileCohortInfo(TileCohort inCohort, MonotonicTime inTime)
             : cohort(inCohort)
             , creationTime(inTime)
         { }
 
-        double timeUntilExpiration();
+        Seconds timeUntilExpiration();
     };
 
+    void removeAllTiles();
     void removeAllSecondaryTiles();
     void removeTilesInCohort(TileCohort);
 
@@ -136,25 +143,26 @@ private:
     void removeTiles(Vector<TileGrid::TileIndex>& toRemove);
 
     // PlatformCALayerClient
-    virtual void platformCALayerPaintContents(PlatformCALayer*, GraphicsContext&, const FloatRect&) override;
-    virtual bool platformCALayerShowDebugBorders() const override;
-    virtual bool platformCALayerShowRepaintCounter(PlatformCALayer*) const override;
-    virtual int platformCALayerIncrementRepaintCount(PlatformCALayer*) override;
-    virtual bool platformCALayerContentsOpaque() const override;
-    virtual bool platformCALayerDrawsContent() const override { return true; }
-    virtual float platformCALayerDeviceScaleFactor() const override;
-    virtual bool isUsingDisplayListDrawing(PlatformCALayer*) const override;
+    void platformCALayerPaintContents(PlatformCALayer*, GraphicsContext&, const FloatRect&, GraphicsLayerPaintBehavior) override;
+    bool platformCALayerShowDebugBorders() const override;
+    bool platformCALayerShowRepaintCounter(PlatformCALayer*) const override;
+    int platformCALayerRepaintCount(PlatformCALayer*) const override;
+    int platformCALayerIncrementRepaintCount(PlatformCALayer*) override;
+    bool platformCALayerContentsOpaque() const override;
+    bool platformCALayerDrawsContent() const override { return true; }
+    float platformCALayerDeviceScaleFactor() const override;
+    bool isUsingDisplayListDrawing(PlatformCALayer*) const override;
 
     TileController& m_controller;
+#if USE(CA)
     Ref<PlatformCALayer> m_containerLayer;
+#endif
 
     typedef HashMap<TileIndex, TileInfo> TileMap;
     TileMap m_tiles;
 
     IntRect m_primaryTileCoverageRect;
     Vector<FloatRect> m_secondaryTileCoverageRects;
-
-    float m_scale;
 
     typedef Deque<TileCohortInfo> TileCohortList;
     TileCohortList m_cohortList;
@@ -163,7 +171,11 @@ private:
 
     typedef HashMap<PlatformCALayer*, int> RepaintCountMap;
     RepaintCountMap m_tileRepaintCounts;
+    
+    IntSize m_tileSize;
+
+    float m_scale { 1 };
 };
 
 }
-#endif
+

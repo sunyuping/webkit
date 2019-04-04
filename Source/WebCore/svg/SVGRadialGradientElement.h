@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,10 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGRadialGradientElement_h
-#define SVGRadialGradientElement_h
+#pragma once
 
-#include "SVGAnimatedLength.h"
 #include "SVGGradientElement.h"
 #include "SVGNames.h"
 
@@ -30,32 +29,46 @@ namespace WebCore {
 struct RadialGradientAttributes;
 
 class SVGRadialGradientElement final : public SVGGradientElement {
+    WTF_MAKE_ISO_ALLOCATED(SVGRadialGradientElement);
 public:
     static Ref<SVGRadialGradientElement> create(const QualifiedName&, Document&);
 
     bool collectGradientAttributes(RadialGradientAttributes&);
 
+    const SVGLengthValue& cx() const { return m_cx->currentValue(); }
+    const SVGLengthValue& cy() const { return m_cy->currentValue(); }
+    const SVGLengthValue& r() const { return m_r->currentValue(); }
+    const SVGLengthValue& fx() const { return m_fx->currentValue(); }
+    const SVGLengthValue& fy() const { return m_fy->currentValue(); }
+    const SVGLengthValue& fr() const { return m_fr->currentValue(); }
+
+    SVGAnimatedLength& cxAnimated() { return m_cx; }
+    SVGAnimatedLength& cyAnimated() { return m_cy; }
+    SVGAnimatedLength& rAnimated() { return m_r; }
+    SVGAnimatedLength& fxAnimated() { return m_fx; }
+    SVGAnimatedLength& fyAnimated() { return m_fy; }
+    SVGAnimatedLength& frAnimated() { return m_fr; }
+
 private:
     SVGRadialGradientElement(const QualifiedName&, Document&);
 
-    static bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGRadialGradientElement, SVGGradientElement>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
 
-    virtual bool selfHasRelativeLengths() const override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGRadialGradientElement)
-        DECLARE_ANIMATED_LENGTH(Cx, cx)
-        DECLARE_ANIMATED_LENGTH(Cy, cy)
-        DECLARE_ANIMATED_LENGTH(R, r)
-        DECLARE_ANIMATED_LENGTH(Fx, fx)
-        DECLARE_ANIMATED_LENGTH(Fy, fy)
-        DECLARE_ANIMATED_LENGTH(Fr, fr)
-    END_DECLARE_ANIMATED_PROPERTIES
+    bool selfHasRelativeLengths() const override;
+
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedLength> m_cx { SVGAnimatedLength::create(this, LengthModeWidth, "50%") };
+    Ref<SVGAnimatedLength> m_cy { SVGAnimatedLength::create(this, LengthModeHeight, "50%") };
+    Ref<SVGAnimatedLength> m_r { SVGAnimatedLength::create(this, LengthModeOther, "50%") };
+    Ref<SVGAnimatedLength> m_fx { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_fy { SVGAnimatedLength::create(this, LengthModeHeight) };
+    Ref<SVGAnimatedLength> m_fr { SVGAnimatedLength::create(this, LengthModeOther, "0%") };
 };
 
 } // namespace WebCore
-
-#endif

@@ -24,8 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef PlatformKeyboardEvent_h
-#define PlatformKeyboardEvent_h
+#pragma once
 
 #include "KeypressCommand.h"
 #include "PlatformEvent.h"
@@ -37,18 +36,13 @@
 OBJC_CLASS NSEvent;
 #endif
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 OBJC_CLASS WebEvent;
 #endif
 
 #if PLATFORM(GTK)
 typedef struct _GdkEventKey GdkEventKey;
 #include "CompositionResults.h"
-#endif
-
-#if PLATFORM(EFL)
-typedef struct _Evas_Event_Key_Down Evas_Event_Key_Down;
-typedef struct _Evas_Event_Key_Up Evas_Event_Key_Up;
 #endif
 
 namespace WebCore {
@@ -59,8 +53,6 @@ namespace WebCore {
         PlatformKeyboardEvent()
             : PlatformEvent(PlatformEvent::KeyDown)
             , m_windowsVirtualKeyCode(0)
-            , m_nativeVirtualKeyCode(0)
-            , m_macCharCode(0)
 #if USE(APPKIT) || PLATFORM(GTK)
             , m_handledByInputMethod(false)
 #endif
@@ -73,14 +65,25 @@ namespace WebCore {
         {
         }
 
-        PlatformKeyboardEvent(Type type, const String& text, const String& unmodifiedText, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, int macCharCode, bool isAutoRepeat, bool isKeypad, bool isSystemKey, Modifiers modifiers, double timestamp)
+        PlatformKeyboardEvent(Type type, const String& text, const String& unmodifiedText,
+#if ENABLE(KEYBOARD_KEY_ATTRIBUTE)
+        const String& key,
+#endif
+#if ENABLE(KEYBOARD_CODE_ATTRIBUTE)
+        const String& code,
+#endif
+        const String& keyIdentifier, int windowsVirtualKeyCode, bool isAutoRepeat, bool isKeypad, bool isSystemKey, OptionSet<Modifier> modifiers, WallTime timestamp)
             : PlatformEvent(type, modifiers, timestamp)
             , m_text(text)
             , m_unmodifiedText(unmodifiedText)
+#if ENABLE(KEYBOARD_KEY_ATTRIBUTE)
+            , m_key(key)
+#endif
+#if ENABLE(KEYBOARD_CODE_ATTRIBUTE)
+            , m_code(code)
+#endif
             , m_keyIdentifier(keyIdentifier)
             , m_windowsVirtualKeyCode(windowsVirtualKeyCode)
-            , m_nativeVirtualKeyCode(nativeVirtualKeyCode)
-            , m_macCharCode(macCharCode)
 #if USE(APPKIT) || PLATFORM(GTK)
             , m_handledByInputMethod(false)
 #endif
@@ -107,13 +110,17 @@ namespace WebCore {
 
         String keyIdentifier() const { return m_keyIdentifier; }
 
+#if ENABLE(KEYBOARD_KEY_ATTRIBUTE)
+        const String& key() const { return m_key; }
+#endif
+#if ENABLE(KEYBOARD_CODE_ATTRIBUTE)
+        const String& code() const { return m_code; }
+#endif
+
         // Most compatible Windows virtual key code associated with the event.
         // Zero for Char events.
         int windowsVirtualKeyCode() const { return m_windowsVirtualKeyCode; }
         void setWindowsVirtualKeyCode(int code) { m_windowsVirtualKeyCode = code; }
-
-        int nativeVirtualKeyCode() const { return m_nativeVirtualKeyCode; }
-        int macCharCode() const { return m_macCharCode; }
 
 #if USE(APPKIT) || PLATFORM(GTK)
         bool handledByInputMethod() const { return m_handledByInputMethod; }
@@ -128,14 +135,16 @@ namespace WebCore {
         bool isKeypad() const { return m_isKeypad; }
         bool isSystemKey() const { return m_isSystemKey; }
 
-        static bool currentCapsLockState();
-        static void getCurrentModifierState(bool& shiftKey, bool& ctrlKey, bool& altKey, bool& metaKey);
+        WEBCORE_EXPORT static bool currentCapsLockState();
+        WEBCORE_EXPORT static void getCurrentModifierState(bool& shiftKey, bool& ctrlKey, bool& altKey, bool& metaKey);
+        WEBCORE_EXPORT static void setCurrentModifierState(OptionSet<Modifier>);
+        WEBCORE_EXPORT static OptionSet<Modifier> currentStateOfModifierKeys();
 
 #if PLATFORM(COCOA)
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
         NSEvent* macEvent() const { return m_macEvent.get(); }
 #else
-        WebEvent *event() const { return m_Event.get(); }
+        ::WebEvent *event() const { return m_Event.get(); }
 #endif
 #endif
 
@@ -149,23 +158,33 @@ namespace WebCore {
         const CompositionResults& compositionResults() const { return m_compositionResults; }
 
         // Used by WebKit2
+        static String keyValueForGdkKeyCode(unsigned);
+        static String keyCodeForHardwareKeyCode(unsigned);
         static String keyIdentifierForGdkKeyCode(unsigned);
         static int windowsKeyCodeForGdkKeyCode(unsigned);
         static String singleCharacterString(unsigned);
+        static bool modifiersContainCapsLock(unsigned);
 #endif
 
-#if PLATFORM(EFL)
-        explicit PlatformKeyboardEvent(const Evas_Event_Key_Down*);
-        explicit PlatformKeyboardEvent(const Evas_Event_Key_Up*);
+#if USE(LIBWPE)
+        static String keyValueForWPEKeyCode(unsigned);
+        static String keyCodeForHardwareKeyCode(unsigned);
+        static String keyIdentifierForWPEKeyCode(unsigned);
+        static int windowsKeyCodeForWPEKeyCode(unsigned);
+        static String singleCharacterString(unsigned);
 #endif
 
     protected:
         String m_text;
         String m_unmodifiedText;
+#if ENABLE(KEYBOARD_KEY_ATTRIBUTE)
+        String m_key;
+#endif
+#if ENABLE(KEYBOARD_CODE_ATTRIBUTE)
+        String m_code;
+#endif
         String m_keyIdentifier;
         int m_windowsVirtualKeyCode;
-        int m_nativeVirtualKeyCode;
-        int m_macCharCode;
 #if USE(APPKIT) || PLATFORM(GTK)
         bool m_handledByInputMethod;
 #endif
@@ -179,18 +198,19 @@ namespace WebCore {
         bool m_isSystemKey;
 
 #if PLATFORM(COCOA)
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
         RetainPtr<NSEvent> m_macEvent;
 #else
-        RetainPtr<WebEvent> m_Event;
+        RetainPtr<::WebEvent> m_Event;
 #endif
 #endif
 #if PLATFORM(GTK)
         GdkEventKey* m_gdkEventKey;
         CompositionResults m_compositionResults;
 #endif
+        
+        // The modifier state is optional, since it is not needed in the UI process or in legacy WebKit.
+        static Optional<OptionSet<Modifier>> s_currentModifiers;
     };
     
 } // namespace WebCore
-
-#endif // PlatformKeyboardEvent_h

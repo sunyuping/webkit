@@ -26,22 +26,14 @@
 #include "PluginData.h"
 #include <wtf/text/AtomicString.h>
 
-#if ENABLE(WEB_REPLAY)
-#include "Document.h"
-#include "WebReplayInputs.h"
-#include <replay/InputCursor.h>
-#endif
-
 namespace WebCore {
 
-DOMMimeTypeArray::DOMMimeTypeArray(Frame* frame)
-    : DOMWindowProperty(frame)
+DOMMimeTypeArray::DOMMimeTypeArray(DOMWindow* window)
+    : DOMWindowProperty(window)
 {
 }
 
-DOMMimeTypeArray::~DOMMimeTypeArray()
-{
-}
+DOMMimeTypeArray::~DOMMimeTypeArray() = default;
 
 unsigned DOMMimeTypeArray::length() const
 {
@@ -67,7 +59,7 @@ RefPtr<DOMMimeType> DOMMimeTypeArray::item(unsigned index)
 
     if (index >= mimes.size())
         return nullptr;
-    return DOMMimeType::create(data, m_frame, index);
+    return DOMMimeType::create(data, frame(), index);
 }
 
 RefPtr<DOMMimeType> DOMMimeTypeArray::namedItem(const AtomicString& propertyName)
@@ -81,42 +73,40 @@ RefPtr<DOMMimeType> DOMMimeTypeArray::namedItem(const AtomicString& propertyName
     data->getWebVisibleMimesAndPluginIndices(mimes, mimePluginIndices);
     for (unsigned i = 0; i < mimes.size(); ++i) {
         if (mimes[i].type == propertyName)
-            return DOMMimeType::create(data, m_frame, i);
+            return DOMMimeType::create(data, frame(), i);
     }
     return nullptr;
 }
 
 Vector<AtomicString> DOMMimeTypeArray::supportedPropertyNames()
 {
-    // FIXME: Should be implemented.
-    return Vector<AtomicString>();
+    PluginData* data = getPluginData();
+    if (!data)
+        return { };
+
+    Vector<MimeClassInfo> mimes;
+    Vector<size_t> mimePluginIndices;
+    data->getWebVisibleMimesAndPluginIndices(mimes, mimePluginIndices);
+
+    Vector<AtomicString> result;
+    result.reserveInitialCapacity(mimes.size());
+    for (auto& info : mimes)
+        result.uncheckedAppend(WTFMove(info.type));
+
+    return result;
 }
 
 PluginData* DOMMimeTypeArray::getPluginData() const
 {
-    if (!m_frame)
+    auto* frame = this->frame();
+    if (!frame)
         return nullptr;
 
-    Page* page = m_frame->page();
+    auto* page = frame->page();
     if (!page)
         return nullptr;
 
-    PluginData* pluginData = &page->pluginData();
-
-#if ENABLE(WEB_REPLAY)
-    if (!m_frame->document())
-        return pluginData;
-
-    InputCursor& cursor = m_frame->document()->inputCursor();
-    if (cursor.isCapturing())
-        cursor.appendInput<FetchPluginData>(pluginData);
-    else if (cursor.isReplaying()) {
-        if (FetchPluginData* input = cursor.fetchInput<FetchPluginData>())
-            pluginData = input->pluginData().get();
-    }
-#endif
-
-    return pluginData;
+    return &page->pluginData();
 }
 
 } // namespace WebCore

@@ -23,35 +23,59 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.Instrument = class Instrument extends WebInspector.Object
+WI.Instrument = class Instrument
 {
     // Static
 
-    static startLegacyTimelineAgent()
+    static createForTimelineType(type)
     {
-        console.assert(window.TimelineAgent, "Attempted to start legacy timeline agent without TimelineAgent.");
-
-        if (WebInspector.Instrument._legacyTimelineAgentStarted)
-            return;
-
-        WebInspector.Instrument._legacyTimelineAgentStarted = true;
-
-        let result = TimelineAgent.start();
-
-        // COMPATIBILITY (iOS 7): recordingStarted event did not exist yet. Start explicitly.
-        if (!TimelineAgent.hasEvent("recordingStarted")) {
-            result.then(function() {
-                WebInspector.timelineManager.capturingStarted();
-            });
+        switch (type) {
+        case WI.TimelineRecord.Type.Network:
+            return new WI.NetworkInstrument;
+        case WI.TimelineRecord.Type.Layout:
+            return new WI.LayoutInstrument;
+        case WI.TimelineRecord.Type.Script:
+            return new WI.ScriptInstrument;
+        case WI.TimelineRecord.Type.RenderingFrame:
+            return new WI.FPSInstrument;
+        case WI.TimelineRecord.Type.CPU:
+            return new WI.CPUInstrument;
+        case WI.TimelineRecord.Type.Memory:
+            return new WI.MemoryInstrument;
+        case WI.TimelineRecord.Type.HeapAllocations:
+            return new WI.HeapAllocationsInstrument;
+        case WI.TimelineRecord.Type.Media:
+            return new WI.MediaInstrument;
+        default:
+            console.error("Unknown TimelineRecord.Type: " + type);
+            return null;
         }
     }
 
-    static stopLegacyTimelineAgent()
+    static startLegacyTimelineAgent(initiatedByBackend)
     {
-        if (!WebInspector.Instrument._legacyTimelineAgentStarted)
+        console.assert(window.TimelineAgent, "Attempted to start legacy timeline agent without TimelineAgent.");
+
+        if (WI.Instrument._legacyTimelineAgentStarted)
             return;
 
-        WebInspector.Instrument._legacyTimelineAgentStarted = false;
+        WI.Instrument._legacyTimelineAgentStarted = true;
+
+        if (initiatedByBackend)
+            return;
+
+        TimelineAgent.start();
+    }
+
+    static stopLegacyTimelineAgent(initiatedByBackend)
+    {
+        if (!WI.Instrument._legacyTimelineAgentStarted)
+            return;
+
+        WI.Instrument._legacyTimelineAgentStarted = false;
+
+        if (initiatedByBackend)
+            return;
 
         TimelineAgent.stop();
     }
@@ -63,15 +87,15 @@ WebInspector.Instrument = class Instrument extends WebInspector.Object
         return null; // Implemented by subclasses.
     }
 
-    startInstrumentation()
+    startInstrumentation(initiatedByBackend)
     {
-        WebInspector.Instrument.startLegacyTimelineAgent();
+        WI.Instrument.startLegacyTimelineAgent(initiatedByBackend);
     }
 
-    stopInstrumentation()
+    stopInstrumentation(initiatedByBackend)
     {
-        WebInspector.Instrument.stopLegacyTimelineAgent();
+        WI.Instrument.stopLegacyTimelineAgent(initiatedByBackend);
     }
 };
 
-WebInspector.Instrument._legacyTimelineAgentStarted = false;
+WI.Instrument._legacyTimelineAgentStarted = false;

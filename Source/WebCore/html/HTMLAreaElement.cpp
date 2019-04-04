@@ -26,18 +26,21 @@
 #include "Frame.h"
 #include "HTMLImageElement.h"
 #include "HTMLMapElement.h"
+#include "HTMLParserIdioms.h"
 #include "HitTestResult.h"
 #include "Path.h"
 #include "RenderImage.h"
 #include "RenderView.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLAreaElement);
 
 using namespace HTMLNames;
 
 inline HTMLAreaElement::HTMLAreaElement(const QualifiedName& tagName, Document& document)
     : HTMLAnchorElement(tagName, document)
-    , m_coordsLen(0)
     , m_lastSize(-1, -1)
     , m_shape(Unknown)
 {
@@ -54,17 +57,19 @@ void HTMLAreaElement::parseAttribute(const QualifiedName& name, const AtomicStri
     if (name == shapeAttr) {
         if (equalLettersIgnoringASCIICase(value, "default"))
             m_shape = Default;
-        else if (equalLettersIgnoringASCIICase(value, "circle"))
+        else if (equalLettersIgnoringASCIICase(value, "circle") || equalLettersIgnoringASCIICase(value, "circ"))
             m_shape = Circle;
-        else if (equalLettersIgnoringASCIICase(value, "poly"))
+        else if (equalLettersIgnoringASCIICase(value, "poly") || equalLettersIgnoringASCIICase(value, "polygon"))
             m_shape = Poly;
-        else if (equalLettersIgnoringASCIICase(value, "rect"))
+        else {
+            // The missing value default is the rectangle state.
             m_shape = Rect;
+        }
         invalidateCachedRegion();
     } else if (name == coordsAttr) {
-        m_coords = newCoordsArray(value.string(), m_coordsLen);
+        m_coords = parseHTMLListOfOfFloatingPointNumberValues(value.string());
         invalidateCachedRegion();
-    } else if (name == altAttr || name == accesskeyAttr) {
+    } else if (name == altAttr) {
         // Do nothing.
     } else
         HTMLAnchorElement::parseAttribute(name, value);
@@ -116,6 +121,11 @@ Path HTMLAreaElement::computePath(RenderObject* obj) const
     return p;
 }
 
+Path HTMLAreaElement::computePathForFocusRing(const LayoutSize& elementSize) const
+{
+    return getRegion(m_shape == Default ? elementSize : m_lastSize);
+}
+
 // FIXME: Use RenderElement* instead of RenderObject* once we upstream iOS's DOMUIKitExtensions.{h, mm}.
 LayoutRect HTMLAreaElement::computeRect(RenderObject* obj) const
 {
@@ -124,7 +134,7 @@ LayoutRect HTMLAreaElement::computeRect(RenderObject* obj) const
 
 Path HTMLAreaElement::getRegion(const LayoutSize& size) const
 {
-    if (!m_coords && m_shape != Default)
+    if (m_coords.isEmpty() && m_shape != Default)
         return Path();
 
     LayoutUnit width = size.width();
@@ -133,38 +143,38 @@ Path HTMLAreaElement::getRegion(const LayoutSize& size) const
     // If element omits the shape attribute, select shape based on number of coordinates.
     Shape shape = m_shape;
     if (shape == Unknown) {
-        if (m_coordsLen == 3)
+        if (m_coords.size() == 3)
             shape = Circle;
-        else if (m_coordsLen == 4)
+        else if (m_coords.size() == 4)
             shape = Rect;
-        else if (m_coordsLen >= 6)
+        else if (m_coords.size() >= 6)
             shape = Poly;
     }
 
     Path path;
     switch (shape) {
         case Poly:
-            if (m_coordsLen >= 6) {
-                int numPoints = m_coordsLen / 2;
-                path.moveTo(FloatPoint(minimumValueForLength(m_coords[0], width), minimumValueForLength(m_coords[1], height)));
+            if (m_coords.size() >= 6) {
+                int numPoints = m_coords.size() / 2;
+                path.moveTo(FloatPoint(m_coords[0], m_coords[1]));
                 for (int i = 1; i < numPoints; ++i)
-                    path.addLineTo(FloatPoint(minimumValueForLength(m_coords[i * 2], width), minimumValueForLength(m_coords[i * 2 + 1], height)));
+                    path.addLineTo(FloatPoint(m_coords[i * 2], m_coords[i * 2 + 1]));
                 path.closeSubpath();
             }
             break;
         case Circle:
-            if (m_coordsLen >= 3) {
-                Length radius = m_coords[2];
-                int r = std::min(minimumValueForLength(radius, width), minimumValueForLength(radius, height));
-                path.addEllipse(FloatRect(minimumValueForLength(m_coords[0], width) - r, minimumValueForLength(m_coords[1], height) - r, 2 * r, 2 * r));
+            if (m_coords.size() >= 3) {
+                double radius = m_coords[2];
+                if (radius > 0)
+                    path.addEllipse(FloatRect(m_coords[0] - radius, m_coords[1] - radius, 2 * radius, 2 * radius));
             }
             break;
         case Rect:
-            if (m_coordsLen >= 4) {
-                int x0 = minimumValueForLength(m_coords[0], width);
-                int y0 = minimumValueForLength(m_coords[1], height);
-                int x1 = minimumValueForLength(m_coords[2], width);
-                int y1 = minimumValueForLength(m_coords[3], height);
+            if (m_coords.size() >= 4) {
+                double x0 = m_coords[0];
+                double y0 = m_coords[1];
+                double x1 = m_coords[2];
+                double y1 = m_coords[3];
                 path.addRect(FloatRect(x0, y0, x1 - x0, y1 - y0));
             }
             break;
@@ -180,7 +190,7 @@ Path HTMLAreaElement::getRegion(const LayoutSize& size) const
 
 HTMLImageElement* HTMLAreaElement::imageElement() const
 {
-    Node* mapElement = parentNode();
+    RefPtr<Node> mapElement = parentNode();
     if (!is<HTMLMapElement>(mapElement))
         return nullptr;
     
@@ -199,8 +209,8 @@ bool HTMLAreaElement::isMouseFocusable() const
 
 bool HTMLAreaElement::isFocusable() const
 {
-    HTMLImageElement* image = imageElement();
-    if (!image || !image->renderer() || image->renderer()->style().visibility() != VISIBLE)
+    RefPtr<HTMLImageElement> image = imageElement();
+    if (!image || !image->renderer() || image->renderer()->style().visibility() != Visibility::Visible)
         return false;
 
     return supportsFocus() && Element::tabIndex() >= 0;
@@ -213,7 +223,7 @@ void HTMLAreaElement::setFocus(bool shouldBeFocused)
 
     HTMLAnchorElement::setFocus(shouldBeFocused);
 
-    HTMLImageElement* imageElement = this->imageElement();
+    RefPtr<HTMLImageElement> imageElement = this->imageElement();
     if (!imageElement)
         return;
 
@@ -223,17 +233,12 @@ void HTMLAreaElement::setFocus(bool shouldBeFocused)
 
     downcast<RenderImage>(*renderer).areaElementFocusChanged(this);
 }
-    
-void HTMLAreaElement::updateFocusAppearance(SelectionRestorationMode restorationMode, SelectionRevealMode revealMode)
+
+RefPtr<Element> HTMLAreaElement::focusAppearanceUpdateTarget()
 {
     if (!isFocusable())
-        return;
-
-    HTMLImageElement* imageElement = this->imageElement();
-    if (!imageElement)
-        return;
-
-    imageElement->updateFocusAppearance(restorationMode, revealMode);
+        return nullptr;
+    return imageElement();
 }
     
 bool HTMLAreaElement::supportsFocus() const
@@ -246,7 +251,7 @@ bool HTMLAreaElement::supportsFocus() const
 
 String HTMLAreaElement::target() const
 {
-    return getAttribute(targetAttr);
+    return attributeWithoutSynchronization(targetAttr);
 }
 
 }

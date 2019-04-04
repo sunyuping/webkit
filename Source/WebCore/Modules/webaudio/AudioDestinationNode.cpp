@@ -43,9 +43,8 @@ AudioDestinationNode::AudioDestinationNode(AudioContext& context, float sampleRa
     , m_isEffectivelyPlayingAudio(false)
     , m_muted(false)
 {
-    addInput(std::make_unique<AudioNodeInput>(this));
-    
     setNodeType(NodeTypeDestination);
+    addInput(std::make_unique<AudioNodeInput>(this));
 }
 
 AudioDestinationNode::~AudioDestinationNode()
@@ -60,9 +59,16 @@ void AudioDestinationNode::render(AudioBus*, AudioBus* destinationBus, size_t nu
     // This will take care of all AudioNodes because they all process within this scope.
     DenormalDisabler denormalDisabler;
     
-    context().setAudioThread(currentThread());
+    context().setAudioThread(Thread::current());
     
     if (!context().isInitialized()) {
+        destinationBus->zero();
+        setIsSilent(true);
+        return;
+    }
+
+    ASSERT(numberOfFrames);
+    if (!numberOfFrames) {
         destinationBus->zero();
         setIsSilent(true);
         return;

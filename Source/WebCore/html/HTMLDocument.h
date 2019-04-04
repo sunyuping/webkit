@@ -20,53 +20,24 @@
  *
  */
 
-#ifndef HTMLDocument_h
-#define HTMLDocument_h
+#pragma once
 
-#include "CachedResourceClient.h"
 #include "Document.h"
-#include <wtf/HashCountedSet.h>
 
 namespace WebCore {
 
-class HTMLDocument : public Document, public CachedResourceClient {
+class HTMLDocument : public Document {
+    WTF_MAKE_ISO_ALLOCATED(HTMLDocument);
 public:
-    static Ref<HTMLDocument> create(Frame* frame, const URL& url)
-    {
-        return adoptRef(*new HTMLDocument(frame, url, HTMLDocumentClass));
-    }
-
-    static Ref<HTMLDocument> createSynthesizedDocument(Frame* frame, const URL& url)
-    {
-        return adoptRef(*new HTMLDocument(frame, url, HTMLDocumentClass, Synthesized));
-    }
-
+    static Ref<HTMLDocument> create(Frame*, const URL&);
+    static Ref<HTMLDocument> createSynthesizedDocument(Frame&, const URL&);
     virtual ~HTMLDocument();
 
-    int width();
-    int height();
-
-    const AtomicString& dir() const;
-    void setDir(const AtomicString&);
-
-    String designMode() const;
-    void setDesignMode(const String&);
-
-    const AtomicString& bgColor() const;
-    void setBgColor(const String&);
-    const AtomicString& fgColor() const;
-    void setFgColor(const String&);
-    const AtomicString& alinkColor() const;
-    void setAlinkColor(const String&);
-    const AtomicString& linkColor() const;
-    void setLinkColor(const String&);
-    const AtomicString& vlinkColor() const;
-    void setVlinkColor(const String&);
-
-    void clear();
-
-    void captureEvents();
-    void releaseEvents();
+    WEBCORE_EXPORT int width();
+    WEBCORE_EXPORT int height();
+    
+    Optional<Variant<RefPtr<WindowProxy>, RefPtr<Element>, RefPtr<HTMLCollection>>> namedItem(const AtomicString&);
+    Vector<AtomicString> supportedPropertyNames() const;
 
     Element* documentNamedItem(const AtomicStringImpl& name) const { return m_documentNamedItem.getElementByDocumentNamedItem(name, *this); }
     bool hasDocumentNamedItem(const AtomicStringImpl& name) const { return m_documentNamedItem.contains(name); }
@@ -86,13 +57,23 @@ protected:
     HTMLDocument(Frame*, const URL&, DocumentClassFlags = 0, unsigned constructionFlags = 0);
 
 private:
-    virtual bool isFrameSet() const override;
-    virtual Ref<DocumentParser> createParser() override;
-    virtual Ref<Document> cloneDocumentWithoutChildren() const override final;
+    bool isFrameSet() const final;
+    Ref<DocumentParser> createParser() override;
+    Ref<Document> cloneDocumentWithoutChildren() const final;
 
-    DocumentOrderedMap m_documentNamedItem;
-    DocumentOrderedMap m_windowNamedItem;
+    TreeScopeOrderedMap m_documentNamedItem;
+    TreeScopeOrderedMap m_windowNamedItem;
 };
+
+inline Ref<HTMLDocument> HTMLDocument::create(Frame* frame, const URL& url)
+{
+    return adoptRef(*new HTMLDocument(frame, url, HTMLDocumentClass));
+}
+
+inline Ref<HTMLDocument> HTMLDocument::createSynthesizedDocument(Frame& frame, const URL& url)
+{
+    return adoptRef(*new HTMLDocument(&frame, url, HTMLDocumentClass, Synthesized));
+}
 
 } // namespace WebCore
 
@@ -100,5 +81,3 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::HTMLDocument)
     static bool isType(const WebCore::Document& document) { return document.isHTMLDocument(); }
     static bool isType(const WebCore::Node& node) { return is<WebCore::Document>(node) && isType(downcast<WebCore::Document>(node)); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // HTMLDocument_h

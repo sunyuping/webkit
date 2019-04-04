@@ -29,11 +29,11 @@
 #ifndef PolicyDelegate_h
 #define PolicyDelegate_h
 
-#include <WebKit/WebKit.h>
+#include <WebKitLegacy/WebKit.h>
 
 class TestRunner;
 
-class PolicyDelegate : public IWebPolicyDelegate {
+class PolicyDelegate final : public IWebPolicyDelegate {
 public:
     PolicyDelegate();
 

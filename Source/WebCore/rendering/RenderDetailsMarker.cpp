@@ -19,7 +19,6 @@
  */
 
 #include "config.h"
-#if ENABLE(DETAILS_ELEMENT)
 #include "RenderDetailsMarker.h"
 
 #include "Element.h"
@@ -28,12 +27,15 @@
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "PaintInfo.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-RenderDetailsMarker::RenderDetailsMarker(DetailsMarkerControl& element, Ref<RenderStyle>&& style)
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderDetailsMarker);
+
+RenderDetailsMarker::RenderDetailsMarker(DetailsMarkerControl& element, RenderStyle&& style)
     : RenderBlockFlow(element, WTFMove(style))
 {
 }
@@ -116,7 +118,7 @@ Path RenderDetailsMarker::getPath(const LayoutPoint& origin) const
 
 void RenderDetailsMarker::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    if (paintInfo.phase != PaintPhaseForeground || style().visibility() != VISIBLE) {
+    if (paintInfo.phase != PaintPhase::Foreground || style().visibility() != Visibility::Visible) {
         RenderBlockFlow::paint(paintInfo, paintOffset);
         return;
     }
@@ -128,7 +130,7 @@ void RenderDetailsMarker::paint(PaintInfo& paintInfo, const LayoutPoint& paintOf
     if (!paintInfo.rect.intersects(snappedIntRect(overflowRect)))
         return;
 
-    const Color color(style().visitedDependentColor(CSSPropertyColor));
+    const Color color(style().visitedDependentColorWithColorFilter(CSSPropertyColor));
     paintInfo.context().setStrokeColor(color);
     paintInfo.context().setStrokeStyle(SolidStroke);
     paintInfo.context().setStrokeThickness(1.0f);
@@ -144,7 +146,7 @@ bool RenderDetailsMarker::isOpen() const
         if (!renderer->node())
             continue;
         if (is<HTMLDetailsElement>(*renderer->node()))
-            return !downcast<HTMLDetailsElement>(*renderer->node()).getAttribute(openAttr).isNull();
+            return !downcast<HTMLDetailsElement>(*renderer->node()).attributeWithoutSynchronization(openAttr).isNull();
         if (is<HTMLInputElement>(*renderer->node()))
             return true;
     }
@@ -153,5 +155,3 @@ bool RenderDetailsMarker::isOpen() const
 }
 
 }
-
-#endif

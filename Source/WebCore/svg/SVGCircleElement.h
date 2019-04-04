@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,41 +19,45 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGCircleElement_h
-#define SVGCircleElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedLength.h"
 #include "SVGExternalResourcesRequired.h"
-#include "SVGGraphicsElement.h"
+#include "SVGGeometryElement.h"
+#include "SVGNames.h"
 
 namespace WebCore {
 
-class SVGCircleElement final : public SVGGraphicsElement,
-                               public SVGExternalResourcesRequired {
+class SVGCircleElement final : public SVGGeometryElement, public SVGExternalResourcesRequired {
+    WTF_MAKE_ISO_ALLOCATED(SVGCircleElement);
 public:
     static Ref<SVGCircleElement> create(const QualifiedName&, Document&);
+
+    const SVGLengthValue& cx() const { return m_cx->currentValue(); }
+    const SVGLengthValue& cy() const { return m_cy->currentValue(); }
+    const SVGLengthValue& r() const { return m_r->currentValue(); }
+
+    SVGAnimatedLength& cxAnimated() { return m_cx; }
+    SVGAnimatedLength& cyAnimated() { return m_cy; }
+    SVGAnimatedLength& rAnimated() { return m_r; }
 
 private:
     SVGCircleElement(const QualifiedName&, Document&);
 
-    virtual bool isValid() const override { return SVGTests::isValid(); }
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGCircleElement, SVGGeometryElement, SVGExternalResourcesRequired>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void svgAttributeChanged(const QualifiedName&) final;
 
-    virtual bool selfHasRelativeLengths() const override { return true; }
+    bool isValid() const final { return SVGTests::isValid(); }
+    bool selfHasRelativeLengths() const final { return true; }
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGCircleElement)
-        DECLARE_ANIMATED_LENGTH(Cx, cx)
-        DECLARE_ANIMATED_LENGTH(Cy, cy)
-        DECLARE_ANIMATED_LENGTH(R, r)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedLength> m_cx { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_cy { SVGAnimatedLength::create(this, LengthModeHeight) };
+    Ref<SVGAnimatedLength> m_r { SVGAnimatedLength::create(this, LengthModeOther) };
 };
 
 } // namespace WebCore
-
-#endif // SVGCircleElement_h

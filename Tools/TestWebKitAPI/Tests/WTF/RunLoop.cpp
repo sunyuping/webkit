@@ -25,8 +25,9 @@
 
 #include "config.h"
 
-#include "PlatformUtilities.h"
+#include "Utilities.h"
 #include <wtf/RunLoop.h>
+#include <wtf/Threading.h>
 
 namespace TestWebKitAPI {
 
@@ -52,6 +53,95 @@ TEST(WTF_RunLoop, Deadlock)
     }
 
     Util::run(&testFinished);
+}
+
+class DerivedOneShotTimer : public RunLoop::Timer<DerivedOneShotTimer> {
+public:
+    DerivedOneShotTimer(bool& testFinished)
+        : RunLoop::Timer<DerivedOneShotTimer>(RunLoop::current(), this, &DerivedOneShotTimer::fired)
+        , m_testFinished(testFinished)
+    {
+    }
+
+    void fired()
+    {
+        m_testFinished = true;
+        stop();
+    }
+
+private:
+    bool& m_testFinished;
+};
+
+
+TEST(WTF_RunLoop, OneShotTimer)
+{
+    RunLoop::initializeMainRunLoop();
+
+    bool testFinished = false;
+    DerivedOneShotTimer timer(testFinished);
+    timer.startOneShot(100_ms);
+    Util::run(&testFinished);
+}
+
+class DerivedRepeatingTimer : public RunLoop::Timer<DerivedRepeatingTimer> {
+public:
+    DerivedRepeatingTimer(bool& testFinished)
+        : RunLoop::Timer<DerivedRepeatingTimer>(RunLoop::current(), this, &DerivedRepeatingTimer::fired)
+        , m_testFinished(testFinished)
+    {
+    }
+
+    void fired()
+    {
+        if (++m_count == 10) {
+            m_testFinished = true;
+            stop();
+        }
+    }
+
+private:
+    unsigned m_count { 0 };
+    bool& m_testFinished;
+};
+
+
+TEST(WTF_RunLoop, RepeatingTimer)
+{
+    RunLoop::initializeMainRunLoop();
+
+    bool testFinished = false;
+    DerivedRepeatingTimer timer(testFinished);
+    timer.startRepeating(10_ms);
+    Util::run(&testFinished);
+}
+
+TEST(WTF_RunLoop, ManyTimes)
+{
+    class Counter {
+    public:
+        void run()
+        {
+            if (++m_count == 100000) {
+                RunLoop::current().stop();
+                return;
+            }
+            RunLoop::current().dispatch([this] {
+                run();
+            });
+        }
+
+    private:
+        unsigned m_count { 0 };
+    };
+
+    Thread::create("RunLoopManyTimes", [] {
+        Counter counter;
+        RunLoop::current().dispatch([&counter] {
+            counter.run();
+        });
+        RunLoop::run();
+    })->waitForCompletion();
 }
 
 } // namespace TestWebKitAPI

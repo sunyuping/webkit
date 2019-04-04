@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef FTLWeight_h
-#define FTLWeight_h
+#pragma once
 
 #if ENABLE(FTL_JIT)
 
@@ -51,21 +50,7 @@ public:
     
     float value() const { return m_value; }
 
-#if FTL_USES_B3
     B3::FrequencyClass frequencyClass() const { return value() ? B3::FrequencyClass::Normal : B3::FrequencyClass::Rare; }
-#endif
-    
-    unsigned scaleToTotal(double total) const
-    {
-        // LLVM accepts 32-bit unsigned branch weights but in dumps it might display them
-        // as signed values. We don't need all 32 bits, so we just use the 31 bits.
-        double result = static_cast<double>(m_value) * INT_MAX / total;
-        if (result < 0)
-            return 0;
-        if (result > INT_MAX)
-            return INT_MAX;
-        return static_cast<unsigned>(result);
-    }
     
     // Inverse weight for a two-target branch.
     Weight inverse() const
@@ -84,6 +69,3 @@ private:
 } } // namespace JSC::FTL
 
 #endif // ENABLE(FTL_JIT)
-
-#endif // FTLWeight_h
-

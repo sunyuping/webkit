@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGAdaptiveInferredPropertyValueWatchpoint_h
-#define DFGAdaptiveInferredPropertyValueWatchpoint_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -32,13 +31,15 @@
 
 namespace JSC { namespace DFG {
 
-class AdaptiveInferredPropertyValueWatchpoint : public AdaptiveInferredPropertyValueWatchpointBase {
+class AdaptiveInferredPropertyValueWatchpoint final : public AdaptiveInferredPropertyValueWatchpointBase {
 public:
     typedef AdaptiveInferredPropertyValueWatchpointBase Base;
     AdaptiveInferredPropertyValueWatchpoint(const ObjectPropertyCondition&, CodeBlock*);
 
 private:
-    virtual void handleFire(const FireDetail&) override;
+    bool isValid() const override;
+
+    void handleFire(VM&, const FireDetail&) override;
 
     CodeBlock* m_codeBlock;
 };
@@ -46,6 +47,3 @@ private:
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGAdaptiveInferredPropertyValueWatchpoint_h
-

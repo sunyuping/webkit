@@ -24,19 +24,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef HistoryItem_h
-#define HistoryItem_h
+#pragma once
 
+#include "BackForwardItemIdentifier.h"
 #include "FloatRect.h"
 #include "FrameLoaderTypes.h"
 #include "IntPoint.h"
 #include "IntRect.h"
+#include "LengthBox.h"
 #include "SerializedScriptValue.h"
 #include <memory>
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #include "ViewportArguments.h"
 #endif
 
@@ -53,30 +54,39 @@ class FormData;
 class HistoryItem;
 class Image;
 class ResourceRequest;
-class URL;
 enum class PruningReason;
 
-typedef Vector<Ref<HistoryItem>> HistoryItemVector;
-
-WEBCORE_EXPORT extern void (*notifyHistoryItemChanged)(HistoryItem*);
+WEBCORE_EXPORT extern void (*notifyHistoryItemChanged)(HistoryItem&);
 
 class HistoryItem : public RefCounted<HistoryItem> {
     friend class PageCache;
 
 public: 
-    static Ref<HistoryItem> create() { return adoptRef(*new HistoryItem); }
+    static Ref<HistoryItem> create()
+    {
+        return adoptRef(*new HistoryItem);
+    }
+
     static Ref<HistoryItem> create(const String& urlString, const String& title)
     {
         return adoptRef(*new HistoryItem(urlString, title));
     }
+
     static Ref<HistoryItem> create(const String& urlString, const String& title, const String& alternateTitle)
     {
         return adoptRef(*new HistoryItem(urlString, title, alternateTitle));
+    }
+
+    static Ref<HistoryItem> create(const String& urlString, const String& title, const String& alternateTitle, BackForwardItemIdentifier identifier)
+    {
+        return adoptRef(*new HistoryItem(urlString, title, alternateTitle, identifier));
     }
     
     WEBCORE_EXPORT ~HistoryItem();
 
     WEBCORE_EXPORT Ref<HistoryItem> copy() const;
+
+    const BackForwardItemIdentifier& identifier() const { return m_identifier; }
 
     // Resets the HistoryItem to its initial state, as returned by create().
     void reset();
@@ -105,6 +115,9 @@ public:
     WEBCORE_EXPORT const IntPoint& scrollPosition() const;
     WEBCORE_EXPORT void setScrollPosition(const IntPoint&);
     void clearScrollPosition();
+
+    WEBCORE_EXPORT bool shouldRestoreScrollPosition() const;
+    WEBCORE_EXPORT void setShouldRestoreScrollPosition(bool);
     
     WEBCORE_EXPORT float pageScaleFactor() const;
     WEBCORE_EXPORT void setPageScaleFactor(float);
@@ -125,7 +138,7 @@ public:
     WEBCORE_EXPORT void setIsTargetItem(bool);
     
     WEBCORE_EXPORT void setStateObject(RefPtr<SerializedScriptValue>&&);
-    RefPtr<SerializedScriptValue> stateObject() const { return m_stateObject; }
+    SerializedScriptValue* stateObject() const { return m_stateObject.get(); }
 
     void setItemSequenceNumber(long long number) { m_itemSequenceNumber = number; }
     long long itemSequenceNumber() const { return m_itemSequenceNumber; }
@@ -143,28 +156,18 @@ public:
     void setChildItem(Ref<HistoryItem>&&);
     WEBCORE_EXPORT HistoryItem* childItemWithTarget(const String&);
     HistoryItem* childItemWithDocumentSequenceNumber(long long number);
-    WEBCORE_EXPORT const HistoryItemVector& children() const;
+    WEBCORE_EXPORT const Vector<Ref<HistoryItem>>& children() const;
     WEBCORE_EXPORT bool hasChildren() const;
     void clearChildren();
-    bool isAncestorOf(const HistoryItem&) const;
     
     bool shouldDoSameDocumentNavigationTo(HistoryItem& otherItem) const;
     bool hasSameFrames(HistoryItem& otherItem) const;
-
-    WEBCORE_EXPORT void addRedirectURL(const String&);
-    WEBCORE_EXPORT Vector<String>* redirectURLs() const;
-    WEBCORE_EXPORT void setRedirectURLs(std::unique_ptr<Vector<String>>);
 
     bool isCurrentDocument(Document&) const;
     
 #if PLATFORM(COCOA)
     WEBCORE_EXPORT id viewState() const;
     WEBCORE_EXPORT void setViewState(id);
-    
-    // Transient properties may be of any ObjC type.  They are intended to be used to store state per back/forward list entry.
-    // The properties will not be persisted; when the history item is removed, the properties will be lost.
-    WEBCORE_EXPORT id getTransientProperty(const String&) const;
-    WEBCORE_EXPORT void setTransientProperty(const String&, id);
 #endif
 
 #ifndef NDEBUG
@@ -172,12 +175,15 @@ public:
     int showTreeWithIndent(unsigned indentLevel) const;
 #endif
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     FloatRect exposedContentRect() const { return m_exposedContentRect; }
     void setExposedContentRect(FloatRect exposedContentRect) { m_exposedContentRect = exposedContentRect; }
 
     IntRect unobscuredContentRect() const { return m_unobscuredContentRect; }
     void setUnobscuredContentRect(IntRect unobscuredContentRect) { m_unobscuredContentRect = unobscuredContentRect; }
+
+    const FloatBoxExtent& obscuredInsets() const { return m_obscuredInsets; }
+    void setObscuredInsets(const FloatBoxExtent& insets) { m_obscuredInsets = insets; }
 
     FloatSize minimumLayoutSizeInScrollViewCoordinates() const { return m_minimumLayoutSizeInScrollViewCoordinates; }
     void setMinimumLayoutSizeInScrollViewCoordinates(FloatSize minimumLayoutSizeInScrollViewCoordinates) { m_minimumLayoutSizeInScrollViewCoordinates = minimumLayoutSizeInScrollViewCoordinates; }
@@ -196,21 +202,26 @@ public:
 
     const ViewportArguments& viewportArguments() const { return m_viewportArguments; }
     void setViewportArguments(const ViewportArguments& viewportArguments) { m_viewportArguments = viewportArguments; }
-
-    uint32_t bookmarkID() const { return m_bookmarkID; }
-    void setBookmarkID(uint32_t bookmarkID) { m_bookmarkID = bookmarkID; }
-    String sharedLinkUniqueIdentifier() const { return m_sharedLinkUniqueIdentifier; }
-    void setSharedLinkUniqueIdentifier(const String& sharedLinkUniqueidentifier) { m_sharedLinkUniqueIdentifier = sharedLinkUniqueidentifier; }
 #endif
 
     void notifyChanged();
+
+    void setWasRestoredFromSession(bool wasRestoredFromSession) { m_wasRestoredFromSession = wasRestoredFromSession; }
+    bool wasRestoredFromSession() const { return m_wasRestoredFromSession; }
+
+#if !LOG_DISABLED
+    const char* logString() const;
+#endif
 
 private:
     WEBCORE_EXPORT HistoryItem();
     WEBCORE_EXPORT HistoryItem(const String& urlString, const String& title);
     WEBCORE_EXPORT HistoryItem(const String& urlString, const String& title, const String& alternateTitle);
+    WEBCORE_EXPORT HistoryItem(const String& urlString, const String& title, const String& alternateTitle, BackForwardItemIdentifier);
 
     HistoryItem(const HistoryItem&);
+
+    static int64_t generateSequenceNumber();
 
     bool hasSameDocumentTree(HistoryItem& otherItem) const;
 
@@ -222,28 +233,28 @@ private:
     String m_displayTitle;
     
     IntPoint m_scrollPosition;
-    float m_pageScaleFactor;
+    float m_pageScaleFactor { 0 }; // 0 indicates "unset".
     Vector<String> m_documentState;
 
     ShouldOpenExternalURLsPolicy m_shouldOpenExternalURLsPolicy { ShouldOpenExternalURLsPolicy::ShouldNotAllow };
     
-    HistoryItemVector m_children;
+    Vector<Ref<HistoryItem>> m_children;
     
-    bool m_lastVisitWasFailure;
-    bool m_isTargetItem;
-
-    std::unique_ptr<Vector<String>> m_redirectURLs;
+    bool m_lastVisitWasFailure { false };
+    bool m_isTargetItem { false };
+    bool m_wasRestoredFromSession { false };
+    bool m_shouldRestoreScrollPosition { true };
 
     // If two HistoryItems have the same item sequence number, then they are
     // clones of one another.  Traversing history from one such HistoryItem to
     // another is a no-op.  HistoryItem clones are created for parent and
     // sibling frames when only a subframe navigates.
-    int64_t m_itemSequenceNumber;
+    int64_t m_itemSequenceNumber { generateSequenceNumber() };
 
     // If two HistoryItems have the same document sequence number, then they
     // refer to the same instance of a document.  Traversing history from one
     // such HistoryItem to another preserves the document.
-    int64_t m_documentSequenceNumber;
+    int64_t m_documentSequenceNumber { generateSequenceNumber() };
 
     // Support for HTML5 History
     RefPtr<SerializedScriptValue> m_stateObject;
@@ -256,30 +267,27 @@ private:
     std::unique_ptr<CachedPage> m_cachedPage;
     PruningReason m_pruningReason;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     FloatRect m_exposedContentRect;
     IntRect m_unobscuredContentRect;
     FloatSize m_minimumLayoutSizeInScrollViewCoordinates;
     IntSize m_contentSize;
-    float m_scale;
-    bool m_scaleIsInitial;
+    FloatBoxExtent m_obscuredInsets;
+    float m_scale { 0 }; // Note that UIWebView looks for a non-zero value, so this has to start as 0.
+    bool m_scaleIsInitial { false };
     ViewportArguments m_viewportArguments;
-
-    uint32_t m_bookmarkID;
-    String m_sharedLinkUniqueIdentifier;
 #endif
 
 #if PLATFORM(COCOA)
     RetainPtr<id> m_viewState;
-    std::unique_ptr<HashMap<String, RetainPtr<id>>> m_transientProperties;
 #endif
-}; //class HistoryItem
 
-} //namespace WebCore
+    BackForwardItemIdentifier m_identifier;
+};
 
-#ifndef NDEBUG
-// Outside the WebCore namespace for ease of invocation from gdb.
+} // namespace WebCore
+
+#if ENABLE(TREE_DEBUGGING)
+// Outside the WebCore namespace for ease of invocation from the debugger.
 extern "C" int showTree(const WebCore::HistoryItem*);
 #endif
-
-#endif // HISTORYITEM_H

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,8 +29,11 @@
 #if ENABLE(B3_JIT)
 
 #include "B3ArgumentRegValue.h"
+#include "B3AtomicValue.h"
+#include "B3BasicBlockInlines.h"
+#include "B3BottomProvider.h"
 #include "B3CCallValue.h"
-#include "B3ControlValue.h"
+#include "B3FenceValue.h"
 #include "B3MemoryValue.h"
 #include "B3OriginDump.h"
 #include "B3ProcedureInlines.h"
@@ -40,7 +43,9 @@
 #include "B3ValueInlines.h"
 #include "B3ValueKeyInlines.h"
 #include "B3VariableValue.h"
+#include "B3WasmBoundsCheckValue.h"
 #include <wtf/CommaPrinter.h>
+#include <wtf/ListDump.h>
 #include <wtf/StringPrintStream.h>
 
 namespace JSC { namespace B3 {
@@ -58,9 +63,10 @@ void Value::replaceWithIdentity(Value* value)
     // previous value in place, and then we construct the Identity Value in place.
 
     ASSERT(m_type == value->m_type);
+    ASSERT(value != this);
 
     if (m_type == Void) {
-        replaceWithNop();
+        replaceWithNopIgnoringType();
         return;
     }
 
@@ -71,7 +77,7 @@ void Value::replaceWithIdentity(Value* value)
 
     RELEASE_ASSERT(type == value->type());
 
-    this->Value::~Value();
+    this->~Value();
 
     new (this) Value(Identity, type, origin, value);
 
@@ -79,13 +85,24 @@ void Value::replaceWithIdentity(Value* value)
     this->m_index = index;
 }
 
+void Value::replaceWithBottom(InsertionSet& insertionSet, size_t index)
+{
+    replaceWithBottom(BottomProvider(insertionSet, index));
+}
+
 void Value::replaceWithNop()
+{
+    RELEASE_ASSERT(m_type == Void);
+    replaceWithNopIgnoringType();
+}
+
+void Value::replaceWithNopIgnoringType()
 {
     unsigned index = m_index;
     Origin origin = m_origin;
     BasicBlock* owner = this->owner;
 
-    this->Value::~Value();
+    this->~Value();
 
     new (this) Value(Nop, Void, origin);
 
@@ -105,7 +122,7 @@ void Value::replaceWithPhi()
     BasicBlock* owner = this->owner;
     Type type = m_type;
 
-    this->Value::~Value();
+    this->~Value();
 
     new (this) Value(Phi, type, origin);
 
@@ -113,11 +130,55 @@ void Value::replaceWithPhi()
     this->m_index = index;
 }
 
+void Value::replaceWithJump(BasicBlock* owner, FrequentedBlock target)
+{
+    RELEASE_ASSERT(owner->last() == this);
+    
+    unsigned index = m_index;
+    Origin origin = m_origin;
+    
+    this->~Value();
+    
+    new (this) Value(Jump, Void, origin);
+    
+    this->owner = owner;
+    this->m_index = index;
+    
+    owner->setSuccessors(target);
+}
+
+void Value::replaceWithOops(BasicBlock* owner)
+{
+    RELEASE_ASSERT(owner->last() == this);
+    
+    unsigned index = m_index;
+    Origin origin = m_origin;
+    
+    this->~Value();
+    
+    new (this) Value(Oops, Void, origin);
+    
+    this->owner = owner;
+    this->m_index = index;
+    
+    owner->clearSuccessors();
+}
+
+void Value::replaceWithJump(FrequentedBlock target)
+{
+    replaceWithJump(owner, target);
+}
+
+void Value::replaceWithOops()
+{
+    replaceWithOops(owner);
+}
+
 void Value::dump(PrintStream& out) const
 {
     bool isConstant = false;
 
-    switch (m_opcode) {
+    switch (opcode()) {
     case Const32:
         out.print("$", asInt32(), "(");
         isConstant = true;
@@ -157,14 +218,11 @@ void Value::dumpChildren(CommaPrinter& comma, PrintStream& out) const
 
 void Value::deepDump(const Procedure* proc, PrintStream& out) const
 {
-    out.print(m_type, " ", dumpPrefix, m_index, " = ", m_opcode);
+    out.print(m_type, " ", dumpPrefix, m_index, " = ", m_kind);
 
     out.print("(");
     CommaPrinter comma;
     dumpChildren(comma, out);
-
-    if (m_origin)
-        out.print(comma, OriginDump(proc, m_origin));
 
     dumpMeta(comma, out);
 
@@ -174,7 +232,23 @@ void Value::deepDump(const Procedure* proc, PrintStream& out) const
             out.print(comma, string);
     }
 
+    if (m_origin)
+        out.print(comma, OriginDump(proc, m_origin));
+
     out.print(")");
+}
+
+void Value::dumpSuccessors(const BasicBlock* block, PrintStream& out) const
+{
+    // Note that this must not crash if we have the wrong number of successors, since someone
+    // debugging a number-of-successors bug will probably want to dump IR!
+    
+    if (opcode() == Branch && block->numSuccessors() == 2) {
+        out.print("Then:", block->taken(), ", Else:", block->notTaken());
+        return;
+    }
+    
+    out.print(listDump(block->successors()));
 }
 
 Value* Value::negConstant(Procedure&) const
@@ -227,7 +301,17 @@ Value* Value::divConstant(Procedure&, const Value*) const
     return nullptr;
 }
 
+Value* Value::uDivConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
 Value* Value::modConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
+Value* Value::uModConstant(Procedure&, const Value*) const
 {
     return nullptr;
 }
@@ -262,7 +346,27 @@ Value* Value::zShrConstant(Procedure&, const Value*) const
     return nullptr;
 }
 
+Value* Value::rotRConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
+Value* Value::rotLConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
 Value* Value::bitwiseCastConstant(Procedure&) const
+{
+    return nullptr;
+}
+
+Value* Value::iToDConstant(Procedure&) const
+{
+    return nullptr;
+}
+
+Value* Value::iToFConstant(Procedure&) const
 {
     return nullptr;
 }
@@ -283,6 +387,11 @@ Value* Value::absConstant(Procedure&) const
 }
 
 Value* Value::ceilConstant(Procedure&) const
+{
+    return nullptr;
+}
+
+Value* Value::floorConstant(Procedure&) const
 {
     return nullptr;
 }
@@ -351,9 +460,36 @@ Value* Value::invertedCompare(Procedure& proc) const
 {
     if (!numChildren())
         return nullptr;
-    if (Optional<Opcode> invertedOpcode = B3::invertedCompare(opcode(), child(0)->type()))
+    if (Optional<Opcode> invertedOpcode = B3::invertedCompare(opcode(), child(0)->type())) {
+        ASSERT(!kind().hasExtraBits());
         return proc.add<Value>(*invertedOpcode, type(), origin(), children());
+    }
     return nullptr;
+}
+
+bool Value::isRounded() const
+{
+    ASSERT(isFloat(type()));
+    switch (opcode()) {
+    case Floor:
+    case Ceil:
+    case IToD:
+    case IToF:
+        return true;
+
+    case ConstDouble: {
+        double value = asDouble();
+        return std::isfinite(value) && value == ceil(value);
+    }
+
+    case ConstFloat: {
+        float value = asFloat();
+        return std::isfinite(value) && value == ceilf(value);
+    }
+
+    default:
+        return false;
+    }
 }
 
 bool Value::returnsBool() const
@@ -364,8 +500,14 @@ bool Value::returnsBool() const
     case Const32:
         return asInt32() == 0 || asInt32() == 1;
     case BitAnd:
-        return child(1)->isInt32(1)
-            || (child(0)->returnsBool() && child(1)->hasInt() && child(1)->asInt() & 1);
+        return child(0)->returnsBool() || child(1)->returnsBool();
+    case BitOr:
+    case BitXor:
+        return child(0)->returnsBool() && child(1)->returnsBool();
+    case Select:
+        return child(1)->returnsBool() && child(2)->returnsBool();
+    case Identity:
+        return child(0)->returnsBool();
     case Equal:
     case NotEqual:
     case LessThan:
@@ -377,6 +519,7 @@ bool Value::returnsBool() const
     case AboveEqual:
     case BelowEqual:
     case EqualOrUnordered:
+    case AtomicWeakCAS:
         return true;
     case Phi:
         // FIXME: We should have a story here.
@@ -410,6 +553,7 @@ Effects Value::effects() const
     switch (opcode()) {
     case Nop:
     case Identity:
+    case Opaque:
     case Const32:
     case Const64:
     case ConstDouble:
@@ -421,17 +565,18 @@ Effects Value::effects() const
     case Sub:
     case Mul:
     case Neg:
-    case ChillDiv:
-    case ChillMod:
     case BitAnd:
     case BitOr:
     case BitXor:
     case Shl:
     case SShr:
     case ZShr:
+    case RotR:
+    case RotL:
     case Clz:
     case Abs:
     case Ceil:
+    case Floor:
     case Sqrt:
     case BitwiseCast:
     case SExt8:
@@ -440,6 +585,7 @@ Effects Value::effects() const
     case ZExt32:
     case Trunc:
     case IToD:
+    case IToF:
     case FloatToDouble:
     case DoubleToFloat:
     case Equal:
@@ -454,25 +600,66 @@ Effects Value::effects() const
     case BelowEqual:
     case EqualOrUnordered:
     case Select:
+    case Depend:
         break;
     case Div:
+    case UDiv:
     case Mod:
+    case UMod:
         result.controlDependent = true;
         break;
     case Load8Z:
     case Load8S:
     case Load16Z:
     case Load16S:
-    case Load:
-        result.reads = as<MemoryValue>()->range();
+    case Load: {
+        const MemoryValue* memory = as<MemoryValue>();
+        result.reads = memory->range();
+        if (memory->hasFence()) {
+            result.writes = memory->fenceRange();
+            result.fence = true;
+        }
         result.controlDependent = true;
         break;
+    }
     case Store8:
     case Store16:
-    case Store:
-        result.writes = as<MemoryValue>()->range();
+    case Store: {
+        const MemoryValue* memory = as<MemoryValue>();
+        result.writes = memory->range();
+        if (memory->hasFence()) {
+            result.reads = memory->fenceRange();
+            result.fence = true;
+        }
         result.controlDependent = true;
         break;
+    }
+    case AtomicWeakCAS:
+    case AtomicStrongCAS:
+    case AtomicXchgAdd:
+    case AtomicXchgAnd:
+    case AtomicXchgOr:
+    case AtomicXchgSub:
+    case AtomicXchgXor:
+    case AtomicXchg: {
+        const AtomicValue* atomic = as<AtomicValue>();
+        result.reads = atomic->range() | atomic->fenceRange();
+        result.writes = atomic->range() | atomic->fenceRange();
+        if (atomic->hasFence())
+            result.fence = true;
+        result.controlDependent = true;
+        break;
+    }
+    case WasmAddress:
+        result.readsPinned = true;
+        break;
+    case Fence: {
+        const FenceValue* fence = as<FenceValue>();
+        result.reads = fence->read;
+        result.writes = fence->write;
+        result.fence = true;
+        break;
+    }
     case CCall:
         result = as<CCallValue>()->effects;
         break;
@@ -483,9 +670,17 @@ Effects Value::effects() const
     case CheckSub:
     case CheckMul:
     case Check:
+        result = Effects::forCheck();
+        break;
+    case WasmBoundsCheck:
+        switch (as<WasmBoundsCheckValue>()->boundsType()) {
+        case WasmBoundsCheckValue::Type::Pinned:
+            result.readsPinned = true;
+            break;
+        case WasmBoundsCheckValue::Type::Maximum:
+            break;
+        }
         result.exitsSideways = true;
-        // The program could read anything after exiting, and it's on us to declare this.
-        result.reads = HeapRange::top();
         break;
     case Upsilon:
     case Set:
@@ -500,20 +695,29 @@ Effects Value::effects() const
     case Switch:
     case Return:
     case Oops:
+    case EntrySwitch:
         result.terminal = true;
         break;
+    }
+    if (traps()) {
+        result.exitsSideways = true;
+        result.reads = HeapRange::top();
     }
     return result;
 }
 
 ValueKey Value::key() const
 {
+    // NOTE: Except for exotic things like CheckAdd and friends, we want every case here to have a
+    // corresponding case in ValueKey::materialize().
     switch (opcode()) {
     case FramePointer:
-        return ValueKey(opcode(), type());
+        return ValueKey(kind(), type());
     case Identity:
+    case Opaque:
     case Abs:
     case Ceil:
+    case Floor:
     case Sqrt:
     case SExt8:
     case SExt16:
@@ -522,25 +726,29 @@ ValueKey Value::key() const
     case Clz:
     case Trunc:
     case IToD:
+    case IToF:
     case FloatToDouble:
     case DoubleToFloat:
     case Check:
     case BitwiseCast:
     case Neg:
-        return ValueKey(opcode(), type(), child(0));
+    case Depend:
+        return ValueKey(kind(), type(), child(0));
     case Add:
     case Sub:
     case Mul:
     case Div:
+    case UDiv:
     case Mod:
-    case ChillDiv:
-    case ChillMod:
+    case UMod:
     case BitAnd:
     case BitOr:
     case BitXor:
     case Shl:
     case SShr:
     case ZShr:
+    case RotR:
+    case RotL:
     case Equal:
     case NotEqual:
     case LessThan:
@@ -553,9 +761,9 @@ ValueKey Value::key() const
     case CheckAdd:
     case CheckSub:
     case CheckMul:
-        return ValueKey(opcode(), type(), child(0), child(1));
+        return ValueKey(kind(), type(), child(0), child(1));
     case Select:
-        return ValueKey(opcode(), type(), child(0), child(1), child(2));
+        return ValueKey(kind(), type(), child(0), child(1), child(2));
     case Const32:
         return ValueKey(Const32, type(), static_cast<int64_t>(asInt32()));
     case Const64:
@@ -577,11 +785,39 @@ ValueKey Value::key() const
     }
 }
 
-void Value::performSubstitution()
+Value* Value::foldIdentity() const
 {
+    Value* current = const_cast<Value*>(this);
+    while (current->opcode() == Identity)
+        current = current->child(0);
+    return current;
+}
+
+bool Value::performSubstitution()
+{
+    bool result = false;
     for (Value*& child : children()) {
-        while (child->opcode() == Identity)
-            child = child->child(0);
+        if (child->opcode() == Identity) {
+            result = true;
+            child = child->foldIdentity();
+        }
+    }
+    return result;
+}
+
+bool Value::isFree() const
+{
+    switch (opcode()) {
+    case Const32:
+    case Const64:
+    case ConstDouble:
+    case ConstFloat:
+    case Identity:
+    case Opaque:
+    case Nop:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -589,56 +825,41 @@ void Value::dumpMeta(CommaPrinter&, PrintStream&) const
 {
 }
 
-#if !ASSERT_DISABLED
-void Value::checkOpcode(Opcode opcode)
+Type Value::typeFor(Kind kind, Value* firstChild, Value* secondChild)
 {
-    ASSERT(!ArgumentRegValue::accepts(opcode));
-    ASSERT(!CCallValue::accepts(opcode));
-    ASSERT(!CheckValue::accepts(opcode));
-    ASSERT(!Const32Value::accepts(opcode));
-    ASSERT(!Const64Value::accepts(opcode));
-    ASSERT(!ConstDoubleValue::accepts(opcode));
-    ASSERT(!ConstFloatValue::accepts(opcode));
-    ASSERT(!ControlValue::accepts(opcode));
-    ASSERT(!MemoryValue::accepts(opcode));
-    ASSERT(!PatchpointValue::accepts(opcode));
-    ASSERT(!SlotBaseValue::accepts(opcode));
-    ASSERT(!UpsilonValue::accepts(opcode));
-    ASSERT(!VariableValue::accepts(opcode));
-}
-#endif // !ASSERT_DISABLED
-
-Type Value::typeFor(Opcode opcode, Value* firstChild, Value* secondChild)
-{
-    switch (opcode) {
+    switch (kind.opcode()) {
     case Identity:
+    case Opaque:
     case Add:
     case Sub:
     case Mul:
     case Div:
+    case UDiv:
     case Mod:
+    case UMod:
     case Neg:
-    case ChillDiv:
-    case ChillMod:
     case BitAnd:
     case BitOr:
     case BitXor:
     case Shl:
     case SShr:
     case ZShr:
+    case RotR:
+    case RotL:
     case Clz:
     case Abs:
     case Ceil:
+    case Floor:
     case Sqrt:
     case CheckAdd:
     case CheckSub:
     case CheckMul:
+    case Depend:
         return firstChild->type();
     case FramePointer:
         return pointerType();
     case SExt8:
     case SExt16:
-    case Trunc:
     case Equal:
     case NotEqual:
     case LessThan:
@@ -651,6 +872,8 @@ Type Value::typeFor(Opcode opcode, Value* firstChild, Value* secondChild)
     case BelowEqual:
     case EqualOrUnordered:
         return Int32;
+    case Trunc:
+        return firstChild->type() == Int64 ? Int32 : Float;
     case SExt32:
     case ZExt32:
         return Int64;
@@ -658,6 +881,7 @@ Type Value::typeFor(Opcode opcode, Value* firstChild, Value* secondChild)
     case IToD:
         return Double;
     case DoubleToFloat:
+    case IToF:
         return Float;
     case BitwiseCast:
         switch (firstChild->type()) {
@@ -674,6 +898,12 @@ Type Value::typeFor(Opcode opcode, Value* firstChild, Value* secondChild)
         }
         return Void;
     case Nop:
+    case Jump:
+    case Branch:
+    case Return:
+    case Oops:
+    case EntrySwitch:
+    case WasmBoundsCheck:
         return Void;
     case Select:
         ASSERT(secondChild);
@@ -681,6 +911,12 @@ Type Value::typeFor(Opcode opcode, Value* firstChild, Value* secondChild)
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }
+}
+
+void Value::badKind(Kind kind, unsigned numArgs)
+{
+    dataLog("Bad kind ", kind, " with ", numArgs, " args.\n");
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 } } // namespace JSC::B3

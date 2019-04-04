@@ -23,10 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef RegisterMap_h
-#define RegisterMap_h
+#pragma once
 
-#if ENABLE(JIT)
+#if ENABLE(ASSEMBLER)
 
 #include "FPRInfo.h"
 #include "GPRInfo.h"
@@ -108,6 +107,4 @@ private:
 
 } // namespace JSC
 
-#endif // ENABLE(JIT)
-
-#endif // RegisterMap_h
+#endif // ENABLE(ASSEMBLER)

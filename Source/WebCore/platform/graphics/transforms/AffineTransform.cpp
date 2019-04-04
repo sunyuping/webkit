@@ -31,10 +31,10 @@
 #include "FloatQuad.h"
 #include "FloatRect.h"
 #include "IntRect.h"
-#include "TextStream.h"
 #include "TransformationMatrix.h"
-
 #include <wtf/MathExtras.h>
+#include <wtf/Optional.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -108,7 +108,7 @@ Optional<AffineTransform> AffineTransform::inverse() const
 {
     double determinant = det(m_transform);
     if (!std::isfinite(determinant) || determinant == 0)
-        return Nullopt;
+        return WTF::nullopt;
 
     AffineTransform result;
     if (isIdentityOrTranslation()) {
@@ -202,6 +202,11 @@ AffineTransform& AffineTransform::translate(const FloatPoint& t)
     return translate(t.x(), t.y());
 }
 
+AffineTransform& AffineTransform::translate(const FloatSize& t)
+{
+    return translate(t.width(), t.height());
+}
+
 AffineTransform& AffineTransform::rotateFromVector(double x, double y)
 {
     return rotate(rad2deg(atan2(y, x)));
@@ -249,7 +254,7 @@ AffineTransform makeMapBetweenRects(const FloatRect& source, const FloatRect& de
 {
     AffineTransform transform;
     transform.translate(dest.x() - source.x(), dest.y() - source.y());
-    transform.scale(dest.width() / source.width(), dest.height() / source.height());
+    transform.scale(dest.size() / source.size());
     return transform;
 }
 

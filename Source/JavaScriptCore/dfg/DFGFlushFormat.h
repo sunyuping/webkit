@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGFlushFormat_h
-#define DFGFlushFormat_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -36,7 +35,7 @@
 
 namespace JSC { namespace DFG {
 
-enum FlushFormat {
+enum FlushFormat : uint8_t {
     DeadFlush,
     FlushedInt32,
     FlushedInt52,
@@ -170,6 +169,3 @@ inline JSC::DFG::FlushFormat inContext(JSC::DFG::FlushFormat format, JSC::DumpCo
 } // namespace WTF
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGFlushFormat_h
-

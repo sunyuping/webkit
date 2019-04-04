@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,12 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGCursorElement_h
-#define SVGCursorElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedLength.h"
-#include "SVGAnimatedString.h"
 #include "SVGElement.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGTests.h"
@@ -31,47 +28,42 @@
 
 namespace WebCore {
 
-class SVGCursorElement final : public SVGElement,
-                               public SVGTests,
-                               public SVGExternalResourcesRequired,
-                               public SVGURIReference {
+class CSSCursorImageValue;
+
+class SVGCursorElement final : public SVGElement, public SVGExternalResourcesRequired, public SVGTests, public SVGURIReference {
+    WTF_MAKE_ISO_ALLOCATED(SVGCursorElement);
 public:
     static Ref<SVGCursorElement> create(const QualifiedName&, Document&);
 
     virtual ~SVGCursorElement();
 
-    void addClient(SVGElement*);
-    void removeClient(SVGElement*);
-    void removeReferencedElement(SVGElement*);
+    void addClient(CSSCursorImageValue&);
+    void removeClient(CSSCursorImageValue&);
+
+    const SVGLengthValue& x() const { return m_x->currentValue(); }
+    const SVGLengthValue& y() const { return m_y->currentValue(); }
+
+    SVGAnimatedLength& xAnimated() { return m_x; }
+    SVGAnimatedLength& yAnimated() { return m_y; }
 
 private:
     SVGCursorElement(const QualifiedName&, Document&);
 
-    virtual bool isValid() const override { return SVGTests::isValid(); }
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGCursorElement, SVGElement, SVGExternalResourcesRequired, SVGTests, SVGURIReference>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
+    
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void svgAttributeChanged(const QualifiedName&) final;
 
-    static bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    bool isValid() const final { return SVGTests::isValid(); }
+    bool rendererIsNeeded(const RenderStyle&) final { return false; }
 
-    virtual bool rendererIsNeeded(const RenderStyle&) override { return false; }
+    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
 
-    virtual void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
-
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGCursorElement)
-        DECLARE_ANIMATED_LENGTH(X, x)
-        DECLARE_ANIMATED_LENGTH(Y, y)
-        DECLARE_ANIMATED_STRING_OVERRIDE(Href, href)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
-
-    // SVGTests
-    virtual void synchronizeRequiredFeatures() override { SVGTests::synchronizeRequiredFeatures(this); }
-    virtual void synchronizeRequiredExtensions() override { SVGTests::synchronizeRequiredExtensions(this); }
-    virtual void synchronizeSystemLanguage() override { SVGTests::synchronizeSystemLanguage(this); }
-
-    HashSet<SVGElement*> m_clients;
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, LengthModeHeight) };
+    HashSet<CSSCursorImageValue*> m_clients;
 };
 
 } // namespace WebCore
-
-#endif

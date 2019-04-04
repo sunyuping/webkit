@@ -2,7 +2,8 @@
  * Copyright (C) 2007, 2009 Apple Inc.  All rights reserved.
  * Copyright (C) 2007 Collabora Ltd. All rights reserved.
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
- * Copyright (C) 2009, 2010 Igalia S.L
+ * Copyright (C) 2009, 2010, 2015, 2016 Igalia S.L
+ * Copyright (C) 2015, 2016 Metrological Group B.V.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,22 +25,27 @@
 #define MediaPlayerPrivateGStreamerBase_h
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
-#include "GRefPtrGStreamer.h"
+#include "GStreamerCommon.h"
+#include "GStreamerEMEUtilities.h"
 #include "MainThreadNotifier.h"
 #include "MediaPlayerPrivate.h"
+#include "PlatformLayer.h"
 #include <glib.h>
+#include <gst/gst.h>
 #include <wtf/Condition.h>
 #include <wtf/Forward.h>
 #include <wtf/RunLoop.h>
+#include <wtf/WeakPtr.h>
 
-#if USE(TEXTURE_MAPPER_GL) && !USE(COORDINATED_GRAPHICS)
-#include "TextureMapperPlatformLayer.h"
+#if USE(TEXTURE_MAPPER_GL)
+#include "TextureMapperGL.h"
+#if USE(NICOSIA)
+#include "NicosiaContentLayerTextureMapperImpl.h"
+#else
+#include "TextureMapperPlatformLayerProxyProvider.h"
 #endif
-#if USE(COORDINATED_GRAPHICS_THREADED)
-#include "TextureMapperPlatformLayerProxy.h"
 #endif
 
-typedef struct _GstMessage GstMessage;
 typedef struct _GstStreamVolume GstStreamVolume;
 typedef struct _GstVideoInfo GstVideoInfo;
 typedef struct _GstGLContext GstGLContext;
@@ -48,83 +54,154 @@ typedef struct _GstGLDisplay GstGLDisplay;
 namespace WebCore {
 
 class BitmapTextureGL;
+class GLContext;
 class GraphicsContext;
 class GraphicsContext3D;
 class IntSize;
 class IntRect;
+class VideoTextureCopierGStreamer;
 
-class MediaPlayerPrivateGStreamerBase : public MediaPlayerPrivateInterface
-#if USE(TEXTURE_MAPPER_GL) && !USE(COORDINATED_GRAPHICS)
-    , public TextureMapperPlatformLayer
-#elif USE(COORDINATED_GRAPHICS_THREADED)
-    , public TextureMapperPlatformLayerProxyProvider
+#if USE(TEXTURE_MAPPER_GL)
+class TextureMapperPlatformLayerProxy;
+#endif
+
+void registerWebKitGStreamerElements();
+
+class MediaPlayerPrivateGStreamerBase : public MediaPlayerPrivateInterface, public CanMakeWeakPtr<MediaPlayerPrivateGStreamerBase>
+#if USE(TEXTURE_MAPPER_GL)
+#if USE(NICOSIA)
+    , public Nicosia::ContentLayerTextureMapperImpl::Client
+#else
+    , public PlatformLayer
+#endif
 #endif
 {
 
 public:
+    static void initializeDebugCategory();
+
     virtual ~MediaPlayerPrivateGStreamerBase();
 
-    virtual FloatSize naturalSize() const override;
+    FloatSize naturalSize() const override;
 
-    virtual void setVolume(float) override;
-    virtual float volume() const;
+    void setVolume(float) override;
+    float volume() const override;
 
 #if USE(GSTREAMER_GL)
     bool ensureGstGLContext();
+    GstContext* requestGLContext(const char* contextType);
 #endif
-
-    virtual bool supportsMuting() const override { return true; }
-    virtual void setMuted(bool) override;
+    bool supportsMuting() const override { return true; }
+    void setMuted(bool) override;
     bool muted() const;
 
-    virtual MediaPlayer::NetworkState networkState() const override;
-    virtual MediaPlayer::ReadyState readyState() const override;
+    MediaPlayer::NetworkState networkState() const override;
+    MediaPlayer::ReadyState readyState() const override;
 
-    virtual void setVisible(bool) override { }
-    virtual void setSize(const IntSize&) override;
+    void setVisible(bool) override { }
+    void setSize(const IntSize&) override;
     void sizeChanged();
 
-    virtual void paint(GraphicsContext&, const FloatRect&) override;
+    // Prefer MediaTime based methods over float based.
+    float duration() const override { return durationMediaTime().toFloat(); }
+    double durationDouble() const override { return durationMediaTime().toDouble(); }
+    MediaTime durationMediaTime() const override { return MediaTime::zeroTime(); }
+    float currentTime() const override { return currentMediaTime().toFloat(); }
+    double currentTimeDouble() const override { return currentMediaTime().toDouble(); }
+    MediaTime currentMediaTime() const override { return MediaTime::zeroTime(); }
+    void seek(float time) override { seek(MediaTime::createWithFloat(time)); }
+    void seekDouble(double time) override { seek(MediaTime::createWithDouble(time)); }
+    void seek(const MediaTime&) override { }
+    float maxTimeSeekable() const override { return maxMediaTimeSeekable().toFloat(); }
+    MediaTime maxMediaTimeSeekable() const override { return MediaTime::zeroTime(); }
+    double minTimeSeekable() const override { return minMediaTimeSeekable().toFloat(); }
+    MediaTime minMediaTimeSeekable() const override { return MediaTime::zeroTime(); }
 
-    virtual bool hasSingleSecurityOrigin() const override { return true; }
-    virtual float maxTimeLoaded() const { return 0.0; }
+    void paint(GraphicsContext&, const FloatRect&) override;
 
-    virtual bool supportsFullscreen() const override;
-    virtual PlatformMedia platformMedia() const override;
+    bool hasSingleSecurityOrigin() const override { return true; }
+    virtual MediaTime maxTimeLoaded() const { return MediaTime::zeroTime(); }
 
-    virtual MediaPlayer::MovieLoadType movieLoadType() const override;
+    bool supportsFullscreen() const override;
+
+    MediaPlayer::MovieLoadType movieLoadType() const override;
     virtual bool isLiveStream() const = 0;
 
     MediaPlayer* mediaPlayer() const { return m_player; }
 
-    virtual unsigned decodedFrameCount() const override;
-    virtual unsigned droppedFrameCount() const override;
-    virtual unsigned audioDecodedByteCount() const override;
-    virtual unsigned videoDecodedByteCount() const override;
+    unsigned decodedFrameCount() const override;
+    unsigned droppedFrameCount() const override;
+    unsigned audioDecodedByteCount() const override;
+    unsigned videoDecodedByteCount() const override;
 
-#if USE(TEXTURE_MAPPER_GL) && !USE(COORDINATED_GRAPHICS)
-    virtual PlatformLayer* platformLayer() const override { return const_cast<MediaPlayerPrivateGStreamerBase*>(this); }
+    void acceleratedRenderingStateChanged() override;
+
+#if USE(TEXTURE_MAPPER_GL)
+    PlatformLayer* platformLayer() const override;
 #if PLATFORM(WIN_CAIRO)
     // FIXME: Accelerated rendering has not been implemented for WinCairo yet.
-    virtual bool supportsAcceleratedRendering() const override { return false; }
+    bool supportsAcceleratedRendering() const override { return false; }
 #else
-    virtual bool supportsAcceleratedRendering() const override { return true; }
+    bool supportsAcceleratedRendering() const override { return true; }
 #endif
-    virtual void paintToTextureMapper(TextureMapper&, const FloatRect&, const TransformationMatrix&, float) override;
 #endif
 
-#if USE(COORDINATED_GRAPHICS_THREADED)
-    virtual PlatformLayer* platformLayer() const override { return const_cast<MediaPlayerPrivateGStreamerBase*>(this); }
-    virtual bool supportsAcceleratedRendering() const override { return true; }
+#if ENABLE(ENCRYPTED_MEDIA)
+    void cdmInstanceAttached(CDMInstance&) override;
+    void cdmInstanceDetached(CDMInstance&) override;
+    void handleProtectionEvent(GstEvent*);
+    virtual void attemptToDecryptWithLocalInstance();
+    void attemptToDecryptWithInstance(CDMInstance&) final;
+    void initializationDataEncountered(InitData&&);
+    void setWaitingForKey(bool);
+    bool waitingForKey() const override;
 #endif
+
+    static bool supportsKeySystem(const String& keySystem, const String& mimeType);
+    static MediaPlayer::SupportsType extendedSupportsType(const MediaEngineSupportParameters&, MediaPlayer::SupportsType);
 
 #if USE(GSTREAMER_GL)
-    virtual PassNativeImagePtr nativeImageForCurrentTime() override;
+    bool copyVideoTextureToPlatformTexture(GraphicsContext3D*, Platform3DObject, GC3Denum, GC3Dint, GC3Denum, GC3Denum, GC3Denum, bool, bool) override;
+    NativeImagePtr nativeImageForCurrentTime() override;
 #endif
+
+    void setVideoSourceOrientation(const ImageOrientation&);
+    GstElement* pipeline() const { return m_pipeline.get(); }
+
+    virtual bool handleSyncMessage(GstMessage*);
 
 protected:
     MediaPlayerPrivateGStreamerBase(MediaPlayer*);
     virtual GstElement* createVideoSink();
+
+#if USE(GSTREAMER_HOLEPUNCH)
+    GstElement* createHolePunchVideoSink();
+    void pushNextHolePunchBuffer();
+    bool shouldIgnoreIntrinsicSize() final { return true; }
+#endif
+
+#if USE(GSTREAMER_GL)
+    static GstFlowReturn newSampleCallback(GstElement*, MediaPlayerPrivateGStreamerBase*);
+    static GstFlowReturn newPrerollCallback(GstElement*, MediaPlayerPrivateGStreamerBase*);
+    void flushCurrentBuffer();
+    GstElement* createGLAppSink();
+    GstElement* createVideoSinkGL();
+    GstGLContext* gstGLContext() const { return m_glContext.get(); }
+    GstGLDisplay* gstGLDisplay() const { return m_glDisplay.get(); }
+    void ensureGLVideoSinkContext();
+#endif
+
+#if USE(TEXTURE_MAPPER_GL)
+    void pushTextureToCompositor();
+#if USE(NICOSIA)
+    void swapBuffersIfNeeded() override;
+#else
+    RefPtr<TextureMapperPlatformLayerProxy> proxy() const override;
+    void swapBuffersIfNeeded() override;
+#endif
+#endif
+
+    GstElement* videoSink() const { return m_videoSink.get(); }
 
     void setStreamVolumeElement(GstStreamVolume*);
     virtual GstElement* createAudioSink() { return 0; }
@@ -132,21 +209,23 @@ protected:
 
     void setPipeline(GstElement*);
 
-    virtual bool handleSyncMessage(GstMessage*);
-
     void triggerRepaint(GstSample*);
     void repaint();
+    void cancelRepaint(bool destroying = false);
 
     static void repaintCallback(MediaPlayerPrivateGStreamerBase*, GstSample*);
-#if USE(GSTREAMER_GL)
-    static gboolean drawCallback(MediaPlayerPrivateGStreamerBase*, GstGLContext*, GstSample*);
-#endif
+    static void repaintCancelledCallback(MediaPlayerPrivateGStreamerBase*);
 
     void notifyPlayerOfVolumeChange();
     void notifyPlayerOfMute();
 
     static void volumeChangedCallback(MediaPlayerPrivateGStreamerBase*);
     static void muteChangedCallback(MediaPlayerPrivateGStreamerBase*);
+
+#if USE(TEXTURE_MAPPER_GL)
+    void updateTextureMapperFlags();
+    TextureMapperGL::Flags m_textureMapperFlags;
+#endif
 
     enum MainThreadNotification {
         VideoChanged = 1 << 0,
@@ -157,45 +236,64 @@ protected:
 #if ENABLE(VIDEO_TRACK)
         TextChanged = 1 << 5,
 #endif
+        SizeChanged = 1 << 6,
+#if GST_CHECK_VERSION(1, 10, 0)
+        StreamCollectionChanged = 1 << 7
+#endif
     };
 
-    MainThreadNotifier<MainThreadNotification> m_notifier;
+    Ref<MainThreadNotifier<MainThreadNotification>> m_notifier;
     MediaPlayer* m_player;
     GRefPtr<GstElement> m_pipeline;
     GRefPtr<GstStreamVolume> m_volumeElement;
     GRefPtr<GstElement> m_videoSink;
     GRefPtr<GstElement> m_fpsSink;
     MediaPlayer::ReadyState m_readyState;
-    MediaPlayer::NetworkState m_networkState;
+    mutable MediaPlayer::NetworkState m_networkState;
     IntSize m_size;
-    mutable GMutex m_sampleMutex;
+    mutable Lock m_sampleMutex;
     GRefPtr<GstSample> m_sample;
-#if USE(GSTREAMER_GL)
-    RunLoop::Timer<MediaPlayerPrivateGStreamerBase> m_drawTimer;
-#endif
+
     mutable FloatSize m_videoSize;
-    bool m_usingFallbackVideoSink;
-#if USE(TEXTURE_MAPPER_GL) && !USE(COORDINATED_GRAPHICS_MULTIPROCESS)
-    void updateTexture(BitmapTextureGL&, GstVideoInfo&);
+    bool m_usingFallbackVideoSink { false };
+    bool m_renderingCanBeAccelerated { false };
+
+    Condition m_drawCondition;
+    Lock m_drawMutex;
+    bool m_destroying { false };
+    RunLoop::Timer<MediaPlayerPrivateGStreamerBase> m_drawTimer;
+
+#if USE(TEXTURE_MAPPER_GL)
+#if USE(NICOSIA)
+    Ref<Nicosia::ContentLayer> m_nicosiaLayer;
+#else
+    RefPtr<TextureMapperPlatformLayerProxy> m_platformLayerProxy;
 #endif
+#endif
+
 #if USE(GSTREAMER_GL)
     GRefPtr<GstGLContext> m_glContext;
     GRefPtr<GstGLDisplay> m_glDisplay;
+    GRefPtr<GstContext> m_glDisplayElementContext;
+    GRefPtr<GstContext> m_glAppElementContext;
+    std::unique_ptr<VideoTextureCopierGStreamer> m_videoTextureCopier;
 #endif
 
-#if USE(COORDINATED_GRAPHICS_THREADED)
-    virtual RefPtr<TextureMapperPlatformLayerProxy> proxy() const override { return m_platformLayerProxy.copyRef(); }
-    virtual void swapBuffersIfNeeded() override { };
-    void pushTextureToCompositor();
-    RefPtr<TextureMapperPlatformLayerProxy> m_platformLayerProxy;
+    ImageOrientation m_videoSourceOrientation;
+
+#if ENABLE(ENCRYPTED_MEDIA)
+    Lock m_protectionMutex;
+    Condition m_protectionCondition;
+    RefPtr<const CDMInstance> m_cdmInstance;
+    HashSet<uint32_t> m_handledProtectionEvents;
+    bool m_waitingForKey { false };
 #endif
 
-#if USE(GSTREAMER_GL) || USE(COORDINATED_GRAPHICS_THREADED)
-    RefPtr<GraphicsContext3D> m_context3D;
-    Condition m_drawCondition;
-    Lock m_drawMutex;
-#endif
+    enum class WebKitGstVideoDecoderPlatform { ImxVPU, Video4Linux };
+
+    WebKitGstVideoDecoderPlatform m_videoDecoderPlatform;
 };
+
 }
 
 #endif // USE(GSTREAMER)

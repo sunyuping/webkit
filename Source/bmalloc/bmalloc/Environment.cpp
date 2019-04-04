@@ -25,12 +25,22 @@
 
 #include "BPlatform.h"
 #include "Environment.h"
+#include "ProcessCheck.h"
 #include <cstdlib>
 #include <cstring>
 #if BOS(DARWIN)
 #include <mach-o/dyld.h>
 #elif BOS(UNIX)
 #include <dlfcn.h>
+#endif
+
+#if BUSE(CHECK_NANO_MALLOC)
+extern "C" {
+#if __has_include(<malloc_private.h>)
+#include <malloc_private.h>
+#endif
+int malloc_engaged_nano(void);
+}
 #endif
 
 namespace bmalloc {
@@ -75,23 +85,31 @@ static bool isLibgmallocEnabled()
     return true;
 }
 
-static bool isASanEnabled()
+static bool isSanitizerEnabled()
 {
 #if BOS(DARWIN)
+    static const char sanitizerPrefix[] = "/libclang_rt.";
+    static const char asanName[] = "asan_";
+    static const char tsanName[] = "tsan_";
     uint32_t imageCount = _dyld_image_count();
     for (uint32_t i = 0; i < imageCount; ++i) {
         const char* imageName = _dyld_get_image_name(i);
         if (!imageName)
             continue;
-        if (strstr(imageName, "/libclang_rt.asan_"))
-            return true;
+        if (const char* s = strstr(imageName, sanitizerPrefix)) {
+            const char* sanitizerName = s + sizeof(sanitizerPrefix) - 1;
+            if (!strncmp(sanitizerName, asanName, sizeof(asanName) - 1))
+                return true;
+            if (!strncmp(sanitizerName, tsanName, sizeof(tsanName) - 1))
+                return true;
+        }
     }
     return false;
 #elif BOS(UNIX)
     void* handle = dlopen(nullptr, RTLD_NOW);
     if (!handle)
         return false;
-    bool result = !!dlsym(handle, "__asan_poison_memory_region");
+    bool result = !!dlsym(handle, "__asan_init") || !!dlsym(handle, "__tsan_init");
     dlclose(handle);
     return result;
 #else
@@ -99,20 +117,34 @@ static bool isASanEnabled()
 #endif
 }
 
-Environment::Environment()
-    : m_isBmallocEnabled(computeIsBmallocEnabled())
+#if BUSE(CHECK_NANO_MALLOC)
+static bool isNanoMallocEnabled()
+{
+    int result = !!malloc_engaged_nano();
+    return result;
+}
+#endif
+
+DEFINE_STATIC_PER_PROCESS_STORAGE(Environment);
+
+Environment::Environment(std::lock_guard<Mutex>&)
+    : m_isDebugHeapEnabled(computeIsDebugHeapEnabled())
 {
 }
 
-bool Environment::computeIsBmallocEnabled()
+bool Environment::computeIsDebugHeapEnabled()
 {
     if (isMallocEnvironmentVariableSet())
-        return false;
+        return true;
     if (isLibgmallocEnabled())
-        return false;
-    if (isASanEnabled())
-        return false;
-    return true;
+        return true;
+    if (isSanitizerEnabled())
+        return true;
+#if BUSE(CHECK_NANO_MALLOC)
+    if (!isNanoMallocEnabled() && !shouldProcessUnconditionallyUseBmalloc())
+        return true;
+#endif
+    return false;
 }
 
 } // namespace bmalloc

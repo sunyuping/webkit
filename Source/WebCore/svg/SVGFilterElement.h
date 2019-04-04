@@ -3,6 +3,7 @@
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
  * Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,61 +21,58 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGFilterElement_h
-#define SVGFilterElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedEnumeration.h"
-#include "SVGAnimatedInteger.h"
-#include "SVGAnimatedLength.h"
 #include "SVGElement.h"
 #include "SVGExternalResourcesRequired.h"
-#include "SVGNames.h"
 #include "SVGURIReference.h"
 #include "SVGUnitTypes.h"
 
 namespace WebCore {
 
-class SVGFilterElement final : public SVGElement,
-                               public SVGURIReference,
-                               public SVGExternalResourcesRequired {
+class SVGFilterElement final : public SVGElement, public SVGExternalResourcesRequired, public SVGURIReference {
+    WTF_MAKE_ISO_ALLOCATED(SVGFilterElement);
 public:
     static Ref<SVGFilterElement> create(const QualifiedName&, Document&);
 
-    void setFilterRes(unsigned filterResX, unsigned filterResY);
+    SVGUnitTypes::SVGUnitType filterUnits() const { return m_filterUnits->currentValue<SVGUnitTypes::SVGUnitType>(); }
+    SVGUnitTypes::SVGUnitType primitiveUnits() const { return m_primitiveUnits->currentValue<SVGUnitTypes::SVGUnitType>(); }
+    const SVGLengthValue& x() const { return m_x->currentValue(); }
+    const SVGLengthValue& y() const { return m_y->currentValue(); }
+    const SVGLengthValue& width() const { return m_width->currentValue(); }
+    const SVGLengthValue& height() const { return m_height->currentValue(); }
+
+    SVGAnimatedEnumeration& filterUnitsAnimated() { return m_filterUnits; }
+    SVGAnimatedEnumeration& primitiveUnitsAnimated() { return m_primitiveUnits; }
+    SVGAnimatedLength& xAnimated() { return m_x; }
+    SVGAnimatedLength& yAnimated() { return m_y; }
+    SVGAnimatedLength& widthAnimated() { return m_width; }
+    SVGAnimatedLength& heightAnimated() { return m_height; }
 
 private:
     SVGFilterElement(const QualifiedName&, Document&);
 
-    virtual bool needsPendingResourceHandling() const override { return false; }
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFilterElement, SVGElement, SVGExternalResourcesRequired, SVGURIReference>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    static bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-    virtual void childrenChanged(const ChildChange&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void svgAttributeChanged(const QualifiedName&) final;
+    void childrenChanged(const ChildChange&) final;
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual bool childShouldCreateRenderer(const Node&) const override;
+    bool needsPendingResourceHandling() const final { return false; }
 
-    virtual bool selfHasRelativeLengths() const override { return true; }
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    bool childShouldCreateRenderer(const Node&) const final;
 
-    static const AtomicString& filterResXIdentifier();
-    static const AtomicString& filterResYIdentifier();
+    bool selfHasRelativeLengths() const final { return true; }
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGFilterElement)
-        DECLARE_ANIMATED_ENUMERATION(FilterUnits, filterUnits, SVGUnitTypes::SVGUnitType)
-        DECLARE_ANIMATED_ENUMERATION(PrimitiveUnits, primitiveUnits, SVGUnitTypes::SVGUnitType)
-        DECLARE_ANIMATED_LENGTH(X, x)
-        DECLARE_ANIMATED_LENGTH(Y, y)
-        DECLARE_ANIMATED_LENGTH(Width, width)
-        DECLARE_ANIMATED_LENGTH(Height, height)
-        DECLARE_ANIMATED_INTEGER(FilterResX, filterResX)
-        DECLARE_ANIMATED_INTEGER(FilterResY, filterResY)
-        DECLARE_ANIMATED_STRING_OVERRIDE(Href, href)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-    END_DECLARE_ANIMATED_PROPERTIES
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedEnumeration> m_filterUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) };
+    Ref<SVGAnimatedEnumeration> m_primitiveUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_USERSPACEONUSE) };
+    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, LengthModeWidth, "-10%") };
+    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, LengthModeHeight, "-10%") };
+    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, LengthModeWidth, "120%") };
+    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, LengthModeHeight, "120%") };
 };
 
-}
-
-#endif
+} // namespace WebCore

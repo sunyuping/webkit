@@ -29,7 +29,6 @@
 #include "config.h"
 #include "InspectorCSSOMWrappers.h"
 
-#include "AuthorStyleSheets.h"
 #include "CSSDefaultStyleSheets.h"
 #include "CSSImportRule.h"
 #include "CSSMediaRule.h"
@@ -38,8 +37,8 @@
 #include "CSSStyleSheet.h"
 #include "CSSSupportsRule.h"
 #include "ExtensionStyleSheets.h"
+#include "StyleScope.h"
 #include "StyleSheetContents.h"
-#include "WebKitCSSRegionRule.h"
 
 namespace WebCore {
 
@@ -67,11 +66,6 @@ void InspectorCSSOMWrappers::collect(ListType* listType)
         case CSSRule::SUPPORTS_RULE:
             collect(downcast<CSSSupportsRule>(cssRule));
             break;
-#if ENABLE(CSS_REGIONS)
-        case CSSRule::WEBKIT_REGION_RULE:
-            collect(downcast<WebKitCSSRegionRule>(cssRule));
-            break;
-#endif
         case CSSRule::STYLE_RULE:
             m_styleRuleToCSSOMWrapperMap.add(&downcast<CSSStyleRule>(*cssRule).styleRule(), downcast<CSSStyleRule>(cssRule));
             break;
@@ -81,38 +75,63 @@ void InspectorCSSOMWrappers::collect(ListType* listType)
     }
 }
 
-void InspectorCSSOMWrappers::collectFromStyleSheetContents(HashSet<RefPtr<CSSStyleSheet>>& sheetWrapperSet, StyleSheetContents* styleSheet)
+void InspectorCSSOMWrappers::collectFromStyleSheetContents(StyleSheetContents* styleSheet)
 {
     if (!styleSheet)
         return;
-    RefPtr<CSSStyleSheet> styleSheetWrapper = CSSStyleSheet::create(*styleSheet);
-    sheetWrapperSet.add(styleSheetWrapper);
-    collect(styleSheetWrapper.get());
+    auto styleSheetWrapper = CSSStyleSheet::create(*styleSheet);
+    m_styleSheetCSSOMWrapperSet.add(styleSheetWrapper.copyRef());
+    collect(styleSheetWrapper.ptr());
 }
 
 void InspectorCSSOMWrappers::collectFromStyleSheets(const Vector<RefPtr<CSSStyleSheet>>& sheets)
 {
-    for (unsigned i = 0; i < sheets.size(); ++i)
-        collect(sheets[i].get());
+    for (auto& sheet : sheets)
+        collect(sheet.get());
 }
 
-CSSStyleRule* InspectorCSSOMWrappers::getWrapperForRuleInSheets(StyleRule* rule, AuthorStyleSheets& authorStyleSheets, ExtensionStyleSheets& extensionStyleSheets)
+void InspectorCSSOMWrappers::maybeCollectFromStyleSheets(const Vector<RefPtr<CSSStyleSheet>>& sheets)
+{
+    for (auto& sheet : sheets) {
+        if (!m_styleSheetCSSOMWrapperSet.contains(sheet.get())) {
+            m_styleSheetCSSOMWrapperSet.add(sheet);
+            collect(sheet.get());
+        }
+    }
+}
+
+void InspectorCSSOMWrappers::collectDocumentWrappers(ExtensionStyleSheets& extensionStyleSheets)
 {
     if (m_styleRuleToCSSOMWrapperMap.isEmpty()) {
-        collectFromStyleSheetContents(m_styleSheetCSSOMWrapperSet, CSSDefaultStyleSheets::simpleDefaultStyleSheet);
-        collectFromStyleSheetContents(m_styleSheetCSSOMWrapperSet, CSSDefaultStyleSheets::defaultStyleSheet);
-        collectFromStyleSheetContents(m_styleSheetCSSOMWrapperSet, CSSDefaultStyleSheets::quirksStyleSheet);
-        collectFromStyleSheetContents(m_styleSheetCSSOMWrapperSet, CSSDefaultStyleSheets::svgStyleSheet);
-        collectFromStyleSheetContents(m_styleSheetCSSOMWrapperSet, CSSDefaultStyleSheets::mathMLStyleSheet);
-        collectFromStyleSheetContents(m_styleSheetCSSOMWrapperSet, CSSDefaultStyleSheets::mediaControlsStyleSheet);
-        collectFromStyleSheetContents(m_styleSheetCSSOMWrapperSet, CSSDefaultStyleSheets::fullscreenStyleSheet);
-        collectFromStyleSheetContents(m_styleSheetCSSOMWrapperSet, CSSDefaultStyleSheets::plugInsStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::simpleDefaultStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::defaultStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::quirksStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::svgStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::mathMLStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::mediaControlsStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::fullscreenStyleSheet);
+#if ENABLE(DATALIST_ELEMENT)
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::dataListStyleSheet);
+#endif
+#if ENABLE(INPUT_TYPE_COLOR)
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::colorInputStyleSheet);
+#endif
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::plugInsStyleSheet);
+        collectFromStyleSheetContents(CSSDefaultStyleSheets::mediaQueryStyleSheet);
 
-        collectFromStyleSheets(authorStyleSheets.activeStyleSheets());
         collect(extensionStyleSheets.pageUserSheet());
         collectFromStyleSheets(extensionStyleSheets.injectedUserStyleSheets());
         collectFromStyleSheets(extensionStyleSheets.documentUserStyleSheets());
     }
+}
+
+void InspectorCSSOMWrappers::collectScopeWrappers(Style::Scope& styleScope)
+{
+    maybeCollectFromStyleSheets(styleScope.activeStyleSheets());
+}
+
+CSSStyleRule* InspectorCSSOMWrappers::getWrapperForRuleInSheets(StyleRule* rule)
+{
     return m_styleRuleToCSSOMWrapperMap.get(rule);
 }
 

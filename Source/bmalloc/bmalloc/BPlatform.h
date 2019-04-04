@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,21 +23,18 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef BPlatform_h
-#define BPlatform_h
+#pragma once
+
+#include "BCompiler.h"
 
 #ifdef __APPLE__
+#include <Availability.h>
+#include <AvailabilityMacros.h>
 #include <TargetConditionals.h>
 #endif
 
 #define BPLATFORM(PLATFORM) (defined BPLATFORM_##PLATFORM && BPLATFORM_##PLATFORM)
 #define BOS(OS) (defined BOS_##OS && BOS_##OS)
-
-#if ((defined(TARGET_OS_EMBEDDED) && TARGET_OS_EMBEDDED) \
-    || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) \
-    || (defined(TARGET_IPHONE_SIMULATOR) && TARGET_IPHONE_SIMULATOR))
-#define BPLATFORM_IOS 1
-#endif
 
 #ifdef __APPLE__
 #define BOS_DARWIN 1
@@ -46,6 +43,57 @@
 #ifdef __unix
 #define BOS_UNIX 1
 #endif
+
+#ifdef __linux__
+#define BOS_LINUX 1
+#endif
+
+#if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__FreeBSD_kernel__)
+#define BOS_FREEBSD 1
+#endif
+
+#if defined(WIN32) || defined(_WIN32)
+#define BOS_WINDOWS 1
+#endif
+
+#if BOS(DARWIN) && !defined(BUILDING_WITH_CMAKE)
+#if TARGET_OS_IOS
+#define BPLATFORM_IOS 1
+#if TARGET_OS_SIMULATOR
+#define BPLATFORM_IOS_SIMULATOR 1
+#endif
+#endif
+#if TARGET_OS_IPHONE
+#define BPLATFORM_IOS_FAMILY 1
+#if TARGET_OS_SIMULATOR
+#define BPLATFORM_IOS_FAMILY_SIMULATOR 1
+#endif
+#elif TARGET_OS_MAC
+#define BPLATFORM_MAC 1
+#endif
+#endif
+
+#if BPLATFORM(MAC) || BPLATFORM(IOS_FAMILY)
+#define BPLATFORM_COCOA 1
+#endif
+
+#if defined(TARGET_OS_WATCH) && TARGET_OS_WATCH
+#define BPLATFORM_WATCHOS 1
+#endif
+
+#if defined(TARGET_OS_TV) && TARGET_OS_TV
+#define BPLATFORM_APPLETV 1
+#endif
+
+/* ==== Policy decision macros: these define policy choices for a particular port. ==== */
+
+/* BUSE() - use a particular third-party library or optional OS service */
+#define BUSE(FEATURE) (defined BUSE_##FEATURE && BUSE_##FEATURE)
+
+/* ==== Compiler adaptation macros: these describe the capabilities of the compiler. ==== */
+
+/* BCOMPILER_SUPPORTS() - check for a compiler feature */
+#define BCOMPILER_SUPPORTS(FEATURE) (defined BCOMPILER_SUPPORTS_##FEATURE && BCOMPILER_SUPPORTS_##FEATURE)
 
 /* ==== Platform adaptation macros: these describe properties of the target environment. ==== */
 
@@ -112,7 +160,8 @@
 || defined(__ARM_ARCH_7S__)
 #define BARM_ARCH_VERSION 7
 
-#elif defined(__ARM_ARCH_8__)
+#elif defined(__ARM_ARCH_8__) \
+|| defined(__ARM_ARCH_8A__)
 #define BARM_ARCH_VERSION 8
 
 /* MSVC sets _M_ARM */
@@ -181,4 +230,27 @@
 
 #endif /* ARM */
 
-#endif // BPlatform_h
+#define BATTRIBUTE_PRINTF(formatStringArgument, extraArguments) __attribute__((__format__(printf, formatStringArgument, extraArguments)))
+
+#if BPLATFORM(MAC) || BPLATFORM(IOS_FAMILY)
+#define BUSE_OS_LOG 1
+#endif
+
+#if !defined(BUSE_EXPORT_MACROS) && (BPLATFORM(MAC) || BPLATFORM(IOS_FAMILY))
+#define BUSE_EXPORT_MACROS 1
+#endif
+
+/* BUNUSED_PARAM */
+#if !defined(BUNUSED_PARAM)
+#define BUNUSED_PARAM(variable) (void)variable
+#endif
+
+/* This is used for debugging when hacking on how bmalloc calculates its physical footprint. */
+#define ENABLE_PHYSICAL_PAGE_MAP 0
+
+#if BPLATFORM(IOS_FAMILY) && (BCPU(ARM64) || BCPU(ARM))
+#define BUSE_CHECK_NANO_MALLOC 1
+#else
+#define BUSE_CHECK_NANO_MALLOC 0
+#endif
+

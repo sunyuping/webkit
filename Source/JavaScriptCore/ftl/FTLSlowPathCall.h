@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,19 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef FTLSlowPathCall_h
-#define FTLSlowPathCall_h
+#pragma once
 
 #if ENABLE(FTL_JIT)
 
 #include "CCallHelpers.h"
 #include "FTLSlowPathCallKey.h"
-#include "JITOperations.h"
-#include "StructureStubInfo.h"
+#include "FTLState.h"
 
 namespace JSC { namespace FTL {
-
-class State;
 
 class SlowPathCall {
 public:
@@ -63,10 +59,10 @@ public:
 
     // NOTE: The call that this returns is already going to be linked by the JIT using addLinkTask(),
     // so there is no need for you to link it yourself.
-    SlowPathCall makeCall(void* callTarget);
+    SlowPathCall makeCall(VM&, FunctionPtr<CFunctionPtrTag> callTarget);
 
 private:
-    SlowPathCallKey keyWithTarget(void* callTarget) const;
+    SlowPathCallKey keyWithTarget(FunctionPtr<CFunctionPtrTag> callTarget) const;
     
     RegisterSet m_argumentRegisters;
     RegisterSet m_callingConventionRegisters;
@@ -81,32 +77,32 @@ private:
 
 template<typename... ArgumentTypes>
 SlowPathCall callOperation(
-    const RegisterSet& usedRegisters, CCallHelpers& jit, CCallHelpers::JumpList* exceptionTarget,
-    FunctionPtr function, GPRReg resultGPR, ArgumentTypes... arguments)
+    VM& vm, const RegisterSet& usedRegisters, CCallHelpers& jit, CCallHelpers::JumpList* exceptionTarget,
+    FunctionPtr<CFunctionPtrTag> function, GPRReg resultGPR, ArgumentTypes... arguments)
 {
     SlowPathCall call;
     {
         SlowPathCallContext context(usedRegisters, jit, sizeof...(ArgumentTypes) + 1, resultGPR);
-        jit.setupArgumentsWithExecState(arguments...);
-        call = context.makeCall(function.value());
+        jit.setupArguments<void(ExecState*, ArgumentTypes...)>(arguments...);
+        call = context.makeCall(vm, function);
     }
     if (exceptionTarget)
-        exceptionTarget->append(jit.emitExceptionCheck());
+        exceptionTarget->append(jit.emitExceptionCheck(vm));
     return call;
 }
 
 template<typename... ArgumentTypes>
 SlowPathCall callOperation(
-    const RegisterSet& usedRegisters, CCallHelpers& jit, CallSiteIndex callSiteIndex,
-    CCallHelpers::JumpList* exceptionTarget, FunctionPtr function, GPRReg resultGPR,
+    VM& vm, const RegisterSet& usedRegisters, CCallHelpers& jit, CallSiteIndex callSiteIndex,
+    CCallHelpers::JumpList* exceptionTarget, FunctionPtr<CFunctionPtrTag> function, GPRReg resultGPR,
     ArgumentTypes... arguments)
 {
     if (callSiteIndex) {
         jit.store32(
             CCallHelpers::TrustedImm32(callSiteIndex.bits()),
-            CCallHelpers::tagFor(JSStack::ArgumentCount));
+            CCallHelpers::tagFor(CallFrameSlot::argumentCount));
     }
-    return callOperation(usedRegisters, jit, exceptionTarget, function, resultGPR, arguments...);
+    return callOperation(vm, usedRegisters, jit, exceptionTarget, function, resultGPR, arguments...);
 }
 
 CallSiteIndex callSiteIndexForCodeOrigin(State&, CodeOrigin);
@@ -114,16 +110,13 @@ CallSiteIndex callSiteIndexForCodeOrigin(State&, CodeOrigin);
 template<typename... ArgumentTypes>
 SlowPathCall callOperation(
     State& state, const RegisterSet& usedRegisters, CCallHelpers& jit, CodeOrigin codeOrigin,
-    CCallHelpers::JumpList* exceptionTarget, FunctionPtr function, GPRReg result, ArgumentTypes... arguments)
+    CCallHelpers::JumpList* exceptionTarget, FunctionPtr<CFunctionPtrTag> function, GPRReg result, ArgumentTypes... arguments)
 {
     return callOperation(
-        usedRegisters, jit, callSiteIndexForCodeOrigin(state, codeOrigin), exceptionTarget, function,
+        state.vm(), usedRegisters, jit, callSiteIndexForCodeOrigin(state, codeOrigin), exceptionTarget, function,
         result, arguments...);
 }
 
 } } // namespace JSC::FTL
 
 #endif // ENABLE(FTL_JIT)
-
-#endif // FTLSlowPathCall_h
-

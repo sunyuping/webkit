@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004, 2005, 2006, 2007, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2004, 2005, 2006, 2007, 2010, 2016 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,61 +21,60 @@
  *
  */
 
-#ifndef HTMLButtonElement_h
-#define HTMLButtonElement_h
+#pragma once
 
 #include "HTMLFormControlElement.h"
 
 namespace WebCore {
 
+class RenderButton;
+
 class HTMLButtonElement final : public HTMLFormControlElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLButtonElement);
 public:
     static Ref<HTMLButtonElement> create(const QualifiedName&, Document&, HTMLFormElement*);
 
-    void setType(const AtomicString&);
+    WEBCORE_EXPORT void setType(const AtomicString&);
     
     const AtomicString& value() const;
 
-    virtual bool willRespondToMouseClickEvents() override;
+    bool willRespondToMouseClickEvents() final;
+
+    RenderButton* renderer() const;
 
 private:
     HTMLButtonElement(const QualifiedName& tagName, Document&, HTMLFormElement*);
 
     enum Type { SUBMIT, RESET, BUTTON };
 
-    virtual const AtomicString& formControlType() const override;
+    const AtomicString& formControlType() const final;
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
 
-    // HTMLFormControlElement always creates one, but buttons don't need it.
-    virtual bool alwaysCreateUserAgentShadowRoot() const override { return false; }
-    virtual bool canHaveUserAgentShadowRoot() const override final { return true; }
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    bool isPresentationAttribute(const QualifiedName&) const final;
+    void defaultEventHandler(Event&) final;
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void defaultEventHandler(Event*) override;
+    bool appendFormData(DOMFormData&, bool) final;
 
-    virtual bool appendFormData(FormDataList&, bool) override;
+    bool isEnumeratable() const final { return true; }
+    bool supportLabels() const final { return true; }
 
-    virtual bool isEnumeratable() const override { return true; }
-    virtual bool supportLabels() const override { return true; }
+    bool isSuccessfulSubmitButton() const final;
+    bool matchesDefaultPseudoClass() const final;
+    bool isActivatedSubmit() const final;
+    void setActivatedSubmit(bool flag) final;
 
-    virtual bool isSuccessfulSubmitButton() const override;
-    virtual bool isActivatedSubmit() const override;
-    virtual void setActivatedSubmit(bool flag) override;
+    void accessKeyAction(bool sendMouseEvents) final;
+    bool isURLAttribute(const Attribute&) const final;
 
-    virtual void accessKeyAction(bool sendMouseEvents) override;
-    virtual bool isURLAttribute(const Attribute&) const override;
+    bool canStartSelection() const final { return false; }
 
-    virtual bool canStartSelection() const override { return false; }
-
-    virtual bool isOptionalFormControl() const override { return true; }
-    virtual bool computeWillValidate() const override;
+    bool isOptionalFormControl() const final { return true; }
+    bool computeWillValidate() const final;
 
     Type m_type;
     bool m_isActivatedSubmit;
 };
 
 } // namespace
-
-#endif

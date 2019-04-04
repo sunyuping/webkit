@@ -28,12 +28,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WorkerNavigatorStorageQuota_h
-#define WorkerNavigatorStorageQuota_h
+#pragma once
 
 #if ENABLE(QUOTA)
 
-#include "DOMWindowProperty.h"
 #include "Supplementable.h"
 #include "WorkerNavigator.h"
 
@@ -43,6 +41,7 @@ class StorageQuota;
 class WorkerNavigator;
 
 class WorkerNavigatorStorageQuota : public Supplement<WorkerNavigator> {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit WorkerNavigatorStorageQuota();
     virtual ~WorkerNavigatorStorageQuota();
@@ -63,5 +62,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(QUOTA)
-
-#endif // WorkerNavigatorStorageQuota_h

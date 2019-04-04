@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -17,96 +18,43 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGViewSpec_h
-#define SVGViewSpec_h
+#pragma once
 
-#include "SVGAnimatedPreserveAspectRatio.h"
-#include "SVGAnimatedRect.h"
 #include "SVGFitToViewBox.h"
-#include "SVGTransformList.h"
 #include "SVGZoomAndPan.h"
 
 namespace WebCore {
 
 class SVGElement;
-class SVGTransformListPropertyTearOff;
+class SVGTransformList;
 
-class SVGViewSpec : public RefCounted<SVGViewSpec>
-                  , public SVGZoomAndPan
-                  , public SVGFitToViewBox {
+class SVGViewSpec final : public RefCounted<SVGViewSpec>, public SVGFitToViewBox, public SVGZoomAndPan {
 public:
-    virtual ~SVGViewSpec() { }
-
-    using RefCounted<SVGViewSpec>::ref;
-    using RefCounted<SVGViewSpec>::deref;
-
-    static Ref<SVGViewSpec> create(SVGElement* contextElement)
+    static Ref<SVGViewSpec> create(SVGElement& contextElement)
     {
         return adoptRef(*new SVGViewSpec(contextElement));
     }
 
     bool parseViewSpec(const String&);
     void reset();
-
-    SVGElement* viewTarget() const;
-    String viewBoxString() const;
-
-    String preserveAspectRatioString() const;
-
-    void setTransformString(const String&);
-    String transformString() const;
-
-    void setViewTargetString(const String& string) { m_viewTargetString = string; }
-    String viewTargetString() const { return m_viewTargetString; }
-
-    SVGZoomAndPanType zoomAndPan() const { return m_zoomAndPan; }
-    void setZoomAndPan(unsigned short zoomAndPan) { setZoomAndPanBaseValue(zoomAndPan); }
-    void setZoomAndPan(unsigned short, ExceptionCode&);
-    void setZoomAndPanBaseValue(unsigned short zoomAndPan) { m_zoomAndPan = SVGZoomAndPan::parseFromNumber(zoomAndPan); }
-
-    SVGElement* contextElement() const { return m_contextElement; }
     void resetContextElement() { m_contextElement = nullptr; }
 
-    // Custom non-animated 'transform' property.
-    RefPtr<SVGTransformListPropertyTearOff> transform();
-    SVGTransformList transformBaseValue() const { return m_transform; }
+    SVGElement* viewTarget() const;
+    const String& viewTargetString() const { return m_viewTargetString; }
 
-    // Custom animated 'viewBox' property.
-    RefPtr<SVGAnimatedRect> viewBoxAnimated();
-    FloatRect& viewBox() { return m_viewBox; }
-    FloatRect viewBoxBaseValue() const { return m_viewBox; }
-    void setViewBoxBaseValue(const FloatRect& viewBox) { m_viewBox = viewBox; }
+    String transformString() const { return m_transform->valueAsString(); }
+    Ref<SVGTransformList>& transform() { return m_transform; }
 
-    // Custom animated 'preserveAspectRatio' property.
-    RefPtr<SVGAnimatedPreserveAspectRatio> preserveAspectRatioAnimated();
-    SVGPreserveAspectRatio& preserveAspectRatio() { return m_preserveAspectRatio; }
-    SVGPreserveAspectRatio preserveAspectRatioBaseValue() const { return m_preserveAspectRatio; }
-    void setPreserveAspectRatioBaseValue(const SVGPreserveAspectRatio& preserveAspectRatio) { m_preserveAspectRatio = preserveAspectRatio; }
+    const WeakPtr<SVGElement>& contextElementConcurrently() const { return m_contextElement; }
 
 private:
-    SVGViewSpec(SVGElement*);
+    explicit SVGViewSpec(SVGElement&);
 
-    static const SVGPropertyInfo* transformPropertyInfo();
-    static const SVGPropertyInfo* viewBoxPropertyInfo();
-    static const SVGPropertyInfo* preserveAspectRatioPropertyInfo();
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGViewSpec, SVGFitToViewBox>;
 
-    static const AtomicString& transformIdentifier();
-    static const AtomicString& viewBoxIdentifier();
-    static const AtomicString& preserveAspectRatioIdentifier();
-
-    static Ref<SVGAnimatedProperty> lookupOrCreateTransformWrapper(SVGViewSpec* contextElement);
-    static Ref<SVGAnimatedProperty> lookupOrCreateViewBoxWrapper(SVGViewSpec* contextElement);
-    static Ref<SVGAnimatedProperty> lookupOrCreatePreserveAspectRatioWrapper(SVGViewSpec* contextElement);
-
-    SVGElement* m_contextElement;
-    SVGZoomAndPanType m_zoomAndPan;
-
-    SVGTransformList m_transform;
-    FloatRect m_viewBox;
-    SVGPreserveAspectRatio m_preserveAspectRatio;
+    WeakPtr<SVGElement> m_contextElement;
     String m_viewTargetString;
+    Ref<SVGTransformList> m_transform;
 };
 
 } // namespace WebCore
-
-#endif

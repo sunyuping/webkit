@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2003, 2007, 2008 Apple Inc. All Rights Reserved.
+ *  Copyright (C) 2003, 2007-2008, 2016 Apple Inc. All Rights Reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -18,22 +18,21 @@
  *
  */
 
-#ifndef RegExpPrototype_h
-#define RegExpPrototype_h
+#pragma once
 
-#include "RegExpObject.h"
 #include "JSObject.h"
+#include "RegExp.h"
 
 namespace JSC {
 
-class RegExpPrototype : public RegExpObject {
+class RegExpPrototype final : public JSNonFinalObject {
 public:
-    typedef RegExpObject Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot;
+    typedef JSNonFinalObject Base;
+    static const unsigned StructureFlags = Base::StructureFlags;
 
-    static RegExpPrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure, RegExp* regExp)
+    static RegExpPrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
     {
-        RegExpPrototype* prototype = new (NotNull, allocateCell<RegExpPrototype>(vm.heap)) RegExpPrototype(vm, structure, regExp);
+        RegExpPrototype* prototype = new (NotNull, allocateCell<RegExpPrototype>(vm.heap)) RegExpPrototype(vm, structure);
         prototype->finishCreation(vm, globalObject);
         return prototype;
     }
@@ -46,13 +45,15 @@ public:
     }
 
 protected:
-    RegExpPrototype(VM&, Structure*, RegExp*);
+    RegExpPrototype(VM&, Structure*);
 
 private:
     void finishCreation(VM&, JSGlobalObject*);
-    static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
 };
 
-} // namespace JSC
+EncodedJSValue JSC_HOST_CALL regExpProtoFuncMatchFast(ExecState*);
+EncodedJSValue JSC_HOST_CALL regExpProtoFuncSearchFast(ExecState*);
+EncodedJSValue JSC_HOST_CALL regExpProtoFuncSplitFast(ExecState*);
+EncodedJSValue JSC_HOST_CALL regExpProtoFuncTestFast(ExecState*);
 
-#endif // RegExpPrototype_h
+} // namespace JSC

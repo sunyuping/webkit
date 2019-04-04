@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006, 2007 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,15 +19,8 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGPatternElement_h
-#define SVGPatternElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedEnumeration.h"
-#include "SVGAnimatedLength.h"
-#include "SVGAnimatedPreserveAspectRatio.h"
-#include "SVGAnimatedRect.h"
-#include "SVGAnimatedTransformList.h"
 #include "SVGElement.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGFitToViewBox.h"
@@ -39,53 +33,55 @@ namespace WebCore {
 
 struct PatternAttributes;
  
-class SVGPatternElement final : public SVGElement,
-                                public SVGURIReference,
-                                public SVGTests,
-                                public SVGExternalResourcesRequired,
-                                public SVGFitToViewBox {
+class SVGPatternElement final : public SVGElement, public SVGExternalResourcesRequired, public SVGFitToViewBox, public SVGTests, public SVGURIReference {
+    WTF_MAKE_ISO_ALLOCATED(SVGPatternElement);
 public:
     static Ref<SVGPatternElement> create(const QualifiedName&, Document&);
 
     void collectPatternAttributes(PatternAttributes&) const;
 
-    virtual AffineTransform localCoordinateSpaceTransform(SVGLocatable::CTMScope) const override;
+    AffineTransform localCoordinateSpaceTransform(SVGLocatable::CTMScope) const final;
+
+    const SVGLengthValue& x() const { return m_x->currentValue(); }
+    const SVGLengthValue& y() const { return m_y->currentValue(); }
+    const SVGLengthValue& width() const { return m_width->currentValue(); }
+    const SVGLengthValue& height() const { return m_height->currentValue(); }
+    SVGUnitTypes::SVGUnitType patternUnits() const { return m_patternUnits->currentValue<SVGUnitTypes::SVGUnitType>(); }
+    SVGUnitTypes::SVGUnitType patternContentUnits() const { return m_patternContentUnits->currentValue<SVGUnitTypes::SVGUnitType>(); }
+    const SVGTransformList& patternTransform() const { return m_patternTransform->currentValue(); }
+
+    SVGAnimatedLength& xAnimated() { return m_x; }
+    SVGAnimatedLength& yAnimated() { return m_y; }
+    SVGAnimatedLength& widthAnimated() { return m_width; }
+    SVGAnimatedLength& heightAnimated() { return m_height; }
+    SVGAnimatedEnumeration& patternUnitsAnimated() { return m_patternUnits; }
+    SVGAnimatedEnumeration& patternContentUnitsAnimated() { return m_patternContentUnits; }
+    SVGAnimatedTransformList& patternTransformAnimated() { return m_patternTransform; }
 
 private:
     SVGPatternElement(const QualifiedName&, Document&);
-    
-    virtual bool isValid() const override { return SVGTests::isValid(); }
-    virtual bool needsPendingResourceHandling() const override { return false; }
 
-    static bool isSupportedAttribute(const QualifiedName&);
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-    virtual void childrenChanged(const ChildChange&) override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGPatternElement, SVGElement, SVGExternalResourcesRequired, SVGFitToViewBox, SVGTests, SVGURIReference>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void svgAttributeChanged(const QualifiedName&) final;
+    void childrenChanged(const ChildChange&) final;
 
-    virtual bool selfHasRelativeLengths() const override { return true; }
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGPatternElement)
-        DECLARE_ANIMATED_LENGTH(X, x)
-        DECLARE_ANIMATED_LENGTH(Y, y)
-        DECLARE_ANIMATED_LENGTH(Width, width)
-        DECLARE_ANIMATED_LENGTH(Height, height)
-        DECLARE_ANIMATED_ENUMERATION(PatternUnits, patternUnits, SVGUnitTypes::SVGUnitType)
-        DECLARE_ANIMATED_ENUMERATION(PatternContentUnits, patternContentUnits, SVGUnitTypes::SVGUnitType)
-        DECLARE_ANIMATED_TRANSFORM_LIST(PatternTransform, patternTransform)
-        DECLARE_ANIMATED_STRING_OVERRIDE(Href, href)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-        DECLARE_ANIMATED_RECT(ViewBox, viewBox)
-        DECLARE_ANIMATED_PRESERVEASPECTRATIO(PreserveAspectRatio, preserveAspectRatio) 
-    END_DECLARE_ANIMATED_PROPERTIES
+    bool isValid() const final { return SVGTests::isValid(); }
+    bool needsPendingResourceHandling() const final { return false; }
+    bool selfHasRelativeLengths() const final { return true; }
 
-    // SVGTests
-    virtual void synchronizeRequiredFeatures() override { SVGTests::synchronizeRequiredFeatures(this); }
-    virtual void synchronizeRequiredExtensions() override { SVGTests::synchronizeRequiredExtensions(this); }
-    virtual void synchronizeSystemLanguage() override { SVGTests::synchronizeSystemLanguage(this); }
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, LengthModeHeight) };
+    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, LengthModeWidth) };
+    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, LengthModeHeight) };
+    Ref<SVGAnimatedEnumeration> m_patternUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) };
+    Ref<SVGAnimatedEnumeration> m_patternContentUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_USERSPACEONUSE) };
+    Ref<SVGAnimatedTransformList> m_patternTransform { SVGAnimatedTransformList::create(this) };
 };
 
 } // namespace WebCore
-
-#endif

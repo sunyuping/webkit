@@ -1,4 +1,5 @@
 # Copyright (C) 2010 Google Inc. All rights reserved.
+# Copyright (C) 2011-2019 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -48,28 +49,35 @@ class LeakDetector(object):
     # This allows us ignore known leaks and only be alerted when new leaks occur. Some leaks are in the old
     # versions of the system frameworks that are being used by the leaks bots. Even though a leak has been
     # fixed, it will be listed here until the bot has been updated with the newer frameworks.
-    def _types_to_exlude_from_leaks(self):
+    def _types_to_exclude_from_leaks(self):
         # Currently we don't have any type excludes from OS leaks, but we will likely again in the future.
         return []
 
     def _callstacks_to_exclude_from_leaks(self):
-        callstacks = []
-        if self._port.operating_system == 'mac' and self._port.is_mavericks():
-            callstacks += [
-                'AVAssetResourceLoader _poseAuthenticationChallengeWithKey:data:requestDictionary:fallbackHandler:',  # <rdar://problem/19699887> leak in AVFoundation
-            ]
+        callstacks = [
+            'WTF::BitVector::OutOfLineBits::create', # https://bugs.webkit.org/show_bug.cgi?id=121662
+            'WTF::BitVector::resizeOutOfLine', # https://bugs.webkit.org/show_bug.cgi?id=121662
+            'WebCore::createPrivateStorageSession', # <rdar://problem/35189565>
+            'CIDeviceManagerStartMonitoring', # <rdar://problem/35711052>
+            'NSSpellChecker init', # <rdar://problem/35434615>
+            'NSColor controlHighlightColor', # <rdar://problem/35816332>
+        ]
         return callstacks
 
-    def _leaks_args(self, pid):
+    def _leaks_args(self, process_name, process_pid):
         leaks_args = []
         for callstack in self._callstacks_to_exclude_from_leaks():
             leaks_args += ['--exclude-callstack=%s' % callstack]
-        for excluded_type in self._types_to_exlude_from_leaks():
+        for excluded_type in self._types_to_exclude_from_leaks():
             leaks_args += ['--exclude-type=%s' % excluded_type]
-        leaks_args.append(pid)
+        leaks_args += ['--output-file=%s' % self._filesystem.join(self._port.results_directory(), self.leaks_file_name(process_name, process_pid))]
+        leaks_args += ['--memgraph-file=%s' % self._filesystem.join(self._port.results_directory(), self.memgraph_file_name(process_name, process_pid))]
+        leaks_args.append(process_pid)
         return leaks_args
 
     def _parse_leaks_output(self, leaks_output):
+        if not leaks_output:
+            return 0, 0, 0
         _, count, bytes = re.search(r'Process (?P<pid>\d+): (?P<count>\d+) leaks? for (?P<bytes>\d+) total', leaks_output).groups()
         excluded_match = re.search(r'(?P<excluded>\d+) leaks? excluded', leaks_output)
         excluded = excluded_match.group('excluded') if excluded_match else 0
@@ -79,8 +87,10 @@ class LeakDetector(object):
         return self._filesystem.glob(self._filesystem.join(directory, "*-leaks.txt"))
 
     def leaks_file_name(self, process_name, process_pid):
-        # We include the number of files this worker has already written in the name to prevent overwritting previous leak results..
         return "%s-%s-leaks.txt" % (process_name, process_pid)
+
+    def memgraph_file_name(self, process_name, process_pid):
+        return "%s-%s.memgraph" % (process_name, process_pid)
 
     def count_total_bytes_and_unique_leaks(self, leak_files):
         merge_depth = 5  # ORWT had a --merge-leak-depth argument, but that seems out of scope for the run-webkit-tests tool.
@@ -90,7 +100,7 @@ class LeakDetector(object):
         ] + leak_files
         try:
             parse_malloc_history_output = self._port._run_script("parse-malloc-history", args, include_configuration_arguments=False)
-        except ScriptError, e:
+        except ScriptError as e:
             _log.warn("Failed to parse leaks output: %s" % e.message_with_output())
             return
 
@@ -109,14 +119,17 @@ class LeakDetector(object):
             total_leaks += count
         return total_leaks
 
-    def check_for_leaks(self, process_name, process_pid):
+    def check_for_leaks(self, process_name, process_id):
         _log.debug("Checking for leaks in %s" % process_name)
         try:
+            leaks_filename = self.leaks_file_name(process_name, process_id)
+            leaks_output_path = self._filesystem.join(self._port.results_directory(), leaks_filename)
             # Oddly enough, run-leaks (or the underlying leaks tool) does not seem to always output utf-8,
             # thus we pass decode_output=False.  Without this code we've seen errors like:
             # "UnicodeDecodeError: 'utf8' codec can't decode byte 0x88 in position 779874: unexpected code byte"
-            leaks_output = self._port._run_script("run-leaks", self._leaks_args(process_pid), include_configuration_arguments=False, decode_output=False)
-        except ScriptError, e:
+            self._port._run_script("run-leaks", self._leaks_args(process_name, process_id), include_configuration_arguments=False, decode_output=False)
+            leaks_output = self._filesystem.read_binary_file(leaks_output_path)
+        except ScriptError as e:
             _log.warn("Failed to run leaks tool: %s" % e.message_with_output())
             return
 
@@ -124,11 +137,8 @@ class LeakDetector(object):
         count, excluded, bytes = self._parse_leaks_output(leaks_output)
         adjusted_count = count - excluded
         if not adjusted_count:
+            self._filesystem.remove(leaks_output_path)
             return
-
-        leaks_filename = self.leaks_file_name(process_name, process_pid)
-        leaks_output_path = self._filesystem.join(self._port.results_directory(), leaks_filename)
-        self._filesystem.write_binary_file(leaks_output_path, leaks_output)
 
         # FIXME: Ideally we would not be logging from the worker process, but rather pass the leak
         # information back to the manager and have it log.

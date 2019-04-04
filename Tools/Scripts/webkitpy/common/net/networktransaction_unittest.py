@@ -3,7 +3,7 @@
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
 # met:
-# 
+#
 #     * Redistributions of source code must retain the above copyright
 # notice, this list of conditions and the following disclaimer.
 #     * Redistributions in binary form must reproduce the above
@@ -13,7 +13,7 @@
 #     * Neither the name of Google Inc. nor the names of its
 # contributors may be used to endorse or promote products derived from
 # this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -49,7 +49,7 @@ class NetworkTransactionTest(LoggingTestCase):
         try:
             transaction.run(lambda: self._raise_exception())
             did_throw_exception = False
-        except Exception, e:
+        except Exception as e:
             did_process_exception = True
             self.assertEqual(e, self.exception)
         self.assertTrue(did_throw_exception)
@@ -62,11 +62,18 @@ class NetworkTransactionTest(LoggingTestCase):
             raise HTTPError("http://example.com/", 500, "internal server error", None, None)
         return 42
 
+    def _raise_URLError(self):
+        self._run_count += 1
+        if self._run_count < 3:
+            from webkitpy.thirdparty.autoinstalled.mechanize import URLError
+            raise URLError("[Errno 60] Operation timed out")
+        return 43
+
     def _raise_404_error(self):
         from webkitpy.thirdparty.autoinstalled.mechanize import HTTPError
         raise HTTPError("http://foo.com/", 404, "not found", None, None)
 
-    def test_retry(self):
+    def test_retry_on_HTTPError(self):
         self._run_count = 0
         transaction = NetworkTransaction(initial_backoff_seconds=0)
         self.assertEqual(transaction.run(lambda: self._raise_500_error()), 42)
@@ -76,19 +83,30 @@ class NetworkTransactionTest(LoggingTestCase):
                         'WARNING: Received HTTP status 500 loading "http://example.com/".  '
                         'Retrying in 0.0 seconds...\n'])
 
+    def test_retry_on_URLError(self):
+        self._run_count = 0
+        url = "http://example.com/"
+        transaction = NetworkTransaction(initial_backoff_seconds=0)
+        self.assertEqual(transaction.run(lambda: self._raise_URLError(), url), 43)
+        self.assertEqual(self._run_count, 3)
+        self.assertLog(['WARNING: Received URLError: "[Errno 60] Operation timed out" while loading http://example.com/. '
+                        'Retrying in 0 seconds...\n',
+                        'WARNING: Received URLError: "[Errno 60] Operation timed out" while loading http://example.com/. '
+                        'Retrying in 0.0 seconds...\n'])
+
     def test_convert_404_to_None(self):
         transaction = NetworkTransaction(convert_404_to_None=True)
         self.assertEqual(transaction.run(lambda: self._raise_404_error()), None)
 
     def test_timeout(self):
         self._run_count = 0
-        transaction = NetworkTransaction(initial_backoff_seconds=60*60, timeout_seconds=60)
+        transaction = NetworkTransaction(initial_backoff_seconds=60 * 60, timeout_seconds=60)
         did_process_exception = False
         did_throw_exception = True
         try:
             transaction.run(lambda: self._raise_500_error())
             did_throw_exception = False
-        except NetworkTimeout, e:
+        except NetworkTimeout as e:
             did_process_exception = True
         self.assertTrue(did_throw_exception)
         self.assertTrue(did_process_exception)

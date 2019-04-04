@@ -32,9 +32,9 @@ function of(/* items... */)
 {
     "use strict";
     let len = arguments.length;
-    let constructFunction = this.@allocateTypedArray;
+    let constructFunction = @getByIdDirectPrivate(this, "allocateTypedArray");
     if (constructFunction === @undefined)
-        throw new @TypeError("TypedArray.from requires its this argument to subclass a TypedArray constructor");
+        @throwTypeError("TypedArray.of requires its this argument to subclass a TypedArray constructor");
 
     let result = constructFunction(len);
 
@@ -48,25 +48,23 @@ function from(items /* [ , mapfn [ , thisArg ] ] */)
 {
     "use strict";
 
-    let mapFn = arguments[1];
+    let mapFn = @argument(1);
 
     let thisArg;
 
     if (mapFn !== @undefined) {
         if (typeof mapFn !== "function")
-            throw new @TypeError("TypedArray.from requires that the second argument, when provided, be a function");
+            @throwTypeError("TypedArray.from requires that the second argument, when provided, be a function");
 
-        if (arguments.length > 2)
-            thisArg = arguments[2];
+        thisArg = @argument(2);
     }
 
-    if (items == null)
-        throw new @TypeError("TypedArray.from requires an array-like object - not null or undefined");
+    let arrayLike = @toObject(items, "TypedArray.from requires an array-like object - not null or undefined");
 
-    let iteratorMethod = items[@symbolIterator];
+    let iteratorMethod = items.@iteratorSymbol;
     if (iteratorMethod != null) {
         if (typeof iteratorMethod !== "function")
-            throw new @TypeError("TypedArray.from requires that the property of the first argument, items[Symbol.iterator], when exists, be a function");
+            @throwTypeError("TypedArray.from requires that the property of the first argument, items[Symbol.iterator], when exists, be a function");
 
         let accumulator = [];
 
@@ -76,12 +74,8 @@ function from(items /* [ , mapfn [ , thisArg ] ] */)
         // Since for-of loop once more looks up the @@iterator property of a given iterable,
         // it could be observable if the user defines a getter for @@iterator.
         // To avoid this situation, we define a wrapper object that @@iterator just returns a given iterator.
-        let wrapper = {
-            [@symbolIterator]() {
-                return iterator;
-            }
-        };
-
+        let wrapper = {};
+        wrapper.@iteratorSymbol = function() { return iterator; }
 
         for (let value of wrapper) {
             if (mapFn)
@@ -91,9 +85,9 @@ function from(items /* [ , mapfn [ , thisArg ] ] */)
             k++;
         }
 
-        let constructFunction = this.@allocateTypedArray;
+        let constructFunction = @getByIdDirectPrivate(this, "allocateTypedArray");
         if (constructFunction === @undefined)
-            throw new @TypeError("TypedArray.from requires its this argument subclass a TypedArray constructor");
+            @throwTypeError("TypedArray.from requires its this argument subclass a TypedArray constructor");
 
         let result = constructFunction(k);
 
@@ -104,12 +98,11 @@ function from(items /* [ , mapfn [ , thisArg ] ] */)
         return result;
     }
 
-    let arrayLike = @Object(items);
     let arrayLikeLength = @toLength(arrayLike.length);
 
-    let constructFunction = this.@allocateTypedArray;
+    let constructFunction = @getByIdDirectPrivate(this, "allocateTypedArray");
     if (constructFunction === @undefined)
-        throw new @TypeError("this does not subclass a TypedArray constructor");
+        @throwTypeError("this does not subclass a TypedArray constructor");
 
     let result = constructFunction(arrayLikeLength);
 
@@ -126,56 +119,47 @@ function from(items /* [ , mapfn [ , thisArg ] ] */)
     return result;
 }
 
-function allocateInt8Array(length) {
-
+function allocateInt8Array(length)
+{
     return new @Int8Array(length);
-
 }
 
-function allocateInt16Array(length) {
-
-    return new @Int16Array(length);
-    
+function allocateInt16Array(length)
+{
+    return new @Int16Array(length);    
 }
 
-function allocateInt32Array(length) {
-
-    return new @Int32Array(length);
-    
+function allocateInt32Array(length)
+{
+    return new @Int32Array(length);   
 }
 
-function allocateUint32Array(length) {
-
+function allocateUint32Array(length)
+{
     return new @Uint32Array(length);
-
 }
 
-function allocateUint16Array(length) {
-
-    return new @Uint16Array(length);
-    
+function allocateUint16Array(length)
+{
+    return new @Uint16Array(length);   
 }
 
-function allocateUint8Array(length) {
-
-    return new @Uint8Array(length);
-    
+function allocateUint8Array(length)
+{
+    return new @Uint8Array(length);   
 }
 
-function allocateUint8ClampedArray(length) {
-
+function allocateUint8ClampedArray(length)
+{
     return new @Uint8ClampedArray(length);
-
 }
 
-function allocateFloat32Array(length) {
-
+function allocateFloat32Array(length)
+{
     return new @Float32Array(length);
-
 }
 
-function allocateFloat64Array(length) {
-
+function allocateFloat64Array(length)
+{
     return new @Float64Array(length);
-
 }

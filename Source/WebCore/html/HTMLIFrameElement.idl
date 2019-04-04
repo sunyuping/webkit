@@ -19,33 +19,28 @@
  */
 
 interface HTMLIFrameElement : HTMLElement {
-    [Reflect] attribute DOMString align;
-    [Reflect] attribute DOMString frameBorder;
-    [Reflect] attribute DOMString height;
-    [Reflect] attribute DOMString longDesc;
-    [Reflect] attribute DOMString marginHeight;
-    [Reflect] attribute DOMString marginWidth;
-    [Reflect] attribute DOMString name;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString align;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString frameBorder;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString height;
+    [Reflect, URL, CEReactions=NotNeeded] attribute USVString longDesc;
+    [Reflect, CEReactions=NotNeeded] attribute [TreatNullAs=EmptyString] DOMString marginHeight;
+    [Reflect, CEReactions=NotNeeded] attribute [TreatNullAs=EmptyString] DOMString marginWidth;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString name;
 
-#if defined(LANGUAGE_OBJECTIVE_C) && LANGUAGE_OBJECTIVE_C || defined(LANGUAGE_GOBJECT) && LANGUAGE_GOBJECT
-    [Reflect] attribute DOMString sandbox;
-#else
     [PutForwards=value] readonly attribute DOMTokenList sandbox;
-#endif
+    [Reflect, CEReactions=NotNeeded] attribute boolean allowFullscreen;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString allow;
 
-    [Reflect] attribute DOMString scrolling;
-    [Reflect, URL] attribute DOMString src;
-    [Reflect] attribute DOMString srcdoc;
-    [Reflect] attribute DOMString width;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString scrolling;
+    [Reflect, URL, CEReactions=NotNeeded] attribute USVString src;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString srcdoc;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString width;
 
-    // Introduced in DOM Level 2:
     [CheckSecurityForNode] readonly attribute Document contentDocument;
 
-    // Extensions
-    readonly attribute DOMWindow contentWindow;
+    readonly attribute WindowProxy contentWindow;
 
-#if !defined(LANGUAGE_OBJECTIVE_C) || !LANGUAGE_OBJECTIVE_C
-    [CheckSecurityForNode, RaisesException] SVGDocument getSVGDocument();
-#endif
+    [CheckSecurityForNode, MayThrowException] Document getSVGDocument();
+
+    [EnabledAtRuntime=ReferrerPolicyAttribute, ImplementedAs=referrerPolicyForBindings, CEReactions=NotNeeded] attribute DOMString referrerPolicy;
 };
-

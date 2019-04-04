@@ -21,8 +21,7 @@
  *
  */
 
-#ifndef DocumentParser_h
-#define DocumentParser_h
+#pragma once
 
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
@@ -44,7 +43,7 @@ public:
     virtual bool hasInsertionPoint() { return true; }
 
     // insert is used by document.write.
-    virtual void insert(const SegmentedString&) = 0;
+    virtual void insert(SegmentedString&&) = 0;
 
     // appendBytes and flush are used by DocumentWriter (the loader).
     virtual void appendBytes(DocumentWriter&, const char* bytes, size_t length) = 0;
@@ -52,7 +51,7 @@ public:
 
     // FIXME: append() should be private, but DocumentWriter::replaceDocument uses it for now.
     // FIXME: This really should take a std::unique_ptr to signify that it expects to take
-    // ownership of the buffer. The parser expects the PassRefPtr to hold the only ref of the StringImpl.
+    // ownership of the buffer. The parser expects the RefPtr to hold the only ref of the StringImpl.
     virtual void append(RefPtr<StringImpl>&&) = 0;
 
     virtual void finish() = 0;
@@ -63,7 +62,7 @@ public:
     virtual bool processingData() const { return false; }
 
     // document() will return 0 after detach() is called.
-    Document* document() const { ASSERT(m_document); return m_document; }
+    Document* document() const { ASSERT(m_document); return m_document.get(); }
 
     bool isParsing() const { return m_state == ParsingState; }
     bool isStopping() const { return m_state == StoppingState; }
@@ -97,6 +96,9 @@ public:
     virtual void suspendScheduledTasks();
     virtual void resumeScheduledTasks();
 
+    virtual void didBeginYieldingParser() { }
+    virtual void didEndYieldingParser() { }
+
 protected:
     explicit DocumentParser(Document&);
 
@@ -112,9 +114,7 @@ private:
 
     // Every DocumentParser needs a pointer back to the document.
     // m_document will be 0 after the parser is stopped.
-    Document* m_document;
+    WeakPtr<Document> m_document;
 };
 
 } // namespace WebCore
-
-#endif // DocumentParser_h

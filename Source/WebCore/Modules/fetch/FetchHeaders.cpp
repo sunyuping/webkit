@@ -29,169 +29,175 @@
 #include "config.h"
 #include "FetchHeaders.h"
 
-#if ENABLE(FETCH_API)
-
-#include "ExceptionCode.h"
 #include "HTTPParsers.h"
 
 namespace WebCore {
 
-void FetchHeaders::initializeWith(const FetchHeaders* headers, ExceptionCode&)
+static ExceptionOr<bool> canWriteHeader(const String& name, const String& value, const String& combinedValue, FetchHeaders::Guard guard)
 {
-    if (!headers)
-        return;
-    m_headers = headers->m_headers;
-}
-
-// FIXME: Optimize these routines for HTTPHeaderMap keys and/or refactor them with XMLHttpRequest code.
-static bool isForbiddenHeaderName(const String& name)
-{
-    HTTPHeaderName headerName;
-    if (findHTTPHeaderName(name, headerName)) {
-        switch (headerName) {
-        case HTTPHeaderName::AcceptCharset:
-        case HTTPHeaderName::AcceptEncoding:
-        case HTTPHeaderName::AccessControlRequestHeaders:
-        case HTTPHeaderName::AccessControlRequestMethod:
-        case HTTPHeaderName::Connection:
-        case HTTPHeaderName::ContentLength:
-        case HTTPHeaderName::Cookie:
-        case HTTPHeaderName::Cookie2:
-        case HTTPHeaderName::Date:
-        case HTTPHeaderName::DNT:
-        case HTTPHeaderName::Expect:
-        case HTTPHeaderName::Host:
-        case HTTPHeaderName::KeepAlive:
-        case HTTPHeaderName::Origin:
-        case HTTPHeaderName::Referer:
-        case HTTPHeaderName::TE:
-        case HTTPHeaderName::Trailer:
-        case HTTPHeaderName::TransferEncoding:
-        case HTTPHeaderName::Upgrade:
-        case HTTPHeaderName::Via:
-            return true;
-        default:
-            break;
-        }
-    }
-    return name.startsWithIgnoringASCIICase(ASCIILiteral("Sec-")) || name.startsWithIgnoringASCIICase(ASCIILiteral("Proxy-"));
-}
-
-static bool isForbiddenResponseHeaderName(const String& name)
-{
-    return equalLettersIgnoringASCIICase(name, "set-cookie") || equalLettersIgnoringASCIICase(name, "set-cookie2");
-}
-
-static bool isSimpleHeader(const String& name, const String& value)
-{
-    HTTPHeaderName headerName;
-    if (!findHTTPHeaderName(name, headerName))
-        return false;
-    switch (headerName) {
-    case HTTPHeaderName::Accept:
-    case HTTPHeaderName::AcceptLanguage:
-    case HTTPHeaderName::ContentLanguage:
-        return true;
-    case HTTPHeaderName::ContentType: {
-        String mimeType = extractMIMETypeFromMediaType(value);
-        return equalLettersIgnoringASCIICase(mimeType, "application/x-www-form-urlencoded") || equalLettersIgnoringASCIICase(mimeType, "multipart/form-data") || equalLettersIgnoringASCIICase(mimeType, "text/plain");
-    }
-    default:
-        return false;
-    }
-}
-
-static bool canWriteHeader(const String& name, const String& value, FetchHeaders::Guard guard, ExceptionCode& ec)
-{
-    if (!isValidHTTPToken(name) || !isValidHTTPHeaderValue(value)) {
-        ec = TypeError;
-        return false;
-    }
-    if (guard == FetchHeaders::Guard::Immutable) {
-        ec = TypeError;
-        return false;
-    }
+    if (!isValidHTTPToken(name))
+        return Exception { TypeError, makeString("Invalid header name: '", name, "'") };
+    if (!isValidHTTPHeaderValue(value))
+        return Exception { TypeError, makeString("Header '", name, "' has invalid value: '", value, "'") };
+    if (guard == FetchHeaders::Guard::Immutable)
+        return Exception { TypeError, "Headers object's guard is 'immutable'"_s };
     if (guard == FetchHeaders::Guard::Request && isForbiddenHeaderName(name))
         return false;
-    if (guard == FetchHeaders::Guard::RequestNoCors && !isSimpleHeader(name, value))
+    if (guard == FetchHeaders::Guard::RequestNoCors && !combinedValue.isEmpty() && !isSimpleHeader(name, combinedValue))
         return false;
     if (guard == FetchHeaders::Guard::Response && isForbiddenResponseHeaderName(name))
         return false;
     return true;
 }
 
-void FetchHeaders::append(const String& name, const String& value, ExceptionCode& ec)
+static ExceptionOr<void> appendToHeaderMap(const String& name, const String& value, HTTPHeaderMap& headers, FetchHeaders::Guard guard)
 {
     String normalizedValue = stripLeadingAndTrailingHTTPSpaces(value);
-    if (!canWriteHeader(name, normalizedValue, m_guard, ec))
-        return;
-    m_headers.add(name, normalizedValue);
+    String combinedValue = normalizedValue;
+    if (headers.contains(name))
+        combinedValue = makeString(headers.get(name), ", ", normalizedValue);
+    auto canWriteResult = canWriteHeader(name, normalizedValue, combinedValue, guard);
+    if (canWriteResult.hasException())
+        return canWriteResult.releaseException();
+    if (!canWriteResult.releaseReturnValue())
+        return { };
+    headers.set(name, combinedValue);
+    return { };
 }
 
-void FetchHeaders::remove(const String& name, ExceptionCode& ec)
+static ExceptionOr<void> appendToHeaderMap(const HTTPHeaderMap::HTTPHeaderMapConstIterator::KeyValue& header, HTTPHeaderMap& headers, FetchHeaders::Guard guard)
 {
-    if (!canWriteHeader(name, String(), m_guard, ec))
-        return;
-    m_headers.remove(name);
+    auto canWriteResult = canWriteHeader(header.key, header.value, header.value, guard);
+    if (canWriteResult.hasException())
+        return canWriteResult.releaseException();
+    if (!canWriteResult.releaseReturnValue())
+        return { };
+    if (header.keyAsHTTPHeaderName)
+        headers.add(header.keyAsHTTPHeaderName.value(), header.value);
+    else
+        headers.add(header.key, header.value);
+    return { };
 }
 
-String FetchHeaders::get(const String& name, ExceptionCode& ec) const
+// https://fetch.spec.whatwg.org/#concept-headers-fill
+static ExceptionOr<void> fillHeaderMap(HTTPHeaderMap& headers, const FetchHeaders::Init& headersInit, FetchHeaders::Guard guard)
 {
-    if (!isValidHTTPToken(name)) {
-        ec = TypeError;
-        return String();
+    if (WTF::holds_alternative<Vector<Vector<String>>>(headersInit)) {
+        auto& sequence = WTF::get<Vector<Vector<String>>>(headersInit);
+        for (auto& header : sequence) {
+            if (header.size() != 2)
+                return Exception { TypeError, "Header sub-sequence must contain exactly two items" };
+            auto result = appendToHeaderMap(header[0], header[1], headers, guard);
+            if (result.hasException())
+                return result.releaseException();
+        }
+    } else {
+        auto& record = WTF::get<Vector<WTF::KeyValuePair<String, String>>>(headersInit);
+        for (auto& header : record) {
+            auto result = appendToHeaderMap(header.key, header.value, headers, guard);
+            if (result.hasException())
+                return result.releaseException();
+        }
     }
+
+    return { };
+}
+
+ExceptionOr<Ref<FetchHeaders>> FetchHeaders::create(Optional<Init>&& headersInit)
+{
+    HTTPHeaderMap headers;
+
+    if (headersInit) {
+        auto result = fillHeaderMap(headers, *headersInit, Guard::None);
+        if (result.hasException())
+            return result.releaseException();
+    }
+
+    return adoptRef(*new FetchHeaders { Guard::None, WTFMove(headers) });
+}
+
+ExceptionOr<void> FetchHeaders::fill(const Init& headerInit)
+{
+    return fillHeaderMap(m_headers, headerInit, m_guard);
+}
+
+ExceptionOr<void> FetchHeaders::fill(const FetchHeaders& otherHeaders)
+{
+    for (auto& header : otherHeaders.m_headers) {
+        auto result = appendToHeaderMap(header, m_headers, m_guard);
+        if (result.hasException())
+            return result.releaseException();
+    }
+
+    return { };
+}
+
+ExceptionOr<void> FetchHeaders::append(const String& name, const String& value)
+{
+    return appendToHeaderMap(name, value, m_headers, m_guard);
+}
+
+ExceptionOr<void> FetchHeaders::remove(const String& name)
+{
+    auto canWriteResult = canWriteHeader(name, { }, { }, m_guard);
+    if (canWriteResult.hasException())
+        return canWriteResult.releaseException();
+    if (!canWriteResult.releaseReturnValue())
+        return { };
+    m_headers.remove(name);
+    return { };
+}
+
+ExceptionOr<String> FetchHeaders::get(const String& name) const
+{
+    if (!isValidHTTPToken(name))
+        return Exception { TypeError, makeString("Invalid header name: '", name, "'") };
     return m_headers.get(name);
 }
 
-bool FetchHeaders::has(const String& name, ExceptionCode& ec) const
+ExceptionOr<bool> FetchHeaders::has(const String& name) const
 {
-    if (!isValidHTTPToken(name)) {
-        ec = TypeError;
-        return false;
-    }
+    if (!isValidHTTPToken(name))
+        return Exception { TypeError, makeString("Invalid header name: '", name, "'") };
     return m_headers.contains(name);
 }
 
-void FetchHeaders::set(const String& name, const String& value, ExceptionCode& ec)
+ExceptionOr<void> FetchHeaders::set(const String& name, const String& value)
 {
     String normalizedValue = stripLeadingAndTrailingHTTPSpaces(value);
-    if (!canWriteHeader(name, normalizedValue, m_guard, ec))
-        return;
+    auto canWriteResult = canWriteHeader(name, normalizedValue, normalizedValue, m_guard);
+    if (canWriteResult.hasException())
+        return canWriteResult.releaseException();
+    if (!canWriteResult.releaseReturnValue())
+        return { };
     m_headers.set(name, normalizedValue);
+    return { };
 }
 
-void FetchHeaders::fill(const FetchHeaders* headers)
+void FetchHeaders::filterAndFill(const HTTPHeaderMap& headers, Guard guard)
 {
-    if (!headers)
-        return;
-
-    ASSERT(m_guard != Guard::Immutable);
-
-    ExceptionCode ec;
-    for (auto& header : headers->m_headers) {
-        if (canWriteHeader(header.key, header.value, m_guard, ec)) {
-            if (header.keyAsHTTPHeaderName)
-                m_headers.add(header.keyAsHTTPHeaderName.value(), header.value);
-            else
-                m_headers.add(header.key, header.value);
-        }
+    for (auto& header : headers) {
+        auto canWriteResult = canWriteHeader(header.key, header.value, header.value, guard);
+        if (canWriteResult.hasException())
+            continue;
+        if (!canWriteResult.releaseReturnValue())
+            continue;
+        if (header.keyAsHTTPHeaderName)
+            m_headers.add(header.keyAsHTTPHeaderName.value(), header.value);
+        else
+            m_headers.add(header.key, header.value);
     }
 }
 
-bool FetchHeaders::Iterator::next(String& nextKey, String& nextValue)
+Optional<WTF::KeyValuePair<String, String>> FetchHeaders::Iterator::next()
 {
     while (m_currentIndex < m_keys.size()) {
-        auto& key = m_keys[m_currentIndex++];
-        String value = m_headers->m_headers.get(key);
-        if (!value.isNull()) {
-            nextKey = key;
-            nextValue = WTFMove(value);
-            return false;
-        }
+        auto key = m_keys[m_currentIndex++];
+        auto value = m_headers->m_headers.get(key);
+        if (!value.isNull())
+            return WTF::KeyValuePair<String, String> { WTFMove(key), WTFMove(value) };
     }
-    m_keys.clear();
-    return true;
+    return WTF::nullopt;
 }
 
 FetchHeaders::Iterator::Iterator(FetchHeaders& headers)
@@ -200,10 +206,7 @@ FetchHeaders::Iterator::Iterator(FetchHeaders& headers)
     m_keys.reserveInitialCapacity(headers.m_headers.size());
     for (auto& header : headers.m_headers)
         m_keys.uncheckedAppend(header.key.convertToASCIILowercase());
-
     std::sort(m_keys.begin(), m_keys.end(), WTF::codePointCompareLessThan);
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(FETCH_API)

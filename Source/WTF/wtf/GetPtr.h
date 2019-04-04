@@ -18,12 +18,14 @@
  *
  */
 
-#ifndef WTF_GetPtr_h
-#define WTF_GetPtr_h
+#pragma once
 
 #include <memory>
 
 namespace WTF {
+
+enum HashTableDeletedValueType { HashTableDeletedValue };
+enum HashTableEmptyValueType { HashTableEmptyValue };
 
 template <typename T> inline T* getPtr(T* p) { return p; }
 
@@ -75,5 +77,3 @@ struct GetPtrHelper<std::unique_ptr<T, Deleter>> {
 };
 
 } // namespace WTF
-
-#endif // WTF_GetPtr_h

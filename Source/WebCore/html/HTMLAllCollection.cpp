@@ -27,6 +27,10 @@
 #include "HTMLAllCollection.h"
 
 #include "Element.h"
+#include "NodeRareData.h"
+#include <JavaScriptCore/Identifier.h>
+#include <wtf/Optional.h>
+#include <wtf/Variant.h>
 
 namespace WebCore {
 
@@ -36,27 +40,54 @@ Ref<HTMLAllCollection> HTMLAllCollection::create(Document& document, CollectionT
 }
 
 inline HTMLAllCollection::HTMLAllCollection(Document& document, CollectionType type)
-    : CachedHTMLCollection<HTMLAllCollection, CollectionTypeTraits<DocAll>::traversalType>(document, type)
+    : AllDescendantsCollection(document, type)
 {
 }
 
-Element* HTMLAllCollection::namedItemWithIndex(const AtomicString& name, unsigned index) const
+// https://html.spec.whatwg.org/multipage/infrastructure.html#dom-htmlallcollection-item
+Optional<Variant<RefPtr<HTMLCollection>, RefPtr<Element>>> HTMLAllCollection::namedOrIndexedItemOrItems(const AtomicString& nameOrIndex) const
 {
-    updateNamedElementCache();
-    const CollectionNamedElementCache& cache = namedItemCaches();
+    if (nameOrIndex.isNull())
+        return WTF::nullopt;
 
-    if (const Vector<Element*>* elements = cache.findElementsWithId(name)) {
-        if (index < elements->size())
-            return elements->at(index);
-        index -= elements->size();
-    }
+    if (auto index = JSC::parseIndex(*nameOrIndex.impl()))
+        return Variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<Element> { item(index.value()) } };
 
-    if (const Vector<Element*>* elements = cache.findElementsWithName(name)) {
-        if (index < elements->size())
-            return elements->at(index);
-    }
+    return namedItemOrItems(nameOrIndex);
+}
 
-    return nullptr;
+// https://html.spec.whatwg.org/multipage/infrastructure.html#concept-get-all-named
+Optional<Variant<RefPtr<HTMLCollection>, RefPtr<Element>>> HTMLAllCollection::namedItemOrItems(const AtomicString& name) const
+{
+    auto namedItems = this->namedItems(name);
+
+    if (namedItems.isEmpty())
+        return WTF::nullopt;
+    if (namedItems.size() == 1)
+        return Variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<Element> { WTFMove(namedItems[0]) } };
+
+    return Variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<HTMLCollection> { downcast<Document>(ownerNode()).allFilteredByName(name) } };
+}
+
+HTMLAllNamedSubCollection::~HTMLAllNamedSubCollection()
+{
+    ownerNode().nodeLists()->removeCachedCollection(this, m_name);
+}
+
+bool HTMLAllNamedSubCollection::elementMatches(Element& element) const
+{
+    const auto& id = element.getIdAttribute();
+    if (id == m_name)
+        return true;
+
+    if (!nameShouldBeVisibleInDocumentAll(element))
+        return false;
+
+    const auto& name = element.getNameAttribute();
+    if (name == m_name)
+        return true;
+
+    return false;
 }
 
 } // namespace WebCore

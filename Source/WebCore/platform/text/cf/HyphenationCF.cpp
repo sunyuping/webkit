@@ -26,14 +26,13 @@
 #include "config.h"
 #include "Hyphenation.h"
 
-#include "Language.h"
-#include "TextBreakIteratorInternalICU.h"
-#include <wtf/ListHashSet.h>
+#include <wtf/Language.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TinyLRUCache.h>
 #include <wtf/text/StringView.h>
+#include <wtf/text/TextBreakIteratorInternalICU.h>
 
-namespace WebCore {
+namespace WTF {
 
 template<>
 class TinyLRUCachePolicy<AtomicString, RetainPtr<CFLocaleRef>>
@@ -65,6 +64,9 @@ public:
         return CFStringIsHyphenationAvailableForLocale(locale.get()) ? locale : nullptr;
     }
 };
+}
+
+namespace WebCore {
 
 bool canHyphenate(const AtomicString& localeIdentifier)
 {
@@ -74,10 +76,9 @@ bool canHyphenate(const AtomicString& localeIdentifier)
 size_t lastHyphenLocation(StringView text, size_t beforeIndex, const AtomicString& localeIdentifier)
 {
     RetainPtr<CFLocaleRef> locale = TinyLRUCachePolicy<AtomicString, RetainPtr<CFLocaleRef>>::cache().get(localeIdentifier);
-    ASSERT(locale);
 
     CFOptionFlags searchAcrossWordBoundaries = 1;
-    CFIndex result = CFStringGetHyphenationLocationBeforeIndex(text.createCFStringWithoutCopying().get(), beforeIndex, CFRangeMake(0, text.length()), searchAcrossWordBoundaries, locale.get(), 0);
+    CFIndex result = CFStringGetHyphenationLocationBeforeIndex(text.createCFStringWithoutCopying().get(), beforeIndex, CFRangeMake(0, text.length()), searchAcrossWordBoundaries, locale.get(), nullptr);
     return result == kCFNotFound ? 0 : result;
 }
 

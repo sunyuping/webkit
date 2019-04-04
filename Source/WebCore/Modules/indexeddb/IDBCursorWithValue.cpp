@@ -28,11 +28,31 @@
 
 #if ENABLE(INDEXED_DATABASE)
 
+#include <JavaScriptCore/HeapInlines.h>
+
 namespace WebCore {
 
-IDBCursorWithValue::IDBCursorWithValue()
+Ref<IDBCursorWithValue> IDBCursorWithValue::create(IDBObjectStore& objectStore, const IDBCursorInfo& info)
+{
+    return adoptRef(*new IDBCursorWithValue(objectStore, info));
+}
+
+Ref<IDBCursorWithValue> IDBCursorWithValue::create(IDBIndex& index, const IDBCursorInfo& info)
+{
+    return adoptRef(*new IDBCursorWithValue(index, info));
+}
+
+IDBCursorWithValue::IDBCursorWithValue(IDBObjectStore& objectStore, const IDBCursorInfo& info)
+    : IDBCursor(objectStore, info)
 {
 }
+
+IDBCursorWithValue::IDBCursorWithValue(IDBIndex& index, const IDBCursorInfo& info)
+    : IDBCursor(index, info)
+{
+}
+
+IDBCursorWithValue::~IDBCursorWithValue() = default;
 
 } // namespace WebCore
 

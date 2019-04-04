@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,23 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef StructureSet_h
-#define StructureSet_h
+#pragma once
 
-#include "ArrayProfile.h"
 #include "DumpContext.h"
-#include "SpeculatedType.h"
 #include "Structure.h"
 #include <wtf/TinyPtrSet.h>
 
 namespace JSC {
 
 class TrackedReferences;
-
-namespace DFG {
-class StructureAbstractValue;
-struct AbstractValue;
-}
 
 class StructureSet : public TinyPtrSet<Structure*> {
 public:
@@ -57,32 +49,16 @@ public:
     {
     }
     
-    ALWAYS_INLINE StructureSet(const StructureSet& other)
-        : TinyPtrSet(other)
-    {
-    }
-    
     Structure* onlyStructure() const
     {
         return onlyEntry();
     }
-    
-#if ENABLE(DFG_JIT)
-    void filter(const DFG::StructureAbstractValue&);
-    void filter(SpeculatedType);
-    void filterArrayModes(ArrayModes);
-    void filter(const DFG::AbstractValue&);
-#endif // ENABLE(DFG_JIT)
-    
-    SpeculatedType speculationFromStructures() const;
-    ArrayModes arrayModesFromStructures() const;
+
+    void markIfCheap(SlotVisitor&) const;
+    bool isStillAlive(VM&) const;
     
     void dumpInContext(PrintStream&, DumpContext*) const;
     void dump(PrintStream&) const;
-    
-    void validateReferences(const TrackedReferences&) const;
 };
 
 } // namespace JSC
-
-#endif // StructureSet_h

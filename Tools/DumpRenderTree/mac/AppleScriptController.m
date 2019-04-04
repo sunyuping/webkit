@@ -30,7 +30,7 @@
 #import "config.h"
 #import "AppleScriptController.h"
 
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
 
 #import <WebKit/WebView.h>
 #import <WebKit/WebViewPrivate.h>   // for aeDescByEvaluatingJavaScriptFromString, which is pending API review
@@ -75,7 +75,7 @@ static id convertAEDescToObject(NSAppleEventDescriptor *aeDesc)
                 value = [NSString stringWithFormat:@"%016llX", (unsigned long long)d];
             }
             break;
-        case typeAEList:
+        case typeAEList: {
             value = [NSMutableString stringWithString:@"("];
             int numItems = [aeDesc numberOfItems];
             for (int i = 0; i < numItems; ++i) {
@@ -86,6 +86,7 @@ static id convertAEDescToObject(NSAppleEventDescriptor *aeDesc)
             }
             [(NSMutableString*)value appendString:@")"];
             break;
+        }
         case typeType: {
             OSType type = [aeDesc typeCodeValue];
 
@@ -128,4 +129,4 @@ static id convertAEDescToObject(NSAppleEventDescriptor *aeDesc)
 
 @end
 
-#endif // !PLATFORM(IOS)
+#endif // !PLATFORM(IOS_FAMILY)

@@ -33,12 +33,15 @@
 #include "BString.h"
 #include "HTMLNames.h"
 #include "QualifiedName.h"
+#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
 void AccessibilityObjectWrapper::accessibilityAttributeValue(const AtomicString& attributeName, VARIANT* result)
 {
     // FIXME: This should be fleshed out to match the Mac version
+
+    m_object->updateBackingStore();
 
     // Not a real concept on Windows, but used heavily in WebKit accessibility testing.
     if (attributeName == "AXTitleUIElementAttribute") {
@@ -63,6 +66,15 @@ void AccessibilityObjectWrapper::accessibilityAttributeValue(const AtomicString&
 
         V_VT(result) = VT_BSTR;
         V_BSTR(result) = WebCore::BString(m_object->getAttribute(WebCore::HTMLNames::idAttr)).release();
+        return;
+    }
+
+    if (attributeName == "AXSelectedTextRangeAttribute") {
+        ASSERT(V_VT(result) == VT_EMPTY);
+        V_VT(result) = VT_BSTR;
+        PlainTextRange textRange = m_object->selectedTextRange();
+        String range = makeString('{', textRange.start, ", ", textRange.length, '}');
+        V_BSTR(result) = WebCore::BString(range).release();
         return;
     }
 }

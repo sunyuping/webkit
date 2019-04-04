@@ -26,9 +26,18 @@
 #include "config.h"
 #include "GPRInfo.h"
 
-#if ENABLE(JIT)
+#if ENABLE(ASSEMBLER)
 
 namespace JSC {
+
+void JSValueRegs::dump(PrintStream& out) const
+{
+#if USE(JSVALUE64)
+    out.print(m_gpr);
+#else
+    out.print("(tag:", tagGPR(), ", payload:", payloadGPR(), ")");
+#endif
+}
 
 // This is in the .cpp file to work around clang issues.
 #if CPU(X86_64)
@@ -39,4 +48,4 @@ const GPRReg GPRInfo::patchpointScratchRegister = ARM64Registers::ip0;
 
 } // namespace JSC
 
-#endif // ENABLE(JIT)
+#endif // ENABLE(ASSEMBLER)

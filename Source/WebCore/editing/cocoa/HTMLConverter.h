@@ -23,24 +23,26 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef HTMLConverter_h
-#define HTMLConverter_h
-
-#include "PlatformExportMacros.h"
+#pragma once
 
 OBJC_CLASS NSAttributedString;
 
 namespace WebCore {
-    
+
+class Position;
 class Range;
+class VisibleSelection;
 
 enum class IncludeImagesInAttributedString { Yes, No };
-    
-WEBCORE_EXPORT NSAttributedString *attributedStringFromRange(Range&);
-#if !PLATFORM(IOS)
+
+NSAttributedString *attributedStringFromSelection(const VisibleSelection&, NSDictionary** documentAttributes = nullptr);
+
+// For testing purpose only
+WEBCORE_EXPORT NSAttributedString *attributedStringBetweenStartAndEnd(const Position&, const Position&, NSDictionary** documentAttributes = nullptr);
+
+WEBCORE_EXPORT NSAttributedString *attributedStringFromRange(Range&, NSDictionary** documentAttributes = nullptr);
+#if !PLATFORM(IOS_FAMILY)
 WEBCORE_EXPORT NSAttributedString *editingAttributedStringFromRange(Range&, IncludeImagesInAttributedString = IncludeImagesInAttributedString::Yes);
 #endif
 
-}
-
-#endif // HTMLConverter_h
+} // namespace WebCore

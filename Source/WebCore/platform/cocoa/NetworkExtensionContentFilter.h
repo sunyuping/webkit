@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NetworkExtensionContentFilter_h
-#define NetworkExtensionContentFilter_h
+#pragma once
 
 #include "PlatformContentFilter.h"
 #include <objc/NSObjCRuntime.h>
@@ -39,8 +38,6 @@ OBJC_CLASS NSData;
 
 namespace WebCore {
 
-class URL;
-
 class NetworkExtensionContentFilter final : public PlatformContentFilter {
     friend std::unique_ptr<NetworkExtensionContentFilter> std::make_unique<NetworkExtensionContentFilter>();
 
@@ -52,7 +49,9 @@ public:
     void addData(const char* data, int length) override;
     void finishedAddingData() override;
     Ref<SharedBuffer> replacementData() const override;
+#if ENABLE(CONTENT_FILTERING)
     ContentFilterUnblockHandler unblockHandler() const override;
+#endif
 
 private:
     static bool enabled();
@@ -62,11 +61,8 @@ private:
     void handleDecision(NEFilterSourceStatus, NSData *replacementData);
 
     OSObjectPtr<dispatch_queue_t> m_queue;
-    OSObjectPtr<dispatch_semaphore_t> m_semaphore;
     RetainPtr<NSData> m_replacementData;
     RetainPtr<NEFilterSource> m_neFilterSource;
 };
 
 } // namespace WebCore
-
-#endif // NetworkExtensionContentFilter_h

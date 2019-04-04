@@ -2,8 +2,8 @@ TestPage.registerInitializer(function() {
     function loadPrettyPrintingTestAndExpectedResults(testURL) {
         let expectedURL = testURL.replace(/\.([^\.]+)$/, "-expected.$1");
         return Promise.all([
-            NetworkAgent.loadResource(WebInspector.frameResourceManager.mainFrame.id, testURL),
-            NetworkAgent.loadResource(WebInspector.frameResourceManager.mainFrame.id, expectedURL)
+            NetworkAgent.loadResource(WI.networkManager.mainFrame.id, testURL),
+            NetworkAgent.loadResource(WI.networkManager.mainFrame.id, expectedURL)
         ]).then(function(results) {
             return Promise.resolve({testText: results[0].content, expectedText: results[1].content });
         });
@@ -20,11 +20,8 @@ TestPage.registerInitializer(function() {
             const start = {line: 0, ch: 0};
             const end = {line: editor.lineCount() - 1};
             const indentString = "    ";
-            let originalLineEndings = [];
-            let formattedLineEndings = [];
-            let mapping = {original: [0], formatted: [0]};
-            let builder = new WebInspector.FormatterContentBuilder(mapping, originalLineEndings, formattedLineEndings, 0, 0, indentString);
-            let formatter = new WebInspector.Formatter(editor, builder);
+            let builder = new FormatterContentBuilder(indentString);
+            let formatter = new WI.Formatter(editor, builder);
             formatter.format(start, end);
 
             let pass = builder.formattedContent === expectedText;
@@ -48,7 +45,7 @@ TestPage.registerInitializer(function() {
     }
 
     window.addPrettyPrintingTests = function(suite, mode, tests) {
-        let testPageURL = WebInspector.frameResourceManager.mainFrame.mainResource.url;
+        let testPageURL = WI.networkManager.mainFrame.mainResource.url;
         let testPageResourcesURL = testPageURL.substring(0, testPageURL.lastIndexOf("/"));            
 
         for (let test of tests) {
@@ -56,7 +53,9 @@ TestPage.registerInitializer(function() {
             let testURL = testPageResourcesURL + "/" + test;
             suite.addTestCase({
                 name: suite.name + "." + testName,
-                test: (resolve, reject) => { runPrettyPrintingTest(mode, testName, testURL).then(resolve).catch(reject); }
+                test(resolve, reject) { 
+                    runPrettyPrintingTest(mode, testName, testURL).then(resolve).catch(reject);
+                }
             });
         }
     };

@@ -26,31 +26,27 @@
 #include "config.h"
 #include "ResourceError.h"
 
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
 
-#include "URL.h"
 #include <CoreFoundation/CFError.h>
 #include <CFNetwork/CFNetworkErrors.h>
+#include <pal/spi/cf/CFNetworkSPI.h>
 #include <wtf/RetainPtr.h>
-
-#if PLATFORM(WIN)
-#include <WebKitSystemInterface/WebKitSystemInterface.h>
-#endif
+#include <wtf/URL.h>
 
 namespace WebCore {
 
 ResourceError::ResourceError(CFErrorRef cfError)
-    : m_dataIsUpToDate(false)
+    : ResourceErrorBase(Type::Null)
+    , m_dataIsUpToDate(false)
     , m_platformError(cfError)
 {
-    m_isNull = !cfError;
-    if (!m_isNull)
-        m_isTimeout = CFErrorGetCode(m_platformError.get()) == kCFURLErrorTimedOut;
+    if (cfError)
+        setType((CFErrorGetCode(m_platformError.get()) == kCFURLErrorTimedOut) ? Type::Timeout : Type::General);
 }
 
-#if PLATFORM(WIN)
 ResourceError::ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, CFDataRef certificate)
-    : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription)
+    : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, Type::General)
     , m_dataIsUpToDate(true)
     , m_certificate(certificate)
 {
@@ -68,10 +64,33 @@ void ResourceError::setCertificate(CFDataRef certificate)
 {
     m_certificate = certificate;
 }
-#endif // PLATFORM(WIN)
 
 const CFStringRef failingURLStringKey = CFSTR("NSErrorFailingURLStringKey");
 const CFStringRef failingURLKey = CFSTR("NSErrorFailingURLKey");
+
+static CFDataRef getSSLPeerCertificateData(CFDictionaryRef dict)
+{
+    if (!dict)
+        return nullptr;
+    return reinterpret_cast<CFDataRef>(CFDictionaryGetValue(dict, _kCFWindowsSSLPeerCert));
+}
+
+static void setSSLPeerCertificateData(CFMutableDictionaryRef dict, CFDataRef data)
+{
+    if (!dict)
+        return;
+    
+    if (!data)
+        CFDictionaryRemoveValue(dict, _kCFWindowsSSLPeerCert);
+    else
+        CFDictionarySetValue(dict, _kCFWindowsSSLPeerCert, data);
+}
+
+const void* ResourceError::getSSLPeerCertificateDataBytePtr(CFDictionaryRef dict)
+{
+    CFDataRef data = getSSLPeerCertificateData(dict);
+    return data ? reinterpret_cast<const void*>(CFDataGetBytePtr(data)) : nullptr;
+}
 
 void ResourceError::platformLazyInit()
 {
@@ -111,21 +130,16 @@ void ResourceError::platformLazyInit()
         }
         m_localizedDescription = (CFStringRef) CFDictionaryGetValue(userInfo.get(), kCFErrorLocalizedDescriptionKey);
         
-#if PLATFORM(WIN)
-        m_certificate = wkGetSSLPeerCertificateData(userInfo.get());
-#endif
+        m_certificate = getSSLPeerCertificateData(userInfo.get());
     }
 
     m_dataIsUpToDate = true;
 }
 
-void ResourceError::platformCopy(ResourceError& errorCopy) const
+
+void ResourceError::doPlatformIsolatedCopy(const ResourceError& other)
 {
-#if PLATFORM(WIN)
-    errorCopy.m_certificate = m_certificate;
-#else
-    UNUSED_PARAM(errorCopy);
-#endif
+    m_certificate = other.m_certificate;
 }
 
 bool ResourceError::platformCompare(const ResourceError& a, const ResourceError& b)
@@ -135,7 +149,7 @@ bool ResourceError::platformCompare(const ResourceError& a, const ResourceError&
 
 CFErrorRef ResourceError::cfError() const
 {
-    if (m_isNull) {
+    if (isNull()) {
         ASSERT(!m_platformError);
         return 0;
     }
@@ -153,10 +167,8 @@ CFErrorRef ResourceError::cfError() const
                 CFDictionarySetValue(userInfo.get(), failingURLKey, url.get());
         }
 
-#if PLATFORM(WIN)
         if (m_certificate)
-            wkSetSSLPeerCertificateData(userInfo.get(), m_certificate.get());
-#endif
+            setSSLPeerCertificateData(userInfo.get(), m_certificate.get());
         
         m_platformError = adoptCF(CFErrorCreate(0, m_domain.createCFString().get(), m_errorCode, userInfo.get()));
     }
@@ -171,9 +183,9 @@ ResourceError::operator CFErrorRef() const
 
 // FIXME: Once <rdar://problem/5050841> is fixed we can remove this constructor.
 ResourceError::ResourceError(CFStreamError error)
-    : m_dataIsUpToDate(true)
+    : ResourceErrorBase(Type::General)
+    , m_dataIsUpToDate(true)
 {
-    m_isNull = false;
     m_errorCode = error.error;
 
     switch(error.domain) {
@@ -217,4 +229,4 @@ ResourceError::operator CFStreamError() const
 
 } // namespace WebCore
 
-#endif // USE(CFNETWORK)
+#endif // USE(CFURLCONNECTION)

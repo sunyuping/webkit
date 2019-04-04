@@ -23,17 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef StructureChain_h
-#define StructureChain_h
+#pragma once
 
-#include "JSCell.h"
+#include "JSCast.h"
 #include "JSObject.h"
 #include "Structure.h"
-
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/UniqueArray.h>
 
 namespace JSC {
 
@@ -47,7 +43,7 @@ public:
     typedef JSCell Base;
     static const unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
-    static StructureChain* create(VM& vm, Structure* head)
+    static StructureChain* create(VM& vm, JSObject* head)
     { 
         StructureChain* chain = new (NotNull, allocateCell<StructureChain>(vm.heap)) StructureChain(vm, vm.structureChainStructure.get());
         chain->finishCreation(vm, head);
@@ -67,27 +63,30 @@ public:
     static void destroy(JSCell*);
 
 protected:
-    void finishCreation(VM& vm, Structure* head)
+    void finishCreation(VM& vm, JSObject* head)
     {
         Base::finishCreation(vm);
+
         size_t size = 0;
-        for (Structure* current = head; current; current = current->storedPrototype().isNull() ? 0 : asObject(current->storedPrototype())->structure())
+        for (JSObject* current = head; current; current = current->structure(vm)->storedPrototypeObject(current))
             ++size;
 
-        m_vector = std::make_unique<WriteBarrier<Structure>[]>(size + 1);
+        auto vector = makeUniqueArray<WriteBarrier<Structure>>(size + 1);
 
         size_t i = 0;
-        for (Structure* current = head; current; current = current->storedPrototype().isNull() ? 0 : asObject(current->storedPrototype())->structure())
-            m_vector[i++].set(vm, this, current);
+        for (JSObject* current = head; current; current = current->structure(vm)->storedPrototypeObject(current))
+            vector[i++].set(vm, this, current->structure(vm));
+        
+        vm.heap.mutatorFence();
+        m_vector = WTFMove(vector);
+        vm.heap.writeBarrier(this);
     }
 
 private:
     friend class LLIntOffsetsExtractor;
 
     StructureChain(VM&, Structure*);
-    std::unique_ptr<WriteBarrier<Structure>[]> m_vector;
+    UniqueArray<WriteBarrier<Structure>> m_vector;
 };
 
 } // namespace JSC
-
-#endif // StructureChain_h

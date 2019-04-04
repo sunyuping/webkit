@@ -31,39 +31,13 @@
 
 #include "JSTrackCustom.h"
 
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
 void JSVideoTrack::visitAdditionalChildren(SlotVisitor& visitor)
 {
     visitor.addOpaqueRoot(root(&wrapped()));
-}
-
-void JSVideoTrack::setKind(ExecState& state, JSValue value)
-{
-#if ENABLE(MEDIA_SOURCE)
-    auto& string = value.toString(&state)->value(&state);
-    if (state.hadException())
-        return;
-    wrapped().setKind(string);
-#else
-    UNUSED_PARAM(state);
-    UNUSED_PARAM(value);
-#endif
-}
-
-void JSVideoTrack::setLanguage(ExecState& state, JSValue value)
-{
-#if ENABLE(MEDIA_SOURCE)
-    auto& string = value.toString(&state)->value(&state);
-    if (state.hadException())
-        return;
-    wrapped().setLanguage(string);
-#else
-    UNUSED_PARAM(state);
-    UNUSED_PARAM(value);
-#endif
 }
 
 } // namespace WebCore

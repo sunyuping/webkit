@@ -7,9 +7,11 @@ endif ()
 
 add_subdirectory(WTF)
 
-add_subdirectory(JavaScriptCore)
+if (USE_CAPSTONE)
+    add_subdirectory(ThirdParty/capstone)
+endif ()
 
-add_subdirectory(WebCore)
+add_subdirectory(JavaScriptCore)
 
 if (WIN32 AND ENABLE_GRAPHICS_CONTEXT_3D)
     add_subdirectory(ThirdParty/ANGLE)
@@ -19,31 +21,35 @@ if (ENABLE_API_TESTS)
     add_subdirectory(ThirdParty/gtest)
 endif ()
 
+if (USE_OPENVR)
+    # OpenVR is compiled with -stdlib=libc++ as default if Clang is used.
+    # Disable USE_LIBCXX not to use -stdlib=libc++.
+    option(USE_LIBCXX "Uses libc++ instead of libstdc++" OFF)
+    add_subdirectory(ThirdParty/openvr)
+endif ()
+
+if (USE_XDGMIME)
+    add_subdirectory(ThirdParty/xdgmime)
+endif ()
+
+if (USE_LIBWEBRTC)
+    add_subdirectory(ThirdParty/libwebrtc)
+endif ()
+
+if (ENABLE_WEBCORE)
+    add_subdirectory(WebCore)
+endif ()
+
+if (ENABLE_WEBKIT_LEGACY)
+    add_subdirectory(WebKitLegacy)
+endif ()
+
 if (ENABLE_WEBKIT)
     add_subdirectory(WebKit)
 endif ()
 
-if (ENABLE_WEBKIT2)
-    add_subdirectory(WebKit2)
+if (ENABLE_WEBDRIVER)
+    add_subdirectory(WebDriver)
 endif ()
 
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
-
-# -----------------------------------------------------------------------------
-# Set compiler flags for all targets
-# -----------------------------------------------------------------------------
-if (NOT USE_SYSTEM_MALLOC)
-    WEBKIT_SET_EXTRA_COMPILER_FLAGS(bmalloc ${ADDITIONAL_COMPILER_FLAGS})
-endif ()
-WEBKIT_SET_EXTRA_COMPILER_FLAGS(WTF ${ADDITIONAL_COMPILER_FLAGS})
-WEBKIT_SET_EXTRA_COMPILER_FLAGS(JavaScriptCore ${ADDITIONAL_COMPILER_FLAGS})
-WEBKIT_SET_EXTRA_COMPILER_FLAGS(WebCoreTestSupport ${ADDITIONAL_COMPILER_FLAGS})
-WEBKIT_SET_EXTRA_COMPILER_FLAGS(WebCore ${ADDITIONAL_COMPILER_FLAGS})
-
-if (ENABLE_WEBKIT)
-    WEBKIT_SET_EXTRA_COMPILER_FLAGS(WebKit ${ADDITIONAL_COMPILER_FLAGS})
-endif ()
-
-if (ENABLE_WEBKIT2)
-    WEBKIT_SET_EXTRA_COMPILER_FLAGS(WebKit2 ${ADDITIONAL_COMPILER_FLAGS})
-endif ()

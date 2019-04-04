@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,75 +26,229 @@
 #import "config.h"
 #import "Editor.h"
 
+#import "ArchiveResource.h"
 #import "CSSValueList.h"
 #import "CSSValuePool.h"
+#import "CachedResourceLoader.h"
+#import "ColorMac.h"
+#import "DocumentFragment.h"
+#import "DocumentLoader.h"
+#import "Editing.h"
 #import "EditingStyle.h"
+#import "EditorClient.h"
+#import "FontAttributes.h"
+#import "FontCascade.h"
 #import "Frame.h"
+#import "FrameLoader.h"
 #import "FrameSelection.h"
-#import "NSAttributedStringSPI.h"
+#import "HTMLAttachmentElement.h"
+#import "HTMLConverter.h"
+#import "HTMLImageElement.h"
+#import "HTMLSpanElement.h"
+#import "LegacyNSPasteboardTypes.h"
+#import "LegacyWebArchive.h"
+#import "Pasteboard.h"
+#import "PasteboardStrategy.h"
+#import "PlatformStrategies.h"
 #import "RenderElement.h"
 #import "RenderStyle.h"
-#import "SoftLinking.h"
+#import "Settings.h"
 #import "Text.h"
-#import "htmlediting.h"
+#import "WebContentReader.h"
+#import "markup.h"
+#import <pal/spi/cocoa/NSAttributedStringSPI.h>
+#import <pal/spi/cocoa/NSKeyedArchiverSPI.h>
+#import <pal/system/Sound.h>
+#import <wtf/BlockObjCExceptions.h>
+#import <wtf/cocoa/NSURLExtras.h>
 
 namespace WebCore {
 
-// FIXME: This figures out the current style by inserting a <span>!
-RenderStyle* Editor::styleForSelectionStart(Frame* frame, Node *&nodeToRemove)
+void Editor::platformFontAttributesAtSelectionStart(FontAttributes& attributes, const RenderStyle& style) const
 {
-    nodeToRemove = nullptr;
-    
-    if (frame->selection().isNone())
-        return nullptr;
-
-    Position position = adjustedSelectionStartForStyleComputation(frame->selection().selection());
-    if (!position.isCandidate() || position.isNull())
-        return nullptr;
-
-    RefPtr<EditingStyle> typingStyle = frame->selection().typingStyle();
-    if (!typingStyle || !typingStyle->style())
-        return &position.deprecatedNode()->renderer()->style();
-
-    Ref<Element> styleElement = frame->document()->createElement(HTMLNames::spanTag, false);
-
-    String styleText = typingStyle->style()->asText() + " display: inline";
-    styleElement->setAttribute(HTMLNames::styleAttr, styleText);
-
-    styleElement->appendChild(frame->document()->createEditingTextNode(""), ASSERT_NO_EXCEPTION);
-
-    ContainerNode* parentNode = position.deprecatedNode()->parentNode();
-
-    if (!parentNode->ensurePreInsertionValidity(styleElement.copyRef(), nullptr, IGNORE_EXCEPTION))
-        return nullptr; 
-
-    parentNode->appendChild(styleElement.copyRef(), ASSERT_NO_EXCEPTION);
-
-    nodeToRemove = styleElement.ptr();
-
-    frame->document()->updateStyleIfNeeded();
-    return styleElement->renderer() ? &styleElement->renderer()->style() : nullptr;
+    if (auto ctFont = style.fontCascade().primaryFont().getCTFont())
+        attributes.font = (__bridge id)ctFont;
 }
 
-void Editor::getTextDecorationAttributesRespectingTypingStyle(RenderStyle& style, NSMutableDictionary* result) const
+static RefPtr<SharedBuffer> archivedDataForAttributedString(NSAttributedString *attributedString)
 {
-    RefPtr<EditingStyle> typingStyle = m_frame.selection().typingStyle();
-    if (typingStyle && typingStyle->style()) {
-        RefPtr<CSSValue> value = typingStyle->style()->getPropertyCSSValue(CSSPropertyWebkitTextDecorationsInEffect);
-        if (value && value->isValueList()) {
-            CSSValueList& valueList = downcast<CSSValueList>(*value);
-            if (valueList.hasValue(CSSValuePool::singleton().createIdentifierValue(CSSValueLineThrough).ptr()))
-                [result setObject:[NSNumber numberWithInt:NSUnderlineStyleSingle] forKey:NSStrikethroughStyleAttributeName];
-            if (valueList.hasValue(CSSValuePool::singleton().createIdentifierValue(CSSValueUnderline).ptr()))
-                [result setObject:[NSNumber numberWithInt:NSUnderlineStyleSingle] forKey:NSUnderlineStyleAttributeName];
+    if (!attributedString.length)
+        return nullptr;
+
+    return SharedBuffer::create(securelyArchivedDataWithRootObject(attributedString));
+}
+
+String Editor::selectionInHTMLFormat()
+{
+    return serializePreservingVisualAppearance(m_frame.selection().selection(), ResolveURLs::YesExcludingLocalFileURLsForPrivacy,
+        m_frame.settings().selectionAcrossShadowBoundariesEnabled() ? SerializeComposedTree::Yes : SerializeComposedTree::No);
+}
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+
+void Editor::getPasteboardTypesAndDataForAttachment(Element& element, Vector<String>& outTypes, Vector<RefPtr<SharedBuffer>>& outData)
+{
+    auto& document = element.document();
+    auto elementRange = Range::create(document, { &element, Position::PositionIsBeforeAnchor }, { &element, Position::PositionIsAfterAnchor });
+    client()->getClientPasteboardDataForRange(elementRange.ptr(), outTypes, outData);
+
+    outTypes.append(PasteboardCustomData::cocoaType());
+    outData.append(PasteboardCustomData { document.originIdentifierForPasteboard(), { }, { }, { } }.createSharedBuffer());
+
+    if (auto archive = LegacyWebArchive::create(elementRange.ptr())) {
+        if (auto webArchiveData = archive->rawDataRepresentation()) {
+            outTypes.append(WebArchivePboardType);
+            outData.append(SharedBuffer::create(webArchiveData.get()));
+        }
+    }
+}
+
+#endif
+
+void Editor::writeSelectionToPasteboard(Pasteboard& pasteboard)
+{
+    NSAttributedString *attributedString = attributedStringFromSelection(m_frame.selection().selection());
+
+    PasteboardWebContent content;
+    content.contentOrigin = m_frame.document()->originIdentifierForPasteboard();
+    content.canSmartCopyOrDelete = canSmartCopyOrDelete();
+    content.dataInWebArchiveFormat = selectionInWebArchiveFormat();
+    content.dataInRTFDFormat = attributedString.containsAttachments ? dataInRTFDFormat(attributedString) : nullptr;
+    content.dataInRTFFormat = dataInRTFFormat(attributedString);
+    content.dataInAttributedStringFormat = archivedDataForAttributedString(attributedString);
+    content.dataInHTMLFormat = selectionInHTMLFormat();
+    content.dataInStringFormat = stringSelectionForPasteboardWithImageAltText();
+    client()->getClientPasteboardDataForRange(selectedRange().get(), content.clientTypes, content.clientData);
+
+    pasteboard.write(content);
+}
+
+void Editor::writeSelection(PasteboardWriterData& pasteboardWriterData)
+{
+    NSAttributedString *attributedString = attributedStringFromSelection(m_frame.selection().selection());
+
+    PasteboardWriterData::WebContent webContent;
+    webContent.contentOrigin = m_frame.document()->originIdentifierForPasteboard();
+    webContent.canSmartCopyOrDelete = canSmartCopyOrDelete();
+    webContent.dataInWebArchiveFormat = selectionInWebArchiveFormat();
+    webContent.dataInRTFDFormat = attributedString.containsAttachments ? dataInRTFDFormat(attributedString) : nullptr;
+    webContent.dataInRTFFormat = dataInRTFFormat(attributedString);
+    webContent.dataInAttributedStringFormat = archivedDataForAttributedString(attributedString);
+    webContent.dataInHTMLFormat = selectionInHTMLFormat();
+    webContent.dataInStringFormat = stringSelectionForPasteboardWithImageAltText();
+    client()->getClientPasteboardDataForRange(selectedRange().get(), webContent.clientTypes, webContent.clientData);
+
+    pasteboardWriterData.setWebContent(WTFMove(webContent));
+}
+
+RefPtr<SharedBuffer> Editor::selectionInWebArchiveFormat()
+{
+    auto archive = LegacyWebArchive::createFromSelection(&m_frame);
+    if (!archive)
+        return nullptr;
+    return SharedBuffer::create(archive->rawDataRepresentation().get());
+}
+
+// FIXME: Makes no sense that selectedTextForDataTransfer always includes alt text, but stringSelectionForPasteboard does not.
+// This was left in a bad state when selectedTextForDataTransfer was added. Need to look over clients and fix this.
+String Editor::stringSelectionForPasteboard()
+{
+    if (!canCopy())
+        return emptyString();
+    String text = selectedText();
+    text.replace(noBreakSpace, ' ');
+    return text;
+}
+
+String Editor::stringSelectionForPasteboardWithImageAltText()
+{
+    if (!canCopy())
+        return emptyString();
+    String text = selectedTextForDataTransfer();
+    text.replace(noBreakSpace, ' ');
+    return text;
+}
+
+void Editor::replaceSelectionWithAttributedString(NSAttributedString *attributedString, MailBlockquoteHandling mailBlockquoteHandling)
+{
+    if (m_frame.selection().isNone())
+        return;
+
+    if (m_frame.selection().selection().isContentRichlyEditable()) {
+        if (auto fragment = createFragmentAndAddResources(m_frame, attributedString)) {
+            if (shouldInsertFragment(*fragment, selectedRange().get(), EditorInsertAction::Pasted))
+                pasteAsFragment(fragment.releaseNonNull(), false, false, mailBlockquoteHandling);
         }
     } else {
-        int decoration = style.textDecorationsInEffect();
-        if (decoration & TextDecorationLineThrough)
-            [result setObject:[NSNumber numberWithInt:NSUnderlineStyleSingle] forKey:NSStrikethroughStyleAttributeName];
-        if (decoration & TextDecorationUnderline)
-            [result setObject:[NSNumber numberWithInt:NSUnderlineStyleSingle] forKey:NSUnderlineStyleAttributeName];
+        String text = attributedString.string;
+        if (shouldInsertText(text, selectedRange().get(), EditorInsertAction::Pasted))
+            pasteAsPlainText(text, false);
     }
+}
+
+String Editor::userVisibleString(const URL& url)
+{
+    return WTF::userVisibleString(url);
+}
+
+RefPtr<SharedBuffer> Editor::dataInRTFDFormat(NSAttributedString *string)
+{
+    NSUInteger length = string.length;
+    if (!length)
+        return nullptr;
+
+    BEGIN_BLOCK_OBJC_EXCEPTIONS;
+    return SharedBuffer::create([string RTFDFromRange:NSMakeRange(0, length) documentAttributes:@{ }]);
+    END_BLOCK_OBJC_EXCEPTIONS;
+
+    return nullptr;
+}
+
+RefPtr<SharedBuffer> Editor::dataInRTFFormat(NSAttributedString *string)
+{
+    NSUInteger length = string.length;
+    if (!length)
+        return nullptr;
+
+    BEGIN_BLOCK_OBJC_EXCEPTIONS;
+    return SharedBuffer::create([string RTFFromRange:NSMakeRange(0, length) documentAttributes:@{ }]);
+    END_BLOCK_OBJC_EXCEPTIONS;
+
+    return nullptr;
+}
+
+// FIXME: Should give this function a name that makes it clear it adds resources to the document loader as a side effect.
+// Or refactor so it does not do that.
+RefPtr<DocumentFragment> Editor::webContentFromPasteboard(Pasteboard& pasteboard, Range& context, bool allowPlainText, bool& chosePlainText)
+{
+    WebContentReader reader(m_frame, context, allowPlainText);
+    pasteboard.read(reader);
+    chosePlainText = reader.madeFragmentFromPlainText;
+    return WTFMove(reader.fragment);
+}
+
+void Editor::takeFindStringFromSelection()
+{
+    if (!canCopyExcludingStandaloneImages()) {
+        PAL::systemBeep();
+        return;
+    }
+
+    auto stringFromSelection = m_frame.displayStringModifiedByEncoding(selectedTextForDataTransfer());
+#if PLATFORM(MAC)
+    Vector<String> types;
+    types.append(String(legacyStringPasteboardType()));
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    platformStrategies()->pasteboardStrategy()->setTypes(types, NSFindPboard);
+    platformStrategies()->pasteboardStrategy()->setStringForType(WTFMove(stringFromSelection), legacyStringPasteboardType(), NSFindPboard);
+    ALLOW_DEPRECATED_DECLARATIONS_END
+#else
+    if (auto* client = this->client()) {
+        // Since the find pasteboard doesn't exist on iOS, WebKit maintains its own notion of the latest find string,
+        // which SPI clients may respect when presenting find-in-page UI.
+        client->updateStringForFind(stringFromSelection);
+    }
+#endif
 }
 
 }

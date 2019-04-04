@@ -23,13 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TinyLRUCache_h
-#define TinyLRUCache_h
+#pragma once
 
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Vector.h>
 
-namespace WebCore {
+namespace WTF {
 
 template<typename KeyType, typename ValueType>
 struct TinyLRUCachePolicy {
@@ -78,4 +77,5 @@ private:
 
 }
 
-#endif // TinyLRUCache_h
+using WTF::TinyLRUCache;
+using WTF::TinyLRUCachePolicy;

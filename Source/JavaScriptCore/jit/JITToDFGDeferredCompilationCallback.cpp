@@ -29,7 +29,6 @@
 #if ENABLE(DFG_JIT)
 
 #include "CodeBlock.h"
-#include "Executable.h"
 #include "JSCInlines.h"
 
 namespace JSC {
@@ -64,7 +63,7 @@ void JITToDFGDeferredCompilationCallback::compilationDidComplete(
         dataLog("Optimizing compilation of ", *codeBlock, " result: ", result, "\n");
     
     if (result == CompilationSuccessful)
-        codeBlock->ownerScriptExecutable()->installCode(codeBlock);
+        codeBlock->ownerExecutable()->installCode(codeBlock);
     
     codeBlock->alternative()->setOptimizationThresholdBasedOnCompilationResult(result);
 

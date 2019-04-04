@@ -23,27 +23,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CSSUnsetValue_h
-#define CSSUnsetValue_h
+#pragma once
 
 #include "CSSValue.h"
-#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
-class CSSUnsetValue : public CSSValue {
+class CSSUnsetValue final : public CSSValue {
 public:
     String customCSSText() const;
 
     bool equals(const CSSUnsetValue&) const { return true; }
 
-#if COMPILER(MSVC)
-    // FIXME: This should be private, but for some reason MSVC then fails to invoke it from LazyNeverDestroyed::construct.
-public:
-#else
 private:
-    friend class LazyNeverDestroyed<CSSUnsetValue>;
-#endif
+    friend LazyNeverDestroyed<CSSUnsetValue>;
     CSSUnsetValue()
         : CSSValue(UnsetClass)
     {
@@ -53,5 +46,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSUnsetValue, isUnsetValue())
-
-#endif // CSSUnsetValue_h

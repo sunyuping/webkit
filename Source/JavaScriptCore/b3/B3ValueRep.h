@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef B3ValueRep_h
-#define B3ValueRep_h
+#pragma once
 
 #if ENABLE(B3_JIT)
 
@@ -66,10 +65,25 @@ public:
         // As an input representation, this means that B3 should pick some register. It could be a
         // register that this claims to clobber!
         SomeRegister,
+        
+        // As an input representation, this means that B3 should pick some register but that this
+        // register is then cobbered with garbage. This only works for patchpoints.
+        SomeRegisterWithClobber,
 
+        // As an input representation, this tells us that B3 should pick some register, but implies
+        // that the def happens before any of the effects of the stackmap. This is only valid for
+        // the result constraint of a Patchpoint.
+        SomeEarlyRegister,
+        
         // As an input representation, this forces a particular register. As an output
         // representation, this tells us what register B3 picked.
         Register,
+
+        // As an input representation, this forces a particular register and states that
+        // the register is used late. This means that the register is used after the result
+        // is defined (i.e, the result will interfere with this as an input).
+        // It's not a valid output representation.
+        LateRegister,
 
         // As an output representation, this tells us what stack slot B3 picked. It's not a valid
         // input representation.
@@ -97,12 +111,19 @@ public:
     ValueRep(Kind kind)
         : m_kind(kind)
     {
-        ASSERT(kind == WarmAny || kind == ColdAny || kind == LateColdAny || kind == SomeRegister);
+        ASSERT(kind == WarmAny || kind == ColdAny || kind == LateColdAny || kind == SomeRegister || kind == SomeRegisterWithClobber || kind == SomeEarlyRegister);
     }
 
     static ValueRep reg(Reg reg)
     {
         return ValueRep(reg);
+    }
+
+    static ValueRep lateReg(Reg reg)
+    {
+        ValueRep result(reg);
+        result.m_kind = LateRegister;
+        return result;
     }
 
     static ValueRep stack(intptr_t offsetFromFP)
@@ -141,6 +162,7 @@ public:
         if (kind() != other.kind())
             return false;
         switch (kind()) {
+        case LateRegister:
         case Register:
             return u.reg == other.u.reg;
         case Stack:
@@ -163,9 +185,7 @@ public:
 
     bool isAny() const { return kind() == WarmAny || kind() == ColdAny || kind() == LateColdAny; }
 
-    bool isSomeRegister() const { return kind() == SomeRegister; }
-    
-    bool isReg() const { return kind() == Register; }
+    bool isReg() const { return kind() == Register || kind() == LateRegister; }
     
     Reg reg() const
     {
@@ -256,7 +276,7 @@ private:
 
         U()
         {
-            memset(this, 0, sizeof(*this));
+            memset(static_cast<void*>(this), 0, sizeof(*this));
         }
     } u;
 };
@@ -270,6 +290,3 @@ void printInternal(PrintStream&, JSC::B3::ValueRep::Kind);
 } // namespace WTF
 
 #endif // ENABLE(B3_JIT)
-
-#endif // B3ValueRep_h
-

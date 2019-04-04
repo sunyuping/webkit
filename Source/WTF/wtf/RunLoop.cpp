@@ -24,7 +24,7 @@
  */
 
 #include "config.h"
-#include "RunLoop.h"
+#include <wtf/RunLoop.h>
 
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
@@ -52,6 +52,7 @@ void RunLoop::initializeMainRunLoop()
 {
     if (s_mainRunLoop)
         return;
+    initializeMainThread();
     s_mainRunLoop = &RunLoop::current();
 }
 
@@ -91,9 +92,9 @@ void RunLoop::performWork()
 
     size_t functionsToHandle = 0;
     {
-        std::function<void()> function;
+        Function<void ()> function;
         {
-            MutexLocker locker(m_functionQueueLock);
+            auto locker = holdLock(m_functionQueueLock);
             functionsToHandle = m_functionQueue.size();
 
             if (m_functionQueue.isEmpty())
@@ -106,9 +107,9 @@ void RunLoop::performWork()
     }
 
     for (size_t functionsHandled = 1; functionsHandled < functionsToHandle; ++functionsHandled) {
-        std::function<void()> function;
+        Function<void ()> function;
         {
-            MutexLocker locker(m_functionQueueLock);
+            auto locker = holdLock(m_functionQueueLock);
 
             // Even if we start off with N functions to handle and we've only handled less than N functions, the queue
             // still might be empty because those functions might have been handled in an inner RunLoop::performWork().
@@ -123,10 +124,10 @@ void RunLoop::performWork()
     }
 }
 
-void RunLoop::dispatch(std::function<void ()> function)
+void RunLoop::dispatch(Function<void ()>&& function)
 {
     {
-        MutexLocker locker(m_functionQueueLock);
+        auto locker = holdLock(m_functionQueueLock);
         m_functionQueue.append(WTFMove(function));
     }
 

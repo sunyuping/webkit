@@ -23,13 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NamedImageGeneratedImage_h
-#define NamedImageGeneratedImage_h
+#pragma once
 
 #include "FloatSize.h"
 #include "GeneratedImage.h"
 #include "Image.h"
-#include <wtf/RefPtr.h>
 
 namespace WebCore {
 
@@ -41,18 +39,18 @@ public:
     }
 
 protected:
-    virtual void draw(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, CompositeOperator, BlendMode, ImageOrientationDescription) override;
-    virtual void drawPattern(GraphicsContext&, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, CompositeOperator, const FloatRect& dstRect, BlendMode) override;
+    ImageDrawResult draw(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, CompositeOperator, BlendMode, DecodingMode, ImageOrientationDescription) override;
+    void drawPattern(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, CompositeOperator, BlendMode) override;
 
     NamedImageGeneratedImage(String name, const FloatSize&);
 
 private:
-    virtual bool isNamedImageGeneratedImage() const override { return true; }
-    virtual void dump(TextStream&) const override;
+    bool isNamedImageGeneratedImage() const override { return true; }
+    void dump(WTF::TextStream&) const override;
 
     String m_name;
 };
 
 }
 
-#endif
+SPECIALIZE_TYPE_TRAITS_IMAGE(NamedImageGeneratedImage)

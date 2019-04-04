@@ -43,7 +43,9 @@ namespace JSC { namespace DFG {
 
 namespace {
 
-bool verbose = false;
+namespace DFGPhantomInsertionPhaseInternal {
+static const bool verbose = false;
+}
 
 class PhantomInsertionPhase : public Phase {
 public:
@@ -60,7 +62,7 @@ public:
         // SetLocals execute, which is inaccurate. That causes us to insert too few Phantoms.
         DFG_ASSERT(m_graph, nullptr, m_graph.m_refCountState == ExactRefCount);
         
-        if (verbose) {
+        if (DFGPhantomInsertionPhaseInternal::verbose) {
             dataLog("Graph before Phantom insertion:\n");
             m_graph.dump();
         }
@@ -70,7 +72,7 @@ public:
         for (BasicBlock* block : m_graph.blocksInNaturalOrder())
             handleBlock(block);
         
-        if (verbose) {
+        if (DFGPhantomInsertionPhaseInternal::verbose) {
             dataLog("Graph after Phantom insertion:\n");
             m_graph.dump();
         }
@@ -101,7 +103,7 @@ private:
         unsigned lastExitingIndex = 0;
         for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {
             Node* node = block->at(nodeIndex);
-            if (verbose)
+            if (DFGPhantomInsertionPhaseInternal::verbose)
                 dataLog("Considering ", node, "\n");
             
             switch (node->op()) {
@@ -113,7 +115,6 @@ private:
                 m_values.operand(node->unlinkedLocal()) = nullptr;
                 break;
 
-            case SetLocal:
             case GetLocal:
             case SetArgument:
                 m_values.operand(node->local()) = nullptr;
@@ -122,8 +123,9 @@ private:
             default:
                 break;
             }
-            
-            if (mayExit(m_graph, node) != DoesNotExit) {
+
+            bool nodeMayExit = mayExit(m_graph, node) != DoesNotExit;
+            if (nodeMayExit) {
                 currentEpoch.bump();
                 lastExitingIndex = nodeIndex;
             }
@@ -136,38 +138,55 @@ private:
             
             node->setEpoch(currentEpoch);
 
-            forAllKilledOperands(
-                m_graph, node, block->tryAt(nodeIndex + 1),
-                [&] (VirtualRegister reg) {
-                    if (verbose)
-                        dataLog("    Killed operand: ", reg, "\n");
-                    
-                    Node* killedNode = m_values.operand(reg);
-                    if (!killedNode)
-                        return;
-                    
-                    // We only need to insert a Phantom if the node hasn't been used since the last
-                    // exit, and was born before the last exit.
-                    if (killedNode->epoch() == currentEpoch)
-                        return;
-                    
-                    if (verbose) {
-                        dataLog(
-                            "    Inserting Phantom on ", killedNode, " after ",
-                            block->at(lastExitingIndex), "\n");
-                    }
-                    
-                    // We have exact ref counts, so creating a new use means that we have to
-                    // increment the ref count.
-                    killedNode->postfixRef();
+            VirtualRegister alreadyKilled;
 
-                    Node* lastExitingNode = block->at(lastExitingIndex);
-                    
-                    m_insertionSet.insertNode(
-                        lastExitingIndex + 1, SpecNone, Phantom,
-                        lastExitingNode->origin.forInsertingAfter(m_graph, lastExitingNode),
-                        killedNode->defaultEdge());
-            });
+            auto processKilledOperand = [&] (VirtualRegister reg) {
+                if (DFGPhantomInsertionPhaseInternal::verbose)
+                    dataLog("    Killed operand: ", reg, "\n");
+
+                // Already handled from SetLocal.
+                if (reg == alreadyKilled)
+                    return;
+                
+                Node* killedNode = m_values.operand(reg);
+                if (!killedNode)
+                    return;
+                
+                // We only need to insert a Phantom if the node hasn't been used since the last
+                // exit, and was born before the last exit.
+                if (killedNode->epoch() == currentEpoch)
+                    return;
+                
+                if (DFGPhantomInsertionPhaseInternal::verbose) {
+                    dataLog(
+                        "    Inserting Phantom on ", killedNode, " after ",
+                        block->at(lastExitingIndex), "\n");
+                }
+                
+                // We have exact ref counts, so creating a new use means that we have to
+                // increment the ref count.
+                killedNode->postfixRef();
+
+                Node* lastExitingNode = block->at(lastExitingIndex);
+                
+                m_insertionSet.insertNode(
+                    lastExitingIndex + 1, SpecNone, Phantom,
+                    lastExitingNode->origin.forInsertingAfter(m_graph, lastExitingNode),
+                    killedNode->defaultEdge());
+            };
+
+            if (node->op() == SetLocal) {
+                VirtualRegister local = node->local();
+                if (nodeMayExit) {
+                    // If the SetLocal does exit, we need the MovHint of its local
+                    // to be live until the SetLocal is done.
+                    processKilledOperand(local);
+                    alreadyKilled = local;
+                }
+                m_values.operand(local) = nullptr;
+            }
+
+            forAllKilledOperands(m_graph, node, block->tryAt(nodeIndex + 1), processKilledOperand);
         }
         
         m_insertionSet.execute(block);
@@ -181,7 +200,6 @@ private:
     
 bool performPhantomInsertion(Graph& graph)
 {
-    SamplingRegion samplingRegion("DFG Phantom Insertion Phase");
     return runPhase<PhantomInsertionPhase>(graph);
 }
 

@@ -20,8 +20,7 @@
  *
  */
 
-#ifndef CSSDefaultStyleSheets_h
-#define CSSDefaultStyleSheets_h
+#pragma once
 
 namespace WebCore {
 
@@ -45,13 +44,22 @@ public:
     static StyleSheetContents* fullscreenStyleSheet;
     static StyleSheetContents* plugInsStyleSheet;
     static StyleSheetContents* imageControlsStyleSheet;
+#if ENABLE(DATALIST_ELEMENT)
+    static StyleSheetContents* dataListStyleSheet;
+#endif
+#if ENABLE(INPUT_TYPE_COLOR)
+    static StyleSheetContents* colorInputStyleSheet;
+#endif
 
-    static void ensureDefaultStyleSheetsForElement(Element&);
+    static StyleSheetContents* mediaQueryStyleSheet;
+
+    static void initDefaultStyle(const Element*);
+    static void ensureDefaultStyleSheetsForElement(const Element&);
     static void loadFullDefaultStyle();
+
+private:
     static void loadSimpleDefaultStyle();
-    static void initDefaultStyle(Element*);
+    static void addToDefaultStyle(StyleSheetContents&);
 };
 
 } // namespace WebCore
-
-#endif // CSSDefaultStyleSheets_h

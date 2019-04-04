@@ -18,7 +18,7 @@
  *
  */
 
-/* This prefix file should contain only: 
+/* This prefix file should contain only:
  *    1) files to precompile for faster builds
  *    2) in one case at least: OS-X-specific performance bug workarounds
  *    3) the special trick to catch us using new or delete without including "config.h"
@@ -41,34 +41,18 @@
 #endif
 #endif
 
-#if OS(WINDOWS)
-
-#ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x601
-#endif
-
-#ifndef WINVER
-#define WINVER 0x0601
-#endif
-
-#if !USE(CURL)
-#ifndef _WINSOCKAPI_
-#define _WINSOCKAPI_ // Prevent inclusion of winsock.h in windows.h
-#endif
-#endif
-
+#if PLATFORM(WIN)
 #undef WEBCORE_EXPORT
 #define WEBCORE_EXPORT WTF_EXPORT_DECLARATION
-
+#undef WEBCORE_TESTSUPPORT_EXPORT
+#define WEBCORE_TESTSUPPORT_EXPORT WTF_EXPORT_DECLARATION
 #else
-
 #include <pthread.h>
-
-#endif // OS(WINDOWS)
+#endif // PLATFORM(WIN)
 
 #include <sys/types.h>
 #include <fcntl.h>
-#if defined(__APPLE__)
+#if HAVE(REGEX_H)
 #include <regex.h>
 #endif
 
@@ -100,7 +84,13 @@
 #include <sys/resource.h>
 #endif
 
+#if USE(CF)
 #include <CoreFoundation/CoreFoundation.h>
+#endif
+
+#if USE(CG)
+#include <CoreGraphics/CoreGraphics.h>
+#endif
 
 #if OS(WINDOWS)
 #ifndef CF_IMPLICIT_BRIDGING_ENABLED
@@ -111,7 +101,9 @@
 #define CF_IMPLICIT_BRIDGING_DISABLED
 #endif
 
+#if USE(CF)
 #include <CoreFoundation/CFBase.h>
+#endif
 
 #ifndef CF_ENUM
 #define CF_ENUM(_type, _name) _type _name; enum
@@ -128,13 +120,12 @@
 #endif
 
 #if PLATFORM(WIN_CAIRO)
-#include <ConditionalMacros.h>
 #include <windows.h>
 #else
 
 #if OS(WINDOWS)
-#if USE(CG)
 
+#if USE(CG)
 // FIXME <rdar://problem/8208868> Remove support for obsolete ColorSync API, CoreServices header in CoreGraphics
 // We can remove this once the new ColorSync APIs are available in an internal Safari SDK.
 #include <ColorSync/ColorSync.h>
@@ -143,31 +134,47 @@
 #define OBSOLETE_COLORSYNC_API
 #endif
 #endif
-#if USE(CFNETWORK)
-/* Windows doesn't include CFNetwork.h via CoreServices.h, so we do
-   it explicitly here to make Windows more consistent with Mac. */
+
+#if USE(CFURLCONNECTION)
 #include <CFNetwork/CFNetwork.h>
 // On Windows, dispatch.h needs to be included before certain CFNetwork headers.
 #include <dispatch/dispatch.h>
 #endif
+
 #include <windows.h>
-#else
-#if !PLATFORM(IOS)
-#include <CoreServices/CoreServices.h>
-#endif // !PLATFORM(IOS)
 #endif // OS(WINDOWS)
+
+#if PLATFORM(IOS_FAMILY)
+#include <MobileCoreServices/MobileCoreServices.h>
+#endif
+
+#if PLATFORM(MAC)
+#include <CoreServices/CoreServices.h>
+#endif
 
 #endif
 
 #ifdef __OBJC__
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #import <Foundation/Foundation.h>
 #else
+#if USE(APPKIT)
 #import <Cocoa/Cocoa.h>
-#endif // PLATFORM(IOS)
+#import <wtf/mac/AppKitCompatibilityDeclarations.h>
+#endif
+#endif // PLATFORM(IOS_FAMILY)
 #endif
 
 #ifdef __cplusplus
+
+#if !PLATFORM(WIN) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300)
+#import <wtf/FastMalloc.h>
+#import <wtf/Optional.h>
+#import <wtf/StdLibExtras.h>
+#import <wtf/text/AtomicString.h>
+#import <wtf/text/WTFString.h>
+#endif
+
 #define new ("if you use new/delete make sure to include config.h at the top of the file"()) 
 #define delete ("if you use new/delete make sure to include config.h at the top of the file"()) 
 #endif
@@ -180,4 +187,3 @@
 #undef try
 #undef catch
 #endif
-

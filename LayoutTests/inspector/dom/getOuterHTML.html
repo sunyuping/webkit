@@ -10,10 +10,10 @@ function test()
     suite.addTestCase({
         name: "GetOuterHTML",
         description: "Get the OuterHTML of the target element.",
-        test: (resolve, reject) => {
-            WebInspector.domTreeManager.requestDocument(function(documentNode) {
-                WebInspector.domTreeManager.querySelector(documentNode.id, "#x", function(nodeId) {
-                    let domNode = WebInspector.domTreeManager.nodeForId(nodeId);
+        test(resolve, reject) {
+            WI.domManager.requestDocument(function(documentNode) {
+                WI.domManager.querySelector(documentNode.id, "#x", function(nodeId) {
+                    let domNode = WI.domManager.nodeForId(nodeId);
                     InspectorTest.assert(domNode, "DOMNode exists");
                     domNode.getOuterHTML(function(error, outerHTML) {
                         InspectorTest.expectNoError(error);

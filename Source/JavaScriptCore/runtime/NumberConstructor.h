@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef NumberConstructor_h
-#define NumberConstructor_h
+#pragma once
 
 #include "InternalFunction.h"
 
@@ -28,10 +27,10 @@ namespace JSC {
 class NumberPrototype;
 class GetterSetter;
 
-class NumberConstructor : public InternalFunction {
+class NumberConstructor final : public InternalFunction {
 public:
     typedef InternalFunction Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | ImplementsHasInstance | ImplementsDefaultHasInstance;
+    static const unsigned StructureFlags = Base::StructureFlags | ImplementsHasInstance | HasStaticPropertyTable;
 
     static NumberConstructor* create(VM& vm, Structure* structure, NumberPrototype* numberPrototype, GetterSetter*)
     {
@@ -44,7 +43,18 @@ public:
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto) 
     { 
-        return Structure::create(vm, globalObject, proto, TypeInfo(ObjectType, StructureFlags), info()); 
+        return Structure::create(vm, globalObject, proto, TypeInfo(InternalFunctionType, StructureFlags), info()); 
+    }
+
+    static bool isIntegerImpl(JSValue value)
+    {
+        if (value.isInt32())
+            return true;
+        if (!value.isDouble())
+            return false;
+
+        double number = value.asDouble();
+        return std::isfinite(number) && trunc(number) == number;
     }
 
 protected:
@@ -52,10 +62,6 @@ protected:
 
 private:
     NumberConstructor(VM&, Structure*);
-    static ConstructType getConstructData(JSCell*, ConstructData&);
-    static CallType getCallData(JSCell*, CallData&);
 };
 
 } // namespace JSC
-
-#endif // NumberConstructor_h

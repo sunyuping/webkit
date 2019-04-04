@@ -74,6 +74,7 @@ class GenericFileSystemTests(object):
         self.fs.chdir(self.generic_test_dir)
         self.assertEqual(set(self.fs.glob('foo.*')), set(['foo.txt']))
 
+
 class RealFileSystemTest(unittest.TestCase, GenericFileSystemTests):
     def setUp(self):
         self.fs = FileSystem()
@@ -186,7 +187,6 @@ class RealFileSystemTest(unittest.TestCase, GenericFileSystemTests):
         text_path = None
 
         unicode_text_string = u'\u016An\u012Dc\u014Dde\u033D'
-        hex_equivalent = '\xC5\xAA\x6E\xC4\xAD\x63\xC5\x8D\x64\x65\xCC\xBD'
         try:
             text_path = tempfile.mktemp(prefix='tree_unittest_')
             file = fs.open_text_file_for_writing(text_path)
@@ -198,6 +198,65 @@ class RealFileSystemTest(unittest.TestCase, GenericFileSystemTests):
             file.close()
 
             self.assertEqual(read_text, unicode_text_string)
+        finally:
+            if text_path and fs.isfile(text_path):
+                os.remove(text_path)
+
+    def test_read_text_file_unicode_decode_error(self):
+        fs = FileSystem()
+        text_path = None
+        try:
+            text_path = tempfile.mktemp(prefix='write_text_unittest_')
+            fs.write_binary_file(text_path, bytearray(b'\x73\x74\x72\x8b'))
+
+            self.assertRaises(UnicodeDecodeError, fs.read_text_file, text_path)
+            self.assertEqual(u'str\ufffd', fs.read_text_file(text_path, errors='replace'))
+            self.assertEqual('str', fs.read_text_file(text_path, errors='ignore'))
+        finally:
+            if text_path and fs.isfile(text_path):
+                os.remove(text_path)
+
+    def test_write_text_file_unicode_encode_error(self):
+        fs = FileSystem()
+        text_path = None
+        try:
+            text_path = tempfile.mktemp(prefix='write_text_unittest_')
+            bin_path = tempfile.mktemp(prefix='write_bin_unittest_')
+            fs.write_binary_file(bin_path, bytearray(b'\x73\x74\x72\x8b'))
+            data_to_write = fs.read_binary_file(bin_path)
+
+            self.assertRaises(UnicodeDecodeError, fs.write_text_file, text_path, data_to_write)
+            fs.write_text_file(text_path, data_to_write, 'replace')
+            self.assertEqual(u'str\ufffd', fs.read_text_file(text_path))
+            fs.write_text_file(text_path, data_to_write, 'ignore')
+            self.assertEqual('str', fs.read_text_file(text_path))
+        finally:
+            if text_path and fs.isfile(text_path):
+                os.remove(text_path)
+            if bin_path and fs.isfile(bin_path):
+                os.remove(bin_path)
+
+    def test_append_to_text_file(self):
+        fs = FileSystem()
+        text_path = None
+
+        unicode_text_string1 = u'\u016An\u012Dc\u014Dde\u033D'
+        unicode_text_string2 = 'Hello'
+        try:
+            text_path = tempfile.mktemp(prefix='tree_unittest_')
+            file = fs.open_text_file_for_writing(text_path)
+            file.write(unicode_text_string1)
+            file.close()
+
+            file = fs.open_text_file_for_writing(text_path, should_append=True)
+            file.write(unicode_text_string2)
+            file.close()
+
+            file = fs.open_text_file_for_reading(text_path)
+            read_text = file.read()
+            file.close()
+
+            self.assertEqual(read_text, unicode_text_string1 + unicode_text_string2)
         finally:
             if text_path and fs.isfile(text_path):
                 os.remove(text_path)

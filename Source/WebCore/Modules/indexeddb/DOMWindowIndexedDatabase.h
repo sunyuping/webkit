@@ -23,8 +23,7 @@
  * DAMAGE.
  */
 
-#ifndef DOMWindowIndexedDatabase_h
-#define DOMWindowIndexedDatabase_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
@@ -44,25 +43,15 @@ public:
 
     static DOMWindowIndexedDatabase* from(DOMWindow*);
 
-    static IDBFactory* indexedDB(DOMWindow*);
-
-    virtual void disconnectFrameForDocumentSuspension() override;
-    virtual void reconnectFrameFromDocumentSuspension(Frame*) override;
-    virtual void willDestroyGlobalObjectInCachedFrame() override;
-    virtual void willDestroyGlobalObjectInFrame() override;
-    virtual void willDetachGlobalObjectFromFrame() override;
+    WEBCORE_EXPORT static IDBFactory* indexedDB(DOMWindow&);
 
 private:
     IDBFactory* indexedDB();
     static const char* supplementName();
 
-    DOMWindow* m_window;
     RefPtr<IDBFactory> m_idbFactory;
-    RefPtr<IDBFactory> m_suspendedIDBFactory;
 };
 
 } // namespace WebCore
 
 #endif // ENABLE(INDEXED_DATABASE)
-
-#endif // DOMWindowIndexedDatabase_h

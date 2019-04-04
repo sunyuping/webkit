@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef PlatformCALayerClient_h
-#define PlatformCALayerClient_h
+#pragma once
 
 #include "GraphicsLayer.h"
 
@@ -41,12 +40,13 @@ public:
 
     virtual void platformCALayerCustomSublayersChanged(PlatformCALayer*) { }
 
-    virtual void platformCALayerAnimationStarted(const String& /*animationKey*/, CFTimeInterval) { }
+    virtual void platformCALayerAnimationStarted(const String& /*animationKey*/, MonotonicTime) { }
     virtual void platformCALayerAnimationEnded(const String& /*animationKey*/) { }
-    virtual GraphicsLayer::CompositingCoordinatesOrientation platformCALayerContentsOrientation() const { return GraphicsLayer::CompositingCoordinatesTopDown; }
-    virtual void platformCALayerPaintContents(PlatformCALayer*, GraphicsContext&, const FloatRect& inClip) = 0;
+    virtual GraphicsLayer::CompositingCoordinatesOrientation platformCALayerContentsOrientation() const { return GraphicsLayer::CompositingCoordinatesOrientation::TopDown; }
+    virtual void platformCALayerPaintContents(PlatformCALayer*, GraphicsContext&, const FloatRect& inClip, GraphicsLayerPaintBehavior) = 0;
     virtual bool platformCALayerShowDebugBorders() const { return false; }
     virtual bool platformCALayerShowRepaintCounter(PlatformCALayer*) const { return false; }
+    virtual int platformCALayerRepaintCount(PlatformCALayer*) const { return 0; }
     virtual int platformCALayerIncrementRepaintCount(PlatformCALayer*) { return 0; }
     
     virtual bool platformCALayerContentsOpaque() const = 0;
@@ -60,16 +60,17 @@ public:
     virtual bool platformCALayerShouldAggressivelyRetainTiles(PlatformCALayer*) const { return false; }
     virtual bool platformCALayerShouldTemporarilyRetainTileCohorts(PlatformCALayer*) const { return true; }
 
-    virtual IntSize platformCALayerTileSize() const { return defaultTileSize(); }
+    virtual bool platformCALayerUseGiantTiles() const { return false; }
 
     virtual bool isCommittingChanges() const { return false; }
 
     virtual bool isUsingDisplayListDrawing(PlatformCALayer*) const { return false; }
 
+    virtual void platformCALayerLogFilledVisibleFreshTile(unsigned /* blankPixelCount */) { }
+
 protected:
-    virtual ~PlatformCALayerClient() {}
+    virtual ~PlatformCALayerClient() = default;
 };
 
 }
 
-#endif // PlatformCALayerClient_h

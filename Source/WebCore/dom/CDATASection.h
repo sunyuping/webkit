@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2018 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,25 +20,25 @@
  *
  */
 
-#ifndef CDATASection_h
-#define CDATASection_h
+#pragma once
 
 #include "Text.h"
 
 namespace WebCore {
 
 class CDATASection final : public Text {
+    WTF_MAKE_ISO_ALLOCATED(CDATASection);
 public:
     static Ref<CDATASection> create(Document&, const String&);
 
 private:
     CDATASection(Document&, const String&);
 
-    virtual String nodeName() const override;
-    virtual NodeType nodeType() const override;
-    virtual Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
-    virtual bool childTypeAllowed(NodeType) const override;
-    virtual Ref<Text> virtualCreate(const String&) override;
+    String nodeName() const override;
+    NodeType nodeType() const override;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
+    bool childTypeAllowed(NodeType) const override;
+    Ref<Text> virtualCreate(const String&) override;
 };
 
 } // namespace WebCore
@@ -46,5 +46,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::CDATASection)
     static bool isType(const WebCore::Node& node) { return node.nodeType() == WebCore::Node::CDATA_SECTION_NODE; }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // CDATASection_h

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,118 +29,130 @@
 #include "Error.h"
 #include "GetterSetter.h"
 #include "IteratorOperations.h"
-#include "JSCJSValueInlines.h"
-#include "JSCellInlines.h"
+#include "JSCInlines.h"
 #include "JSGlobalObject.h"
 #include "JSMap.h"
+#include "JSObjectInlines.h"
 #include "MapPrototype.h"
-#include "StructureInlines.h"
 
 namespace JSC {
 
-const ClassInfo MapConstructor::s_info = { "Function", &Base::s_info, 0, CREATE_METHOD_TABLE(MapConstructor) };
+const ClassInfo MapConstructor::s_info = { "Function", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(MapConstructor) };
 
 void MapConstructor::finishCreation(VM& vm, MapPrototype* mapPrototype, GetterSetter* speciesSymbol)
 {
-    Base::finishCreation(vm, mapPrototype->classInfo()->className);
-    putDirectWithoutTransition(vm, vm.propertyNames->prototype, mapPrototype, DontEnum | DontDelete | ReadOnly);
-    putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(0), ReadOnly | DontEnum | DontDelete);
-    putDirectNonIndexAccessor(vm, vm.propertyNames->speciesSymbol, speciesSymbol, Accessor | ReadOnly | DontEnum);
+    Base::finishCreation(vm, "Map"_s, NameVisibility::Visible, NameAdditionMode::WithoutStructureTransition);
+    putDirectWithoutTransition(vm, vm.propertyNames->prototype, mapPrototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(0), PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
+    putDirectNonIndexAccessorWithoutTransition(vm, vm.propertyNames->speciesSymbol, speciesSymbol, PropertyAttribute::Accessor | PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
+}
+
+static EncodedJSValue JSC_HOST_CALL callMap(ExecState*);
+static EncodedJSValue JSC_HOST_CALL constructMap(ExecState*);
+
+MapConstructor::MapConstructor(VM& vm, Structure* structure)
+    : Base(vm, structure, callMap, constructMap)
+{
 }
 
 static EncodedJSValue JSC_HOST_CALL callMap(ExecState* exec)
 {
-    return JSValue::encode(throwTypeError(exec, ASCIILiteral("Map cannot be called as a function")));
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(exec, scope, "Map"));
 }
 
 static EncodedJSValue JSC_HOST_CALL constructMap(ExecState* exec)
 {
-    JSGlobalObject* globalObject = asInternalFunction(exec->callee())->globalObject();
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSGlobalObject* globalObject = jsCast<InternalFunction*>(exec->jsCallee())->globalObject(vm);
     Structure* mapStructure = InternalFunction::createSubclassStructure(exec, exec->newTarget(), globalObject->mapStructure());
-    JSMap* map = JSMap::create(exec, mapStructure);
+    RETURN_IF_EXCEPTION(scope, encodedJSValue());
+
     JSValue iterable = exec->argument(0);
     if (iterable.isUndefinedOrNull())
-        return JSValue::encode(map);
+        RELEASE_AND_RETURN(scope, JSValue::encode(JSMap::create(exec, vm, mapStructure)));
 
-    JSValue adderFunction = map->JSObject::get(exec, exec->propertyNames().set);
-    if (exec->hadException())
-        return JSValue::encode(jsUndefined());
+    if (auto* iterableMap = jsDynamicCast<JSMap*>(vm, iterable)) {
+        if (iterableMap->canCloneFastAndNonObservable(mapStructure))
+            RELEASE_AND_RETURN(scope, JSValue::encode(iterableMap->clone(exec, vm, mapStructure)));
+    }
+
+    JSMap* map = JSMap::create(exec, vm, mapStructure);
+    RETURN_IF_EXCEPTION(scope, encodedJSValue());
+
+    JSValue adderFunction = map->JSObject::get(exec, vm.propertyNames->set);
+    RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
     CallData adderFunctionCallData;
-    CallType adderFunctionCallType = getCallData(adderFunction, adderFunctionCallData);
-    if (adderFunctionCallType == CallTypeNone)
-        return JSValue::encode(throwTypeError(exec));
+    CallType adderFunctionCallType = getCallData(vm, adderFunction, adderFunctionCallData);
+    if (adderFunctionCallType == CallType::None)
+        return JSValue::encode(throwTypeError(exec, scope));
 
-    JSValue iteratorFunction = iterable.get(exec, exec->propertyNames().iteratorSymbol);
-    if (exec->hadException())
-        return JSValue::encode(jsUndefined());
-
-    CallData iteratorFunctionCallData;
-    CallType iteratorFunctionCallType = getCallData(iteratorFunction, iteratorFunctionCallData);
-    if (iteratorFunctionCallType == CallTypeNone)
-        return JSValue::encode(throwTypeError(exec));
-
-    ArgList iteratorFunctionArguments;
-    JSValue iterator = call(exec, iteratorFunction, iteratorFunctionCallType, iteratorFunctionCallData, iterable, iteratorFunctionArguments);
-    if (exec->hadException())
-        return JSValue::encode(jsUndefined());
-
-    if (!iterator.isObject())
-        return JSValue::encode(throwTypeError(exec));
-
-    while (true) {
-        JSValue next = iteratorStep(exec, iterator);
-        if (exec->hadException())
-            return JSValue::encode(jsUndefined());
-
-        if (next.isFalse())
-            return JSValue::encode(map);
-
-        JSValue nextItem = iteratorValue(exec, next);
-        if (exec->hadException())
-            return JSValue::encode(jsUndefined());
-
+    scope.release();
+    forEachInIterable(exec, iterable, [&](VM& vm, ExecState* exec, JSValue nextItem) {
+        auto scope = DECLARE_THROW_SCOPE(vm);
         if (!nextItem.isObject()) {
-            throwTypeError(exec);
-            iteratorClose(exec, iterator);
-            return JSValue::encode(jsUndefined());
+            throwTypeError(exec, scope);
+            return;
         }
 
-        JSValue key = nextItem.get(exec, 0);
-        if (exec->hadException()) {
-            iteratorClose(exec, iterator);
-            return JSValue::encode(jsUndefined());
-        }
+        JSValue key = nextItem.get(exec, static_cast<unsigned>(0));
+        RETURN_IF_EXCEPTION(scope, void());
 
-        JSValue value = nextItem.get(exec, 1);
-        if (exec->hadException()) {
-            iteratorClose(exec, iterator);
-            return JSValue::encode(jsUndefined());
-        }
+        JSValue value = nextItem.get(exec, static_cast<unsigned>(1));
+        RETURN_IF_EXCEPTION(scope, void());
 
         MarkedArgumentBuffer arguments;
         arguments.append(key);
         arguments.append(value);
+        ASSERT(!arguments.hasOverflowed());
+        scope.release();
         call(exec, adderFunction, adderFunctionCallType, adderFunctionCallData, map, arguments);
-        if (exec->hadException()) {
-            iteratorClose(exec, iterator);
-            return JSValue::encode(jsUndefined());
-        }
-    }
-    RELEASE_ASSERT_NOT_REACHED();
+    });
+
     return JSValue::encode(map);
 }
 
-ConstructType MapConstructor::getConstructData(JSCell*, ConstructData& constructData)
+EncodedJSValue JSC_HOST_CALL mapPrivateFuncMapBucketHead(ExecState* exec)
 {
-    constructData.native.function = constructMap;
-    return ConstructTypeHost;
+    ASSERT(jsDynamicCast<JSMap*>(exec->vm(), exec->argument(0)));
+    JSMap* map = jsCast<JSMap*>(exec->uncheckedArgument(0));
+    auto* head = map->head();
+    ASSERT(head);
+    return JSValue::encode(head);
 }
 
-CallType MapConstructor::getCallData(JSCell*, CallData& callData)
+EncodedJSValue JSC_HOST_CALL mapPrivateFuncMapBucketNext(ExecState* exec)
 {
-    callData.native.function = callMap;
-    return CallTypeHost;
+    ASSERT(jsDynamicCast<JSMap::BucketType*>(exec->vm(), exec->argument(0)));
+    auto* bucket = jsCast<JSMap::BucketType*>(exec->uncheckedArgument(0));
+    ASSERT(bucket);
+    bucket = bucket->next();
+    while (bucket) {
+        if (!bucket->deleted())
+            return JSValue::encode(bucket);
+        bucket = bucket->next();
+    }
+    return JSValue::encode(exec->vm().sentinelMapBucket());
+}
+
+EncodedJSValue JSC_HOST_CALL mapPrivateFuncMapBucketKey(ExecState* exec)
+{
+    ASSERT(jsDynamicCast<JSMap::BucketType*>(exec->vm(), exec->argument(0)));
+    auto* bucket = jsCast<JSMap::BucketType*>(exec->uncheckedArgument(0));
+    ASSERT(bucket);
+    return JSValue::encode(bucket->key());
+}
+
+EncodedJSValue JSC_HOST_CALL mapPrivateFuncMapBucketValue(ExecState* exec)
+{
+    ASSERT(jsDynamicCast<JSMap::BucketType*>(exec->vm(), exec->argument(0)));
+    auto* bucket = jsCast<JSMap::BucketType*>(exec->uncheckedArgument(0));
+    ASSERT(bucket);
+    return JSValue::encode(bucket->value());
 }
 
 }

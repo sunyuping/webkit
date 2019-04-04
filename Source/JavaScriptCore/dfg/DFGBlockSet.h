@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,12 +23,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGBlockSet_h
-#define DFGBlockSet_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
 #include "DFGBasicBlock.h"
+#include <wtf/BitVector.h>
 
 namespace JSC { namespace DFG {
 
@@ -42,6 +42,12 @@ public:
     bool add(BasicBlock* block)
     {
         return !m_set.set(block->index);
+    }
+    
+    // Return true if the block was removed, false if it was already absent.
+    bool remove(BasicBlock* block)
+    {
+        return m_set.clear(block->index);
     }
     
     bool contains(BasicBlock* block) const
@@ -146,6 +152,3 @@ private:
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGBlockSet_h
-

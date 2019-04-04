@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,29 +23,137 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TestOptions_h
-#define TestOptions_h
+#pragma once
 
+#include <wtf/HashMap.h>
 #include <wtf/Vector.h>
+#include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTR {
 
 struct TestOptions {
+    struct ContextOptions {
+        Vector<String> overrideLanguages;
+        bool ignoreSynchronousMessagingTimeouts { false };
+        bool enableProcessSwapOnNavigation { true };
+        bool enableProcessSwapOnWindowOpen { false };
+
+        bool hasSameInitializationOptions(const ContextOptions& options) const
+        {
+            if (ignoreSynchronousMessagingTimeouts != options.ignoreSynchronousMessagingTimeouts
+                || overrideLanguages != options.overrideLanguages
+                || enableProcessSwapOnNavigation != options.enableProcessSwapOnNavigation
+                || enableProcessSwapOnWindowOpen != options.enableProcessSwapOnWindowOpen)
+                return false;
+            return true;
+        }
+
+        bool shouldEnableProcessSwapOnNavigation() const
+        {
+            return enableProcessSwapOnNavigation || enableProcessSwapOnWindowOpen;
+        }
+    };
+
     bool useThreadedScrolling { false };
+    bool useAcceleratedDrawing { false };
     bool useRemoteLayerTree { false };
     bool shouldShowWebView { false };
     bool useFlexibleViewport { false };
     bool useFixedLayout { false };
     bool isSVGTest { false };
-    bool isHiDPITest { false };
     bool useDataDetection { false };
+    bool useMockScrollbars { true };
+    bool needsSiteSpecificQuirks { false };
+    bool ignoresViewportScaleLimits { false };
+    bool useCharacterSelectionGranularity { false };
+    bool enableAttachmentElement { false };
+    bool enableIntersectionObserver { false };
+    bool enableMenuItemElement { false };
+    bool enableModernMediaControls { true };
+    bool enablePointerLock { false };
+    bool enableWebAuthentication { true };
+    bool enableWebAuthenticationLocalAuthenticator { true };
+    bool enableIsSecureContextAttribute { true };
+    bool enableInspectorAdditions { false };
+    bool shouldShowTouches { false };
+    bool dumpJSConsoleLogInStdErr { false };
+    bool allowCrossOriginSubresourcesToAskForCredentials { false };
+    bool domPasteAllowed { true };
+    bool enableColorFilter { false };
+    bool punchOutWhiteBackgroundsInDarkMode { false };
+    bool runSingly { false };
+    bool checkForWorldLeaks { false };
+    bool shouldIgnoreMetaViewport { false };
+    bool shouldShowSpellCheckingDots { false };
+    bool enableEditableImages { false };
+    bool editable { false };
+    bool enableUndoManagerAPI { false };
+    bool shouldHandleRunOpenPanel { true };
+    bool shouldPresentPopovers { true };
 
-    Vector<String> overrideLanguages;
-    
+    double contentInsetTop { 0 };
+
+    float deviceScaleFactor { 1 };
+    std::string applicationManifest;
+    std::string jscOptions;
+    HashMap<String, bool> experimentalFeatures;
+    HashMap<String, bool> internalDebugFeatures;
+
+    ContextOptions contextOptions;
+
     TestOptions(const std::string& pathOrURL);
+
+    // Add here options that can only be set upon PlatformWebView
+    // initialization and make sure it's up to date when adding new
+    // options to this struct. Otherwise, tests using those options
+    // might fail if WTR is reusing an existing PlatformWebView.
+    bool hasSameInitializationOptions(const TestOptions& options) const
+    {
+        if (useThreadedScrolling != options.useThreadedScrolling
+            || useAcceleratedDrawing != options.useAcceleratedDrawing
+            || useMockScrollbars != options.useMockScrollbars
+            || needsSiteSpecificQuirks != options.needsSiteSpecificQuirks
+            || useCharacterSelectionGranularity != options.useCharacterSelectionGranularity
+            || enableAttachmentElement != options.enableAttachmentElement
+            || enableIntersectionObserver != options.enableIntersectionObserver
+            || enableMenuItemElement != options.enableMenuItemElement
+            || enableModernMediaControls != options.enableModernMediaControls
+            || enablePointerLock != options.enablePointerLock
+            || enableWebAuthentication != options.enableWebAuthentication
+            || enableWebAuthenticationLocalAuthenticator != options.enableWebAuthenticationLocalAuthenticator
+            || enableIsSecureContextAttribute != options.enableIsSecureContextAttribute
+            || enableInspectorAdditions != options.enableInspectorAdditions
+            || dumpJSConsoleLogInStdErr != options.dumpJSConsoleLogInStdErr
+            || applicationManifest != options.applicationManifest
+            || allowCrossOriginSubresourcesToAskForCredentials != options.allowCrossOriginSubresourcesToAskForCredentials
+            || domPasteAllowed != options.domPasteAllowed
+            || enableColorFilter != options.enableColorFilter
+            || punchOutWhiteBackgroundsInDarkMode != options.punchOutWhiteBackgroundsInDarkMode
+            || jscOptions != options.jscOptions
+            || runSingly != options.runSingly
+            || checkForWorldLeaks != options.checkForWorldLeaks
+            || shouldShowSpellCheckingDots != options.shouldShowSpellCheckingDots
+            || shouldIgnoreMetaViewport != options.shouldIgnoreMetaViewport
+            || enableEditableImages != options.enableEditableImages
+            || editable != options.editable
+            || enableUndoManagerAPI != options.enableUndoManagerAPI
+            || shouldHandleRunOpenPanel != options.shouldHandleRunOpenPanel
+            || shouldPresentPopovers != options.shouldPresentPopovers
+            || contentInsetTop != options.contentInsetTop)
+            return false;
+
+        if (!contextOptions.hasSameInitializationOptions(options.contextOptions))
+            return false;
+
+        if (experimentalFeatures != options.experimentalFeatures)
+            return false;
+
+        if (internalDebugFeatures != options.internalDebugFeatures)
+            return false;
+
+        return true;
+    }
 };
 
 }
-
-#endif // TestOptions_h

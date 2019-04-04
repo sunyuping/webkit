@@ -23,23 +23,21 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ProfileNode = class ProfileNode extends WebInspector.Object
+WI.ProfileNode = class ProfileNode
 {
     constructor(id, type, functionName, sourceCodeLocation, callInfo, calls, childNodes)
     {
-        super();
-
         childNodes = childNodes || [];
 
         console.assert(id);
         console.assert(!calls || calls instanceof Array);
         console.assert(!calls || calls.length >= 1);
-        console.assert(!calls || calls.every(function(call) { return call instanceof WebInspector.ProfileNodeCall; }));
+        console.assert(!calls || calls.every((call) => call instanceof WI.ProfileNodeCall));
         console.assert(childNodes instanceof Array);
-        console.assert(childNodes.every(function(node) { return node instanceof WebInspector.ProfileNode; }));
+        console.assert(childNodes.every((node) => node instanceof WI.ProfileNode));
 
         this._id = id;
-        this._type = type || WebInspector.ProfileNode.Type.Function;
+        this._type = type || WI.ProfileNode.Type.Function;
         this._functionName = functionName || null;
         this._sourceCodeLocation = sourceCodeLocation || null;
         this._calls = calls || null;
@@ -50,7 +48,7 @@ WebInspector.ProfileNode = class ProfileNode extends WebInspector.Object
         this._nextSibling = null;
         this._computedTotalTimes = false;
 
-        if (this._callInfo) {            
+        if (this._callInfo) {
             this._startTime = this._callInfo.startTime;
             this._endTime = this._callInfo.endTime;
             this._totalTime = this._callInfo.totalTime;
@@ -91,7 +89,7 @@ WebInspector.ProfileNode = class ProfileNode extends WebInspector.Object
     get startTime()
     {
         if (this._startTime === undefined)
-            this._startTime =  Math.max(0, this._calls[0].startTime);
+            this._startTime = Math.max(0, this._calls[0].startTime);
         return this._startTime;
     }
 
@@ -158,6 +156,10 @@ WebInspector.ProfileNode = class ProfileNode extends WebInspector.Object
                 for (var childNode of this._childNodes)
                     childNodesTotalTime += childNode.totalTime;
                 this._selfTime = this._totalTime - childNodesTotalTime;
+                // selfTime can negative or very close to zero due to floating point error.
+                // Since we show at most four decimal places, treat anything less as zero.
+                if (this._selfTime < 0.0001)
+                    this._selfTime = 0.0;
             }
 
             return {
@@ -166,7 +168,7 @@ WebInspector.ProfileNode = class ProfileNode extends WebInspector.Object
                 endTime: this._endTime,
                 selfTime: this._selfTime,
                 totalTime: this._totalTime,
-                averageTime: (this._selfTime / this._callCount),
+                averageTime: this._selfTime / this._callCount,
             };
         }
 
@@ -228,11 +230,11 @@ WebInspector.ProfileNode = class ProfileNode extends WebInspector.Object
 
     saveIdentityToCookie(cookie)
     {
-        cookie[WebInspector.ProfileNode.TypeCookieKey] = this._type || null;
-        cookie[WebInspector.ProfileNode.FunctionNameCookieKey] = this._functionName || null;
-        cookie[WebInspector.ProfileNode.SourceCodeURLCookieKey] = this._sourceCodeLocation ? this._sourceCodeLocation.sourceCode.url ? this._sourceCodeLocation.sourceCode.url.hash : null : null;
-        cookie[WebInspector.ProfileNode.SourceCodeLocationLineCookieKey] = this._sourceCodeLocation ? this._sourceCodeLocation.lineNumber : null;
-        cookie[WebInspector.ProfileNode.SourceCodeLocationColumnCookieKey] = this._sourceCodeLocation ? this._sourceCodeLocation.columnNumber : null;
+        cookie[WI.ProfileNode.TypeCookieKey] = this._type || null;
+        cookie[WI.ProfileNode.FunctionNameCookieKey] = this._functionName || null;
+        cookie[WI.ProfileNode.SourceCodeURLCookieKey] = this._sourceCodeLocation ? this._sourceCodeLocation.sourceCode.url ? this._sourceCodeLocation.sourceCode.url.hash : null : null;
+        cookie[WI.ProfileNode.SourceCodeLocationLineCookieKey] = this._sourceCodeLocation ? this._sourceCodeLocation.lineNumber : null;
+        cookie[WI.ProfileNode.SourceCodeLocationColumnCookieKey] = this._sourceCodeLocation ? this._sourceCodeLocation.columnNumber : null;
     }
 
     // Protected
@@ -261,14 +263,14 @@ WebInspector.ProfileNode = class ProfileNode extends WebInspector.Object
     }
 };
 
-WebInspector.ProfileNode.Type = {
+WI.ProfileNode.Type = {
     Function: "profile-node-type-function",
     Program: "profile-node-type-program"
 };
 
-WebInspector.ProfileNode.TypeIdentifier = "profile-node";
-WebInspector.ProfileNode.TypeCookieKey = "profile-node-type";
-WebInspector.ProfileNode.FunctionNameCookieKey = "profile-node-function-name";
-WebInspector.ProfileNode.SourceCodeURLCookieKey = "profile-node-source-code-url";
-WebInspector.ProfileNode.SourceCodeLocationLineCookieKey = "profile-node-source-code-location-line";
-WebInspector.ProfileNode.SourceCodeLocationColumnCookieKey = "profile-node-source-code-location-column";
+WI.ProfileNode.TypeIdentifier = "profile-node";
+WI.ProfileNode.TypeCookieKey = "profile-node-type";
+WI.ProfileNode.FunctionNameCookieKey = "profile-node-function-name";
+WI.ProfileNode.SourceCodeURLCookieKey = "profile-node-source-code-url";
+WI.ProfileNode.SourceCodeLocationLineCookieKey = "profile-node-source-code-location-line";
+WI.ProfileNode.SourceCodeLocationColumnCookieKey = "profile-node-source-code-location-column";

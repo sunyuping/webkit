@@ -23,15 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PageOverlay_h
-#define PageOverlay_h
+#pragma once
 
 #include "Color.h"
 #include "FloatPoint.h"
 #include "IntRect.h"
 #include "Timer.h"
-#include <wtf/PassRefPtr.h>
 #include <wtf/RefCounted.h>
+#include <wtf/WallTime.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -49,10 +48,9 @@ class PageOverlay final : public RefCounted<PageOverlay> {
 public:
     class Client {
     protected:
-        virtual ~Client() { }
+        virtual ~Client() = default;
     
     public:
-        virtual void pageOverlayDestroyed(PageOverlay&) = 0;
         virtual void willMoveToPage(PageOverlay&, Page*) = 0;
         virtual void didMoveToPage(PageOverlay&, Page*) = 0;
         virtual void drawRect(PageOverlay&, GraphicsContext&, const IntRect& dirtyRect) = 0;
@@ -108,8 +106,8 @@ public:
 
     WEBCORE_EXPORT IntSize viewToOverlayOffset() const;
 
-    RGBA32 backgroundColor() const { return m_backgroundColor; }
-    void setBackgroundColor(RGBA32);
+    const Color& backgroundColor() const { return m_backgroundColor; }
+    void setBackgroundColor(const Color&);
 
     void setShouldIgnoreMouseEventsOutsideBounds(bool flag) { m_shouldIgnoreMouseEventsOutsideBounds = flag; }
 
@@ -129,8 +127,8 @@ private:
     Page* m_page { nullptr };
 
     Timer m_fadeAnimationTimer;
-    double m_fadeAnimationStartTime { 0 };
-    double m_fadeAnimationDuration;
+    WallTime m_fadeAnimationStartTime;
+    Seconds m_fadeAnimationDuration;
 
     enum FadeAnimationType {
         NoAnimation,
@@ -146,12 +144,10 @@ private:
     OverlayType m_overlayType;
     IntRect m_overrideFrame;
 
-    RGBA32 m_backgroundColor { Color::transparent };
+    Color m_backgroundColor { Color::transparent };
     PageOverlayID m_pageOverlayID;
 
     bool m_shouldIgnoreMouseEventsOutsideBounds { true };
 };
 
 } // namespace WebKit
-
-#endif // PageOverlay_h

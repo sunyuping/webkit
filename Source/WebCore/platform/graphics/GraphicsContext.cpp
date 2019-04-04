@@ -28,14 +28,14 @@
 
 #include "BidiResolver.h"
 #include "BitmapImage.h"
-#include "DisplayListRecorder.h"
 #include "FloatRoundedRect.h"
 #include "Gradient.h"
+#include "GraphicsContextImpl.h"
 #include "ImageBuffer.h"
 #include "IntRect.h"
 #include "RoundedRect.h"
 #include "TextRun.h"
-#include "TextStream.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -50,12 +50,6 @@ public:
     TextRunIterator(const TextRun* textRun, unsigned offset)
         : m_textRun(textRun)
         , m_offset(offset)
-    {
-    }
-
-    TextRunIterator(const TextRunIterator& other)
-        : m_textRun(other.m_textRun)
-        , m_offset(other.m_offset)
     {
     }
 
@@ -110,7 +104,6 @@ GraphicsContextState::StateChangeFlags GraphicsContextStateChange::changesFromSt
 
     CHECK_FOR_CHANGED_PROPERTY(ShouldAntialiasChange, shouldAntialias);
     CHECK_FOR_CHANGED_PROPERTY(ShouldSmoothFontsChange, shouldSmoothFonts);
-    CHECK_FOR_CHANGED_PROPERTY(AntialiasedFontDilationEnabledChange, antialiasedFontDilationEnabled);
     CHECK_FOR_CHANGED_PROPERTY(ShouldSubpixelQuantizeFontsChange, shouldSubpixelQuantizeFonts);
     CHECK_FOR_CHANGED_PROPERTY(ShadowsIgnoreTransformsChange, shadowsIgnoreTransforms);
     CHECK_FOR_CHANGED_PROPERTY(DrawLuminanceMaskChange, drawLuminanceMask);
@@ -172,9 +165,6 @@ void GraphicsContextStateChange::accumulate(const GraphicsContextState& state, G
 
     if (flags & GraphicsContextState::ShouldSmoothFontsChange)
         m_state.shouldSmoothFonts = state.shouldSmoothFonts;
-
-    if (flags & GraphicsContextState::AntialiasedFontDilationEnabledChange)
-        m_state.antialiasedFontDilationEnabled = state.antialiasedFontDilationEnabled;
 
     if (flags & GraphicsContextState::ShouldSubpixelQuantizeFontsChange)
         m_state.shouldSubpixelQuantizeFonts = state.shouldSubpixelQuantizeFonts;
@@ -243,9 +233,6 @@ void GraphicsContextStateChange::apply(GraphicsContext& context) const
 
     if (m_changeFlags & GraphicsContextState::ShouldSmoothFontsChange)
         context.setShouldSmoothFonts(m_state.shouldSmoothFonts);
-
-    if (m_changeFlags & GraphicsContextState::AntialiasedFontDilationEnabledChange)
-        context.setAntialiasedFontDilationEnabled(m_state.antialiasedFontDilationEnabled);
 
     if (m_changeFlags & GraphicsContextState::ShouldSubpixelQuantizeFontsChange)
         context.setShouldSubpixelQuantizeFonts(m_state.shouldSubpixelQuantizeFonts);
@@ -317,9 +304,6 @@ void GraphicsContextStateChange::dump(TextStream& ts) const
     if (m_changeFlags & GraphicsContextState::ShouldSmoothFontsChange)
         ts.dumpProperty("should-smooth-fonts", m_state.shouldSmoothFonts);
 
-    if (m_changeFlags & GraphicsContextState::AntialiasedFontDilationEnabledChange)
-        ts.dumpProperty("antialiased-font-dilation-enabled", m_state.antialiasedFontDilationEnabled);
-
     if (m_changeFlags & GraphicsContextState::ShouldSubpixelQuantizeFontsChange)
         ts.dumpProperty("should-subpixel-quantize-fonts", m_state.shouldSubpixelQuantizeFonts);
 
@@ -336,14 +320,19 @@ TextStream& operator<<(TextStream& ts, const GraphicsContextStateChange& stateCh
     return ts;
 }
 
-GraphicsContext::GraphicsContext(NonPaintingReasons nonPaintingReasons)
-    : m_nonPaintingReasons(nonPaintingReasons)
+GraphicsContext::GraphicsContext(PaintInvalidationReasons paintInvalidationReasons)
+    : m_paintInvalidationReasons(paintInvalidationReasons)
 {
 }
 
 GraphicsContext::GraphicsContext(PlatformGraphicsContext* platformGraphicsContext)
 {
     platformInit(platformGraphicsContext);
+}
+
+GraphicsContext::GraphicsContext(const GraphicsContextImplFactory& factoryFunction)
+    : m_impl(factoryFunction(*this))
+{
 }
 
 GraphicsContext::~GraphicsContext()
@@ -353,6 +342,13 @@ GraphicsContext::~GraphicsContext()
     platformDestroy();
 }
 
+bool GraphicsContext::hasPlatformContext() const
+{
+    if (m_impl)
+        return m_impl->hasPlatformContext();
+    return !!m_data;
+}
+
 void GraphicsContext::save()
 {
     if (paintingDisabled())
@@ -360,8 +356,8 @@ void GraphicsContext::save()
 
     m_stack.append(m_state);
 
-    if (isRecording()) {
-        m_displayListRecorder->save();
+    if (m_impl) {
+        m_impl->save();
         return;
     }
 
@@ -377,6 +373,7 @@ void GraphicsContext::restore()
         LOG_ERROR("ERROR void GraphicsContext::restore() stack is empty");
         return;
     }
+
     m_state = m_stack.last();
     m_stack.removeLast();
 
@@ -385,8 +382,8 @@ void GraphicsContext::restore()
     if (m_stack.isEmpty())
         m_stack.clear();
 
-    if (isRecording()) {
-        m_displayListRecorder->restore();
+    if (m_impl) {
+        m_impl->restore();
         return;
     }
 
@@ -416,8 +413,8 @@ void GraphicsContext::drawRaisedEllipse(const FloatRect& rect, const Color& elli
 void GraphicsContext::setStrokeThickness(float thickness)
 {
     m_state.strokeThickness = thickness;
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::StrokeThicknessChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::StrokeThicknessChange);
         return;
     }
 
@@ -427,8 +424,8 @@ void GraphicsContext::setStrokeThickness(float thickness)
 void GraphicsContext::setStrokeStyle(StrokeStyle style)
 {
     m_state.strokeStyle = style;
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::StrokeStyleChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::StrokeStyleChange);
         return;
     }
     setPlatformStrokeStyle(style);
@@ -439,8 +436,8 @@ void GraphicsContext::setStrokeColor(const Color& color)
     m_state.strokeColor = color;
     m_state.strokeGradient = nullptr;
     m_state.strokePattern = nullptr;
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::StrokeColorChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::StrokeColorChange);
         return;
     }
     setPlatformStrokeColor(color);
@@ -454,8 +451,8 @@ void GraphicsContext::setShadow(const FloatSize& offset, float blur, const Color
 #if USE(CG)
     m_state.shadowsUseLegacyRadius = false;
 #endif
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::ShadowChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::ShadowChange);
         return;
     }
     setPlatformShadow(offset, blur, color);
@@ -469,8 +466,8 @@ void GraphicsContext::setLegacyShadow(const FloatSize& offset, float blur, const
 #if USE(CG)
     m_state.shadowsUseLegacyRadius = true;
 #endif
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::ShadowChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::ShadowChange);
         return;
     }
     setPlatformShadow(offset, blur, color);
@@ -485,8 +482,8 @@ void GraphicsContext::clearShadow()
     m_state.shadowsUseLegacyRadius = false;
 #endif
 
-    if (isRecording()) {
-        m_displayListRecorder->clearShadow();
+    if (m_impl) {
+        m_impl->clearShadow();
         return;
     }
     clearPlatformShadow();
@@ -501,32 +498,14 @@ bool GraphicsContext::getShadow(FloatSize& offset, float& blur, Color& color) co
     return hasShadow();
 }
 
-#if USE(CAIRO)
-bool GraphicsContext::mustUseShadowBlur() const
-{
-    // We can't avoid ShadowBlur if the shadow has blur.
-    if (hasBlurredShadow())
-        return true;
-    // We can avoid ShadowBlur and optimize, since we're not drawing on a
-    // canvas and box shadows are affected by the transformation matrix.
-    if (!m_state.shadowsIgnoreTransforms)
-        return false;
-    // We can avoid ShadowBlur, since there are no transformations to apply to the canvas.
-    if (getCTM().isIdentity())
-        return false;
-    // Otherwise, no chance avoiding ShadowBlur.
-    return true;
-}
-#endif
-
 void GraphicsContext::setFillColor(const Color& color)
 {
     m_state.fillColor = color;
     m_state.fillGradient = nullptr;
     m_state.fillPattern = nullptr;
 
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::FillColorChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::FillColorChange);
         return;
     }
 
@@ -536,16 +515,16 @@ void GraphicsContext::setFillColor(const Color& color)
 void GraphicsContext::setShadowsIgnoreTransforms(bool shadowsIgnoreTransforms)
 {
     m_state.shadowsIgnoreTransforms = shadowsIgnoreTransforms;
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::ShadowsIgnoreTransformsChange);
+    if (m_impl)
+        m_impl->updateState(m_state, GraphicsContextState::ShadowsIgnoreTransformsChange);
 }
 
 void GraphicsContext::setShouldAntialias(bool shouldAntialias)
 {
     m_state.shouldAntialias = shouldAntialias;
 
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::ShouldAntialiasChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::ShouldAntialiasChange);
         return;
     }
 
@@ -556,8 +535,8 @@ void GraphicsContext::setShouldSmoothFonts(bool shouldSmoothFonts)
 {
     m_state.shouldSmoothFonts = shouldSmoothFonts;
     
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::ShouldSmoothFontsChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::ShouldSmoothFontsChange);
         return;
     }
     
@@ -567,8 +546,8 @@ void GraphicsContext::setShouldSmoothFonts(bool shouldSmoothFonts)
 void GraphicsContext::setShouldSubpixelQuantizeFonts(bool shouldSubpixelQuantizeFonts)
 {
     m_state.shouldSubpixelQuantizeFonts = shouldSubpixelQuantizeFonts;
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::ShouldSubpixelQuantizeFontsChange);
+    if (m_impl)
+        m_impl->updateState(m_state, GraphicsContextState::ShouldSubpixelQuantizeFontsChange);
 }
 
 void GraphicsContext::setImageInterpolationQuality(InterpolationQuality imageInterpolationQuality)
@@ -578,64 +557,57 @@ void GraphicsContext::setImageInterpolationQuality(InterpolationQuality imageInt
     if (paintingDisabled())
         return;
 
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::ImageInterpolationQualityChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::ImageInterpolationQualityChange);
         return;
     }
 
     setPlatformImageInterpolationQuality(imageInterpolationQuality);
 }
 
-void GraphicsContext::setAntialiasedFontDilationEnabled(bool antialiasedFontDilationEnabled)
-{
-    m_state.antialiasedFontDilationEnabled = antialiasedFontDilationEnabled;
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::AntialiasedFontDilationEnabledChange);
-}
-
 void GraphicsContext::setStrokePattern(Ref<Pattern>&& pattern)
 {
     m_state.strokeGradient = nullptr;
     m_state.strokePattern = WTFMove(pattern);
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::StrokePatternChange);
+    if (m_impl)
+        m_impl->updateState(m_state, GraphicsContextState::StrokePatternChange);
 }
 
 void GraphicsContext::setFillPattern(Ref<Pattern>&& pattern)
 {
     m_state.fillGradient = nullptr;
     m_state.fillPattern = WTFMove(pattern);
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::FillPatternChange);
+    if (m_impl)
+        m_impl->updateState(m_state, GraphicsContextState::FillPatternChange);
 }
 
 void GraphicsContext::setStrokeGradient(Ref<Gradient>&& gradient)
 {
     m_state.strokeGradient = WTFMove(gradient);
     m_state.strokePattern = nullptr;
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::StrokeGradientChange);
+    if (m_impl)
+        m_impl->updateState(m_state, GraphicsContextState::StrokeGradientChange);
 }
 
 void GraphicsContext::setFillRule(WindRule fillRule)
 {
     m_state.fillRule = fillRule;
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::FillRuleChange);
+    if (m_impl)
+        m_impl->updateState(m_state, GraphicsContextState::FillRuleChange);
 }
 
 void GraphicsContext::setFillGradient(Ref<Gradient>&& gradient)
 {
     m_state.fillGradient = WTFMove(gradient);
     m_state.fillPattern = nullptr;
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::FillGradientChange); // FIXME: also fill pattern?
+    if (m_impl)
+        m_impl->updateState(m_state, GraphicsContextState::FillGradientChange); // FIXME: also fill pattern?
 }
 
 void GraphicsContext::beginTransparencyLayer(float opacity)
 {
-    if (isRecording()) {
-        m_displayListRecorder->beginTransparencyLayer(opacity);
+    if (m_impl) {
+        m_impl->beginTransparencyLayer(opacity);
         return;
     }
     beginPlatformTransparencyLayer(opacity);
@@ -644,8 +616,8 @@ void GraphicsContext::beginTransparencyLayer(float opacity)
 
 void GraphicsContext::endTransparencyLayer()
 {
-    if (isRecording()) {
-        m_displayListRecorder->endTransparencyLayer();
+    if (m_impl) {
+        m_impl->endTransparencyLayer();
         return;
     }
     endPlatformTransparencyLayer();
@@ -653,7 +625,7 @@ void GraphicsContext::endTransparencyLayer()
     --m_transparencyCount;
 }
 
-float GraphicsContext::drawText(const FontCascade& font, const TextRun& run, const FloatPoint& point, int from, int to)
+float GraphicsContext::drawText(const FontCascade& font, const TextRun& run, const FloatPoint& point, unsigned from, Optional<unsigned> to)
 {
     if (paintingDisabled())
         return 0;
@@ -662,20 +634,20 @@ float GraphicsContext::drawText(const FontCascade& font, const TextRun& run, con
     return font.drawText(*this, run, point, from, to);
 }
 
-void GraphicsContext::drawGlyphs(const FontCascade& fontCascade, const Font& font, const GlyphBuffer& buffer, int from, int numGlyphs, const FloatPoint& point)
+void GraphicsContext::drawGlyphs(const Font& font, const GlyphBuffer& buffer, unsigned from, unsigned numGlyphs, const FloatPoint& point, FontSmoothingMode fontSmoothingMode)
 {
     if (paintingDisabled())
         return;
 
-    if (isRecording()) {
-        m_displayListRecorder->drawGlyphs(font, buffer, from, numGlyphs, point, fontCascade.fontDescription().fontSmoothing());
+    if (m_impl) {
+        m_impl->drawGlyphs(font, buffer, from, numGlyphs, point, fontSmoothingMode);
         return;
     }
 
-    fontCascade.drawGlyphs(*this, font, buffer, from, numGlyphs, point, fontCascade.fontDescription().fontSmoothing());
+    FontCascade::drawGlyphs(*this, font, buffer, from, numGlyphs, point, fontSmoothingMode);
 }
 
-void GraphicsContext::drawEmphasisMarks(const FontCascade& font, const TextRun& run, const AtomicString& mark, const FloatPoint& point, int from, int to)
+void GraphicsContext::drawEmphasisMarks(const FontCascade& font, const TextRun& run, const AtomicString& mark, const FloatPoint& point, unsigned from, Optional<unsigned> to)
 {
     if (paintingDisabled())
         return;
@@ -705,81 +677,74 @@ void GraphicsContext::drawBidiText(const FontCascade& font, const TextRun& run, 
     while (bidiRun) {
         TextRun subrun = run.subRun(bidiRun->start(), bidiRun->stop() - bidiRun->start());
         bool isRTL = bidiRun->level() % 2;
-        subrun.setDirection(isRTL ? RTL : LTR);
+        subrun.setDirection(isRTL ? TextDirection::RTL : TextDirection::LTR);
         subrun.setDirectionalOverride(bidiRun->dirOverride(false));
 
-        float width = font.drawText(*this, subrun, currPoint, 0, -1, customFontNotReadyAction);
+        float width = font.drawText(*this, subrun, currPoint, 0, WTF::nullopt, customFontNotReadyAction);
         currPoint.move(width, 0);
 
         bidiRun = bidiRun->next();
     }
 
-    bidiRuns.deleteRuns();
+    bidiRuns.clear();
 }
 
-void GraphicsContext::drawImage(Image& image, const FloatPoint& destination, const ImagePaintingOptions& imagePaintingOptions)
+ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatPoint& destination, const ImagePaintingOptions& imagePaintingOptions)
 {
-    drawImage(image, FloatRect(destination, image.size()), FloatRect(FloatPoint(), image.size()), imagePaintingOptions);
+    return drawImage(image, FloatRect(destination, image.size()), FloatRect(FloatPoint(), image.size()), imagePaintingOptions);
 }
 
-void GraphicsContext::drawImage(Image& image, const FloatRect& destination, const ImagePaintingOptions& imagePaintingOptions)
+ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatRect& destination, const ImagePaintingOptions& imagePaintingOptions)
 {
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     FloatRect srcRect(FloatPoint(), image.originalSize());
 #else
     FloatRect srcRect(FloatPoint(), image.size());
 #endif
         
-    drawImage(image, destination, srcRect, imagePaintingOptions);
+    return drawImage(image, destination, srcRect, imagePaintingOptions);
 }
 
-void GraphicsContext::drawImage(Image& image, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions& imagePaintingOptions)
+ImageDrawResult GraphicsContext::drawImage(Image& image, const FloatRect& destination, const FloatRect& source, const ImagePaintingOptions& imagePaintingOptions)
 {
     if (paintingDisabled())
-        return;
+        return ImageDrawResult::DidNothing;
 
-    if (isRecording()) {
-        m_displayListRecorder->drawImage(image, destination, source, imagePaintingOptions);
-        return;
-    }
+    if (m_impl)
+        return m_impl->drawImage(image, destination, source, imagePaintingOptions);
 
     InterpolationQualityMaintainer interpolationQualityForThisScope(*this, imagePaintingOptions.m_interpolationQuality);
-    image.draw(*this, destination, source, imagePaintingOptions.m_compositeOperator, imagePaintingOptions.m_blendMode, imagePaintingOptions.m_orientationDescription);
+    return image.draw(*this, destination, source, imagePaintingOptions.m_compositeOperator, imagePaintingOptions.m_blendMode, imagePaintingOptions.m_decodingMode, imagePaintingOptions.m_orientationDescription);
 }
 
-void GraphicsContext::drawTiledImage(Image& image, const FloatRect& destination, const FloatPoint& source, const FloatSize& tileSize, const FloatSize& spacing, const ImagePaintingOptions& imagePaintingOptions)
+ImageDrawResult GraphicsContext::drawTiledImage(Image& image, const FloatRect& destination, const FloatPoint& source, const FloatSize& tileSize, const FloatSize& spacing, const ImagePaintingOptions& imagePaintingOptions)
 {
     if (paintingDisabled())
-        return;
+        return ImageDrawResult::DidNothing;
 
-    if (isRecording()) {
-        m_displayListRecorder->drawTiledImage(image, destination, source, tileSize, spacing, imagePaintingOptions);
-        return;
-    }
+    if (m_impl)
+        return m_impl->drawTiledImage(image, destination, source, tileSize, spacing, imagePaintingOptions);
 
     InterpolationQualityMaintainer interpolationQualityForThisScope(*this, imagePaintingOptions.m_interpolationQuality);
-    image.drawTiled(*this, destination, source, tileSize, spacing, imagePaintingOptions.m_compositeOperator, imagePaintingOptions.m_blendMode);
+    return image.drawTiled(*this, destination, source, tileSize, spacing, imagePaintingOptions.m_compositeOperator, imagePaintingOptions.m_blendMode, imagePaintingOptions.m_decodingMode);
 }
 
-void GraphicsContext::drawTiledImage(Image& image, const FloatRect& destination, const FloatRect& source, const FloatSize& tileScaleFactor,
+ImageDrawResult GraphicsContext::drawTiledImage(Image& image, const FloatRect& destination, const FloatRect& source, const FloatSize& tileScaleFactor,
     Image::TileRule hRule, Image::TileRule vRule, const ImagePaintingOptions& imagePaintingOptions)
 {
     if (paintingDisabled())
-        return;
+        return ImageDrawResult::DidNothing;
 
-    if (isRecording()) {
-        m_displayListRecorder->drawTiledImage(image, destination, source, tileScaleFactor, hRule, vRule, imagePaintingOptions);
-        return;
-    }
+    if (m_impl)
+        return m_impl->drawTiledImage(image, destination, source, tileScaleFactor, hRule, vRule, imagePaintingOptions);
 
     if (hRule == Image::StretchTile && vRule == Image::StretchTile) {
         // Just do a scale.
-        drawImage(image, destination, source, imagePaintingOptions);
-        return;
+        return drawImage(image, destination, source, imagePaintingOptions);
     }
 
     InterpolationQualityMaintainer interpolationQualityForThisScope(*this, imagePaintingOptions.m_interpolationQuality);
-    image.drawTiled(*this, destination, source, tileScaleFactor, hRule, vRule, imagePaintingOptions.m_compositeOperator);
+    return image.drawTiled(*this, destination, source, tileScaleFactor, hRule, vRule, imagePaintingOptions.m_compositeOperator);
 }
 
 void GraphicsContext::drawImageBuffer(ImageBuffer& image, const FloatPoint& destination, const ImagePaintingOptions& imagePaintingOptions)
@@ -851,7 +816,7 @@ void GraphicsContext::clipOutRoundedRect(const FloatRoundedRect& rect)
     clipOut(path);
 }
 
-#if !USE(CG) && !USE(CAIRO)
+#if !USE(CG) && !USE(DIRECT2D) && !USE(CAIRO)
 IntRect GraphicsContext::clipBounds() const
 {
     ASSERT_NOT_REACHED();
@@ -865,8 +830,8 @@ void GraphicsContext::setTextDrawingMode(TextDrawingModeFlags mode)
     if (paintingDisabled())
         return;
 
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::TextDrawingModeChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::TextDrawingModeChange);
         return;
     }
     setPlatformTextDrawingMode(mode);
@@ -877,12 +842,12 @@ void GraphicsContext::fillRect(const FloatRect& rect, Gradient& gradient)
     if (paintingDisabled())
         return;
 
-    if (isRecording()) {
-        m_displayListRecorder->fillRect(rect, gradient);
+    if (m_impl) {
+        m_impl->fillRect(rect, gradient);
         return;
     }
 
-    gradient.fill(this, rect);
+    gradient.fill(*this, rect);
 }
 
 void GraphicsContext::fillRect(const FloatRect& rect, const Color& color, CompositeOperator op, BlendMode blendMode)
@@ -890,8 +855,8 @@ void GraphicsContext::fillRect(const FloatRect& rect, const Color& color, Compos
     if (paintingDisabled())
         return;
 
-    if (isRecording()) {
-        m_displayListRecorder->fillRect(rect, color, op, blendMode);
+    if (m_impl) {
+        m_impl->fillRect(rect, color, op, blendMode);
         return;
     }
 
@@ -906,8 +871,8 @@ void GraphicsContext::fillRoundedRect(const FloatRoundedRect& rect, const Color&
     if (paintingDisabled())
         return;
 
-    if (isRecording()) {
-        m_displayListRecorder->fillRoundedRect(rect, color, blendMode);
+    if (m_impl) {
+        m_impl->fillRoundedRect(rect, color, blendMode);
         return;
     }
 
@@ -919,7 +884,7 @@ void GraphicsContext::fillRoundedRect(const FloatRoundedRect& rect, const Color&
         fillRect(rect.rect(), color, compositeOperation(), blendMode);
 }
 
-#if !USE(CG) && !USE(CAIRO)
+#if !USE(CG) && !USE(DIRECT2D) && !USE(CAIRO)
 void GraphicsContext::fillRectWithRoundedHole(const IntRect& rect, const FloatRoundedRect& roundedHoleRect, const Color& color)
 {
     if (paintingDisabled())
@@ -936,7 +901,7 @@ void GraphicsContext::fillRectWithRoundedHole(const IntRect& rect, const FloatRo
     WindRule oldFillRule = fillRule();
     Color oldFillColor = fillColor();
     
-    setFillRule(RULE_EVENODD);
+    setFillRule(WindRule::EvenOdd);
     setFillColor(color);
 
     fillPath(path);
@@ -949,8 +914,8 @@ void GraphicsContext::fillRectWithRoundedHole(const IntRect& rect, const FloatRo
 void GraphicsContext::setAlpha(float alpha)
 {
     m_state.alpha = alpha;
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::AlphaChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::AlphaChange);
         return;
     }
     setPlatformAlpha(alpha);
@@ -960,8 +925,8 @@ void GraphicsContext::setCompositeOperation(CompositeOperator compositeOperation
 {
     m_state.compositeOperator = compositeOperation;
     m_state.blendMode = blendMode;
-    if (isRecording()) {
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::CompositeOperationChange);
+    if (m_impl) {
+        m_impl->updateState(m_state, GraphicsContextState::CompositeOperationChange);
         return;
     }
     setPlatformCompositeOperation(compositeOperation, blendMode);
@@ -970,30 +935,30 @@ void GraphicsContext::setCompositeOperation(CompositeOperator compositeOperation
 void GraphicsContext::setDrawLuminanceMask(bool drawLuminanceMask)
 {
     m_state.drawLuminanceMask = drawLuminanceMask;
-    if (isRecording())
-        m_displayListRecorder->updateState(m_state, GraphicsContextState::DrawLuminanceMaskChange);
+    if (m_impl)
+        m_impl->updateState(m_state, GraphicsContextState::DrawLuminanceMaskChange);
 }
 
-#if !USE(CG)
+#if !USE(CG) && !USE(DIRECT2D)
 // Implement this if you want to go push the drawing mode into your native context immediately.
 void GraphicsContext::setPlatformTextDrawingMode(TextDrawingModeFlags)
 {
 }
 #endif
 
-#if !USE(CAIRO)
+#if !USE(CAIRO) && !USE(DIRECT2D)
 void GraphicsContext::setPlatformStrokeStyle(StrokeStyle)
 {
 }
 #endif
 
-#if !USE(CG)
+#if !USE(CG) && !USE(DIRECT2D)
 void GraphicsContext::setPlatformShouldSmoothFonts(bool)
 {
 }
 #endif
 
-#if !USE(CG) && !USE(CAIRO)
+#if !USE(CG) && !USE(DIRECT2D) && !USE(CAIRO)
 bool GraphicsContext::isAcceleratedContext() const
 {
     return false;
@@ -1029,37 +994,7 @@ void GraphicsContext::adjustLineToPixelBoundaries(FloatPoint& p1, FloatPoint& p2
     }
 }
 
-static bool scalesMatch(AffineTransform a, AffineTransform b)
-{
-    return a.xScale() == b.xScale() && a.yScale() == b.yScale();
-}
-
-std::unique_ptr<ImageBuffer> GraphicsContext::createCompatibleBuffer(const FloatSize& size, bool hasAlpha) const
-{
-    // Make the buffer larger if the context's transform is scaling it so we need a higher
-    // resolution than one pixel per unit. Also set up a corresponding scale factor on the
-    // graphics context.
-
-    AffineTransform transform = getCTM(DefinitelyIncludeDeviceScale);
-    FloatSize scaledSize(static_cast<int>(ceil(size.width() * transform.xScale())), static_cast<int>(ceil(size.height() * transform.yScale())));
-
-    std::unique_ptr<ImageBuffer> buffer = ImageBuffer::createCompatibleBuffer(scaledSize, 1, ColorSpaceSRGB, *this, hasAlpha);
-    if (!buffer)
-        return nullptr;
-
-    buffer->context().scale(FloatSize(scaledSize.width() / size.width(), scaledSize.height() / size.height()));
-
-    return buffer;
-}
-
-bool GraphicsContext::isCompatibleWithBuffer(ImageBuffer& buffer) const
-{
-    GraphicsContext& bufferContext = buffer.context();
-
-    return scalesMatch(getCTM(), bufferContext.getCTM()) && isAcceleratedContext() == bufferContext.isAcceleratedContext();
-}
-
-#if !USE(CG)
+#if !USE(CG) && !USE(DIRECT2D)
 void GraphicsContext::platformApplyDeviceScaleFactor(float)
 {
 }
@@ -1067,23 +1002,46 @@ void GraphicsContext::platformApplyDeviceScaleFactor(float)
 
 void GraphicsContext::applyDeviceScaleFactor(float deviceScaleFactor)
 {
-    scale(FloatSize(deviceScaleFactor, deviceScaleFactor));
+    scale(deviceScaleFactor);
 
-    if (isRecording()) {
-        m_displayListRecorder->applyDeviceScaleFactor(deviceScaleFactor);
+    if (m_impl) {
+        m_impl->applyDeviceScaleFactor(deviceScaleFactor);
         return;
     }
 
     platformApplyDeviceScaleFactor(deviceScaleFactor);
 }
+    
+FloatSize GraphicsContext::scaleFactor() const
+{
+    AffineTransform transform = getCTM(GraphicsContext::DefinitelyIncludeDeviceScale);
+    return FloatSize(transform.xScale(), transform.yScale());
+}
+    
+FloatSize GraphicsContext::scaleFactorForDrawing(const FloatRect& destRect, const FloatRect& srcRect) const
+{
+    AffineTransform transform = getCTM(GraphicsContext::DefinitelyIncludeDeviceScale);
+    auto transformedDestRect = transform.mapRect(destRect);
+    return transformedDestRect.size() / srcRect.size();
+}
 
 void GraphicsContext::fillEllipse(const FloatRect& ellipse)
 {
+    if (m_impl) {
+        m_impl->fillEllipse(ellipse);
+        return;
+    }
+
     platformFillEllipse(ellipse);
 }
 
 void GraphicsContext::strokeEllipse(const FloatRect& ellipse)
 {
+    if (m_impl) {
+        m_impl->strokeEllipse(ellipse);
+        return;
+    }
+
     platformStrokeEllipse(ellipse);
 }
 
@@ -1101,7 +1059,7 @@ void GraphicsContext::strokeEllipseAsPath(const FloatRect& ellipse)
     strokePath(path);
 }
 
-#if !USE(CG)
+#if !USE(CG) && !USE(DIRECT2D)
 void GraphicsContext::platformFillEllipse(const FloatRect& ellipse)
 {
     if (paintingDisabled())
@@ -1119,18 +1077,18 @@ void GraphicsContext::platformStrokeEllipse(const FloatRect& ellipse)
 }
 #endif
 
-FloatRect GraphicsContext::computeUnderlineBoundsForText(const FloatPoint& point, float width, bool printing)
+FloatRect GraphicsContext::computeUnderlineBoundsForText(const FloatRect& rect, bool printing)
 {
     Color dummyColor;
-    return computeLineBoundsAndAntialiasingModeForText(point, width, printing, dummyColor);
+    return computeLineBoundsAndAntialiasingModeForText(rect, printing, dummyColor);
 }
 
-FloatRect GraphicsContext::computeLineBoundsAndAntialiasingModeForText(const FloatPoint& point, float width, bool printing, Color& color)
+FloatRect GraphicsContext::computeLineBoundsAndAntialiasingModeForText(const FloatRect& rect, bool printing, Color& color)
 {
-    FloatPoint origin = point;
-    float thickness = std::max(strokeThickness(), 0.5f);
+    FloatPoint origin = rect.location();
+    float thickness = std::max(rect.height(), 0.5f);
     if (printing)
-        return FloatRect(origin, FloatSize(width, thickness));
+        return FloatRect(origin, FloatSize(rect.width(), thickness));
 
     AffineTransform transform = getCTM(GraphicsContext::DefinitelyIncludeDeviceScale);
     // Just compute scale in x dimension, assuming x and y scales are equal.
@@ -1141,16 +1099,15 @@ FloatRect GraphicsContext::computeLineBoundsAndAntialiasingModeForText(const Flo
         // effect, an alpha is applied to the underline color when text is at small scales.
         static const float minimumUnderlineAlpha = 0.4f;
         float shade = scale > minimumUnderlineAlpha ? scale : minimumUnderlineAlpha;
-        int alpha = color.alpha() * shade;
-        color = Color(color.red(), color.green(), color.blue(), alpha);
+        color = color.colorWithAlphaMultipliedBy(shade);
     }
 
-    FloatPoint devicePoint = transform.mapPoint(point);
+    FloatPoint devicePoint = transform.mapPoint(rect.location());
     // Visual overflow might occur here due to integral roundf/ceilf. visualOverflowForDecorations adjusts the overflow value for underline decoration.
     FloatPoint deviceOrigin = FloatPoint(roundf(devicePoint.x()), ceilf(devicePoint.y()));
     if (auto inverse = transform.inverse())
         origin = inverse.value().mapPoint(deviceOrigin);
-    return FloatRect(origin, FloatSize(width, thickness));
+    return FloatRect(origin, FloatSize(rect.width(), thickness));
 }
 
 void GraphicsContext::applyState(const GraphicsContextState& state)
@@ -1166,5 +1123,71 @@ void GraphicsContext::applyState(const GraphicsContextState& state)
     setPlatformShouldAntialias(state.shouldAntialias);
     setPlatformShouldSmoothFonts(state.shouldSmoothFonts);
 }
+
+float GraphicsContext::dashedLineCornerWidthForStrokeWidth(float strokeWidth) const
+{
+    float thickness = strokeThickness();
+    return strokeStyle() == DottedStroke ? thickness : std::min(2.0f * thickness, std::max(thickness, strokeWidth / 3.0f));
+}
+
+float GraphicsContext::dashedLinePatternWidthForStrokeWidth(float strokeWidth) const
+{
+    float thickness = strokeThickness();
+    return strokeStyle() == DottedStroke ? thickness : std::min(3.0f * thickness, std::max(thickness, strokeWidth / 3.0f));
+}
+
+float GraphicsContext::dashedLinePatternOffsetForPatternAndStrokeWidth(float patternWidth, float strokeWidth) const
+{
+    // Pattern starts with full fill and ends with the empty fill.
+    // 1. Let's start with the empty phase after the corner.
+    // 2. Check if we've got odd or even number of patterns and whether they fully cover the line.
+    // 3. In case of even number of patterns and/or remainder, move the pattern start position
+    // so that the pattern is balanced between the corners.
+    float patternOffset = patternWidth;
+    int numberOfSegments = std::floor(strokeWidth / patternWidth);
+    bool oddNumberOfSegments = numberOfSegments % 2;
+    float remainder = strokeWidth - (numberOfSegments * patternWidth);
+    if (oddNumberOfSegments && remainder)
+        patternOffset -= remainder / 2.0f;
+    else if (!oddNumberOfSegments) {
+        if (remainder)
+            patternOffset += patternOffset - (patternWidth + remainder) / 2.0f;
+        else
+            patternOffset += patternWidth / 2.0f;
+    }
+
+    return patternOffset;
+}
+
+Vector<FloatPoint> GraphicsContext::centerLineAndCutOffCorners(bool isVerticalLine, float cornerWidth, FloatPoint point1, FloatPoint point2) const
+{
+    // Center line and cut off corners for pattern painting.
+    if (isVerticalLine) {
+        float centerOffset = (point2.x() - point1.x()) / 2.0f;
+        point1.move(centerOffset, cornerWidth);
+        point2.move(-centerOffset, -cornerWidth);
+    } else {
+        float centerOffset = (point2.y() - point1.y()) / 2.0f;
+        point1.move(cornerWidth, centerOffset);
+        point2.move(-cornerWidth, -centerOffset);
+    }
+
+    return { point1, point2 };
+}
+
+#if !USE(CG)
+bool GraphicsContext::supportsInternalLinks() const
+{
+    return false;
+}
+
+void GraphicsContext::setDestinationForRect(const String&, const FloatRect&)
+{
+}
+
+void GraphicsContext::addDestinationAtPoint(const String&, const FloatPoint&)
+{
+}
+#endif
 
 }

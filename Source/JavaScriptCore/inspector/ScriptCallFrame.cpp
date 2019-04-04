@@ -32,13 +32,12 @@
 #include "config.h"
 #include "ScriptCallFrame.h"
 
-#include "InspectorValues.h"
-
 namespace Inspector {
 
-ScriptCallFrame::ScriptCallFrame(const String& functionName, const String& scriptName, unsigned lineNumber, unsigned column)
+ScriptCallFrame::ScriptCallFrame(const String& functionName, const String& scriptName, JSC::SourceID sourceID, unsigned lineNumber, unsigned column)
     : m_functionName(functionName)
     , m_scriptName(scriptName)
+    , m_sourceID(sourceID)
     , m_lineNumber(lineNumber)
     , m_column(column)
 {
@@ -50,17 +49,25 @@ ScriptCallFrame::~ScriptCallFrame()
 
 bool ScriptCallFrame::isEqual(const ScriptCallFrame& o) const
 {
+    // Ignore sourceID in isEqual in case of identical scripts executed multiple times
+    // that would get different script identifiers, but are otherwise the same.
     return m_functionName == o.m_functionName
         && m_scriptName == o.m_scriptName
         && m_lineNumber == o.m_lineNumber
         && m_column == o.m_column;
 }
 
-Ref<Inspector::Protocol::Console::CallFrame> ScriptCallFrame::buildInspectorObject() const
+bool ScriptCallFrame::isNative() const
 {
-    return Inspector::Protocol::Console::CallFrame::create()
+    return m_scriptName == "[native code]";
+}
+
+Ref<Protocol::Console::CallFrame> ScriptCallFrame::buildInspectorObject() const
+{
+    return Protocol::Console::CallFrame::create()
         .setFunctionName(m_functionName)
         .setUrl(m_scriptName)
+        .setScriptId(String::number(m_sourceID))
         .setLineNumber(m_lineNumber)
         .setColumnNumber(m_column)
         .release();

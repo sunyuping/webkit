@@ -63,6 +63,7 @@ class ScriptErrorTest(unittest.TestCase):
         error = ScriptError('', ('my', 'command'), -1, 'My output.', '/Users/username/blah')
         self.assertEqual(error.message_with_output(), 'Failed to run "(\'my\', \'command\')" exit_code: -1 cwd: /Users/username/blah\n\nMy output.')
 
+
 def never_ending_command():
     """Arguments for a command that will never end (useful for testing process
     killing). It should be a process that is unlikely to already be running
@@ -104,7 +105,7 @@ class ExecutiveTest(unittest.TestCase):
 
     def test_run_command_with_bad_command(self):
         def run_bad_command():
-            Executive().run_command(["foo_bar_command_blah"], error_handler=Executive.ignore_error, return_exit_code=True)
+            Executive().run_command(["foo_bar_command_blah"], ignore_errors=True, return_exit_code=True)
         self.assertRaises(OSError, run_bad_command)
 
     def test_run_command_args_type(self):

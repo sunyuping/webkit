@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2008, 2009 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,26 +19,32 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGURIReference_h
-#define SVGURIReference_h
+#pragma once
 
 #include "Document.h"
 #include "QualifiedName.h"
+#include "SVGPropertyOwnerRegistry.h"
 
 namespace WebCore {
 
+class SVGElement;
+
 class SVGURIReference {
+    WTF_MAKE_NONCOPYABLE(SVGURIReference);
 public:
-    virtual ~SVGURIReference() { }
+    virtual ~SVGURIReference() = default;
 
     void parseAttribute(const QualifiedName&, const AtomicString&);
-    static bool isKnownAttribute(const QualifiedName&);
-    static void addSupportedAttributes(HashSet<QualifiedName>&);
 
-    static String fragmentIdentifierFromIRIString(const String&, Document&);
-    static Element* targetElementFromIRIString(const String&, Document&, String* = nullptr, Document* = nullptr);
+    static String fragmentIdentifierFromIRIString(const String&, const Document&);
 
-    static bool isExternalURIReference(const String& uri, Document& document)
+    struct TargetElementResult {
+        RefPtr<Element> element;
+        String identifier;
+    };
+    static TargetElementResult targetElementFromIRIString(const String&, const TreeScope&, RefPtr<Document> externalDocument = nullptr);
+
+    static bool isExternalURIReference(const String& uri, const Document& document)
     {
         // Fragment-only URIs are always internal
         if (uri.startsWith('#'))
@@ -49,11 +56,18 @@ public:
         return !equalIgnoringFragmentIdentifier(url, document.url());
     }
 
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGURIReference>;
+
+    String href() const { return m_href->currentValue(); }
+    SVGAnimatedString& hrefAnimated() { return m_href; }
+
 protected:
-    virtual String& hrefBaseValue() const = 0;
-    virtual void setHrefBaseValue(const String&, const bool validValue = true) = 0;
+    SVGURIReference(SVGElement* contextElement);
+
+    static bool isKnownAttribute(const QualifiedName& attributeName);
+
+private:
+    Ref<SVGAnimatedString> m_href;
 };
 
 } // namespace WebCore
-
-#endif // SVGURIReference_h

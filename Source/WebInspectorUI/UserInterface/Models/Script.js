@@ -23,52 +23,90 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.Script = class Script extends WebInspector.SourceCode
+WI.Script = class Script extends WI.SourceCode
 {
-    constructor(id, range, url, injected, sourceMapURL)
+    constructor(target, id, range, url, sourceType, injected, sourceURL, sourceMapURL)
     {
         super();
 
         console.assert(id);
-        console.assert(range instanceof WebInspector.TextRange);
+        console.assert(target instanceof WI.Target);
+        console.assert(range instanceof WI.TextRange);
 
+        this._target = target;
         this._id = id || null;
         this._range = range || null;
         this._url = url || null;
+        this._sourceType = sourceType || WI.Script.SourceType.Program;
+        this._sourceURL = sourceURL || null;
+        this._sourceMappingURL = sourceMapURL || null;
         this._injected = injected || false;
+        this._dynamicallyAddedScriptElement = false;
+        this._scriptSyntaxTree = null;
 
         this._resource = this._resolveResource();
-        if (this._resource)
+
+        // If this Script was a dynamically added <script> to a Document,
+        // do not associate with the Document resource, instead associate
+        // with the frame as a dynamic script.
+        if (this._resource && this._resource.type === WI.Resource.Type.Document && !this._range.startLine && !this._range.startColumn) {
+            console.assert(this._resource.isMainResource());
+            let documentResource = this._resource;
+            this._resource = null;
+            this._dynamicallyAddedScriptElement = true;
+            documentResource.parentFrame.addExtraScript(this);
+            this._dynamicallyAddedScriptElementNumber = documentResource.parentFrame.extraScriptCollection.size;
+        } else if (this._resource)
             this._resource.associateWithScript(this);
 
-        if (sourceMapURL)
-            WebInspector.sourceMapManager.downloadSourceMap(sourceMapURL, this._url, this);
+        if (isWebInspectorConsoleEvaluationScript(this._sourceURL)) {
+            // Assign a unique number to the script object so it will stay the same.
+            this._uniqueDisplayNameNumber = this.constructor._nextUniqueConsoleDisplayNameNumber++;
+        }
 
-        this._scriptSyntaxTree = null;
+        if (this._sourceMappingURL)
+            WI.networkManager.downloadSourceMap(this._sourceMappingURL, this._url, this);
     }
 
     // Static
 
     static resetUniqueDisplayNameNumbers()
     {
-        WebInspector.Script._nextUniqueDisplayNameNumber = 1;
+        WI.Script._nextUniqueDisplayNameNumber = 1;
+        WI.Script._nextUniqueConsoleDisplayNameNumber = 1;
     }
 
     // Public
 
-    get id()
-    {
-        return this._id;
-    }
+    get target() { return this._target; }
+    get id() { return this._id; }
+    get range() { return this._range; }
+    get url() { return this._url; }
+    get sourceType() { return this._sourceType; }
+    get sourceURL() { return this._sourceURL; }
+    get sourceMappingURL() { return this._sourceMappingURL; }
+    get injected() { return this._injected; }
 
-    get range()
+    get contentIdentifier()
     {
-        return this._range;
-    }
+        if (this._url)
+            return this._url;
 
-    get url()
-    {
-        return this._url;
+        if (!this._sourceURL)
+            return null;
+
+        // Since reused content identifiers can cause breakpoints
+        // to show up in completely unrelated files, sourceURLs should
+        // be unique where possible. The checks below exclude cases
+        // where sourceURLs are intentionally reused and we would never
+        // expect a breakpoint to be persisted across sessions.
+        if (isWebInspectorConsoleEvaluationScript(this._sourceURL))
+            return null;
+
+        if (isWebInspectorInternalScript(this._sourceURL))
+            return null;
+
+        return this._sourceURL;
     }
 
     get urlComponents()
@@ -85,19 +123,50 @@ WebInspector.Script = class Script extends WebInspector.SourceCode
 
     get displayName()
     {
-        if (this._url)
-            return WebInspector.displayNameForURL(this._url, this.urlComponents);
+        if (this._url && !this._dynamicallyAddedScriptElement)
+            return WI.displayNameForURL(this._url, this.urlComponents);
+
+        if (isWebInspectorConsoleEvaluationScript(this._sourceURL)) {
+            console.assert(this._uniqueDisplayNameNumber);
+            return WI.UIString("Console Evaluation %d").format(this._uniqueDisplayNameNumber);
+        }
+
+        if (this._sourceURL) {
+            if (!this._sourceURLComponents)
+                this._sourceURLComponents = parseURL(this._sourceURL);
+            return WI.displayNameForURL(this._sourceURL, this._sourceURLComponents);
+        }
+
+        if (this._dynamicallyAddedScriptElement)
+            return WI.UIString("Script Element %d").format(this._dynamicallyAddedScriptElementNumber);
 
         // Assign a unique number to the script object so it will stay the same.
         if (!this._uniqueDisplayNameNumber)
             this._uniqueDisplayNameNumber = this.constructor._nextUniqueDisplayNameNumber++;
 
-        return WebInspector.UIString("Anonymous Script %d").format(this._uniqueDisplayNameNumber);
+        return WI.UIString("Anonymous Script %d").format(this._uniqueDisplayNameNumber);
     }
 
-    get injected()
+    get displayURL()
     {
-        return this._injected;
+        const isMultiLine = true;
+        const dataURIMaxSize = 64;
+
+        if (this._url)
+            return WI.truncateURL(this._url, isMultiLine, dataURIMaxSize);
+        if (this._sourceURL)
+            return WI.truncateURL(this._sourceURL, isMultiLine, dataURIMaxSize);
+        return null;
+    }
+
+    get dynamicallyAddedScriptElement()
+    {
+        return this._dynamicallyAddedScriptElement;
+    }
+
+    get anonymous()
+    {
+        return !this._resource && !this._url && !this._sourceURL;
     }
 
     get resource()
@@ -110,6 +179,11 @@ WebInspector.Script = class Script extends WebInspector.SourceCode
         return this._scriptSyntaxTree;
     }
 
+    isMainResource()
+    {
+        return this._target.mainResource === this;
+    }
+
     requestContentFromBackend()
     {
         if (!this._id) {
@@ -118,30 +192,29 @@ WebInspector.Script = class Script extends WebInspector.SourceCode
             return Promise.reject(new Error("There is no identifier to request content with."));
         }
 
-        return DebuggerAgent.getScriptSource(this._id);
+        return this._target.DebuggerAgent.getScriptSource(this._id);
     }
 
     saveIdentityToCookie(cookie)
     {
-        cookie[WebInspector.Script.URLCookieKey] = this.url;
-        cookie[WebInspector.Script.DisplayNameCookieKey] = this.displayName;
+        cookie[WI.Script.URLCookieKey] = this.url;
+        cookie[WI.Script.DisplayNameCookieKey] = this.displayName;
     }
 
     requestScriptSyntaxTree(callback)
     {
         if (this._scriptSyntaxTree) {
-            setTimeout(function() { callback(this._scriptSyntaxTree); }.bind(this), 0);
+            setTimeout(() => { callback(this._scriptSyntaxTree); }, 0);
             return;
         }
 
-        var makeSyntaxTreeAndCallCallback = function(content)
-        {
+        var makeSyntaxTreeAndCallCallback = (content) => {
             this._makeSyntaxTree(content);
             callback(this._scriptSyntaxTree);
-        }.bind(this);
+        };
 
         var content = this.content;
-        if (!content && this._resource && this._resource.type === WebInspector.Resource.Type.Script && this._resource.finished)
+        if (!content && this._resource && this._resource.type === WI.Resource.Type.Script && this._resource.finished)
             content = this._resource.content;
         if (content) {
             setTimeout(makeSyntaxTreeAndCallCallback, 0, content);
@@ -168,37 +241,46 @@ WebInspector.Script = class Script extends WebInspector.SourceCode
         if (!this._url)
             return null;
 
+        let resolver = WI.networkManager;
+        if (this._target !== WI.mainTarget)
+            resolver = this._target.resourceCollection;
+
         try {
             // Try with the Script's full URL.
-            var resource = WebInspector.frameResourceManager.resourceForURL(this.url);
+            let resource = resolver.resourceForURL(this._url);
             if (resource)
                 return resource;
 
             // Try with the Script's full decoded URL.
-            var decodedURL = decodeURI(this._url);
+            let decodedURL = decodeURI(this._url);
             if (decodedURL !== this._url) {
-                resource = WebInspector.frameResourceManager.resourceForURL(decodedURL);
+                resource = resolver.resourceForURL(decodedURL);
                 if (resource)
                     return resource;
             }
 
             // Next try removing any fragment in the original URL.
-            var urlWithoutFragment = removeURLFragment(this._url);
+            let urlWithoutFragment = removeURLFragment(this._url);
             if (urlWithoutFragment !== this._url) {
-                resource = WebInspector.frameResourceManager.resourceForURL(urlWithoutFragment);
+                resource = resolver.resourceForURL(urlWithoutFragment);
                 if (resource)
                     return resource;
             }
 
             // Finally try removing any fragment in the decoded URL.
-            var decodedURLWithoutFragment = removeURLFragment(decodedURL);
+            let decodedURLWithoutFragment = removeURLFragment(decodedURL);
             if (decodedURLWithoutFragment !== decodedURL) {
-                resource = WebInspector.frameResourceManager.resourceForURL(decodedURLWithoutFragment);
+                resource = resolver.resourceForURL(decodedURLWithoutFragment);
                 if (resource)
                     return resource;
             }
-        } catch (e) {
-            // Ignore possible URIErrors.
+        } catch { }
+
+        if (!this.isMainResource()) {
+            for (let frame of WI.networkManager.frames) {
+                if (frame.mainResource.type === WI.Resource.Type.Document && frame.mainResource.url.startsWith(this._url))
+                    return frame.mainResource;
+            }
         }
 
         return null;
@@ -209,12 +291,18 @@ WebInspector.Script = class Script extends WebInspector.SourceCode
         if (this._scriptSyntaxTree || !sourceText)
             return;
 
-        this._scriptSyntaxTree = new WebInspector.ScriptSyntaxTree(sourceText, this);
+        this._scriptSyntaxTree = new WI.ScriptSyntaxTree(sourceText, this);
     }
 };
 
-WebInspector.Script.TypeIdentifier = "script";
-WebInspector.Script.URLCookieKey = "script-url";
-WebInspector.Script.DisplayNameCookieKey = "script-display-name";
+WI.Script.SourceType = {
+    Program: "script-source-type-program",
+    Module: "script-source-type-module",
+};
 
-WebInspector.Script._nextUniqueDisplayNameNumber = 1;
+WI.Script.TypeIdentifier = "script";
+WI.Script.URLCookieKey = "script-url";
+WI.Script.DisplayNameCookieKey = "script-display-name";
+
+WI.Script._nextUniqueDisplayNameNumber = 1;
+WI.Script._nextUniqueConsoleDisplayNameNumber = 1;

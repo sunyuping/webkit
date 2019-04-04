@@ -37,18 +37,16 @@ NativeXPathNSResolver::NativeXPathNSResolver(RefPtr<Node>&& node)
 {
 }
 
-NativeXPathNSResolver::~NativeXPathNSResolver()
-{
-}
+NativeXPathNSResolver::~NativeXPathNSResolver() = default;
 
 String NativeXPathNSResolver::lookupNamespaceURI(const String& prefix)
 {
     // This is not done by Node::lookupNamespaceURI as per the DOM3 Core spec,
     // but the XPath spec says that we should do it for XPathNSResolver.
     if (prefix == "xml")
-        return XMLNames::xmlNamespaceURI;
+        return XMLNames::xmlNamespaceURI.get();
     
-    return m_node ? m_node->lookupNamespaceURI(prefix) : String();
+    return m_node ? m_node->lookupNamespaceURI(prefix).string() : String();
 }
 
 } // namespace WebCore

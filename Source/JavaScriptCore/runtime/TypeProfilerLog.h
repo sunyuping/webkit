@@ -26,12 +26,10 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TypeProfilerLog_h
-#define TypeProfilerLog_h
+#pragma once
 
 #include "JSCJSValue.h"
 #include "Structure.h"
-#include "TypeProfiler.h"
 
 namespace JSC {
 
@@ -41,6 +39,7 @@ class TypeProfilerLog {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     struct LogEntry {
+        WTF_MAKE_STRUCT_FAST_ALLOCATED;
     public:
         friend class LLIntOffsetsExtractor;
 
@@ -54,16 +53,13 @@ public:
     };
 
 
-    TypeProfilerLog()
-        : m_logStartPtr(0)
-    {
-        initializeLog();
-    }
-
+    TypeProfilerLog(VM&);
     ~TypeProfilerLog();
 
-    JS_EXPORT_PRIVATE void processLogEntries(const String&);
+    JS_EXPORT_PRIVATE void processLogEntries(VM&, const String&);
     LogEntry* logEndPtr() const { return m_logEndPtr; }
+
+    void visit(SlotVisitor&);
 
     static ptrdiff_t logStartOffset() { return OBJECT_OFFSETOF(TypeProfilerLog, m_logStartPtr); }
     static ptrdiff_t currentLogEntryOffset() { return OBJECT_OFFSETOF(TypeProfilerLog, m_currentLogEntryPtr); }
@@ -71,8 +67,7 @@ public:
 private:
     friend class LLIntOffsetsExtractor;
 
-    void initializeLog();
-
+    VM& m_vm;
     unsigned m_logSize;
     LogEntry* m_logStartPtr;
     LogEntry* m_currentLogEntryPtr;
@@ -80,5 +75,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // TypeProfilerLog_h

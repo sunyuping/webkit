@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef RenderIFrame_h
-#define RenderIFrame_h
+#pragma once
 
 #include "RenderFrameBase.h"
 
@@ -33,8 +32,9 @@ namespace WebCore {
 class RenderView;
 
 class RenderIFrame final : public RenderFrameBase {
+    WTF_MAKE_ISO_ALLOCATED(RenderIFrame);
 public:
-    RenderIFrame(HTMLIFrameElement&, Ref<RenderStyle>&&);
+    RenderIFrame(HTMLIFrameElement&, RenderStyle&&);
 
     HTMLIFrameElement& iframeElement() const;
 
@@ -43,27 +43,22 @@ public:
 private:
     void frameOwnerElement() const = delete;
 
-    virtual bool shouldComputeSizeAsReplaced() const override;
-    virtual bool isInlineBlockOrInlineTable() const override;
+    bool shouldComputeSizeAsReplaced() const override;
+    bool isInlineBlockOrInlineTable() const override;
 
-    virtual void layout() override;
+    void layout() override;
 
-    virtual bool isRenderIFrame() const override { return true; }
+    bool isRenderIFrame() const override { return true; }
 
-#if PLATFORM(IOS)
-    // FIXME: Do we still need this workaround to avoid breaking layout tests?
-    virtual const char* renderName() const override { return "RenderPartObject"; }
-#else
-    virtual const char* renderName() const override { return "RenderIFrame"; }
-#endif
+    const char* renderName() const override { return "RenderIFrame"; }
 
-    virtual bool requiresLayer() const override;
+    bool requiresLayer() const override;
 
     RenderView* contentRootRenderer() const;
+
+    bool isFullScreenIFrame() const;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderIFrame, isRenderIFrame())
-
-#endif // RenderIFrame_h

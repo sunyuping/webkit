@@ -53,11 +53,11 @@
 #import <WebKit/WebViewPrivate.h>
 #import <wtf/Assertions.h>
 
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
 #import "AppleScriptController.h"
 #endif
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #import <WebKit/WebCoreThreadMessage.h>
 #endif
 
@@ -85,7 +85,9 @@
 - (NSString *)_drt_descriptionSuitableForTestResult;
 @end
 
+IGNORE_WARNINGS_BEGIN("deprecated-implementations")
 @implementation WebFrame (DRTExtras)
+IGNORE_WARNINGS_END
 - (NSString *)_drt_descriptionSuitableForTestResult
 {
     BOOL isMainFrame = (self == [[self webView] mainFrame]);
@@ -117,7 +119,7 @@
     if ((self = [super init])) {
         gcController = new GCController;
         accessibilityController = new AccessibilityController;
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(webViewProgressFinishedNotification:) name:WebViewProgressFinishedNotification object:nil];
 #endif
     }
@@ -126,7 +128,7 @@
 
 - (void)dealloc
 {
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 #endif
     delete gcController;
@@ -141,12 +143,12 @@
     if (topLoadingFrame)
         return;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     WebThreadLock();
 #endif
 
     // if we finish all the commands, we're ready to dump state
-    if (WorkQueue::singleton().processWork() && !gTestRunner->waitToDump())
+    if (DRT::WorkQueue::singleton().processWork() && !gTestRunner->waitToDump())
         dump();
 }
 
@@ -159,7 +161,7 @@
 {
     if ([dataSource webFrame] == topLoadingFrame) {
         topLoadingFrame = nil;
-        auto& workQueue = WorkQueue::singleton();
+        auto& workQueue = DRT::WorkQueue::singleton();
         workQueue.setFrozen(true); // first complete load freezes the queue for the rest of this test
         if (!gTestRunner->waitToDump()) {
             if (workQueue.count())
@@ -200,7 +202,7 @@
         int64_t deferredWaitTime = 5 * NSEC_PER_MSEC;
         dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, deferredWaitTime);
         dispatch_after(when, dispatch_get_main_queue(), ^{
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
             WebThreadLock();
 #endif
             [sender setDefersCallbacks:NO];
@@ -218,7 +220,7 @@
     ASSERT(![frame provisionalDataSource]);
     ASSERT([frame dataSource]);
     gTestRunner->setWindowIsKey(true);
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     NSView *documentView = [[mainFrame frameView] documentView];
     [[[mainFrame webView] window] makeFirstResponder:documentView];
 #endif
@@ -229,6 +231,10 @@
     if (!done && gTestRunner->dumpFrameLoadCallbacks()) {
         NSString *string = [NSString stringWithFormat:@"%@ - didFailProvisionalLoadWithError", [frame _drt_descriptionSuitableForTestResult]];
         printf("%s\n", [string UTF8String]);
+        if (error.code == WebKitErrorCannotShowURL) {
+            string = [NSString stringWithFormat:@"%@ - (ErrorCodeCannotShowURL)", [frame _drt_descriptionSuitableForTestResult]];
+            printf("%s\n", [string UTF8String]);
+        }
     }
 
     if ([error domain] == NSURLErrorDomain && ([error code] == NSURLErrorServerCertificateHasUnknownRoot || [error code] == NSURLErrorServerCertificateUntrusted)) {
@@ -271,7 +277,9 @@
     [self webView:sender locationChangeDone:error forDataSource:[frame dataSource]];    
 }
 
+IGNORE_WARNINGS_BEGIN("deprecated-implementations")
 - (void)webView:(WebView *)webView windowScriptObjectAvailable:(WebScriptObject *)windowScriptObject
+IGNORE_WARNINGS_END
 {
     if (!done && gTestRunner->dumpFrameLoadCallbacks()) {
         NSString *string = [NSString stringWithFormat:@"?? - windowScriptObjectAvailable"];
@@ -302,11 +310,9 @@
 
     // Make Old-Style controllers
 
-#if !PLATFORM(IOS)
     WebView *webView = [frame webView];
-#endif
     WebScriptObject *obj = [frame windowObject];
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     AppleScriptController *asc = [[AppleScriptController alloc] initWithWebView:webView];
     [obj setValue:asc forKey:@"appleScriptController"];
     [asc release];
@@ -330,12 +336,9 @@
     [obj setValue:pluginFunction forKey:@"objCPluginFunction"];
     [pluginFunction release];
 
-#if !PLATFORM(IOS)
-// FIXME: <rdar://problem/5106287> DumpRenderTree: fix TextInputController to work with iOS and re-enable tests
     TextInputController *tic = [[TextInputController alloc] initWithWebView:webView];
     [obj setValue:tic forKey:@"textInputController"];
     [tic release];
-#endif
 }
 
 - (void)didClearWindowObjectForFrame:(WebFrame *)frame inIsolatedWorld:(WebScriptWorld *)world
@@ -348,7 +351,7 @@
     if (!globalObject)
         return;
 
-    JSObjectSetProperty(ctx, globalObject, JSRetainPtr<JSStringRef>(Adopt, JSStringCreateWithUTF8CString("__worldID")).get(), JSValueMakeNumber(ctx, worldIDForWorld(world)), kJSPropertyAttributeReadOnly, 0);
+    JSObjectSetProperty(ctx, globalObject, adopt(JSStringCreateWithUTF8CString("__worldID")).get(), JSValueMakeNumber(ctx, worldIDForWorld(world)), kJSPropertyAttributeReadOnly, 0);
 }
 
 - (void)webView:(WebView *)sender didClearWindowObjectForFrame:(WebFrame *)frame inScriptWorld:(WebScriptWorld *)world
@@ -405,6 +408,7 @@
         NSString *string = [NSString stringWithFormat:@"%@ - didCancelClientRedirectForFrame", [frame _drt_descriptionSuitableForTestResult]];
         printf ("%s\n", [string UTF8String]);
     }
+    gTestRunner->setDidCancelClientRedirect(true);
 }
 
 - (void)webView:(WebView *)sender didFinishDocumentLoadForFrame:(WebFrame *)frame

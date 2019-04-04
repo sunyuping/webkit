@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,16 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGDominators_h
-#define DFGDominators_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
-#include "DFGBasicBlock.h"
-#include "DFGBlockMap.h"
-#include "DFGBlockSet.h"
 #include "DFGCFG.h"
-#include "DFGCommon.h"
 #include "DFGGraph.h"
 #include <wtf/Dominators.h>
 #include <wtf/FastMalloc.h>
@@ -40,18 +35,32 @@
 
 namespace JSC { namespace DFG {
 
-class Dominators : public WTF::Dominators<CFG> {
+template <typename CFGKind>
+class Dominators : public WTF::Dominators<CFGKind> {
     WTF_MAKE_NONCOPYABLE(Dominators);
     WTF_MAKE_FAST_ALLOCATED;
 public:
     Dominators(Graph& graph)
-        : WTF::Dominators<CFG>(*graph.m_cfg)
+        : WTF::Dominators<CFGKind>(selectCFG<CFGKind>(graph))
     {
     }
 };
 
+using SSADominators = Dominators<SSACFG>;
+using CPSDominators = Dominators<CPSCFG>;
+
+template <typename T, typename = typename std::enable_if<std::is_same<T, CPSCFG>::value>::type>
+CPSDominators& ensureDominatorsForCFG(Graph& graph)
+{
+    return graph.ensureCPSDominators();
+}
+
+template <typename T, typename = typename std::enable_if<std::is_same<T, SSACFG>::value>::type>
+SSADominators& ensureDominatorsForCFG(Graph& graph)
+{
+    return graph.ensureSSADominators();
+}
+
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGDominators_h

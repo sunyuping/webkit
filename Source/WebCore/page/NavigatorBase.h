@@ -23,32 +23,50 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
 */
 
-#ifndef NavigatorBase_h
-#define NavigatorBase_h
+#pragma once
 
+#include "ExceptionOr.h"
 #include <wtf/Forward.h>
+#include <wtf/RefCounted.h>
+#include <wtf/UniqueRef.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
-    class NavigatorBase {
-    public:
-        String appName() const;
-        String appVersion() const;
-        virtual String userAgent() const = 0;
-        String platform() const;
+class ScriptExecutionContext;
+class ServiceWorkerContainer;
 
-        String appCodeName() const;
-        String product() const;
-        String productSub() const;
-        String vendor() const;
-        String vendorSub() const;
+class NavigatorBase : public RefCounted<NavigatorBase> {
+public:
+    virtual ~NavigatorBase();
 
-        bool onLine() const;
+    static String appName();
+    String appVersion() const;
+    virtual const String& userAgent() const = 0;
+    virtual const String& platform() const;
 
-    protected:
-        virtual ~NavigatorBase();
-    };
+    static String appCodeName();
+    static String product();
+    static String productSub();
+    static String vendor();
+    static String vendorSub();
+
+    virtual bool onLine() const = 0;
+
+    static String language();
+    static Vector<String> languages();
+
+protected:
+    explicit NavigatorBase(ScriptExecutionContext*);
+
+#if ENABLE(SERVICE_WORKER)
+public:
+    ServiceWorkerContainer& serviceWorker();
+    ExceptionOr<ServiceWorkerContainer&> serviceWorker(ScriptExecutionContext&);
+
+private:
+    UniqueRef<ServiceWorkerContainer> m_serviceWorkerContainer;
+#endif
+};
 
 } // namespace WebCore
-
-#endif // NavigatorBase_h

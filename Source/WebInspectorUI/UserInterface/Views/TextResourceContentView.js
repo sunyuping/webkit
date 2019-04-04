@@ -23,45 +23,56 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.TextResourceContentView = class TextResourceContentView extends WebInspector.ResourceContentView
+WI.TextResourceContentView = class TextResourceContentView extends WI.ResourceContentView
 {
     constructor(resource)
     {
         super(resource, "text");
 
-        resource.addEventListener(WebInspector.SourceCode.Event.ContentDidChange, this._sourceCodeContentDidChange, this);
+        resource.addEventListener(WI.SourceCode.Event.ContentDidChange, this._sourceCodeContentDidChange, this);
 
-        this._textEditor = new WebInspector.SourceCodeTextEditor(resource);
-        this._textEditor.addEventListener(WebInspector.TextEditor.Event.ExecutionLineNumberDidChange, this._executionLineNumberDidChange, this);
-        this._textEditor.addEventListener(WebInspector.TextEditor.Event.NumberOfSearchResultsDidChange, this._numberOfSearchResultsDidChange, this);
-        this._textEditor.addEventListener(WebInspector.TextEditor.Event.ContentDidChange, this._textEditorContentDidChange, this);
-        this._textEditor.addEventListener(WebInspector.TextEditor.Event.FormattingDidChange, this._textEditorFormattingDidChange, this);
-        this._textEditor.addEventListener(WebInspector.SourceCodeTextEditor.Event.ContentWillPopulate, this._contentWillPopulate, this);
-        this._textEditor.addEventListener(WebInspector.SourceCodeTextEditor.Event.ContentDidPopulate, this._contentDidPopulate, this);
-
-        WebInspector.probeManager.addEventListener(WebInspector.ProbeManager.Event.ProbeSetAdded, this._probeSetsChanged, this);
-        WebInspector.probeManager.addEventListener(WebInspector.ProbeManager.Event.ProbeSetRemoved, this._probeSetsChanged, this);
-
-        var toolTip = WebInspector.UIString("Pretty print");
-        var activatedToolTip = WebInspector.UIString("Original formatting");
-        this._prettyPrintButtonNavigationItem = new WebInspector.ActivateButtonNavigationItem("pretty-print", toolTip, activatedToolTip, "Images/NavigationItemCurleyBraces.svg", 13, 13);
-        this._prettyPrintButtonNavigationItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._togglePrettyPrint, this);
+        var toolTip = WI.UIString("Pretty print");
+        var activatedToolTip = WI.UIString("Original formatting");
+        this._prettyPrintButtonNavigationItem = new WI.ActivateButtonNavigationItem("pretty-print", toolTip, activatedToolTip, "Images/NavigationItemCurleyBraces.svg", 13, 13);
+        this._prettyPrintButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._togglePrettyPrint, this);
         this._prettyPrintButtonNavigationItem.enabled = false; // Enabled when the text editor is populated with content.
+        this._prettyPrintButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
 
-        var toolTipTypes = WebInspector.UIString("Show type information");
-        var activatedToolTipTypes = WebInspector.UIString("Hide type information");
-        this._showTypesButtonNavigationItem = new WebInspector.ActivateButtonNavigationItem("show-types", toolTipTypes, activatedToolTipTypes, "Images/NavigationItemTypes.svg", 13, 14);
-        this._showTypesButtonNavigationItem.addEventListener(WebInspector.ButtonNavigationItem.Event.Clicked, this._toggleTypeAnnotations, this);
+        var toolTipTypes = WI.UIString("Show type information");
+        var activatedToolTipTypes = WI.UIString("Hide type information");
+        this._showTypesButtonNavigationItem = new WI.ActivateButtonNavigationItem("show-types", toolTipTypes, activatedToolTipTypes, "Images/NavigationItemTypes.svg", 13, 14);
+        this._showTypesButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._toggleTypeAnnotations, this);
         this._showTypesButtonNavigationItem.enabled = false;
+        this._showTypesButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
+        WI.settings.showJavaScriptTypeInformation.addEventListener(WI.Setting.Event.Changed, this._showJavaScriptTypeInformationSettingChanged, this);
 
-        WebInspector.showJavaScriptTypeInformationSetting.addEventListener(WebInspector.Setting.Event.Changed, this._showJavaScriptTypeInformationSettingChanged, this);
+        let toolTipCodeCoverage = WI.UIString("Fade unexecuted code");
+        let activatedToolTipCodeCoverage = WI.UIString("Do not fade unexecuted code");
+        this._codeCoverageButtonNavigationItem = new WI.ActivateButtonNavigationItem("code-coverage", toolTipCodeCoverage, activatedToolTipCodeCoverage, "Images/NavigationItemCodeCoverage.svg", 13, 14);
+        this._codeCoverageButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._toggleUnexecutedCodeHighlights, this);
+        this._codeCoverageButtonNavigationItem.enabled = false;
+        this._codeCoverageButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
+        WI.settings.enableControlFlowProfiler.addEventListener(WI.Setting.Event.Changed, this._enableControlFlowProfilerSettingChanged, this);
+
+        this._textEditor = new WI.SourceCodeTextEditor(resource);
+        this._textEditor.addEventListener(WI.TextEditor.Event.ExecutionLineNumberDidChange, this._executionLineNumberDidChange, this);
+        this._textEditor.addEventListener(WI.TextEditor.Event.NumberOfSearchResultsDidChange, this._numberOfSearchResultsDidChange, this);
+        this._textEditor.addEventListener(WI.TextEditor.Event.ContentDidChange, this._textEditorContentDidChange, this);
+        this._textEditor.addEventListener(WI.TextEditor.Event.FormattingDidChange, this._textEditorFormattingDidChange, this);
+        this._textEditor.addEventListener(WI.TextEditor.Event.MIMETypeChanged, this._handleTextEditorMIMETypeChanged, this);
+        this._textEditor.addEventListener(WI.SourceCodeTextEditor.Event.ContentWillPopulate, this._contentWillPopulate, this);
+        this._textEditor.addEventListener(WI.SourceCodeTextEditor.Event.ContentDidPopulate, this._contentDidPopulate, this);
+        this._textEditor.readOnly = !this._shouldBeEditable();
+
+        WI.debuggerManager.addEventListener(WI.DebuggerManager.Event.ProbeSetAdded, this._probeSetsChanged, this);
+        WI.debuggerManager.addEventListener(WI.DebuggerManager.Event.ProbeSetRemoved, this._probeSetsChanged, this);
     }
 
     // Public
 
     get navigationItems()
     {
-        return [this._prettyPrintButtonNavigationItem, this._showTypesButtonNavigationItem];
+        return [this._prettyPrintButtonNavigationItem, this._showTypesButtonNavigationItem, this._codeCoverageButtonNavigationItem];
     }
 
     get managesOwnIssues()
@@ -77,14 +88,14 @@ WebInspector.TextResourceContentView = class TextResourceContentView extends Web
 
     get supplementalRepresentedObjects()
     {
-        var objects = WebInspector.probeManager.probeSets.filter(function(probeSet) {
-            return this._resource.url === probeSet.breakpoint.url;
+        let objects = WI.debuggerManager.probeSets.filter(function(probeSet) {
+            return this._resource.contentIdentifier === probeSet.breakpoint.contentIdentifier;
         }, this);
 
         // If the SourceCodeTextEditor has an executionLineNumber, we can assume
         // it is always the active call frame.
         if (!isNaN(this._textEditor.executionLineNumber))
-            objects.push(WebInspector.debuggerManager.activeCallFrame);
+            objects.push(WI.debuggerManager.activeCallFrame);
 
         return objects;
     }
@@ -113,19 +124,29 @@ WebInspector.TextResourceContentView = class TextResourceContentView extends Web
         super.closed();
 
         this.resource.removeEventListener(null, null, this);
-        WebInspector.probeManager.removeEventListener(null, null, this);
-        WebInspector.showJavaScriptTypeInformationSetting.removeEventListener(null, null, this);
+        WI.debuggerManager.removeEventListener(null, null, this);
+        WI.settings.showJavaScriptTypeInformation.removeEventListener(null, null, this);
+        WI.settings.enableControlFlowProfiler.removeEventListener(null, null, this);
 
         this._textEditor.close();
     }
 
+    contentAvailable(content, base64Encoded)
+    {
+        // Do nothing.
+    }
+
     get supportsSave()
     {
-        return true;
+        return super.supportsSave || this.resource instanceof WI.CSSStyleSheet;
     }
 
     get saveData()
     {
+        if (this.resource instanceof WI.CSSStyleSheet) {
+            let url = WI.FileUtilities.inspectorURLForFilename("InspectorStyleSheet.css");
+            return {url, content: this._textEditor.string, forceSaveAs: true};
+        }
         return {url: this.resource.url, content: this._textEditor.string};
     }
 
@@ -181,44 +202,65 @@ WebInspector.TextResourceContentView = class TextResourceContentView extends Web
         if (this._textEditor.parentView === this)
             return;
 
-        // Check the MIME-type for CSS since Resource.Type.Stylesheet also includes XSL, which we can't edit yet.
-        if (this.resource.type === WebInspector.Resource.Type.Stylesheet && this.resource.syntheticMIMEType === "text/css")
-            this._textEditor.readOnly = false;
+        this.removeLoadingIndicator();
 
-        // Allow editing any local file since edits can be saved and reloaded right from the Inspector.
-        if (this.resource.urlComponents.scheme === "file")
-            this._textEditor.readOnly = false;
-
-        this.element.removeChildren();
         this.addSubview(this._textEditor);
     }
 
     _contentDidPopulate(event)
     {
         this._prettyPrintButtonNavigationItem.enabled = this._textEditor.canBeFormatted();
+
         this._showTypesButtonNavigationItem.enabled = this._textEditor.canShowTypeAnnotations();
-        this._showTypesButtonNavigationItem.activated = WebInspector.showJavaScriptTypeInformationSetting.value;
+        this._showTypesButtonNavigationItem.activated = WI.settings.showJavaScriptTypeInformation.value;
+
+        this._codeCoverageButtonNavigationItem.enabled = this._textEditor.canShowCoverageHints();
+        this._codeCoverageButtonNavigationItem.activated = WI.settings.enableControlFlowProfiler.value;
+
+        if (!this._textEditor.string)
+            this.showGenericNoContentMessage();
     }
 
     _togglePrettyPrint(event)
     {
         var activated = !this._prettyPrintButtonNavigationItem.activated;
-        this._textEditor.formatted = activated;
+        this._textEditor.updateFormattedState(activated);
     }
 
     _toggleTypeAnnotations(event)
     {
-        this._textEditor.toggleTypeAnnotations();
+        this._showTypesButtonNavigationItem.enabled = false;
+        this._textEditor.toggleTypeAnnotations().then(() => {
+            this._showTypesButtonNavigationItem.enabled = true;
+        });
+    }
+
+    _toggleUnexecutedCodeHighlights(event)
+    {
+        this._codeCoverageButtonNavigationItem.enabled = false;
+        this._textEditor.toggleUnexecutedCodeHighlights().then(() => {
+            this._codeCoverageButtonNavigationItem.enabled = true;
+        });
     }
 
     _showJavaScriptTypeInformationSettingChanged(event)
     {
-        this._showTypesButtonNavigationItem.activated = WebInspector.showJavaScriptTypeInformationSetting.value;
+        this._showTypesButtonNavigationItem.activated = WI.settings.showJavaScriptTypeInformation.value;
+    }
+
+    _enableControlFlowProfilerSettingChanged(event)
+    {
+        this._codeCoverageButtonNavigationItem.activated = WI.settings.enableControlFlowProfiler.value;
     }
 
     _textEditorFormattingDidChange(event)
     {
         this._prettyPrintButtonNavigationItem.activated = this._textEditor.formatted;
+    }
+
+    _handleTextEditorMIMETypeChanged(event)
+    {
+        this._prettyPrintButtonNavigationItem.enabled = this._textEditor.canBeFormatted();
     }
 
     _sourceCodeContentDidChange(event)
@@ -232,24 +274,40 @@ WebInspector.TextResourceContentView = class TextResourceContentView extends Web
     _textEditorContentDidChange(event)
     {
         this._ignoreSourceCodeContentDidChangeEvent = true;
-        WebInspector.branchManager.currentBranch.revisionForRepresentedObject(this.resource).content = this._textEditor.string;
+        WI.branchManager.currentBranch.revisionForRepresentedObject(this.resource).content = this._textEditor.string;
         delete this._ignoreSourceCodeContentDidChangeEvent;
     }
 
     _executionLineNumberDidChange(event)
     {
-        this.dispatchEventToListeners(WebInspector.ContentView.Event.SupplementalRepresentedObjectsDidChange);
+        this.dispatchEventToListeners(WI.ContentView.Event.SupplementalRepresentedObjectsDidChange);
     }
 
     _numberOfSearchResultsDidChange(event)
     {
-        this.dispatchEventToListeners(WebInspector.ContentView.Event.NumberOfSearchResultsDidChange);
+        this.dispatchEventToListeners(WI.ContentView.Event.NumberOfSearchResultsDidChange);
     }
 
     _probeSetsChanged(event)
     {
         var breakpoint = event.data.probeSet.breakpoint;
         if (breakpoint.sourceCodeLocation.sourceCode === this.resource)
-            this.dispatchEventToListeners(WebInspector.ContentView.Event.SupplementalRepresentedObjectsDidChange);
+            this.dispatchEventToListeners(WI.ContentView.Event.SupplementalRepresentedObjectsDidChange);
+    }
+
+    _shouldBeEditable()
+    {
+        if (this.resource instanceof WI.CSSStyleSheet)
+            return true;
+
+        // Check the MIME-type for CSS since Resource.Type.Stylesheet also includes XSL, which we can't edit yet.
+        if (this.resource.type === WI.Resource.Type.Stylesheet && this.resource.syntheticMIMEType === "text/css")
+            return true;
+
+        // Allow editing any local file since edits can be saved and reloaded right from the Inspector.
+        if (this.resource.urlComponents.scheme === "file")
+            return true;
+
+        return false;
     }
 };

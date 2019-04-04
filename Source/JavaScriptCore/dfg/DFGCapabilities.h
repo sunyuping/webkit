@@ -23,14 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGCapabilities_h
-#define DFGCapabilities_h
+#pragma once
 
 #include "CodeBlock.h"
 #include "DFGCommon.h"
-#include "Executable.h"
-#include "Interpreter.h"
-#include "Intrinsic.h"
 #include "Options.h"
 
 namespace JSC { namespace DFG {
@@ -47,8 +43,9 @@ bool mightCompileFunctionForConstruct(CodeBlock*);
 bool mightInlineFunctionForCall(CodeBlock*);
 bool mightInlineFunctionForClosureCall(CodeBlock*);
 bool mightInlineFunctionForConstruct(CodeBlock*);
+bool canUseOSRExitFuzzing(CodeBlock*);
 
-inline CapabilityLevel capabilityLevel(OpcodeID opcodeID, CodeBlock* codeBlock, Instruction* pc);
+inline CapabilityLevel capabilityLevel(OpcodeID, CodeBlock*, const Instruction* pc);
 
 CapabilityLevel capabilityLevel(CodeBlock*);
 #else // ENABLE(DFG_JIT)
@@ -59,8 +56,9 @@ inline bool mightCompileFunctionForConstruct(CodeBlock*) { return false; }
 inline bool mightInlineFunctionForCall(CodeBlock*) { return false; }
 inline bool mightInlineFunctionForClosureCall(CodeBlock*) { return false; }
 inline bool mightInlineFunctionForConstruct(CodeBlock*) { return false; }
+inline bool canUseOSRExitFuzzing(CodeBlock*) { return false; }
 
-inline CapabilityLevel capabilityLevel(OpcodeID, CodeBlock*, Instruction*) { return CannotCompile; }
+inline CapabilityLevel capabilityLevel(OpcodeID, CodeBlock*, const Instruction*) { return CannotCompile; }
 inline CapabilityLevel capabilityLevel(CodeBlock*) { return CannotCompile; }
 #endif // ENABLE(DFG_JIT)
 
@@ -172,6 +170,3 @@ inline bool isSmallEnoughToInlineCodeInto(CodeBlock* codeBlock)
 }
 
 } } // namespace JSC::DFG
-
-#endif // DFGCapabilities_h
-

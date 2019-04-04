@@ -1,130 +1,229 @@
 /*
- * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
- *
- * You should have received a copy of the GNU Library General Public License
- * along with this library; see the file COPYING.LIB.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SVGMatrix_h
-#define SVGMatrix_h
+#pragma once
 
 #include "AffineTransform.h"
-#include "SVGException.h"
+#include "SVGValueProperty.h"
 
 namespace WebCore {
 
-typedef int ExceptionCode;
+// FIXME: Remove this class once SVGMatrix becomes an alias to DOMMatrix.
+class SVGMatrix : public SVGValueProperty<AffineTransform> {
+    using Base = SVGValueProperty<AffineTransform>;
+    using Base::Base;
 
-// Only used in the bindings.
-class SVGMatrix : public AffineTransform {
 public:
-    SVGMatrix() { }
-    SVGMatrix(const AffineTransform& other)
-        : AffineTransform(other)
+    static Ref<SVGMatrix> create(const AffineTransform& value = { })
     {
+        return adoptRef(*new SVGMatrix(value));
     }
 
-    SVGMatrix(double a, double b, double c, double d, double e, double f)
-        : AffineTransform(a, b, c, d, e, f)
+    static Ref<SVGMatrix> create(SVGPropertyOwner* owner, SVGPropertyAccess access, const AffineTransform& value = { })
     {
+        return adoptRef(*new SVGMatrix(owner, access, value));
     }
 
-    SVGMatrix translate(double tx, double ty)
+    template<typename T>
+    static ExceptionOr<Ref<SVGMatrix>> create(ExceptionOr<T>&& value)
     {
-        AffineTransform copy = *this;
-        copy.translate(tx, ty);
-        return static_cast<SVGMatrix>(copy);
+        if (value.hasException())
+            return value.releaseException();
+        return create(value.releaseReturnValue());
     }
 
-    SVGMatrix scale(double s)
+    double a() const
     {
-        AffineTransform copy = *this;
-        copy.scale(s, s);
-        return static_cast<SVGMatrix>(copy);
+        return m_value.a();
     }
 
-    SVGMatrix scaleNonUniform(double sx, double sy)
+    ExceptionOr<void> setA(double value)
     {
-        AffineTransform copy = *this;
-        copy.scale(sx, sy);
-        return static_cast<SVGMatrix>(copy);
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setA(value);
+        commitChange();
+        return { };
     }
 
-    SVGMatrix rotate(double d)
+    double b() const
     {
-        AffineTransform copy = *this;
-        copy.rotate(d);
-        return static_cast<SVGMatrix>(copy);
+        return m_value.b();
     }
 
-    SVGMatrix flipX()
+    ExceptionOr<void> setB(double value)
     {
-        AffineTransform copy = *this;
-        copy.flipX();
-        return static_cast<SVGMatrix>(copy);
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setB(value);
+        commitChange();
+        return { };
     }
 
-    SVGMatrix flipY()
+    double c() const
     {
-        AffineTransform copy = *this;
-        copy.flipY();
-        return static_cast<SVGMatrix>(copy);
+        return m_value.c();
     }
 
-    SVGMatrix skewX(double angle)
+    ExceptionOr<void> setC(double value)
     {
-        AffineTransform copy = *this;
-        copy.skewX(angle);
-        return static_cast<SVGMatrix>(copy);
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setC(value);
+        commitChange();
+        return { };
     }
 
-    SVGMatrix skewY(double angle)
+    double d() const
     {
-        AffineTransform copy = *this;
-        copy.skewY(angle);
-        return static_cast<SVGMatrix>(copy);
+        return m_value.d();
     }
 
-    SVGMatrix multiply(const SVGMatrix& other)
+    ExceptionOr<void> setD(double value)
     {
-        AffineTransform copy = *this;
-        copy *= static_cast<const AffineTransform&>(other);
-        return static_cast<SVGMatrix>(copy);
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setD(value);
+        commitChange();
+        return { };
     }
 
-    SVGMatrix inverse(ExceptionCode& ec) const
+    double e() const
     {
-        if (auto inverse = AffineTransform::inverse())
-            return inverse.value();
-        
-        ec = SVGException::SVG_MATRIX_NOT_INVERTABLE;
-        return AffineTransform();
+        return m_value.e();
     }
 
-    SVGMatrix rotateFromVector(double x, double y, ExceptionCode& ec)
+    ExceptionOr<void> setE(double value)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setE(value);
+        commitChange();
+        return { };
+    }
+
+    double f() const
+    {
+        return m_value.f();
+    }
+
+    ExceptionOr<void> setF(double value)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
+
+        m_value.setF(value);
+        commitChange();
+        return { };
+    }
+
+    Ref<SVGMatrix> multiply(SVGMatrix& secondMatrix) const
+    {
+        auto copy = m_value;
+        copy.multiply(secondMatrix.value());
+        return SVGMatrix::create(copy);
+    }
+
+    ExceptionOr<Ref<SVGMatrix>> inverse() const
+    {
+        auto inverse = m_value.inverse();
+        if (!inverse)
+            return Exception { InvalidStateError, "Matrix is not invertible"_s };
+        return SVGMatrix::create(*inverse);
+    }
+
+    Ref<SVGMatrix> translate(float x, float y) const
+    {
+        auto copy = m_value;
+        copy.translate(x, y);
+        return SVGMatrix::create(copy);
+    }
+
+    Ref<SVGMatrix> scale(float scaleFactor) const
+    {
+        auto copy = m_value;
+        copy.scale(scaleFactor);
+        return SVGMatrix::create(copy);
+    }
+
+    Ref<SVGMatrix> scaleNonUniform(float scaleFactorX, float scaleFactorY) const
+    {
+        auto copy = m_value;
+        copy.scaleNonUniform(scaleFactorX, scaleFactorY);
+        return SVGMatrix::create(copy);
+    }
+
+    Ref<SVGMatrix> rotate(float angle) const
+    {
+        auto copy = m_value;
+        copy.rotate(angle);
+        return SVGMatrix::create(copy);
+    }
+
+    ExceptionOr<Ref<SVGMatrix>> rotateFromVector(float x, float y) const
     {
         if (!x || !y)
-            ec = SVGException::SVG_INVALID_VALUE_ERR;
+            return Exception { TypeError };
 
-        AffineTransform copy = *this;
+        auto copy = m_value;
         copy.rotateFromVector(x, y);
-        return static_cast<SVGMatrix>(copy);
+        return SVGMatrix::create(copy);
     }
 
+    Ref<SVGMatrix> flipX() const
+    {
+        auto copy = m_value;
+        copy.flipX();
+        return SVGMatrix::create(copy);
+    }
+
+    Ref<SVGMatrix> flipY() const
+    {
+        auto copy = m_value;
+        copy.flipY();
+        return SVGMatrix::create(copy);
+    }
+
+    Ref<SVGMatrix> skewX(float angle) const
+    {
+        auto copy = m_value;
+        copy.skewX(angle);
+        return SVGMatrix::create(copy);
+    }
+
+    Ref<SVGMatrix> skewY(float angle) const
+    {
+        auto copy = m_value;
+        copy.skewY(angle);
+        return SVGMatrix::create(copy);
+    }
 };
 
 } // namespace WebCore
-
-#endif

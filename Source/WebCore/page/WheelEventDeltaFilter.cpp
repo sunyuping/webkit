@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,25 +26,23 @@
 #include "config.h"
 #include "WheelEventDeltaFilter.h"
 
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
+#include "FloatSize.h"
+#include "Logging.h"
+#include <wtf/text/TextStream.h>
+
+#if PLATFORM(MAC)
 #include "WheelEventDeltaFilterMac.h"
 #endif
 
-#include "FloatSize.h"
-
 namespace WebCore {
     
-WheelEventDeltaFilter::WheelEventDeltaFilter()
-{
-}
+WheelEventDeltaFilter::WheelEventDeltaFilter() = default;
 
-WheelEventDeltaFilter::~WheelEventDeltaFilter()
-{
-}
+WheelEventDeltaFilter::~WheelEventDeltaFilter() = default;
 
 std::unique_ptr<WheelEventDeltaFilter> WheelEventDeltaFilter::create()
 {
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
+#if PLATFORM(MAC)
     return std::make_unique<WheelEventDeltaFilterMac>();
 #else
     return std::make_unique<BasicWheelEventDeltaFilter>();
@@ -59,6 +57,11 @@ bool WheelEventDeltaFilter::isFilteringDeltas() const
 FloatSize WheelEventDeltaFilter::filteredDelta() const
 {
     return m_currentFilteredDelta;
+}
+
+FloatSize WheelEventDeltaFilter::filteredVelocity() const
+{
+    return m_currentFilteredVelocity;
 }
 
 BasicWheelEventDeltaFilter::BasicWheelEventDeltaFilter()

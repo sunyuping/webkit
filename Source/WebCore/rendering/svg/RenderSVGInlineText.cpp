@@ -30,15 +30,17 @@
 #include "RenderBlock.h"
 #include "RenderSVGRoot.h"
 #include "RenderSVGText.h"
-#include "Settings.h"
 #include "SVGInlineTextBox.h"
 #include "SVGRenderingContext.h"
 #include "SVGRootInlineBox.h"
 #include "StyleFontSizeFunctions.h"
 #include "StyleResolver.h"
 #include "VisiblePosition.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSVGInlineText);
 
 static String applySVGWhitespaceRules(const String& string, bool preserveWhiteSpace)
 {
@@ -89,8 +91,8 @@ void RenderSVGInlineText::styleDidChange(StyleDifference diff, const RenderStyle
     RenderText::styleDidChange(diff, oldStyle);
     updateScaledFont();
 
-    bool newPreserves = style().whiteSpace() == PRE;
-    bool oldPreserves = oldStyle ? oldStyle->whiteSpace() == PRE : false;
+    bool newPreserves = style().whiteSpace() == WhiteSpace::Pre;
+    bool oldPreserves = oldStyle ? oldStyle->whiteSpace() == WhiteSpace::Pre : false;
     if (oldPreserves && !newPreserves) {
         setText(applySVGWhitespaceRules(originalText(), false), true);
         return;
@@ -101,7 +103,7 @@ void RenderSVGInlineText::styleDidChange(StyleDifference diff, const RenderStyle
         return;
     }
 
-    if (diff != StyleDifferenceLayout)
+    if (diff != StyleDifference::Layout)
         return;
 
     // The text metrics may be influenced by style changes.
@@ -113,20 +115,20 @@ std::unique_ptr<InlineTextBox> RenderSVGInlineText::createTextBox()
 {
     auto box = std::make_unique<SVGInlineTextBox>(*this);
     box->setHasVirtualLogicalHeight();
-    return WTFMove(box);
+    return box;
 }
 
-LayoutRect RenderSVGInlineText::localCaretRect(InlineBox* box, int caretOffset, LayoutUnit*)
+LayoutRect RenderSVGInlineText::localCaretRect(InlineBox* box, unsigned caretOffset, LayoutUnit*)
 {
     if (!is<InlineTextBox>(box))
         return LayoutRect();
 
     auto& textBox = downcast<InlineTextBox>(*box);
-    if (static_cast<unsigned>(caretOffset) < textBox.start() || static_cast<unsigned>(caretOffset) > textBox.start() + textBox.len())
+    if (caretOffset < textBox.start() || caretOffset > textBox.start() + textBox.len())
         return LayoutRect();
 
     // Use the edge of the selection rect to determine the caret rect.
-    if (static_cast<unsigned>(caretOffset) < textBox.start() + textBox.len()) {
+    if (caretOffset < textBox.start() + textBox.len()) {
         LayoutRect rect = textBox.localSelectionRect(caretOffset, caretOffset + 1);
         LayoutUnit x = textBox.isLeftToRightDirection() ? rect.x() : rect.maxX();
         return LayoutRect(x, rect.y(), caretWidth, rect.height());
@@ -153,7 +155,7 @@ IntRect RenderSVGInlineText::linesBoundingBox() const
 bool RenderSVGInlineText::characterStartsNewTextChunk(int position) const
 {
     ASSERT(position >= 0);
-    ASSERT(position < static_cast<int>(textLength()));
+    ASSERT(position < static_cast<int>(text().length()));
 
     // Each <textPath> element starts a new text chunk, regardless of any x/y values.
     if (!position && parent()->isSVGTextPath() && !previousSibling())
@@ -166,9 +168,9 @@ bool RenderSVGInlineText::characterStartsNewTextChunk(int position) const
     return it->value.x != SVGTextLayoutAttributes::emptyValue() || it->value.y != SVGTextLayoutAttributes::emptyValue();
 }
 
-VisiblePosition RenderSVGInlineText::positionForPoint(const LayoutPoint& point, const RenderRegion*)
+VisiblePosition RenderSVGInlineText::positionForPoint(const LayoutPoint& point, const RenderFragmentContainer*)
 {
-    if (!firstTextBox() || !textLength())
+    if (!firstTextBox() || text().isEmpty())
         return createVisiblePosition(0, DOWNSTREAM);
 
     float baseline = m_scaledFont.fontMetrics().floatAscent();
@@ -229,7 +231,7 @@ void RenderSVGInlineText::computeNewScaledFontForStyle(const RenderObject& rende
 {
     // Alter font-size to the right on-screen value to avoid scaling the glyphs themselves, except when GeometricPrecision is specified
     scalingFactor = SVGRenderingContext::calculateScreenFontSizeScalingFactor(renderer);
-    if (!scalingFactor || style.fontDescription().textRenderingMode() == GeometricPrecision) {
+    if (!scalingFactor || style.fontDescription().textRenderingMode() == TextRenderingMode::GeometricPrecision) {
         scalingFactor = 1;
         scaledFont = style.fontCascade();
         return;
@@ -240,7 +242,12 @@ void RenderSVGInlineText::computeNewScaledFontForStyle(const RenderObject& rende
     // FIXME: We need to better handle the case when we compute very small fonts below (below 1pt).
     fontDescription.setComputedSize(Style::computedFontSizeFromSpecifiedSizeForSVGInlineText(fontDescription.computedSize(), fontDescription.isAbsoluteSize(), scalingFactor, renderer.document()));
 
-    scaledFont = FontCascade(fontDescription, 0, 0);
+    // SVG controls its own glyph orientation, so don't allow writing-mode
+    // to affect it.
+    if (fontDescription.orientation() != FontOrientation::Horizontal)
+        fontDescription.setOrientation(FontOrientation::Horizontal);
+
+    scaledFont = FontCascade(WTFMove(fontDescription), 0, 0);
     scaledFont.update(&renderer.document().fontSelector());
 }
 

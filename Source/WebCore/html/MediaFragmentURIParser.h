@@ -23,18 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef MediaFragmentURIParser_h
-#define MediaFragmentURIParser_h
+#pragma once
 
 #if ENABLE(VIDEO)
 
-#include "URL.h"
 #include <wtf/MediaTime.h>
+#include <wtf/URL.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
-
-class URL;
 
 class MediaFragmentURIParser final {
 public:
@@ -62,5 +59,4 @@ private:
 
 } // namespace WebCore
 
-#endif
-#endif
+#endif // ENABLE(VIDEO)

@@ -40,7 +40,7 @@ class Runner(object):
     def __init__(self, printer, loader):
         self.printer = printer
         self.loader = loader
-        self.tests_run = 0
+        self.tests_run = []
         self.errors = []
         self.failures = []
         self.worker_factory = lambda caller: _Worker(caller, self.loader)
@@ -52,12 +52,15 @@ class Runner(object):
         with message_pool.get(self, self.worker_factory, num_workers) as pool:
             pool.run(('test', test_name) for test_name in test_names)
 
-    def handle(self, message_name, source, test_name, delay=None, failures=None, errors=None):
+    def handle(self, message_name, source, test_name=None, delay=None, failures=None, errors=None):
+        if message_name == 'did_spawn_worker':
+            return
+
         if message_name == 'started_test':
             self.printer.print_started_test(source, test_name)
             return
 
-        self.tests_run += 1
+        self.tests_run.append(test_name)
         if failures:
             self.failures.append((test_name, failures))
         if errors:

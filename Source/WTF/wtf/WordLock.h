@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef WTF_WordLock_h
-#define WTF_WordLock_h
+#pragma once
 
 #include <wtf/Atomics.h>
 #include <wtf/Compiler.h>
@@ -42,13 +41,15 @@ namespace WTF {
 // Lock instead. WordLock sits lower in the stack and is used to implement Lock, so Lock is the main
 // client of WordLock.
 
+// NOTE: This is also a great lock to use if you are very low in the stack. For example,
+// PrintStream uses this so that ParkingLot and Lock can use PrintStream. This means that if you
+// try to use dataLog to debug this code, you will have a bad time.
+
 class WordLock {
     WTF_MAKE_NONCOPYABLE(WordLock);
+    WTF_MAKE_FAST_ALLOCATED;
 public:
-    WordLock()
-    {
-        m_word.store(0, std::memory_order_relaxed);
-    }
+    constexpr WordLock() = default;
 
     void lock()
     {
@@ -80,7 +81,7 @@ public:
         return isHeld();
     }
 
-private:
+protected:
     friend struct TestWebKitAPI::LockInspector;
     
     static const uintptr_t isLockedBit = 1;
@@ -96,15 +97,12 @@ private:
         return !m_word.load();
     }
 
-    Atomic<uintptr_t> m_word;
+    Atomic<uintptr_t> m_word { 0 };
 };
 
-typedef Locker<WordLock> WordLockHolder;
+using WordLockHolder = Locker<WordLock>;
 
 } // namespace WTF
 
 using WTF::WordLock;
 using WTF::WordLockHolder;
-
-#endif // WTF_WordLock_h
-

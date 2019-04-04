@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,22 +24,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RTCDTMFSenderHandlerClient_h
-#define RTCDTMFSenderHandlerClient_h
+#pragma once
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(WEB_RTC_DTMF)
 
 namespace WebCore {
 
 class RTCDTMFSenderHandlerClient {
 public:
-    virtual ~RTCDTMFSenderHandlerClient() { }
+    virtual ~RTCDTMFSenderHandlerClient() = default;
 
     virtual void didPlayTone(const String&) = 0;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
-
-#endif // RTCDTMFSenderHandlerClient_h
+#endif // ENABLE(WEB_RTC)

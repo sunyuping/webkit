@@ -77,6 +77,23 @@ Value* ConstDoubleValue::bitAndConstant(Procedure& proc, const Value* other) con
     return proc.add<ConstDoubleValue>(origin(), result);
 }
 
+Value* ConstDoubleValue::bitOrConstant(Procedure& proc, const Value* other) const
+{
+    if (!other->hasDouble())
+        return nullptr;
+    double result = bitwise_cast<double>(bitwise_cast<uint64_t>(m_value) | bitwise_cast<uint64_t>(other->asDouble()));
+    return proc.add<ConstDoubleValue>(origin(), result);
+}
+
+Value* ConstDoubleValue::bitXorConstant(Procedure& proc, const Value* other) const
+{
+    if (!other->hasDouble())
+        return nullptr;
+    double result = bitwise_cast<double>(bitwise_cast<uint64_t>(m_value) ^ bitwise_cast<uint64_t>(other->asDouble()));
+    return proc.add<ConstDoubleValue>(origin(), result);
+}
+
+
 Value* ConstDoubleValue::bitwiseCastConstant(Procedure& proc) const
 {
     return proc.add<Const64Value>(origin(), bitwise_cast<int64_t>(m_value));
@@ -95,6 +112,11 @@ Value* ConstDoubleValue::absConstant(Procedure& proc) const
 Value* ConstDoubleValue::ceilConstant(Procedure& proc) const
 {
     return proc.add<ConstDoubleValue>(origin(), ceil(m_value));
+}
+
+Value* ConstDoubleValue::floorConstant(Procedure& proc) const
+{
+    return proc.add<ConstDoubleValue>(origin(), floor(m_value));
 }
 
 Value* ConstDoubleValue::sqrtConstant(Procedure& proc) const

@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef URLFilterParser_h
-#define URLFilterParser_h
+#pragma once
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
@@ -44,6 +43,7 @@ public:
         NonASCII,
         UnsupportedCharacterClass,
         BackReference,
+        ForwardReference,
         MisplacedStartOfLine,
         WordBoundary,
         AtomCharacter,
@@ -64,9 +64,6 @@ private:
 };
 
 } // namespace ContentExtensions
-
 } // namespace WebCore
 
 #endif // ENABLE(CONTENT_EXTENSIONS)
-
-#endif // URLFilterParser_h

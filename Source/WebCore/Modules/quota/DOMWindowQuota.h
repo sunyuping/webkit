@@ -28,8 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DOMWindowQuota_h
-#define DOMWindowQuota_h
+#pragma once
 
 #if ENABLE(QUOTA)
 
@@ -42,6 +41,7 @@ class DOMWindow;
 class StorageInfo;
 
 class DOMWindowQuota : public Supplement<DOMWindow>, public DOMWindowProperty {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit DOMWindowQuota(DOMWindow*);
     virtual ~DOMWindowQuota();
@@ -58,5 +58,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(QUOTA)
-
-#endif // DOMWindowQuota_h

@@ -23,15 +23,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NativeStdFunctionCell_h
-#define NativeStdFunctionCell_h
+#pragma once
 
-#include "JSCell.h"
+#include "JSCast.h"
 #include "JSNativeStdFunction.h"
 
 namespace JSC {
 
-class NativeStdFunctionCell : public JSCell {
+class NativeStdFunctionCell final : public JSCell {
 public:
     typedef JSCell Base;
     static const unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
@@ -57,5 +56,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // NativeStdFunctionCell_h

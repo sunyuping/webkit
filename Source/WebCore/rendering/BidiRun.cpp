@@ -27,13 +27,11 @@
 #include <wtf/RefCountedLeakCounter.h>
 #include <wtf/StdLibExtras.h>
 
-using namespace WTF;
-
 namespace WebCore {
 
-DEFINE_DEBUG_ONLY_GLOBAL(RefCountedLeakCounter, bidiRunCounter, ("BidiRun"));
+DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, bidiRunCounter, ("BidiRun"));
 
-BidiRun::BidiRun(int start, int stop, RenderObject& renderer, BidiContext* context, UCharDirection dir)
+BidiRun::BidiRun(unsigned start, unsigned stop, RenderObject& renderer, BidiContext* context, UCharDirection dir)
     : BidiCharacterRun(start, stop, context, dir)
     , m_renderer(renderer)
     , m_box(nullptr)
@@ -41,7 +39,7 @@ BidiRun::BidiRun(int start, int stop, RenderObject& renderer, BidiContext* conte
 #ifndef NDEBUG
     bidiRunCounter.increment();
 #endif
-    ASSERT(!is<RenderText>(m_renderer) || static_cast<unsigned>(stop) <= downcast<RenderText>(m_renderer).textLength());
+    ASSERT(!is<RenderText>(m_renderer) || static_cast<unsigned>(stop) <= downcast<RenderText>(m_renderer).text().length());
     // Stored in base class to save space.
     m_hasHyphen = false;
 }
@@ -51,6 +49,14 @@ BidiRun::~BidiRun()
 #ifndef NDEBUG
     bidiRunCounter.decrement();
 #endif
+}
+
+std::unique_ptr<BidiRun> BidiRun::takeNext()
+{
+    std::unique_ptr<BidiCharacterRun> next = BidiCharacterRun::takeNext();
+    BidiCharacterRun* raw = next.release();
+    std::unique_ptr<BidiRun> result = std::unique_ptr<BidiRun>(static_cast<BidiRun*>(raw));
+    return result;
 }
 
 }

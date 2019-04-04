@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,43 +39,51 @@ InspectorFrontendAPI = {
 
     isTimelineProfilingEnabled: function()
     {
-        return WebInspector.timelineManager.isCapturing();
+        return WI.timelineManager.isCapturing();
     },
 
     setTimelineProfilingEnabled: function(enabled)
     {
-        if (WebInspector.timelineManager.isCapturing() === enabled)
+        if (WI.timelineManager.isCapturing() === enabled)
             return;
 
-        if (enabled) {
-            WebInspector.showTimelineTab();
-            WebInspector.timelineManager.startCapturing();
-        } else {
-            WebInspector.timelineManager.stopCapturing();
-        }
+        if (enabled)
+            WI.timelineManager.startCapturing();
+        else
+            WI.timelineManager.stopCapturing();
+    },
+
+    setElementSelectionEnabled: function(enabled)
+    {
+        WI.domManager.inspectModeEnabled = enabled;
     },
 
     setDockingUnavailable: function(unavailable)
     {
-        WebInspector.updateDockingAvailability(!unavailable);
+        WI.updateDockingAvailability(!unavailable);
     },
 
     setDockSide: function(side)
     {
-        WebInspector.updateDockedState(side);
+        WI.updateDockedState(side);
+    },
+
+    setIsVisible: function(visible)
+    {
+        WI.updateVisibilityState(visible);
     },
 
     showConsole: function()
     {
-        WebInspector.showConsoleTab();
+        WI.showConsoleTab();
 
-        WebInspector.quickConsole.prompt.focus();
+        WI.quickConsole.prompt.focus();
 
         // If the page is still loading, focus the quick console again after tabindex autofocus.
         if (document.readyState !== "complete")
             document.addEventListener("readystatechange", this);
         if (document.visibilityState !== "visible")
-            document.addEventListener("visibilitychange", this);  
+            document.addEventListener("visibilitychange", this);
     },
 
     handleEvent: function(event)
@@ -83,7 +91,7 @@ InspectorFrontendAPI = {
         console.assert(event.type === "readystatechange" || event.type === "visibilitychange");
 
         if (document.readyState === "complete" && document.visibilityState === "visible") {
-            WebInspector.quickConsole.prompt.focus();
+            WI.quickConsole.prompt.focus();
             document.removeEventListener("readystatechange", this);
             document.removeEventListener("visibilitychange", this);
         }
@@ -91,27 +99,40 @@ InspectorFrontendAPI = {
 
     showResources: function()
     {
-        WebInspector.showResourcesTab();
+        if (WI.settings.experimentalEnableSourcesTab.value)
+            WI.showSourcesTab();
+        else
+            WI.showResourcesTab();
+
+    },
+
+    showTimelines: function()
+    {
+        WI.showTimelineTab();
     },
 
     showMainResourceForFrame: function(frameIdentifier)
     {
-        WebInspector.showSourceCodeForFrame(frameIdentifier);
+        const options = {
+            ignoreNetworkTab: true,
+            ignoreSearchTab: true,
+        };
+        WI.showSourceCodeForFrame(frameIdentifier, options);
     },
 
     contextMenuItemSelected: function(id)
     {
-        WebInspector.ContextMenu.contextMenuItemSelected(id);
+        WI.ContextMenu.contextMenuItemSelected(id);
     },
 
     contextMenuCleared: function()
     {
-        WebInspector.ContextMenu.contextMenuCleared();
+        WI.ContextMenu.contextMenuCleared();
     },
 
     dispatchMessageAsync: function(messageObject)
     {
-        WebInspector.dispatchMessageFromBackend(messageObject);
+        WI.dispatchMessageFromBackend(messageObject);
     },
 
     dispatchMessage: function(messageObject)
@@ -129,7 +150,7 @@ InspectorFrontendAPI = {
         var methodName = signature.shift();
         console.assert(InspectorFrontendAPI[methodName], "Unexpected InspectorFrontendAPI method name: " + methodName);
         if (!InspectorFrontendAPI[methodName])
-            return;
+            return null;
 
         return InspectorFrontendAPI[methodName].apply(InspectorFrontendAPI, signature);
     },

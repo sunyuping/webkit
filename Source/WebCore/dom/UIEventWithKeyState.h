@@ -21,72 +21,60 @@
  *
  */
 
-#ifndef UIEventWithKeyState_h
-#define UIEventWithKeyState_h
+#pragma once
 
+#include "EventModifierInit.h"
+#include "PlatformEvent.h"
 #include "UIEvent.h"
 
 namespace WebCore {
 
-struct UIEventWithKeyStateInit : public UIEventInit {
-    bool ctrlKey { false };
-    bool altKey { false };
-    bool shiftKey { false };
-    bool metaKey { false };
-};
-
 class UIEventWithKeyState : public UIEvent {
 public:
-    bool ctrlKey() const { return m_ctrlKey; }
-    bool shiftKey() const { return m_shiftKey; }
-    bool altKey() const { return m_altKey; }
-    bool metaKey() const { return m_metaKey; }
+    using Modifier = PlatformEvent::Modifier;
+
+    bool ctrlKey() const { return m_modifiers.contains(Modifier::ControlKey); }
+    bool shiftKey() const { return m_modifiers.contains(Modifier::ShiftKey); }
+    bool altKey() const { return m_modifiers.contains(Modifier::AltKey); }
+    bool metaKey() const { return m_modifiers.contains(Modifier::MetaKey); }
+    bool altGraphKey() const { return m_modifiers.contains(Modifier::AltGraphKey); }
+    bool capsLockKey() const { return m_modifiers.contains(Modifier::CapsLockKey); }
+
+    OptionSet<Modifier> modifierKeys() const { return m_modifiers; }
+
+    WEBCORE_EXPORT bool getModifierState(const String& keyIdentifier) const;
 
 protected:
-    UIEventWithKeyState()
-        : m_ctrlKey(false)
-        , m_altKey(false)
-        , m_shiftKey(false)
-        , m_metaKey(false)
+    UIEventWithKeyState() = default;
+
+    UIEventWithKeyState(const AtomicString& type, CanBubble canBubble, IsCancelable cancelable, IsComposed isComposed,
+        RefPtr<WindowProxy>&& view, int detail, OptionSet<Modifier> modifiers)
+        : UIEvent(type, canBubble, cancelable, isComposed, WTFMove(view), detail)
+        , m_modifiers(modifiers)
     {
     }
 
-    UIEventWithKeyState(const AtomicString& type, bool canBubble, bool cancelable, AbstractView* view, int detail, bool ctrlKey, bool altKey, bool shiftKey, bool metaKey)
-        : UIEvent(type, canBubble, cancelable, view, detail)
-        , m_ctrlKey(ctrlKey)
-        , m_altKey(altKey)
-        , m_shiftKey(shiftKey)
-        , m_metaKey(metaKey)
+    UIEventWithKeyState(const AtomicString& type, CanBubble canBubble, IsCancelable cancelable, IsComposed isComposed,
+        MonotonicTime timestamp, RefPtr<WindowProxy>&& view, int detail, OptionSet<Modifier> modifiers, IsTrusted isTrusted)
+        : UIEvent(type, canBubble, cancelable, isComposed, timestamp, WTFMove(view), detail, isTrusted)
+        , m_modifiers(modifiers)
     {
     }
 
-    UIEventWithKeyState(const AtomicString& type, bool canBubble, bool cancelable, double timestamp, AbstractView* view, int detail, bool ctrlKey, bool altKey, bool shiftKey, bool metaKey)
-        : UIEvent(type, canBubble, cancelable, timestamp, view, detail)
-        , m_ctrlKey(ctrlKey)
-        , m_altKey(altKey)
-        , m_shiftKey(shiftKey)
-        , m_metaKey(metaKey)
-    {
-    }
-
-    UIEventWithKeyState(const AtomicString& type, const UIEventWithKeyStateInit& initializer)
+    UIEventWithKeyState(const AtomicString& type, const EventModifierInit& initializer)
         : UIEvent(type, initializer)
-        , m_ctrlKey(initializer.ctrlKey)
-        , m_altKey(initializer.altKey)
-        , m_shiftKey(initializer.shiftKey)
-        , m_metaKey(initializer.metaKey)
+        , m_modifiers(modifiersFromInitializer(initializer))
     {
     }
 
-    // Expose these so init functions can set them.
-    bool m_ctrlKey : 1;
-    bool m_altKey : 1;
-    bool m_shiftKey : 1;
-    bool m_metaKey : 1;
+    void setModifierKeys(bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool altGraphKey = false);
+
+private:
+    OptionSet<Modifier> m_modifiers;
+
+    static OptionSet<Modifier> modifiersFromInitializer(const EventModifierInit& initializer);
 };
 
-WEBCORE_EXPORT UIEventWithKeyState* findEventWithKeyState(Event*);
+UIEventWithKeyState* findEventWithKeyState(Event*);
 
 } // namespace WebCore
-
-#endif // UIEventWithKeyState_h

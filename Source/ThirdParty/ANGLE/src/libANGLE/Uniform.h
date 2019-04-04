@@ -12,65 +12,113 @@
 
 #include "angle_gl.h"
 #include "common/debug.h"
+#include "common/MemoryBuffer.h"
 #include "compiler/translator/blocklayout.h"
 #include "libANGLE/angletypes.h"
 
 namespace gl
 {
+struct UniformTypeInfo;
 
-// Helper struct representing a single shader uniform
-struct LinkedUniform : angle::NonCopyable
+struct StaticallyUsed
 {
-    LinkedUniform(GLenum type, GLenum precision, const std::string &name, unsigned int arraySize, const int blockIndex, const sh::BlockMemberInfo &blockInfo);
+    StaticallyUsed();
+    StaticallyUsed(const StaticallyUsed &rhs);
+    virtual ~StaticallyUsed();
 
-    ~LinkedUniform();
+    StaticallyUsed &operator=(const StaticallyUsed &rhs);
 
-    bool isArray() const;
-    unsigned int elementCount() const;
-    bool isReferencedByVertexShader() const;
-    bool isReferencedByFragmentShader() const;
-    bool isInDefaultBlock() const;
-    size_t dataSize() const;
-    bool isSampler() const;
-    bool isBuiltIn() const;
+    void setStaticUse(GLenum shaderType, bool used);
+    void unionReferencesWith(const StaticallyUsed &other);
 
-    const GLenum type;
-    const GLenum precision;
-    const std::string name;
-    const unsigned int arraySize;
-    const int blockIndex;
-    const sh::BlockMemberInfo blockInfo;
-
-    unsigned char *data;
-    bool dirty;
-
-    unsigned int psRegisterIndex;
-    unsigned int vsRegisterIndex;
-    unsigned int registerCount;
-
-    // Register "elements" are used for uniform structs in ES3, to appropriately identify single uniforms
-    // inside aggregate types, which are packed according C-like structure rules.
-    unsigned int registerElement;
+    bool vertexStaticUse;
+    bool fragmentStaticUse;
+    bool computeStaticUse;
 };
 
-// Helper struct representing a single shader uniform block
-struct UniformBlock : angle::NonCopyable
+// Helper struct representing a single shader uniform
+struct LinkedUniform : public sh::Uniform, public StaticallyUsed
 {
-    // use GL_INVALID_INDEX for non-array elements
-    UniformBlock(const std::string &name, unsigned int elementIndex, unsigned int dataSize);
+    LinkedUniform();
+    LinkedUniform(GLenum type,
+                  GLenum precision,
+                  const std::string &name,
+                  const std::vector<unsigned int> &arraySizes,
+                  const int binding,
+                  const int offset,
+                  const int location,
+                  const int bufferIndex,
+                  const sh::BlockMemberInfo &blockInfo);
+    LinkedUniform(const sh::Uniform &uniform);
+    LinkedUniform(const LinkedUniform &uniform);
+    LinkedUniform &operator=(const LinkedUniform &uniform);
+    ~LinkedUniform() override;
 
-    bool isArrayElement() const;
-    bool isReferencedByVertexShader() const;
-    bool isReferencedByFragmentShader() const;
+    bool isSampler() const;
+    bool isImage() const;
+    bool isAtomicCounter() const;
+    bool isInDefaultBlock() const;
+    bool isField() const;
+    size_t getElementSize() const;
+    size_t getElementComponents() const;
 
-    const std::string name;
-    const unsigned int elementIndex;
-    const unsigned int dataSize;
+    const UniformTypeInfo *typeInfo;
 
-    std::vector<unsigned int> memberUniformIndexes;
+    // Identifies the containing buffer backed resource -- interface block or atomic counter buffer.
+    int bufferIndex;
+    sh::BlockMemberInfo blockInfo;
+};
 
-    unsigned int psRegisterIndex;
-    unsigned int vsRegisterIndex;
+struct BufferVariable : public sh::ShaderVariable, public StaticallyUsed
+{
+    BufferVariable();
+    BufferVariable(GLenum type,
+                   GLenum precision,
+                   const std::string &name,
+                   const std::vector<unsigned int> &arraySizes,
+                   const int bufferIndex,
+                   const sh::BlockMemberInfo &blockInfo);
+    ~BufferVariable() override;
+
+    int bufferIndex;
+    sh::BlockMemberInfo blockInfo;
+
+    int topLevelArraySize;
+};
+
+// Parent struct for atomic counter, uniform block, and shader storage block buffer, which all
+// contain a group of shader variables, and have a GL buffer backed.
+struct ShaderVariableBuffer : public StaticallyUsed
+{
+    ShaderVariableBuffer();
+    ShaderVariableBuffer(const ShaderVariableBuffer &other);
+    ~ShaderVariableBuffer() override;
+    int numActiveVariables() const;
+
+    int binding;
+    unsigned int dataSize;
+    std::vector<unsigned int> memberIndexes;
+};
+
+using AtomicCounterBuffer = ShaderVariableBuffer;
+
+// Helper struct representing a single shader interface block
+struct InterfaceBlock : public ShaderVariableBuffer
+{
+    InterfaceBlock();
+    InterfaceBlock(const std::string &nameIn,
+                   const std::string &mappedNameIn,
+                   bool isArrayIn,
+                   unsigned int arrayElementIn,
+                   int bindingIn);
+
+    std::string nameWithArrayIndex() const;
+    std::string mappedNameWithArrayIndex() const;
+
+    std::string name;
+    std::string mappedName;
+    bool isArray;
+    unsigned int arrayElement;
 };
 
 }

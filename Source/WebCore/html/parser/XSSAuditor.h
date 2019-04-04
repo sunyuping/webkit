@@ -23,12 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef XSSAuditor_h
-#define XSSAuditor_h
+#pragma once
 
 #include "HTMLToken.h"
 #include "HTTPParsers.h"
-#include "URL.h"
+#include <wtf/URL.h>
 #include "SuffixTree.h"
 #include "TextEncoding.h"
 
@@ -103,11 +102,12 @@ private:
     bool isContainedInRequest(const String&);
     bool isLikelySafeResource(const String& url);
 
+    SuffixTree<ASCIICodebook>* decodedHTTPBodySuffixTree();
+
     URL m_documentURL;
     bool m_isEnabled;
 
-    ContentSecurityPolicy::ReflectedXSSDisposition m_xssProtection;
-    bool m_didSendValidCSPHeader;
+    XSSProtectionDisposition m_xssProtection;
     bool m_didSendValidXSSProtectionHeader;
 
     String m_decodedURL;
@@ -120,6 +120,4 @@ private:
     TextEncoding m_encoding;
 };
 
-}
-
-#endif
+} // namespace WebCore

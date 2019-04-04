@@ -37,9 +37,11 @@
 #include <wtf/MathExtras.h>
 #include <wtf/win/GDIObject.h>
 
-namespace WebCore {
+#if USE(DIRECT2D)
+#include <dwrite.h>
+#endif
 
-const float cSmallCapsFontSizeMultiplier = 0.7f;
+namespace WebCore {
 
 static bool g_shouldApplyMacAscentHack;
 
@@ -106,7 +108,7 @@ void Font::initGDIFont()
     m_maxCharWidth = textMetrics.tmMaxCharWidth;
     float xHeight = ascent * 0.56f; // Best guess for xHeight if no x glyph is present.
     GLYPHMETRICS gm;
-    static const MAT2 identity = { 0, 1,  0, 0,  0, 0,  0, 1 };
+    static const MAT2 identity = { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 1 } };
     DWORD len = GetGlyphOutline(hdc, 'x', GGO_METRICS, &gm, 0, 0, &identity);
     if (len != GDI_ERROR && gm.gmptGlyphOrigin.y > 0)
         xHeight = gm.gmptGlyphOrigin.y;
@@ -135,22 +137,19 @@ void Font::platformDestroy()
 RefPtr<Font> Font::platformCreateScaledFont(const FontDescription& fontDescription, float scaleFactor) const
 {
     float scaledSize = scaleFactor * m_platformData.size();
-    if (isCustomFont()) {
-        FontPlatformData scaledFont(m_platformData);
-        scaledFont.setSize(scaledSize);
-        return Font::create(scaledFont, true, false);
-    }
+    if (origin() == Origin::Remote)
+        return Font::create(FontPlatformData::cloneWithSize(m_platformData, scaledSize), Font::Origin::Remote);
 
     LOGFONT winfont;
     GetObject(m_platformData.hfont(), sizeof(LOGFONT), &winfont);
     winfont.lfHeight = -lroundf(scaledSize * (m_platformData.useGDI() ? 1 : 32));
     auto hfont = adoptGDIObject(::CreateFontIndirect(&winfont));
-    return Font::create(FontPlatformData(WTFMove(hfont), scaledSize, m_platformData.syntheticBold(), m_platformData.syntheticOblique(), m_platformData.useGDI()), isCustomFont(), false);
+    return Font::create(FontPlatformData(WTFMove(hfont), scaledSize, m_platformData.syntheticBold(), m_platformData.syntheticOblique(), m_platformData.useGDI()), origin());
 }
 
 void Font::determinePitch()
 {
-    if (isCustomFont()) {
+    if (origin() == Origin::Remote) {
         m_treatAsFixedPitch = false;
         return;
     }
@@ -176,7 +175,7 @@ FloatRect Font::boundsForGDIGlyph(Glyph glyph) const
     HGDIOBJ oldFont = SelectObject(hdc, m_platformData.hfont());
 
     GLYPHMETRICS gdiMetrics;
-    static const MAT2 identity = { 0, 1,  0, 0,  0, 0,  0, 1 };
+    static const MAT2 identity = { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 1 } };
     GetGlyphOutline(hdc, glyph, GGO_METRICS | GGO_GLYPH_INDEX, &gdiMetrics, 0, 0, &identity);
 
     SelectObject(hdc, oldFont);
@@ -192,7 +191,7 @@ float Font::widthForGDIGlyph(Glyph glyph) const
     HGDIOBJ oldFont = SelectObject(hdc, m_platformData.hfont());
 
     GLYPHMETRICS gdiMetrics;
-    static const MAT2 identity = { 0, 1,  0, 0,  0, 0,  0, 1 };
+    static const MAT2 identity = { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 1 } };
     GetGlyphOutline(hdc, glyph, GGO_METRICS | GGO_GLYPH_INDEX, &gdiMetrics, 0, 0, &identity);
     float result = gdiMetrics.gmCellIncX + m_syntheticBoldOffset;
 

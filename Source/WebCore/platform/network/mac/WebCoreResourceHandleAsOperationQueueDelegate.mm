@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,73 +26,91 @@
 #import "config.h"
 #import "WebCoreResourceHandleAsOperationQueueDelegate.h"
 
-#if !USE(CFNETWORK)
-
 #import "AuthenticationChallenge.h"
 #import "AuthenticationMac.h"
 #import "Logging.h"
-#import "NSURLRequestSPI.h"
+#import "NetworkingContext.h"
 #import "ResourceHandle.h"
 #import "ResourceHandleClient.h"
 #import "ResourceRequest.h"
 #import "ResourceResponse.h"
 #import "SharedBuffer.h"
+#import "SynchronousLoaderClient.h"
 #import "WebCoreURLResponse.h"
+#import <pal/spi/cf/CFNetworkSPI.h>
+#import <wtf/BlockPtr.h>
 #import <wtf/MainThread.h>
 
 using namespace WebCore;
 
+static bool scheduledWithCustomRunLoopMode(const Optional<SchedulePairHashSet>& pairs)
+{
+    if (!pairs)
+        return false;
+    for (auto& pair : *pairs) {
+        auto mode = pair->mode();
+        if (mode != kCFRunLoopCommonModes && mode != kCFRunLoopDefaultMode)
+            return true;
+    }
+    return false;
+}
+
 @implementation WebCoreResourceHandleAsOperationQueueDelegate
 
-- (id)initWithHandle:(ResourceHandle*)handle
+- (void)callFunctionOnMainThread:(Function<void()>&&)function
+{
+    // Sync xhr uses the message queue.
+    if (m_messageQueue)
+        return m_messageQueue->append(std::make_unique<Function<void()>>(WTFMove(function)));
+
+    // This is the common case.
+    if (!scheduledWithCustomRunLoopMode(m_scheduledPairs))
+        return callOnMainThread(WTFMove(function));
+
+    // If we have been scheduled in a custom run loop mode, schedule a block in that mode.
+    auto block = makeBlockPtr([alreadyCalled = false, function = WTFMove(function)] () mutable {
+        if (alreadyCalled)
+            return;
+        alreadyCalled = true;
+        function();
+        function = nullptr;
+    });
+    for (auto& pair : *m_scheduledPairs)
+        CFRunLoopPerformBlock(pair->runLoop(), pair->mode(), block.get());
+}
+
+- (id)initWithHandle:(ResourceHandle*)handle messageQueue:(MessageQueue<Function<void()>>*)messageQueue
 {
     self = [self init];
     if (!self)
         return nil;
 
     m_handle = handle;
-    m_semaphore = dispatch_semaphore_create(0);
+    if (m_handle && m_handle->context()) {
+        if (auto* pairs = m_handle->context()->scheduledRunLoopPairs())
+            m_scheduledPairs = *pairs;
+    }
+    m_messageQueue = messageQueue;
 
     return self;
 }
 
 - (void)detachHandle
 {
-    m_handle = 0;
+    LockHolder lock(m_mutex);
 
+    m_handle = nullptr;
+
+    m_messageQueue = nullptr;
     m_requestResult = nullptr;
     m_cachedResponseResult = nullptr;
     m_boolResult = NO;
-    dispatch_semaphore_signal(m_semaphore); // OK to signal even if we are not waiting.
+    m_semaphore.signal(); // OK to signal even if we are not waiting.
 }
 
 - (void)dealloc
 {
-    dispatch_release(m_semaphore);
     [super dealloc];
-}
-
-- (void)continueWillSendRequest:(NSURLRequest *)newRequest
-{
-    m_requestResult = newRequest;
-    dispatch_semaphore_signal(m_semaphore);
-}
-
-- (void)continueDidReceiveResponse
-{
-    dispatch_semaphore_signal(m_semaphore);
-}
-
-- (void)continueCanAuthenticateAgainstProtectionSpace:(BOOL)canAuthenticate
-{
-    m_boolResult = canAuthenticate;
-    dispatch_semaphore_signal(m_semaphore);
-}
-
-- (void)continueWillCacheResponse:(NSCachedURLResponse *)response
-{
-    m_cachedResponseResult = response;
-    dispatch_semaphore_signal(m_semaphore);
 }
 
 - (NSURLRequest *)connection:(NSURLConnection *)connection willSendRequest:(NSURLRequest *)newRequest redirectResponse:(NSURLResponse *)redirectResponse
@@ -100,7 +118,7 @@ using namespace WebCore;
     ASSERT(!isMainThread());
     UNUSED_PARAM(connection);
 
-    redirectResponse = synthesizeRedirectResponseIfNecessary(connection, newRequest, redirectResponse);
+    redirectResponse = synthesizeRedirectResponseIfNecessary([connection currentRequest], newRequest, redirectResponse);
 
     // See <rdar://problem/5380697>. This is a workaround for a behavior change in CFNetwork where willSendRequest gets called more often.
     if (!redirectResponse)
@@ -113,79 +131,93 @@ using namespace WebCore;
         LOG(Network, "Handle %p delegate connection:%p willSendRequest:%@ redirectResponse:non-HTTP", m_handle, connection, [newRequest description]); 
 #endif
 
-    RetainPtr<id> protector(self);
-
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto protectedSelf = retainPtr(self);
+    auto work = [self, protectedSelf, newRequest = retainPtr(newRequest), redirectResponse = retainPtr(redirectResponse)] () mutable {
         if (!m_handle) {
             m_requestResult = nullptr;
-            dispatch_semaphore_signal(m_semaphore);
+            m_semaphore.signal();
             return;
         }
 
-        ResourceRequest request = newRequest;
+        m_handle->willSendRequest(newRequest.get(), redirectResponse.get(), [self, protectedSelf = WTFMove(protectedSelf)](ResourceRequest&& request) {
+            m_requestResult = request.nsURLRequest(HTTPBodyUpdatePolicy::UpdateHTTPBody);
+            m_semaphore.signal();
+        });
+    };
 
-        m_handle->willSendRequest(request, redirectResponse);
-    });
+    [self callFunctionOnMainThread:WTFMove(work)];
+    m_semaphore.wait();
 
-    dispatch_semaphore_wait(m_semaphore, DISPATCH_TIME_FOREVER);
-    return m_requestResult.autorelease();
+    LockHolder lock(m_mutex);
+    if (!m_handle)
+        return nil;
+
+    RetainPtr<NSURLRequest> requestResult = m_requestResult;
+
+    // Make sure protectedSelf gets destroyed on the main thread in case this is the last strong reference to self
+    // as we do not want to get destroyed on a non-main thread.
+    [self callFunctionOnMainThread:[protectedSelf = WTFMove(protectedSelf)] { }];
+
+    return requestResult.autorelease();
 }
 
+IGNORE_WARNINGS_BEGIN("deprecated-implementations")
 - (void)connection:(NSURLConnection *)connection didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+IGNORE_WARNINGS_END
 {
     ASSERT(!isMainThread());
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveAuthenticationChallenge:%p", m_handle, connection, challenge);
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto work = [self, protectedSelf = retainPtr(self), challenge = retainPtr(challenge)] () mutable {
         if (!m_handle) {
-            [[challenge sender] cancelAuthenticationChallenge:challenge];
+            [[challenge sender] cancelAuthenticationChallenge:challenge.get()];
             return;
         }
-        m_handle->didReceiveAuthenticationChallenge(core(challenge));
-    });
+        m_handle->didReceiveAuthenticationChallenge(core(challenge.get()));
+    };
+
+    [self callFunctionOnMainThread:WTFMove(work)];
 }
 
-- (void)connection:(NSURLConnection *)connection didCancelAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
-{
-    // FIXME: We probably don't need to implement this (see <rdar://problem/8960124>).
-
-    ASSERT(!isMainThread());
-    UNUSED_PARAM(connection);
-
-    LOG(Network, "Handle %p delegate connection:%p didCancelAuthenticationChallenge:%p", m_handle, connection, challenge);
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!m_handle)
-            return;
-        m_handle->didCancelAuthenticationChallenge(core(challenge));
-    });
-}
-
-#if USE(PROTECTION_SPACE_AUTH_CALLBACK)
+IGNORE_WARNINGS_BEGIN("deprecated-implementations")
 - (BOOL)connection:(NSURLConnection *)connection canAuthenticateAgainstProtectionSpace:(NSURLProtectionSpace *)protectionSpace
+IGNORE_WARNINGS_END
 {
     ASSERT(!isMainThread());
     UNUSED_PARAM(connection);
 
     LOG(Network, "Handle %p delegate connection:%p canAuthenticateAgainstProtectionSpace:%@://%@:%u realm:%@ method:%@ %@%@", m_handle, connection, [protectionSpace protocol], [protectionSpace host], [protectionSpace port], [protectionSpace realm], [protectionSpace authenticationMethod], [protectionSpace isProxy] ? @"proxy:" : @"", [protectionSpace isProxy] ? [protectionSpace proxyType] : @"");
 
-    RetainPtr<id> protector(self);
-
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto protectedSelf = retainPtr(self);
+    auto work = [self, protectedSelf, protectionSpace = retainPtr(protectionSpace)] () mutable {
         if (!m_handle) {
             m_boolResult = NO;
-            dispatch_semaphore_signal(m_semaphore);
+            m_semaphore.signal();
             return;
         }
-        m_handle->canAuthenticateAgainstProtectionSpace(ProtectionSpace(protectionSpace));
-    });
+        m_handle->canAuthenticateAgainstProtectionSpace(ProtectionSpace(protectionSpace.get()), [self, protectedSelf = WTFMove(protectedSelf)] (bool result) mutable {
+            m_boolResult = result;
+            m_semaphore.signal();
+        });
+    };
 
-    dispatch_semaphore_wait(m_semaphore, DISPATCH_TIME_FOREVER);
-    return m_boolResult;
+    [self callFunctionOnMainThread:WTFMove(work)];
+    m_semaphore.wait();
+
+    LockHolder lock(m_mutex);
+    if (!m_handle)
+        return NO;
+
+    auto boolResult = m_boolResult;
+
+    // Make sure protectedSelf gets destroyed on the main thread in case this is the last strong reference to self
+    // as we do not want to get destroyed on a non-main thread.
+    [self callFunctionOnMainThread:[protectedSelf = WTFMove(protectedSelf)] { }];
+
+    return boolResult;
 }
-#endif
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)r
 {
@@ -193,54 +225,39 @@ using namespace WebCore;
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveResponse:%p (HTTP status %d, reported MIMEType '%s')", m_handle, connection, r, [r respondsToSelector:@selector(statusCode)] ? [(id)r statusCode] : 0, [[r MIMEType] UTF8String]);
 
-    RetainPtr<id> protector(self);
-
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto protectedSelf = retainPtr(self);
+    auto work = [self, protectedSelf, r = retainPtr(r), connection = retainPtr(connection)] () mutable {
+        RefPtr<ResourceHandle> protectedHandle(m_handle);
         if (!m_handle || !m_handle->client()) {
-            dispatch_semaphore_signal(m_semaphore);
+            m_semaphore.signal();
             return;
         }
 
         // Avoid MIME type sniffing if the response comes back as 304 Not Modified.
         int statusCode = [r respondsToSelector:@selector(statusCode)] ? [(id)r statusCode] : 0;
-        if (statusCode != 304)
-            adjustMIMETypeIfNecessary([r _CFURLResponse]);
+        if (statusCode != 304) {
+            bool isMainResourceLoad = m_handle->firstRequest().requester() == ResourceRequest::Requester::Main;
+            adjustMIMETypeIfNecessary([r _CFURLResponse], isMainResourceLoad);
+        }
 
-        if ([m_handle->firstRequest().nsURLRequest(DoNotUpdateHTTPBody) _propertyForKey:@"ForceHTMLMIMEType"])
+        if ([m_handle->firstRequest().nsURLRequest(HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody) _propertyForKey:@"ForceHTMLMIMEType"])
             [r _setMIMEType:@"text/html"];
-        
-        ResourceResponse resourceResponse(r);
-#if ENABLE(WEB_TIMING)
-        ResourceHandle::getConnectionTimingData(connection, resourceResponse.resourceLoadTiming());
-#else
-        UNUSED_PARAM(connection);
-#endif
-        m_handle->client()->didReceiveResponseAsync(m_handle, resourceResponse);
-    });
 
-    dispatch_semaphore_wait(m_semaphore, DISPATCH_TIME_FOREVER);
+        ResourceResponse resourceResponse(r.get());
+        resourceResponse.setSource(ResourceResponse::Source::Network);
+        ResourceHandle::getConnectionTimingData(connection.get(), resourceResponse.deprecatedNetworkLoadMetrics());
+
+        m_handle->didReceiveResponse(WTFMove(resourceResponse), [self, protectedSelf = WTFMove(protectedSelf)] {
+            m_semaphore.signal();
+        });
+    };
+
+    [self callFunctionOnMainThread:WTFMove(work)];
+    m_semaphore.wait();
+
+    // Make sure we get destroyed on the main thread.
+    [self callFunctionOnMainThread:[protectedSelf = WTFMove(protectedSelf)] { }];
 }
-
-#if USE(NETWORK_CFDATA_ARRAY_CALLBACK)
-- (void)connection:(NSURLConnection *)connection didReceiveDataArray:(NSArray *)dataArray
-{
-    ASSERT(!isMainThread());
-    UNUSED_PARAM(connection);
-
-    LOG(Network, "Handle %p delegate connection:%p didReceiveDataArray:%p arraySize:%d", m_handle, connection, dataArray, [dataArray count]);
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!dataArray)
-            return;
-
-        if (!m_handle || !m_handle->client())
-            return;
-
-        m_handle->client()->didReceiveBuffer(m_handle, SharedBuffer::wrapCFDataArray(reinterpret_cast<CFArrayRef>(dataArray)), -1);
-        // The call to didReceiveData above can cancel a load, and if so, the delegate (self) could have been deallocated by this point.
-    });
-}
-#endif
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data lengthReceived:(long long)lengthReceived
 {
@@ -250,7 +267,7 @@ using namespace WebCore;
 
     LOG(Network, "Handle %p delegate connection:%p didReceiveData:%p lengthReceived:%lld", m_handle, connection, data, lengthReceived);
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto work = [self = self, protectedSelf = retainPtr(self), data = retainPtr(data)] () mutable {
         if (!m_handle || !m_handle->client())
             return;
         // FIXME: If we get more than 2B bytes in a single chunk, this code won't do the right thing.
@@ -260,8 +277,10 @@ using namespace WebCore;
         // FIXME: https://bugs.webkit.org/show_bug.cgi?id=19793
         // -1 means we do not provide any data about transfer size to inspector so it would use
         // Content-Length headers or content size to show transfer size.
-        m_handle->client()->didReceiveBuffer(m_handle, SharedBuffer::wrapNSData(data), -1);
-    });
+        m_handle->client()->didReceiveBuffer(m_handle, SharedBuffer::create(data.get()), -1);
+    };
+
+    [self callFunctionOnMainThread:WTFMove(work)];
 }
 
 - (void)connection:(NSURLConnection *)connection didSendBodyData:(NSInteger)bytesWritten totalBytesWritten:(NSInteger)totalBytesWritten totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite
@@ -272,11 +291,13 @@ using namespace WebCore;
 
     LOG(Network, "Handle %p delegate connection:%p didSendBodyData:%d totalBytesWritten:%d totalBytesExpectedToWrite:%d", m_handle, connection, bytesWritten, totalBytesWritten, totalBytesExpectedToWrite);
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto work = [self = self, protectedSelf = retainPtr(self), totalBytesWritten = totalBytesWritten, totalBytesExpectedToWrite = totalBytesExpectedToWrite] () mutable {
         if (!m_handle || !m_handle->client())
             return;
         m_handle->client()->didSendData(m_handle, totalBytesWritten, totalBytesExpectedToWrite);
-    });
+    };
+
+    [self callFunctionOnMainThread:WTFMove(work)];
 }
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
@@ -286,12 +307,18 @@ using namespace WebCore;
 
     LOG(Network, "Handle %p delegate connectionDidFinishLoading:%p", m_handle, connection);
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto work = [self = self, protectedSelf = retainPtr(self)] () mutable {
         if (!m_handle || !m_handle->client())
             return;
 
-        m_handle->client()->didFinishLoading(m_handle, 0);
-    });
+        m_handle->client()->didFinishLoading(m_handle);
+        if (m_messageQueue) {
+            m_messageQueue->kill();
+            m_messageQueue = nullptr;
+        }
+    };
+
+    [self callFunctionOnMainThread:WTFMove(work)];
 }
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
@@ -301,12 +328,18 @@ using namespace WebCore;
 
     LOG(Network, "Handle %p delegate connection:%p didFailWithError:%@", m_handle, connection, error);
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto work = [self = self, protectedSelf = retainPtr(self), error = retainPtr(error)] () mutable {
         if (!m_handle || !m_handle->client())
             return;
 
-        m_handle->client()->didFail(m_handle, error);
-    });
+        m_handle->client()->didFail(m_handle, error.get());
+        if (m_messageQueue) {
+            m_messageQueue->kill();
+            m_messageQueue = nullptr;
+        }
+    };
+
+    [self callFunctionOnMainThread:WTFMove(work)];
 }
 
 
@@ -317,20 +350,34 @@ using namespace WebCore;
 
     LOG(Network, "Handle %p delegate connection:%p willCacheResponse:%p", m_handle, connection, cachedResponse);
 
-    RetainPtr<id> protector(self);
-
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto protectedSelf = retainPtr(self);
+    auto work = [self, protectedSelf, cachedResponse = retainPtr(cachedResponse)] () mutable {
         if (!m_handle || !m_handle->client()) {
             m_cachedResponseResult = nullptr;
-            dispatch_semaphore_signal(m_semaphore);
+            m_semaphore.signal();
             return;
         }
 
-        m_handle->client()->willCacheResponseAsync(m_handle, cachedResponse);
-    });
+        m_handle->client()->willCacheResponseAsync(m_handle, cachedResponse.get(), [self, protectedSelf = WTFMove(protectedSelf)] (NSCachedURLResponse * response) mutable {
+            m_cachedResponseResult = response;
+            m_semaphore.signal();
+        });
+    };
 
-    dispatch_semaphore_wait(m_semaphore, DISPATCH_TIME_FOREVER);
-    return m_cachedResponseResult.autorelease();
+    [self callFunctionOnMainThread:WTFMove(work)];
+    m_semaphore.wait();
+
+    LockHolder lock(m_mutex);
+    if (!m_handle)
+        return nil;
+
+    RetainPtr<NSCachedURLResponse> cachedResponseResult = m_cachedResponseResult;
+
+    // Make sure protectedSelf gets destroyed on the main thread in case this is the last strong reference to self
+    // as we do not want to get destroyed on a non-main thread.
+    [self callFunctionOnMainThread:[protectedSelf = WTFMove(protectedSelf)] { }];
+
+    return cachedResponseResult.autorelease();
 }
 
 @end
@@ -345,6 +392,3 @@ using namespace WebCore;
 }
 
 @end
-
-#endif // !USE(CFNETWORK)
-

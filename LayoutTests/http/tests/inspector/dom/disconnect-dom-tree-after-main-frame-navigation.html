@@ -10,8 +10,8 @@ function test()
     suite.addTestCase({
         name: "CheckLazyInitializationOfDOMTree",
         description: "Check that DOMTree instances are created lazily.",
-        test: (resolve, reject) => {
-            let instances = WebInspector.domTreeManager.retainedObjectsWithPrototype(WebInspector.DOMTree);
+        test(resolve, reject) {
+            let instances = WI.domManager.retainedObjectsWithPrototype(WI.DOMTree);
             InspectorTest.expectThat(instances.size === 0, "There should not be a DOMTree listening to DOMTreeManager events initially.");
             InspectorTest.log("DOMTree instance count: " + instances.size);
             resolve();
@@ -21,20 +21,25 @@ function test()
     suite.addTestCase({
         name: "CheckDOMTreeCountAfterUsingGetter",
         description: "Check that the count of connected DOMTrees is correct after initializing them.",
-        test: (resolve, reject) => {
-            let mainFrame = WebInspector.frameResourceManager.mainFrame;
+        test(resolve, reject) {
+            let mainFrame = WI.networkManager.mainFrame;
             mainFrame.domTree; // Force creation of the root DOM tree.
 
-            let instances = WebInspector.domTreeManager.retainedObjectsWithPrototype(WebInspector.DOMTree);
+            let instances = WI.domManager.retainedObjectsWithPrototype(WI.DOMTree);
             InspectorTest.expectThat(instances.size === 1, "There should be a one DOMTree listening to DOMTreeManager events after creation.");
             InspectorTest.log("DOMTree instance count: " + instances.size);
 
             // Force creation of child DOM trees.
-            mainFrame.childFrames[0].domTree;
-            mainFrame.childFrames[0].childFrames[0].domTree;
-            mainFrame.childFrames[0].childFrames[0].childFrames[0].domTree;
+            let childrenLevel1 = Array.from(mainFrame.childFrameCollection);
+            childrenLevel1[0].domTree;
 
-            instances = WebInspector.domTreeManager.retainedObjectsWithPrototype(WebInspector.DOMTree);
+            let childrenLevel2 = Array.from(childrenLevel1[0].childFrameCollection);
+            childrenLevel2[0].domTree;
+
+            let childrenLevel3 = Array.from(childrenLevel2[0].childFrameCollection);
+            childrenLevel3[0].domTree;
+
+            instances = WI.domManager.retainedObjectsWithPrototype(WI.DOMTree);
             InspectorTest.expectThat(instances.size === 4, "There should be four DOMTrees listening to DOMTreeManager events after touching each Frame.");
             InspectorTest.log("DOMTree instance count: " + instances.size);
 
@@ -45,13 +50,14 @@ function test()
     suite.addTestCase({
         name: "CheckDOMTreeCountAfterReloading",
         description: "Check that the count of connected DOMTrees is correct after a reload.",
-        test: (resolve, reject) => {
-            WebInspector.Frame.singleFireEventListener(WebInspector.Frame.Event.MainResourceDidChange, (event) => {
-                let instances = WebInspector.domTreeManager.retainedObjectsWithPrototype(WebInspector.DOMTree);
+        test(resolve, reject) {
+            WI.Frame.awaitEvent(WI.Frame.Event.MainResourceDidChange)
+            .then((event) => {
+                let instances = WI.domManager.retainedObjectsWithPrototype(WI.DOMTree);
                 InspectorTest.expectThat(instances.size === 0, "There should not be any DOMTrees listening to DOMTreeManager events after a main frame navigation.");
                 InspectorTest.log("DOMTree instance count: " + instances.size);
-                resolve();
-            });
+            })
+            .then(resolve, reject);
 
             InspectorTest.reloadPage();
         }

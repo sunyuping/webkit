@@ -18,32 +18,40 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// Introduced in DOM Level 2:
 [
+    ExportMacro=WEBCORE_EXPORT,
+    DefaultDefineOwnProperty,
+    GenerateIsReachable,
     JSCustomHeader,
     JSCustomMarkFunction,
-    GenerateIsReachable,
-    JSCustomGetOwnPropertySlotAndDescriptor,
-    CustomNamedSetter,
-    CustomEnumerateProperty,
     SkipVTableValidation,
 ] interface CSSStyleDeclaration {
-    [TreatReturnedNullStringAs=Null, TreatNullAs=NullString, SetterRaisesException] attribute DOMString cssText;
+    [CEReactions] attribute DOMString cssText;
 
-    DOMString getPropertyValue([Default=Undefined] DOMString propertyName);
-    [Custom] CSSValue           getPropertyCSSValue([Default=Undefined] optional DOMString propertyName);
-    [TreatReturnedNullStringAs=Null, RaisesException] DOMString          removeProperty([Default=Undefined] optional DOMString propertyName);
-    [TreatReturnedNullStringAs=Null] DOMString          getPropertyPriority([Default=Undefined] optional DOMString propertyName);
-    [ObjCLegacyUnnamedParameters, RaisesException] void setProperty([Default=Undefined] optional DOMString propertyName, 
-                                    [TreatNullAs=NullString, Default=Undefined] optional DOMString value, 
-                                    [Default=Undefined] optional DOMString priority);
+    DOMString getPropertyValue(DOMString propertyName);
 
-    readonly attribute unsigned long    length;
-    getter DOMString          item([Default=Undefined] optional unsigned long index);
-    readonly attribute CSSRule          parentRule;
+    [CEReactions, MayThrowException] DOMString removeProperty(DOMString propertyName);
+    DOMString? getPropertyPriority(DOMString propertyName);
 
-    // Extensions
-    [TreatReturnedNullStringAs=Null] DOMString          getPropertyShorthand([Default=Undefined] optional DOMString propertyName);
-    boolean            isPropertyImplicit([Default=Undefined] optional DOMString propertyName);
+    [CEReactions, MayThrowException] void setProperty(DOMString propertyName, [TreatNullAs=EmptyString] DOMString value, optional [TreatNullAs=EmptyString] DOMString priority = "");
+
+    readonly attribute unsigned long length;
+    getter DOMString item(unsigned long index);
+    readonly attribute CSSRule? parentRule;
+
+    [CEReactions] attribute [TreatNullAs=EmptyString] DOMString cssFloat;
+
+    // FIXME: Using "undefined" as default parameter value is wrong.
+    DOMString? getPropertyShorthand(optional DOMString propertyName = "undefined");
+    boolean isPropertyImplicit(optional DOMString propertyName = "undefined");
+
+    // Use named getters/setters for all support CSS property names. The spec says
+    // these should be normal attributes, but there are too many combinations with
+    // prefixes for this to be practical. If we remove legacy aliases, we should
+    // reconsider this decision.
+    getter (DOMString or double) (DOMString name);
+    [CEReactions, MayThrowException, CallNamedSetterOnlyForSupportedProperties] setter void (DOMString name, [TreatNullAs=EmptyString] DOMString value);
+
+    // This method is deprecated, and we would like to drop support for it someday
+    DeprecatedCSSOMValue? getPropertyCSSValue(DOMString propertyName);
 };
-

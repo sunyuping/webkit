@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef GCIncomingRefCountedInlines_h
-#define GCIncomingRefCountedInlines_h
+#pragma once
 
 #include "GCIncomingRefCounted.h"
 #include "Heap.h"
@@ -58,7 +57,7 @@ bool GCIncomingRefCounted<T>::addIncomingReference(JSCell* cell)
 
 template<typename T>
 template<typename FilterFunctionType>
-bool GCIncomingRefCounted<T>::filterIncomingReferences(FilterFunctionType& filterFunction)
+bool GCIncomingRefCounted<T>::filterIncomingReferences(FilterFunctionType&& filterFunction)
 {
     const bool verbose = false;
     
@@ -125,6 +124,3 @@ bool GCIncomingRefCounted<T>::filterIncomingReferences(FilterFunctionType& filte
 }
 
 } // namespace JSC
-
-#endif // GCIncomingRefCountedInlines_h
-

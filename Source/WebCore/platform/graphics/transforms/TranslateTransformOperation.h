@@ -2,7 +2,7 @@
  * Copyright (C) 2000 Lars Knoll (knoll@kde.org)
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2003, 2005-2008, 2017 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Graham Dennis (graham.dennis@gmail.com)
  *
  * This library is free software; you can redistribute it and/or
@@ -22,8 +22,7 @@
  *
  */
 
-#ifndef TranslateTransformOperation_h
-#define TranslateTransformOperation_h
+#pragma once
 
 #include "Length.h"
 #include "LengthFunctions.h"
@@ -44,9 +43,9 @@ public:
         return adoptRef(*new TranslateTransformOperation(tx, ty, tz, type));
     }
 
-    virtual Ref<TransformOperation> clone() const override
+    Ref<TransformOperation> clone() const override
     {
-        return adoptRef(*new TranslateTransformOperation(m_x, m_y, m_z, m_type));
+        return adoptRef(*new TranslateTransformOperation(m_x, m_y, m_z, type()));
     }
 
     double x(const FloatSize& borderBoxSize) const { return floatValueForLength(m_x, borderBoxSize.width()); }
@@ -58,26 +57,27 @@ public:
     Length z() const { return m_z; }
 
 private:
-    virtual bool isIdentity() const override { return !floatValueForLength(m_x, 1) && !floatValueForLength(m_y, 1) && !floatValueForLength(m_z, 1); }
+    bool isIdentity() const override { return !floatValueForLength(m_x, 1) && !floatValueForLength(m_y, 1) && !floatValueForLength(m_z, 1); }
 
-    virtual OperationType type() const override { return m_type; }
-    virtual bool isSameType(const TransformOperation& o) const override { return o.type() == m_type; }
+    bool isRepresentableIn2D() const final { return m_z.isZero(); }
 
-    virtual bool operator==(const TransformOperation&) const override;
+    bool operator==(const TransformOperation&) const override;
 
-    virtual bool apply(TransformationMatrix& transform, const FloatSize& borderBoxSize) const override
+    bool apply(TransformationMatrix& transform, const FloatSize& borderBoxSize) const override
     {
         transform.translate3d(x(borderBoxSize), y(borderBoxSize), z(borderBoxSize));
         return m_x.isPercent() || m_y.isPercent();
     }
 
-    virtual Ref<TransformOperation> blend(const TransformOperation* from, double progress, bool blendToIdentity = false) override;
+    Ref<TransformOperation> blend(const TransformOperation* from, double progress, bool blendToIdentity = false) override;
+
+    void dump(WTF::TextStream&) const final;
 
     TranslateTransformOperation(const Length& tx, const Length& ty, const Length& tz, OperationType type)
-        : m_x(tx)
+        : TransformOperation(type)
+        , m_x(tx)
         , m_y(ty)
         , m_z(tz)
-        , m_type(type)
     {
         ASSERT(isTranslateTransformOperationType());
     }
@@ -85,11 +85,8 @@ private:
     Length m_x;
     Length m_y;
     Length m_z;
-    OperationType m_type;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(WebCore::TranslateTransformOperation, isTranslateTransformOperationType())
-
-#endif // TranslateTransformOperation_h

@@ -23,15 +23,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef JSGenericTypedArrayViewPrototype_h
-#define JSGenericTypedArrayViewPrototype_h
+#pragma once
 
 #include "JSObject.h"
 
 namespace JSC {
 
 template<typename ViewClass>
-class JSGenericTypedArrayViewPrototype : public JSNonFinalObject {
+class JSGenericTypedArrayViewPrototype final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
 
@@ -42,13 +41,13 @@ protected:
 public:
     static JSGenericTypedArrayViewPrototype* create(
         VM&, JSGlobalObject*, Structure*);
-    
+
+    // FIXME: We should fix the warnings for extern-template in JSObject template classes: https://bugs.webkit.org/show_bug.cgi?id=161979
+    IGNORE_CLANG_WARNINGS_BEGIN("undefined-var-template")
     DECLARE_INFO;
+    IGNORE_CLANG_WARNINGS_END
     
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 };
 
 } // namespace JSC
-
-#endif // JSGenericTypedArrayViewPrototype_h
-

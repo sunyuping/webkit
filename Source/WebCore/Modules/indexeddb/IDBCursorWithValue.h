@@ -23,25 +23,33 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IDBCursorWithValue_h
-#define IDBCursorWithValue_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
 
 #include "IDBCursor.h"
+#include <wtf/TypeCasts.h>
 
 namespace WebCore {
 
-class IDBCursorWithValue : public IDBCursor {
+class IDBCursorWithValue final : public IDBCursor {
 public:
-    virtual ~IDBCursorWithValue() { }
+    static Ref<IDBCursorWithValue> create(IDBObjectStore&, const IDBCursorInfo&);
+    static Ref<IDBCursorWithValue> create(IDBIndex&, const IDBCursorInfo&);
 
-protected:
-    IDBCursorWithValue();
+    virtual ~IDBCursorWithValue();
+
+    bool isKeyCursorWithValue() const  override { return true; }
+
+private:
+    IDBCursorWithValue(IDBObjectStore&, const IDBCursorInfo&);
+    IDBCursorWithValue(IDBIndex&, const IDBCursorInfo&);
 };
 
 } // namespace WebCore
 
-#endif
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::IDBCursorWithValue)
+    static bool isType(const WebCore::IDBCursor& cursor) { return cursor.isKeyCursorWithValue(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
-#endif // LegacyCursorWithValue_h
+#endif // ENABLE(INDEXED_DATABASE)

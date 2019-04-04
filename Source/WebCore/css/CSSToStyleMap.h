@@ -19,8 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef CSSToStyleMap_h
-#define CSSToStyleMap_h
+#pragma once
 
 #include "CSSPropertyNames.h"
 #include <wtf/FastMalloc.h>
@@ -31,12 +30,11 @@ namespace WebCore {
 class Animation;
 class CSSValue;
 class FillLayer;
+class LengthBox;
+class NinePieceImage;
 class RenderStyle;
 class StyleImage;
 class StyleResolver;
-class NinePieceImage;
-
-class LengthBox;
 
 class CSSToStyleMap {
     WTF_MAKE_NONCOPYABLE(CSSToStyleMap);
@@ -67,9 +65,6 @@ public:
     void mapAnimationPlayState(Animation&, const CSSValue&);
     void mapAnimationProperty(Animation&, const CSSValue&);
     void mapAnimationTimingFunction(Animation&, const CSSValue&);
-#if ENABLE(CSS_ANIMATIONS_LEVEL_2)
-    void mapAnimationTrigger(Animation&, const CSSValue&);
-#endif
 
     void mapNinePieceImage(CSSPropertyID, CSSValue*, NinePieceImage&);
     void mapNinePieceImageSlice(CSSValue&, NinePieceImage&);
@@ -81,17 +76,15 @@ private:
     // similar to how PaintInfo/LayoutState cache values needed for
     // the current paint/layout.
     RenderStyle* style() const;
-    RenderStyle* rootElementStyle() const;
+    const RenderStyle* rootElementStyle() const;
     bool useSVGZoomRules() const;
 
     // FIXME: This should be part of some sort of StyleImageCache object which
     // is held by the StyleResolver, and likely provided to this object
     // during the resolve.
-    RefPtr<StyleImage> styleImage(CSSPropertyID, CSSValue&);
+    RefPtr<StyleImage> styleImage(CSSValue&);
 
     StyleResolver* m_resolver;
 };
 
-}
-
-#endif
+} // namespace WebCore

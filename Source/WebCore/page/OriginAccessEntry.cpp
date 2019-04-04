@@ -35,15 +35,14 @@
 
 namespace WebCore {
     
-OriginAccessEntry::OriginAccessEntry(const String& protocol, const String& host, SubdomainSetting subdomainSetting)
+OriginAccessEntry::OriginAccessEntry(const String& protocol, const String& host, SubdomainSetting subdomainSetting, IPAddressSetting ipAddressSetting)
     : m_protocol(protocol.convertToASCIILowercase())
     , m_host(host.convertToASCIILowercase())
     , m_subdomainSettings(subdomainSetting)
+    , m_ipAddressSettings(ipAddressSetting)
+    , m_hostIsIPAddress(URL::hostIsIPAddress(m_host))
 {
     ASSERT(subdomainSetting == AllowSubdomains || subdomainSetting == DisallowSubdomains);
-
-    // Assume that any host that ends with a digit is trying to be an IP address.
-    m_hostIsIPAddress = !m_host.isEmpty() && isASCIIDigit(m_host[m_host.length() - 1]);
 }
 
 bool OriginAccessEntry::matchesOrigin(const SecurityOrigin& origin) const
@@ -65,9 +64,10 @@ bool OriginAccessEntry::matchesOrigin(const SecurityOrigin& origin) const
     // Otherwise we can only match if we're matching subdomains.
     if (m_subdomainSettings == DisallowSubdomains)
         return false;
-    
+
+    // IP addresses are not domains: https://url.spec.whatwg.org/#concept-domain
     // Don't try to do subdomain matching on IP addresses.
-    if (m_hostIsIPAddress)
+    if (m_ipAddressSettings == TreatIPAddressAsIPAddress && (m_hostIsIPAddress || URL::hostIsIPAddress(origin.host())))
         return false;
     
     // Match subdomains.

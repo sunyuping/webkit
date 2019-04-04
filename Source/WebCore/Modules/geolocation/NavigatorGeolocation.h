@@ -17,8 +17,7 @@
     Boston, MA 02110-1301, USA.
 */
 
-#ifndef NavigatorGeolocation_h
-#define NavigatorGeolocation_h
+#pragma once
 
 #if ENABLE(GEOLOCATION)
 
@@ -27,23 +26,22 @@
 
 namespace WebCore {
 
-class Frame;
 class Geolocation;
 class Navigator;
 
 class NavigatorGeolocation : public Supplement<Navigator>, public DOMWindowProperty {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit NavigatorGeolocation(Frame*);
+    explicit NavigatorGeolocation(DOMWindow*);
     virtual ~NavigatorGeolocation();
     static NavigatorGeolocation* from(Navigator*);
 
     static Geolocation* geolocation(Navigator&);
     Geolocation* geolocation() const;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     void resetAllGeolocationPermission();
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)
 
 private:
     static const char* supplementName();
@@ -54,5 +52,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(GEOLOCATION)
-
-#endif // NavigatorGeolocation_h

@@ -23,14 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSInjectedScriptHostPrototype_h
-#define JSInjectedScriptHostPrototype_h
+#pragma once
 
 #include "JSObject.h"
 
 namespace Inspector {
 
-class JSInjectedScriptHostPrototype : public JSC::JSNonFinalObject {
+class JSInjectedScriptHostPrototype final : public JSC::JSNonFinalObject {
 public:
     typedef JSC::JSNonFinalObject Base;
     static const unsigned StructureFlags = Base::StructureFlags | JSC::OverridesGetOwnPropertySlot;
@@ -58,5 +57,3 @@ private:
 };
 
 } // namespace Inspector
-
-#endif // !defined(JSInjectedScriptHostPrototype_h)

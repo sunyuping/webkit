@@ -26,16 +26,16 @@
 #import "config.h"
 #import "CDMSessionMediaSourceAVFObjC.h"
 
-#if ENABLE(ENCRYPTED_MEDIA_V2) && ENABLE(MEDIA_SOURCE)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
 #import "CDMPrivateMediaSourceAVFObjC.h"
-#import "FileSystem.h"
 #import "WebCoreNSErrorExtras.h"
 #import <AVFoundation/AVError.h>
+#import <wtf/FileSystem.h>
 
 namespace WebCore {
 
-CDMSessionMediaSourceAVFObjC::CDMSessionMediaSourceAVFObjC(CDMPrivateMediaSourceAVFObjC& cdm, CDMSessionClient* client)
+CDMSessionMediaSourceAVFObjC::CDMSessionMediaSourceAVFObjC(CDMPrivateMediaSourceAVFObjC& cdm, LegacyCDMSessionClient* client)
     : m_cdm(&cdm)
     , m_client(client)
 {
@@ -45,6 +45,10 @@ CDMSessionMediaSourceAVFObjC::~CDMSessionMediaSourceAVFObjC()
 {
     if (m_cdm)
         m_cdm->invalidateSession(this);
+
+    for (auto& sourceBuffer : m_sourceBuffers)
+        sourceBuffer->unregisterForErrorNotifications(this);
+    m_sourceBuffers.clear();
 }
 
 void CDMSessionMediaSourceAVFObjC::layerDidReceiveError(AVSampleBufferDisplayLayer *, NSError *error, bool& shouldIgnore)
@@ -57,7 +61,7 @@ void CDMSessionMediaSourceAVFObjC::layerDidReceiveError(AVSampleBufferDisplayLay
     // FIXME(142246): Remove the following once <rdar://problem/20027434> is resolved.
     shouldIgnore = m_stopped && code == 12785;
     if (!shouldIgnore)
-        m_client->sendError(CDMSessionClient::MediaKeyErrorDomain, code);
+        m_client->sendError(LegacyCDMSessionClient::MediaKeyErrorDomain, code);
 }
 
 void CDMSessionMediaSourceAVFObjC::rendererDidReceiveError(AVSampleBufferAudioRenderer *, NSError *error, bool& shouldIgnore)
@@ -70,7 +74,7 @@ void CDMSessionMediaSourceAVFObjC::rendererDidReceiveError(AVSampleBufferAudioRe
     // FIXME(142246): Remove the following once <rdar://problem/20027434> is resolved.
     shouldIgnore = m_stopped && code == 12785;
     if (!shouldIgnore)
-        m_client->sendError(CDMSessionClient::MediaKeyErrorDomain, code);
+        m_client->sendError(LegacyCDMSessionClient::MediaKeyErrorDomain, code);
 }
 
 
@@ -98,9 +102,16 @@ void CDMSessionMediaSourceAVFObjC::removeSourceBuffer(SourceBufferPrivateAVFObjC
 
 String CDMSessionMediaSourceAVFObjC::storagePath() const
 {
-    return m_client ? pathByAppendingComponent(m_client->mediaKeysStorageDirectory(), "SecureStop.plist") : emptyString();
+    if (!m_client)
+        return emptyString();
+
+    String storageDirectory = m_client->mediaKeysStorageDirectory();
+    if (storageDirectory.isEmpty())
+        return emptyString();
+
+    return FileSystem::pathByAppendingComponent(storageDirectory, "SecureStop.plist");
 }
 
 }
 
-#endif // ENABLE(ENCRYPTED_MEDIA_V2) && ENABLE(MEDIA_SOURCE)
+#endif // ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)

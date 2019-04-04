@@ -30,19 +30,38 @@
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 find_package(PkgConfig)
-pkg_check_modules(WEBP libwebp)
+pkg_check_modules(PC_WEBP QUIET libwebp)
 
-if (NOT(WEBP_FOUND))
-    # Older installations of libwebp do not install a pkgconfig file, so we fall
-    # back to a manual search for a libwebp header file.
-    include(CheckIncludeFiles)
-    check_include_files("webp/decode.h" WEBP_FOUND_HEADER)
-    if (WEBP_FOUND_HEADER)
-        set(WEBP_LIBRARIES "-lwebp")
-        set(WEBP_FOUND TRUE)
-    endif ()
-endif ()
+# Look for the header file.
+find_path(WEBP_INCLUDE_DIR
+    NAMES webp/decode.h
+    HINTS ${PC_WEBP_INCLUDEDIR} ${PC_WEBP_INCLUDE_DIRS}
+)
+list(APPEND WEBP_INCLUDE_DIRS ${WEBP_INCLUDE_DIR})
+mark_as_advanced(WEBP_INCLUDE_DIRS)
 
-# WEBP_INCLUDE_DIRS is often empty, so we rely only on WEBP_LIBRARIES.
+# Look for the library.
+find_library(
+    WEBP_LIBRARY
+    NAMES webp
+    HINTS ${PC_WEBP_LIBDIR} ${PC_WEBP_LIBRARY_DIRS}
+)
+list(APPEND WEBP_LIBRARIES ${WEBP_LIBRARY})
+
+find_path(WEBP_DEMUX_INCLUDE_DIR
+    NAMES webp/demux.h
+    HINTS ${PC_WEBP_INCLUDEDIR} ${PC_WEBP_INCLUDE_DIRS}
+)
+list(APPEND WEBP_INCLUDE_DIRS ${WEBP_DEMUX_INCLUDE_DIR})
+
+find_library(WEBP_DEMUX_LIBRARY
+    NAMES webpdemux
+    HINTS ${PC_WEBP_LIBDIR} ${PC_WEBP_LIBRARY_DIRS}
+)
+list(APPEND WEBP_LIBRARIES ${WEBP_DEMUX_LIBRARY})
+
+mark_as_advanced(WEBP_DEMUX_INCLUDE_DIR WEBP_DEMUX_LIBRARY WEBP_INCLUDE_DIR WEBP_LIBRARY WEBP_LIBRARIES)
+
 include(FindPackageHandleStandardArgs)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(WEBP DEFAULT_MSG WEBP_LIBRARIES)
+find_package_handle_standard_args(WebP REQUIRED_VARS WEBP_INCLUDE_DIRS WEBP_LIBRARIES
+                                  FOUND_VAR WEBP_FOUND)

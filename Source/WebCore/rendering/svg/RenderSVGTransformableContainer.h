@@ -18,8 +18,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef RenderSVGTransformableContainer_h
-#define RenderSVGTransformableContainer_h
+#pragma once
 
 #include "RenderSVGContainer.h"
 #include "SVGGraphicsElement.h"
@@ -28,19 +27,20 @@ namespace WebCore {
     
 class SVGGraphicsElement;
 class RenderSVGTransformableContainer final : public RenderSVGContainer {
+    WTF_MAKE_ISO_ALLOCATED(RenderSVGTransformableContainer);
 public:
-    RenderSVGTransformableContainer(SVGGraphicsElement&, Ref<RenderStyle>&&);
+    RenderSVGTransformableContainer(SVGGraphicsElement&, RenderStyle&&);
     SVGGraphicsElement& graphicsElement() { return downcast<SVGGraphicsElement>(RenderSVGContainer::element()); }
 
-    virtual bool isSVGTransformableContainer() const override { return true; }
-    virtual const AffineTransform& localToParentTransform() const override { return m_localTransform; }
-    virtual void setNeedsTransformUpdate() override { m_needsTransformUpdate = true; }
-    virtual bool didTransformToRootUpdate() override { return m_didTransformToRootUpdate; }
+    bool isSVGTransformableContainer() const override { return true; }
+    const AffineTransform& localToParentTransform() const override { return m_localTransform; }
+    void setNeedsTransformUpdate() override { m_needsTransformUpdate = true; }
+    bool didTransformToRootUpdate() override { return m_didTransformToRootUpdate; }
 
 private:
     void element() const = delete;
-    virtual bool calculateLocalTransform() override;
-    virtual AffineTransform localTransform() const override { return m_localTransform; }
+    bool calculateLocalTransform() override;
+    AffineTransform localTransform() const override { return m_localTransform; }
 
     bool m_needsTransformUpdate : 1;
     bool m_didTransformToRootUpdate : 1;
@@ -51,5 +51,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTransformableContainer, isSVGTransformableContainer())
-
-#endif // RenderSVGTransformableContainer_h

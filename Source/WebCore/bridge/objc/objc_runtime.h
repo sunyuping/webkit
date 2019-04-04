@@ -29,7 +29,7 @@
 #include "BridgeJSC.h"
 #include "JSDOMBinding.h"
 #include "objc_header.h"
-#include <runtime/JSGlobalObject.h>
+#include <JavaScriptCore/JSGlobalObject.h>
 #include <wtf/RetainPtr.h>
 
 namespace JSC {
@@ -46,7 +46,7 @@ public:
     ObjcField(CFStringRef name);
     
     virtual JSValue valueFromInstance(ExecState*, const Instance*) const;
-    virtual void setValueToInstance(ExecState*, const Instance*, JSValue) const;
+    virtual bool setValueToInstance(ExecState*, const Instance*, JSValue) const;
 
 private:
     IvarStructPtr _ivar;
@@ -78,8 +78,8 @@ class ObjcArray : public Array {
 public:
     ObjcArray(ObjectStructPtr, RefPtr<RootObject>&&);
 
-    virtual void setValueAt(ExecState *exec, unsigned int index, JSValue aValue) const;
-    virtual JSValue valueAt(ExecState *exec, unsigned int index) const;
+    virtual bool setValueAt(ExecState*, unsigned int index, JSValue aValue) const;
+    virtual JSValue valueAt(ExecState*, unsigned int index) const;
     virtual unsigned int getLength() const;
     
     ObjectStructPtr getObjcArray() const { return _array.get(); }
@@ -93,13 +93,14 @@ private:
 class ObjcFallbackObjectImp : public JSDestructibleObject {
 public:
     typedef JSDestructibleObject Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | TypeOfShouldCallGetCallData;
+    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetCallData;
 
     static ObjcFallbackObjectImp* create(ExecState* exec, JSGlobalObject* globalObject, ObjcInstance* instance, const String& propertyName)
     {
+        VM& vm = globalObject->vm();
         // FIXME: deprecatedGetDOMStructure uses the prototype off of the wrong global object
         Structure* domStructure = WebCore::deprecatedGetDOMStructure<ObjcFallbackObjectImp>(exec);
-        ObjcFallbackObjectImp* fallbackObject = new (NotNull, allocateCell<ObjcFallbackObjectImp>(*exec->heap())) ObjcFallbackObjectImp(globalObject, domStructure, instance, propertyName);
+        ObjcFallbackObjectImp* fallbackObject = new (NotNull, allocateCell<ObjcFallbackObjectImp>(vm.heap)) ObjcFallbackObjectImp(globalObject, domStructure, instance, propertyName);
         fallbackObject->finishCreation(globalObject);
         return fallbackObject;
     }
@@ -108,9 +109,9 @@ public:
 
     const String& propertyName() const { return m_item; }
 
-    static ObjectPrototype* createPrototype(VM&, JSGlobalObject* globalObject)
+    static ObjectPrototype* createPrototype(VM&, JSGlobalObject& globalObject)
     {
-        return globalObject->objectPrototype();
+        return globalObject.objectPrototype();
     }
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
@@ -125,7 +126,7 @@ private:
     ObjcFallbackObjectImp(JSGlobalObject*, Structure*, ObjcInstance*, const String& propertyName);
     static void destroy(JSCell*);
     static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
-    static void put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
+    static bool put(JSCell*, ExecState*, PropertyName, JSValue, PutPropertySlot&);
     static CallType getCallData(JSCell*, CallData&);
     static bool deleteProperty(JSCell*, ExecState*, PropertyName);
     static JSValue defaultValue(const JSObject*, ExecState*, PreferredPrimitiveType);

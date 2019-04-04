@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2006, 2008, 2009, 2010, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,12 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CString_h
-#define CString_h
+#pragma once
 
 #include <wtf/HashFunctions.h>
 #include <wtf/HashTraits.h>
-#include <wtf/PassRefPtr.h>
+#include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
 namespace WTF {
@@ -43,7 +42,7 @@ public:
 private:
     friend class CString;
 
-    static PassRefPtr<CStringBuffer> createUninitialized(size_t length);
+    static Ref<CStringBuffer> createUninitialized(size_t length);
 
     CStringBuffer(size_t length) : m_length(length) { }
     char* mutableData() { return reinterpret_cast_ptr<char*>(this + 1); }
@@ -110,5 +109,3 @@ template<> struct HashTraits<CString> : SimpleClassHashTraits<CString> { };
 } // namespace WTF
 
 using WTF::CString;
-
-#endif // CString_h

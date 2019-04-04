@@ -17,58 +17,49 @@
     Boston, MA 02110-1301, USA.
 */
 
-#ifndef Navigator_h
-#define Navigator_h
+#pragma once
 
 #include "DOMWindowProperty.h"
+#include "JSDOMPromiseDeferred.h"
 #include "NavigatorBase.h"
 #include "ScriptWrappable.h"
+#include "ShareData.h"
 #include "Supplementable.h"
-#include <wtf/Forward.h>
-#include <wtf/HashMap.h>
-#include <wtf/PassRefPtr.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
 
 namespace WebCore {
 
 class DOMMimeTypeArray;
 class DOMPluginArray;
-class Frame;
-class PluginData;
 
-typedef int ExceptionCode;
-
-class Navigator : public NavigatorBase, public ScriptWrappable, public RefCounted<Navigator>, public DOMWindowProperty, public Supplementable<Navigator> {
+class Navigator final : public NavigatorBase, public ScriptWrappable, public DOMWindowProperty, public Supplementable<Navigator> {
 public:
-    static Ref<Navigator> create(Frame* frame) { return adoptRef(*new Navigator(frame)); }
+    static Ref<Navigator> create(ScriptExecutionContext* context, DOMWindow& window) { return adoptRef(*new Navigator(context, window)); }
     virtual ~Navigator();
 
     String appVersion() const;
-    String language() const;
-    DOMPluginArray* plugins() const;
-    DOMMimeTypeArray* mimeTypes() const;
+    DOMPluginArray& plugins();
+    DOMMimeTypeArray& mimeTypes();
     bool cookieEnabled() const;
     bool javaEnabled() const;
-#if defined(ENABLE_NAVIGATOR_HWCONCURRENCY)
-    int hardwareConcurrency() const;
-#endif
-    virtual String userAgent() const;
-
-#if PLATFORM(IOS)
+    const String& userAgent() const final;
+    const String& platform() const final;
+    void userAgentChanged();
+    bool onLine() const final;
+    void share(ScriptExecutionContext&, ShareData, Ref<DeferredPromise>&&);
+    
+#if PLATFORM(IOS_FAMILY)
     bool standalone() const;
 #endif
 
-    // Relinquishes the storage lock, if one exists.
     void getStorageUpdates();
 
 private:
-    explicit Navigator(Frame*);
+    explicit Navigator(ScriptExecutionContext*, DOMWindow&);
 
     mutable RefPtr<DOMPluginArray> m_plugins;
     mutable RefPtr<DOMMimeTypeArray> m_mimeTypes;
+    mutable String m_userAgent;
+    mutable String m_platform;
 };
 
 }
-
-#endif

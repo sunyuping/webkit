@@ -29,6 +29,11 @@
 #include <wtf/Assertions.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
+#include <wtf/UniqueArray.h>
+
+namespace WTF {
+class TextStream;
+}
 
 namespace WebCore {
 
@@ -40,8 +45,12 @@ enum LengthType {
     Undefined
 };
 
+enum ValueRange {
+    ValueRangeAll,
+    ValueRangeNonNegative
+};
+
 class CalculationValue;
-class TextStream;
 
 struct Length {
     WTF_MAKE_FAST_ALLOCATED;
@@ -107,17 +116,12 @@ public:
     bool isSpecified() const;
     bool isSpecifiedOrIntrinsic() const;
 
-    // Blend two lengths to produce a new length that is in between them. Used for animation.
-    // FIXME: Why is this a member function?
-    Length blend(const Length& from, double progress) const;
-
     float nonNanCalculatedValue(int maxValue) const;
 
 private:
     bool isLegacyIntrinsic() const;
 
     bool isCalculatedEqual(const Length&) const;
-    Length blendMixedTypes(const Length& from, double progress) const;
 
     WEBCORE_EXPORT void ref() const;
     WEBCORE_EXPORT void deref() const;
@@ -132,8 +136,11 @@ private:
     bool m_isFloat;
 };
 
-std::unique_ptr<Length[]> newCoordsArray(const String&, int& length);
-std::unique_ptr<Length[]> newLengthArray(const String&, int& length);
+// Blend two lengths to produce a new length that is in between them. Used for animation.
+Length blend(const Length& from, const Length& to, double progress);
+
+UniqueArray<Length> newCoordsArray(const String&, int& length);
+UniqueArray<Length> newLengthArray(const String&, int& length);
 
 inline Length::Length(LengthType type)
     : m_intValue(0), m_hasQuirk(false), m_type(type), m_isFloat(false)
@@ -170,12 +177,12 @@ inline Length::Length(const Length& other)
     if (other.isCalculated())
         other.ref();
 
-    memcpy(this, &other, sizeof(Length));
+    memcpy(static_cast<void*>(this), static_cast<void*>(const_cast<Length*>(&other)), sizeof(Length));
 }
 
 inline Length::Length(Length&& other)
 {
-    memcpy(this, &other, sizeof(Length));
+    memcpy(static_cast<void*>(this), static_cast<void*>(&other), sizeof(Length));
     other.m_type = Auto;
 }
 
@@ -189,7 +196,7 @@ inline Length& Length::operator=(const Length& other)
     if (isCalculated())
         deref();
 
-    memcpy(this, &other, sizeof(Length));
+    memcpy(static_cast<void*>(this), static_cast<void*>(const_cast<Length*>(&other)), sizeof(Length));
     return *this;
 }
 
@@ -201,7 +208,7 @@ inline Length& Length::operator=(Length&& other)
     if (isCalculated())
         deref();
 
-    memcpy(this, &other, sizeof(Length));
+    memcpy(static_cast<void*>(this), static_cast<void*>(&other), sizeof(Length));
     other.m_type = Auto;
     return *this;
 }
@@ -412,34 +419,9 @@ inline bool Length::isFitContent() const
     return type() == FitContent;
 }
 
-// FIXME: Does this need to be in the header? Is it valuable to inline? Does it get inlined?
-inline Length Length::blend(const Length& from, double progress) const
-{
-    if (from.type() == Calculated || type() == Calculated)
-        return blendMixedTypes(from, progress);
+Length convertTo100PercentMinusLength(const Length&);
 
-    if (!from.isZero() && !isZero() && from.type() != type())
-        return blendMixedTypes(from, progress);
-
-    if (from.isZero() && isZero())
-        return progress ? *this : from; // Pick up 'auto' from 'from' if progress is zero.
-
-    LengthType resultType = type();
-    if (isZero())
-        resultType = from.type();
-
-    if (resultType == Percent) {
-        float fromPercent = from.isZero() ? 0 : from.percent();
-        float toPercent = isZero() ? 0 : percent();
-        return Length(WebCore::blend(fromPercent, toPercent, progress), Percent);
-    }
-
-    float fromValue = from.isZero() ? 0 : from.value();
-    float toValue = isZero() ? 0 : value();
-    return Length(WebCore::blend(fromValue, toValue, progress), resultType);
-}
-
-TextStream& operator<<(TextStream&, Length);
+WTF::TextStream& operator<<(WTF::TextStream&, Length);
 
 } // namespace WebCore
 

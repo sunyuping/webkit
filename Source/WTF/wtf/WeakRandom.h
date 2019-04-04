@@ -28,8 +28,7 @@
  * See also https://en.wikipedia.org/wiki/Xorshift.
  */
 
-#ifndef WeakRandom_h
-#define WeakRandom_h
+#pragma once
 
 #include <limits.h>
 #include <wtf/CryptographicallyRandomNumber.h>
@@ -56,6 +55,7 @@ public:
 
         m_low = seed;
         m_high = seed;
+        advance();
     }
 
     unsigned seed() const { return m_seed; }
@@ -108,5 +108,3 @@ private:
 } // namespace WTF
 
 using WTF::WeakRandom;
-
-#endif // WeakRandom_h

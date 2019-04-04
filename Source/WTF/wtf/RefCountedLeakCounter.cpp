@@ -19,7 +19,7 @@
  */
 
 #include "config.h"
-#include "RefCountedLeakCounter.h"
+#include <wtf/RefCountedLeakCounter.h>
 
 #include <wtf/HashCountedSet.h>
 
@@ -39,7 +39,11 @@ void RefCountedLeakCounter::decrement() { }
 #else
 
 #define LOG_CHANNEL_PREFIX Log
-static WTFLogChannel LogRefCountedLeaks = { WTFLogChannelOn, "RefCountedLeaks" };
+#if RELEASE_LOG_DISABLED
+static WTFLogChannel LogRefCountedLeaks = { WTFLogChannelState::On, "RefCountedLeaks", WTFLogLevel::Error };
+#else
+static WTFLogChannel LogRefCountedLeaks = { WTFLogChannelState::On, "RefCountedLeaks", WTFLogLevel::Error, LOG_CHANNEL_WEBKIT_SUBSYSTEM, OS_LOG_DEFAULT };
+#endif
 
 typedef HashCountedSet<const char*, PtrHash<const char*>> ReasonSet;
 static ReasonSet* leakMessageSuppressionReasons;

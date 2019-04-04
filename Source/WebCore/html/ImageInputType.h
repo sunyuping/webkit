@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  * Copyright (C) 2012 Samsung Electronics. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,8 +30,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ImageInputType_h
-#define ImageInputType_h
+#pragma once
 
 #include "BaseButtonInputType.h"
 #include "IntPoint.h"
@@ -43,26 +42,23 @@ public:
     explicit ImageInputType(HTMLInputElement&);
 
 private:
-    virtual const AtomicString& formControlType() const override;
-    virtual bool isFormDataAppendable() const override;
-    virtual bool appendFormData(FormDataList&, bool) const override;
-    virtual bool supportsValidation() const override;
-    virtual RenderPtr<RenderElement> createInputRenderer(Ref<RenderStyle>&&) override;
-    virtual void handleDOMActivateEvent(Event*) override;
-    virtual void altAttributeChanged() override;
-    virtual void srcAttributeChanged() override;
-    virtual void attach() override;
-    virtual bool shouldRespectAlignAttribute() override;
-    virtual bool canBeSuccessfulSubmitButton() override;
-    virtual bool isImageButton() const override;
-    virtual bool isEnumeratable() override;
-    virtual bool shouldRespectHeightAndWidthAttributes() override;
-    virtual unsigned height() const override;
-    virtual unsigned width() const override;
+    const AtomicString& formControlType() const final;
+    bool isFormDataAppendable() const final;
+    bool appendFormData(DOMFormData&, bool) const final;
+    bool supportsValidation() const final;
+    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
+    void handleDOMActivateEvent(Event&) final;
+    void attributeChanged(const QualifiedName&) final;
+    void attach() final;
+    bool shouldRespectAlignAttribute() final;
+    bool canBeSuccessfulSubmitButton() final;
+    bool isImageButton() const final;
+    bool isEnumeratable() final;
+    bool shouldRespectHeightAndWidthAttributes() final;
+    unsigned height() const final;
+    unsigned width() const final;
 
     IntPoint m_clickLocation; // Valid only during HTMLFormElement::prepareForSubmission().
 };
 
 } // namespace WebCore
-
-#endif // ImageInputType_h

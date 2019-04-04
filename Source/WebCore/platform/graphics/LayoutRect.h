@@ -28,18 +28,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef LayoutRect_h
-#define LayoutRect_h
+#pragma once
 
 #include "FloatRect.h"
 #include "IntRect.h"
 #include "LayoutPoint.h"
 #include "LengthBox.h"
-#include <wtf/Vector.h>
+#include <wtf/Forward.h>
+
+namespace WTF {
+class TextStream;
+}
 
 namespace WebCore {
-
-class TextStream;
 
 class LayoutRect {
 public:
@@ -126,6 +127,13 @@ public:
     LayoutPoint maxXMinYCorner() const { return LayoutPoint(m_location.x() + m_size.width(), m_location.y()); } // typically topRight
     LayoutPoint minXMaxYCorner() const { return LayoutPoint(m_location.x(), m_location.y() + m_size.height()); } // typically bottomLeft
     LayoutPoint maxXMaxYCorner() const { return LayoutPoint(m_location.x() + m_size.width(), m_location.y() + m_size.height()); } // typically bottomRight
+    bool isMaxXMaxYRepresentable() const
+    {
+        FloatRect rect = *this;
+        float maxX = rect.maxX();
+        float maxY = rect.maxY();
+        return maxX > LayoutUnit::nearlyMin() && maxX < LayoutUnit::nearlyMax() && maxY > LayoutUnit::nearlyMin() && maxY < LayoutUnit::nearlyMax();
+    }
     
     bool intersects(const LayoutRect&) const;
     WEBCORE_EXPORT bool contains(const LayoutRect&) const;
@@ -137,8 +145,10 @@ public:
     bool contains(const LayoutPoint& point) const { return contains(point.x(), point.y()); }
 
     void intersect(const LayoutRect&);
+    bool edgeInclusiveIntersect(const LayoutRect&);
     WEBCORE_EXPORT void unite(const LayoutRect&);
     void uniteIfNonZero(const LayoutRect&);
+    bool checkedUnite(const LayoutRect&);
 
     void inflateX(LayoutUnit dx)
     {
@@ -151,11 +161,12 @@ public:
         m_size.setHeight(m_size.height() + dy + dy);
     }
     void inflate(LayoutUnit d) { inflateX(d); inflateY(d); }
+    void inflate(LayoutSize size) { inflateX(size.width()); inflateY(size.height()); }
     WEBCORE_EXPORT void scale(float);
     void scale(float xScale, float yScale);
 
     LayoutRect transposedRect() const { return LayoutRect(m_location.transposedPoint(), m_size.transposedSize()); }
-    bool isInfinite() const { return *this == LayoutRect::infiniteRect(); }
+    bool isInfinite() const;
 
     static LayoutRect infiniteRect()
     {
@@ -194,6 +205,11 @@ inline bool operator==(const LayoutRect& a, const LayoutRect& b)
 inline bool operator!=(const LayoutRect& a, const LayoutRect& b)
 {
     return a.location() != b.location() || a.size() != b.size();
+}
+
+inline bool LayoutRect::isInfinite() const
+{
+    return *this == LayoutRect::infiniteRect();
 }
 
 // Integral snapping functions.
@@ -239,8 +255,7 @@ inline FloatRect snapRectToDevicePixelsWithWritingDirection(const LayoutRect& re
 
 FloatRect encloseRectToDevicePixels(const LayoutRect&, float pixelSnappingFactor);
 
-TextStream& operator<<(TextStream&, const LayoutRect&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const LayoutRect&);
 
 } // namespace WebCore
 
-#endif // LayoutRect_h

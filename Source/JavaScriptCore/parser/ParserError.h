@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ParserError_h
-#define ParserError_h
+#pragma once
 
 #include "Error.h"
 #include "ErrorHandlingScope.h"
@@ -36,14 +35,14 @@ namespace JSC {
 
 class ParserError {
 public:
-    enum SyntaxErrorType {
+    enum SyntaxErrorType : uint8_t {
         SyntaxErrorNone,
         SyntaxErrorIrrecoverable,
         SyntaxErrorUnterminatedLiteral,
         SyntaxErrorRecoverable
     };
 
-    enum ErrorType {
+    enum ErrorType : uint8_t {
         ErrorNone,
         StackOverflow,
         EvalError,
@@ -84,9 +83,11 @@ public:
     const JSToken& token() const { return m_token; }
     const String& message() const { return m_message; }
     int line() const { return m_line; }
+    ErrorType type() const { return m_type; }
 
     JSObject* toErrorObject(
-        JSGlobalObject* globalObject, const SourceCode& source, 
+        JSGlobalObject* globalObject,
+        SourceCode source, // Note: We must copy the source here, since the objects that pass in their SourceCode field may be destroyed in addErrorInfo.
         int overrideLineNumber = -1)
     {
         ExecState* exec = globalObject->globalExec();
@@ -121,4 +122,49 @@ private:
 
 } // namespace JSC
 
-#endif // ParserError_h
+namespace WTF {
+
+inline void printInternal(PrintStream& out, JSC::ParserError::SyntaxErrorType type)
+{
+    switch (type) {
+    case JSC::ParserError::SyntaxErrorNone:
+        out.print("SyntaxErrorNone");
+        return;
+    case JSC::ParserError::SyntaxErrorIrrecoverable:
+        out.print("SyntaxErrorIrrecoverable");
+        return;
+    case JSC::ParserError::SyntaxErrorUnterminatedLiteral:
+        out.print("SyntaxErrorUnterminatedLiteral");
+        return;
+    case JSC::ParserError::SyntaxErrorRecoverable:
+        out.print("SyntaxErrorRecoverable");
+        return;
+    }
+    
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+inline void printInternal(PrintStream& out, JSC::ParserError::ErrorType type)
+{
+    switch (type) {
+    case JSC::ParserError::ErrorNone:
+        out.print("ErrorNone");
+        return;
+    case JSC::ParserError::StackOverflow:
+        out.print("StackOverflow");
+        return;
+    case JSC::ParserError::EvalError:
+        out.print("EvalError");
+        return;
+    case JSC::ParserError::OutOfMemory:
+        out.print("OutOfMemory");
+        return;
+    case JSC::ParserError::SyntaxError:
+        out.print("SyntaxError");
+        return;
+    }
+    
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+} // namespace WTF

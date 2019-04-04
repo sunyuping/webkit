@@ -30,28 +30,12 @@
 #include <cstring>
 #include <string>
 
-#ifdef XP_UNIX
+#if defined(MOZ_X11)
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #endif
 
-#if !defined(NP_NO_CARBON) && defined(QD_HEADERS_ARE_PRIVATE) && QD_HEADERS_ARE_PRIVATE
-extern "C" void GlobalToLocal(Point*);
-#endif
-
 using namespace std;
-
-#if defined(__GNUC__)
-#define CRASH() do { \
-    *(int *)(uintptr_t)0xbbadbeef = 0; \
-    __builtin_trap(); /* More reliable, but doesn't say BBADBEEF. */ \
-} while (false)
-#else
-#define CRASH() do { \
-    *(int *)(uintptr_t)0xbbadbeef = 0; \
-    ((void(*)())0)(); /* More reliable, but doesn't say BBADBEEF */ \
-} while (false)
-#endif
 
 static bool getEntryPointsWasCalled;
 static bool initializeWasCalled;
@@ -75,7 +59,7 @@ NPError STDCALL NP_GetEntryPoints(NPPluginFuncs *pluginFuncs);
 // Entry points
 extern "C"
 NPError STDCALL NP_Initialize(NPNetscapeFuncs *browserFuncs
-#ifdef XP_UNIX
+#if defined(XP_UNIX)
                               , NPPluginFuncs *pluginFuncs
 #endif
                               )
@@ -90,7 +74,7 @@ NPError STDCALL NP_Initialize(NPNetscapeFuncs *browserFuncs
 
     browser = browserFuncs;
 
-#ifdef XP_UNIX
+#if defined(XP_UNIX)
     return NP_GetEntryPoints(pluginFuncs);
 #else
     return NPERR_NO_ERROR;
@@ -157,29 +141,15 @@ NPError NPP_New(NPMIMEType pluginType, NPP instance, uint16_t mode, int16_t argc
     if (browser->getvalue(instance, NPNVsupportsCoreAnimationBool, &supportsCoreAnimation) != NPERR_NO_ERROR)
         supportsCoreAnimation = false;
 
-#ifndef NP_NO_CARBON
-    NPBool supportsCarbon = false;
-#endif
     NPBool supportsCocoa = false;
-
-#ifndef NP_NO_CARBON
-    // A browser that doesn't know about NPNVsupportsCarbonBool is one that only supports Carbon event model.
-    if (browser->getvalue(instance, NPNVsupportsCarbonBool, &supportsCarbon) != NPERR_NO_ERROR)
-        supportsCarbon = true;
-#endif
 
     if (browser->getvalue(instance, NPNVsupportsCocoaBool, &supportsCocoa) != NPERR_NO_ERROR)
         supportsCocoa = false;
 
-    if (supportsCocoa) {
+    if (supportsCocoa)
         eventModel = NPEventModelCocoa;
-#ifndef NP_NO_CARBON
-    } else if (supportsCarbon) {
-        eventModel = NPEventModelCarbon;
-#endif
-    } else {
+    else
         return NPERR_INCOMPATIBLE_VERSION_ERROR;
-    }
 
      browser->setvalue(instance, NPPVpluginEventModel, (void *)eventModel);
 #endif // XP_MACOSX
@@ -264,6 +234,8 @@ NPError NPP_New(NPMIMEType pluginType, NPP instance, uint16_t mode, int16_t argc
 #endif
         } else if (!strcasecmp(argn[i], "src") && strstr(argv[i], "plugin-document-has-focus.pl"))
             obj->testKeyboardFocusForPlugins = TRUE;
+        else if (!strcasecmp(argn[i], "src") && strstr(argv[i], "plugin-document-alert-and-notify-done.pl"))
+            executeScript(obj, "alert('Plugin Loaded!'); testRunner.notifyDone();");
         else if (!strcasecmp(argn[i], "evaluatescript")) {
             char* script = argv[i];
             if (script == strstr(script, "mouse::")) {
@@ -470,115 +442,6 @@ void NPP_Print(NPP instance, NPPrint *platformPrint)
 }
 
 #ifdef XP_MACOSX
-#ifndef NP_NO_CARBON
-static int16_t handleEventCarbon(NPP instance, PluginObject* obj, EventRecord* event)
-{
-    Point pt = { event->where.v, event->where.h };
-
-    switch (event->what) {
-        case nullEvent:
-            // these are delivered non-deterministically, don't log.
-            break;
-        case mouseDown:
-            if (obj->eventLogging) {
-#if __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-                GlobalToLocal(&pt);
-#if __clang__
-#pragma clang diagnostic pop
-#endif
-                pluginLog(instance, "mouseDown at (%d, %d)", pt.h, pt.v);
-            }
-            if (obj->evaluateScriptOnMouseDownOrKeyDown && obj->mouseDownForEvaluateScript)
-                executeScript(obj, obj->evaluateScriptOnMouseDownOrKeyDown);
-            break;
-        case mouseUp:
-            if (obj->eventLogging) {
-#if __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-                GlobalToLocal(&pt);
-#if __clang__
-#pragma clang diagnostic pop
-#endif
-                pluginLog(instance, "mouseUp at (%d, %d)", pt.h, pt.v);
-            }
-            break;
-        case keyDown:
-            if (obj->eventLogging)
-                pluginLog(instance, "keyDown '%c'", (char)(event->message & 0xFF));
-            if (obj->evaluateScriptOnMouseDownOrKeyDown && !obj->mouseDownForEvaluateScript)
-                executeScript(obj, obj->evaluateScriptOnMouseDownOrKeyDown);
-            break;
-        case keyUp:
-            if (obj->eventLogging)
-                pluginLog(instance, "keyUp '%c'", (char)(event->message & 0xFF));
-            if (obj->testKeyboardFocusForPlugins) {
-                obj->eventLogging = false;
-                obj->testKeyboardFocusForPlugins = FALSE;
-                executeScript(obj, "testRunner.notifyDone();");
-            }
-            break;
-        case autoKey:
-            if (obj->eventLogging)
-                pluginLog(instance, "autoKey '%c'", (char)(event->message & 0xFF));
-            break;
-        case updateEvt:
-            if (obj->eventLogging)
-                pluginLog(instance, "updateEvt");
-            break;
-        case diskEvt:
-            if (obj->eventLogging)
-                pluginLog(instance, "diskEvt");
-            break;
-        case activateEvt:
-            if (obj->eventLogging)
-                pluginLog(instance, "activateEvt");
-            break;
-        case osEvt:
-            if (!obj->eventLogging)
-                break;
-            printf("PLUGIN: osEvt - ");
-            switch ((event->message & 0xFF000000) >> 24) {
-                case suspendResumeMessage:
-                    printf("%s\n", (event->message & 0x1) ? "resume" : "suspend");
-                    break;
-                case mouseMovedMessage:
-                    printf("mouseMoved\n");
-                    break;
-                default:
-                    printf("%08lX\n", event->message);
-            }
-            break;
-        case kHighLevelEvent:
-            if (obj->eventLogging)
-                pluginLog(instance, "kHighLevelEvent");
-            break;
-        // NPAPI events
-        case NPEventType_GetFocusEvent:
-            if (obj->eventLogging)
-                pluginLog(instance, "getFocusEvent");
-            break;
-        case NPEventType_LoseFocusEvent:
-            if (obj->eventLogging)
-                pluginLog(instance, "loseFocusEvent");
-            break;
-        case NPEventType_AdjustCursorEvent:
-            if (obj->eventLogging)
-                pluginLog(instance, "adjustCursorEvent");
-            break;
-        default:
-            if (obj->eventLogging)
-                pluginLog(instance, "event %d", event->what);
-    }
-    
-    return 0;
-}
-#endif
-
 static int16_t handleEventCocoa(NPP instance, PluginObject* obj, NPCocoaEvent* event)
 {
     switch (event->type) {
@@ -651,8 +514,7 @@ static int16_t handleEventCocoa(NPP instance, PluginObject* obj, NPCocoaEvent* e
 
 #endif // XP_MACOSX
 
-#ifdef XP_UNIX
-
+#if defined(MOZ_X11)
 static char keyEventToChar(XKeyEvent* event)
 {
     char c = ' ';
@@ -717,7 +579,7 @@ static int16_t handleEventX11(NPP instance, PluginObject* obj, XEvent* event)
     fflush(stdout);
     return 0;
 }
-#endif // XP_UNIX
+#endif // MOZ_X11
 
 #ifdef XP_WIN
 static int16_t handleEventWin(NPP instance, PluginObject* obj, NPEvent* event)
@@ -779,14 +641,9 @@ int16_t NPP_HandleEvent(NPP instance, void *event)
         return 1;
 
 #ifdef XP_MACOSX
-#ifndef NP_NO_CARBON
-    if (obj->eventModel == NPEventModelCarbon)
-        return handleEventCarbon(instance, obj, static_cast<EventRecord*>(event));
-#endif
-
     assert(obj->eventModel == NPEventModelCocoa);
     return handleEventCocoa(instance, obj, static_cast<NPCocoaEvent*>(event));
-#elif defined(XP_UNIX)
+#elif defined(MOZ_X11)
     return handleEventX11(instance, obj, static_cast<XEvent*>(event));
 #elif defined(XP_WIN)
     return handleEventWin(instance, obj, static_cast<NPEvent*>(event));
@@ -816,7 +673,7 @@ void NPP_URLRedirectNotify(NPP instance, const char *url, int32_t status, void *
 
 NPError NPP_GetValue(NPP instance, NPPVariable variable, void *value)
 {
-#ifdef XP_UNIX
+#if defined(XP_UNIX)
     if (variable == NPPVpluginNameString) {
         *((char **)value) = const_cast<char*>("WebKit Test PlugIn");
         return NPERR_NO_ERROR;
@@ -825,6 +682,9 @@ NPError NPP_GetValue(NPP instance, NPPVariable variable, void *value)
         *((char **)value) = const_cast<char*>("Simple Netscape® plug-in that handles test content for WebKit");
         return NPERR_NO_ERROR;
     }
+#endif
+
+#if defined(MOZ_X11)
     if (variable == NPPVpluginNeedsXEmbed) {
         *((NPBool *)value) = TRUE;
         return NPERR_NO_ERROR;
@@ -867,7 +727,7 @@ NPError NPP_SetValue(NPP instance, NPNVariable variable, void *value)
     return obj->pluginTest->NPP_SetValue(variable, value);
 }
 
-#ifdef XP_UNIX
+#if defined(XP_UNIX)
 extern "C"
 const char* NP_GetMIMEDescription(void)
 {

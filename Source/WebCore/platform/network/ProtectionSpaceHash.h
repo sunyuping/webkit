@@ -37,8 +37,8 @@ struct ProtectionSpaceHash {
         unsigned hashCodes[5] = {
             protectionSpace.host().impl() ? protectionSpace.host().impl()->hash() : 0, 
             static_cast<unsigned>(protectionSpace.port()),
-            protectionSpace.serverType(),
-            protectionSpace.authenticationScheme(),
+            static_cast<unsigned>(protectionSpace.serverType()),
+            static_cast<unsigned>(protectionSpace.authenticationScheme()),
             protectionSpace.realm().impl() ? protectionSpace.realm().impl()->hash() : 0
         };
 
@@ -59,9 +59,8 @@ namespace WTF {
 
     template<> struct HashTraits<WebCore::ProtectionSpace> : SimpleClassHashTraits<WebCore::ProtectionSpace> { };
 
-    template<typename T> struct DefaultHash;
     template<> struct DefaultHash<WebCore::ProtectionSpace> {
-        typedef WebCore::ProtectionSpaceHash Hash;
+        using Hash = WebCore::ProtectionSpaceHash;
     };
 
 } // namespace WTF

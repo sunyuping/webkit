@@ -31,17 +31,23 @@
 
 #include "EditingDelegate.h"
 #include "FrameLoadDelegate.h"
+#include "GCController.h"
 #include "HistoryDelegate.h"
 #include "JavaScriptThreading.h"
 #include "PixelDumpSupport.h"
 #include "PolicyDelegate.h"
 #include "ResourceLoadDelegate.h"
+#include "TestOptions.h"
 #include "TestRunner.h"
 #include "UIDelegate.h"
 #include "WebCoreTestSupport.h"
 #include "WorkQueueItem.h"
 #include "WorkQueue.h"
 
+#include <CoreFoundation/CoreFoundation.h>
+#include <JavaScriptCore/TestRunnerUtils.h>
+#include <WebKitLegacy/WebKit.h>
+#include <WebKitLegacy/WebKitCOMAPI.h>
 #include <comutil.h>
 #include <cstdio>
 #include <cstring>
@@ -49,19 +55,20 @@
 #include <fstream>
 #include <io.h>
 #include <math.h>
+#include <shlobj.h>
 #include <shlwapi.h>
 #include <tchar.h>
+#include <windows.h>
+#include <wtf/FileSystem.h>
+#include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Vector.h>
 #include <wtf/text/CString.h>
-#include <windows.h>
-#include <CoreFoundation/CoreFoundation.h>
-#include <WebCore/FileSystem.h>
-#include <WebKit/WebKit.h>
-#include <WebKit/WebKitCOMAPI.h>
+#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/StringHash.h>
 
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
 #include <CFNetwork/CFHTTPCookiesPriv.h>
 #include <CFNetwork/CFURLCachePriv.h>
 #endif
@@ -92,7 +99,9 @@ static bool useTimeoutWatchdog = true;
 static bool forceComplexText = false;
 static bool dumpAllPixels;
 static bool useAcceleratedDrawing = true; // Not used
-static bool gcBetweenTests = false;
+// FIXME: gcBetweenTests should initially be false, but we currently set it to true, to make sure
+// deallocations are not performed in one of the following tests which might cause flakiness.
+static bool gcBetweenTests = true; 
 static bool printSeparators = false;
 static bool leakChecking = false;
 static bool printSupportedFeatures = false;
@@ -214,7 +223,7 @@ static String libraryPathForDumpRenderTree()
         return String (path.data(), path.length());
     }
 
-    return WebCore::localUserSpecificStorageDirectory();
+    return FileSystem::localUserSpecificStorageDirectory();
 }
 #endif
 
@@ -404,9 +413,9 @@ void dumpFrameScrollPosition(IWebFrame* frame)
             _bstr_t name;
             if (FAILED(frame->name(&name.GetBSTR())))
                 return;
-            printf("frame '%S' ", static_cast<wchar_t*>(name));
+            fprintf(testResult, "frame '%S' ", static_cast<wchar_t*>(name));
         }
-        printf("scrolled to %.f,%.f\n", (double)scrollPosition.cx, (double)scrollPosition.cy);
+        fprintf(testResult, "scrolled to %.f,%.f\n", (double)scrollPosition.cx, (double)scrollPosition.cy);
     }
 
     if (::gTestRunner->dumpChildFrameScrollPositions()) {
@@ -505,19 +514,19 @@ static void dumpHistoryItem(IWebHistoryItem* item, int indent, bool current)
 
     int start = 0;
     if (current) {
-        printf("curr->");
+        fprintf(testResult, "curr->");
         start = 6;
     }
     for (int i = start; i < indent; i++)
-        putchar(' ');
+        fputc(' ', testResult);
 
     _bstr_t url;
     if (FAILED(item->URLString(&url.GetBSTR())))
         return;
 
     if (wcsstr(static_cast<wchar_t*>(url), L"file:/") == static_cast<wchar_t*>(url)) {
-        static wchar_t* layoutTestsStringUnixPath = L"/LayoutTests/";
-        static wchar_t* layoutTestsStringDOSPath = L"\\LayoutTests\\";
+        auto layoutTestsStringUnixPath = L"/LayoutTests/";
+        auto layoutTestsStringDOSPath = L"\\LayoutTests\\";
         
         wchar_t* result = wcsstr(static_cast<wchar_t*>(url), layoutTestsStringUnixPath);
         if (!result)
@@ -530,7 +539,7 @@ static void dumpHistoryItem(IWebHistoryItem* item, int indent, bool current)
         url = _bstr_t(L"(file test):") + _bstr_t(start);
     }
 
-    printf("%S", static_cast<wchar_t*>(url));
+    fprintf(testResult, "%S", static_cast<wchar_t*>(url));
 
     COMPtr<IWebHistoryItemPrivate> itemPrivate;
     if (FAILED(item->QueryInterface(&itemPrivate)))
@@ -540,13 +549,13 @@ static void dumpHistoryItem(IWebHistoryItem* item, int indent, bool current)
     if (FAILED(itemPrivate->target(&target.GetBSTR())))
         return;
     if (target.length())
-        printf(" (in frame \"%S\")", static_cast<wchar_t*>(target));
+        fprintf(testResult, " (in frame \"%S\")", static_cast<wchar_t*>(target));
     BOOL isTargetItem = FALSE;
     if (FAILED(itemPrivate->isTargetItem(&isTargetItem)))
         return;
     if (isTargetItem)
-        printf("  **nav target**");
-    putchar('\n');
+        fprintf(testResult, "  **nav target**");
+    fputc('\n', testResult);
 
     unsigned kidsCount;
     SAFEARRAY* arrPtr;
@@ -594,7 +603,7 @@ static void dumpBackForwardList(IWebView* webView)
 {
     ASSERT(webView);
 
-    printf("\n============== Back Forward List ==============\n");
+    fprintf(testResult, "\n============== Back Forward List ==============\n");
 
     COMPtr<IWebBackForwardList> bfList;
     if (FAILED(webView->backForwardList(&bfList)))
@@ -651,7 +660,7 @@ static void dumpBackForwardList(IWebView* webView)
         dumpHistoryItem(historyItemToPrint.get(), 8, i == currentItemIndex);
     }
 
-    printf("===============================================\n");
+    fprintf(testResult, "===============================================\n");
 }
 
 static void dumpBackForwardListForAllWindows()
@@ -675,6 +684,11 @@ static void invalidateAnyPreviousWaitToDumpWatchdog()
 
 void dump()
 {
+    if (done) {
+        fprintf(stderr, "dump() has already been called!\n");
+        return;
+    }
+
     ::InvalidateRect(webViewWindow, 0, TRUE);
     ::SendMessage(webViewWindow, WM_PAINT, 0, 0);
 
@@ -710,7 +724,7 @@ void dump()
             int bufferSize = ::WideCharToMultiByte(CP_UTF8, 0, resultString, stringLength, 0, 0, 0, 0);
             char* buffer = (char*)malloc(bufferSize + 1);
             ::WideCharToMultiByte(CP_UTF8, 0, resultString, stringLength, buffer, bufferSize + 1, 0, 0);
-            fwrite(buffer, 1, bufferSize, stdout);
+            fwrite(buffer, 1, bufferSize, testResult);
             free(buffer);
 
             if (!::gTestRunner->dumpAsText() && !::gTestRunner->dumpDOMAsWebArchive() && !::gTestRunner->dumpSourceAsWebArchive() && !::gTestRunner->dumpAsAudio())
@@ -719,10 +733,10 @@ void dump()
             if (::gTestRunner->dumpBackForwardList())
                 dumpBackForwardListForAllWindows();
         } else
-            printf("ERROR: nil result from %s", ::gTestRunner->dumpAsText() ? "IDOMElement::innerText" : "IFrameViewPrivate::renderTreeAsExternalRepresentation");
+            fprintf(testResult, "ERROR: nil result from %s\n", ::gTestRunner->dumpAsText() ? "IDOMElement::innerText" : "IFrameViewPrivate::renderTreeAsExternalRepresentation");
 
         if (printSeparators)
-            puts("#EOF"); // terminate the content block
+            fputs("#EOF\n", testResult); // terminate the content block
     }
 
     if (dumpPixelsForCurrentTest && ::gTestRunner->generatePixelResults()) {
@@ -730,12 +744,11 @@ void dump()
         dumpWebViewAsPixelsAndCompareWithExpected(gTestRunner->expectedPixelHash());
     }
 
-    puts("#EOF");   // terminate the (possibly empty) pixels block
-    fflush(stdout);
+    fputs("#EOF\n", testResult); // terminate the (possibly empty) pixels block
+    fflush(testResult);
 
 fail:
     // This will exit from our message loop.
-    ::PostQuitMessage(0);
     done = true;
 }
 
@@ -759,13 +772,37 @@ static bool shouldEnableDeveloperExtras(const char* pathOrURL)
     return true;
 }
 
+static void enableExperimentalFeatures(IWebPreferences* preferences)
+{
+    COMPtr<IWebPreferencesPrivate7> prefsPrivate { Query, preferences };
+
+    prefsPrivate->setFetchAPIKeepAliveEnabled(TRUE);
+    // FIXME: CSSGridLayout
+    // FIXME: SpringTimingFunction
+    // FIXME: Gamepads
+    prefsPrivate->setLinkPreloadEnabled(TRUE);
+    prefsPrivate->setMediaPreloadingEnabled(TRUE);
+    // FIXME: ModernMediaControls
+    // FIXME: InputEvents
+    // FIXME: SubtleCrypto
+    prefsPrivate->setVisualViewportAPIEnabled(TRUE);
+    prefsPrivate->setCSSOMViewScrollingAPIEnabled(TRUE);
+    prefsPrivate->setResizeObserverEnabled(TRUE);
+    prefsPrivate->setWebAnimationsEnabled(TRUE);
+    prefsPrivate->setServerTimingEnabled(TRUE);
+    // FIXME: WebGL2
+    // FIXME: WebRTC
+}
+
 static void resetWebPreferencesToConsistentValues(IWebPreferences* preferences)
 {
     ASSERT(preferences);
 
+    enableExperimentalFeatures(preferences);
+
     preferences->setAutosaves(FALSE);
 
-    COMPtr<IWebPreferencesPrivate> prefsPrivate(Query, preferences);
+    COMPtr<IWebPreferencesPrivate6> prefsPrivate(Query, preferences);
     ASSERT(prefsPrivate);
     prefsPrivate->setFullScreenEnabled(TRUE);
 
@@ -797,7 +834,7 @@ static void resetWebPreferencesToConsistentValues(IWebPreferences* preferences)
     preferences->setDefaultFontSize(16);
     preferences->setDefaultFixedFontSize(13);
     preferences->setMinimumFontSize(0);
-    preferences->setDefaultTextEncodingName(L"ISO-8859-1");
+    preferences->setDefaultTextEncodingName(_bstr_t(L"ISO-8859-1"));
     preferences->setJavaEnabled(FALSE);
     preferences->setJavaScriptEnabled(TRUE);
     preferences->setEditableLinkBehavior(WebKitEditableLinkOnlyLiveWithShiftKey);
@@ -818,14 +855,12 @@ static void resetWebPreferencesToConsistentValues(IWebPreferences* preferences)
     prefsPrivate->setJavaScriptCanAccessClipboard(TRUE);
     prefsPrivate->setOfflineWebApplicationCacheEnabled(TRUE);
     prefsPrivate->setDeveloperExtrasEnabled(FALSE);
-    COMPtr<IWebPreferencesPrivate2> prefsPrivate2(Query, preferences);
-    if (prefsPrivate2)
-        prefsPrivate2->setJavaScriptRuntimeFlags(WebKitJavaScriptRuntimeFlagsAllEnabled);
+    prefsPrivate->setJavaScriptRuntimeFlags(WebKitJavaScriptRuntimeFlagsAllEnabled);
     // Set JS experiments enabled: YES
     preferences->setLoadsImagesAutomatically(TRUE);
     prefsPrivate->setLoadsSiteIconsIgnoringImageLoadingPreference(FALSE);
     prefsPrivate->setFrameFlatteningEnabled(FALSE);
-    // Set spatial navigation enabled: NO
+    prefsPrivate->setSpatialNavigationEnabled(FALSE);
     if (persistentUserStyleSheetLocation) {
         size_t stringLength = CFStringGetLength(persistentUserStyleSheetLocation.get());
         Vector<UniChar> urlCharacters(stringLength + 1, 0);
@@ -847,23 +882,63 @@ static void resetWebPreferencesToConsistentValues(IWebPreferences* preferences)
 
     preferences->setFontSmoothing(FontSmoothingTypeStandard);
 
+    prefsPrivate->setFetchAPIEnabled(TRUE);
+    prefsPrivate->setShadowDOMEnabled(TRUE);
+    prefsPrivate->setCustomElementsEnabled(TRUE);
+    prefsPrivate->setResourceTimingEnabled(TRUE);
+    prefsPrivate->setUserTimingEnabled(TRUE);
+    prefsPrivate->setDataTransferItemsEnabled(TRUE);
+    prefsPrivate->clearNetworkLoaderSession();
+
     setAlwaysAcceptCookies(false);
+}
+
+static void setWebPreferencesForTestOptions(IWebPreferences* preferences, const TestOptions& options)
+{
+    COMPtr<IWebPreferencesPrivate6> prefsPrivate { Query, preferences };
+
+    prefsPrivate->setWebAnimationsCSSIntegrationEnabled(options.enableWebAnimationsCSSIntegration);
+    prefsPrivate->setMenuItemElementEnabled(options.enableMenuItemElement);
+    prefsPrivate->setModernMediaControlsEnabled(options.enableModernMediaControls);
+    prefsPrivate->setIsSecureContextAttributeEnabled(options.enableIsSecureContextAttribute);
+    prefsPrivate->setInspectorAdditionsEnabled(options.enableInspectorAdditions);
+}
+
+static String applicationId()
+{
+    return makeString("com.apple.DumpRenderTree.", ::GetCurrentProcessId());
+}
+
+static void setApplicationId()
+{
+    COMPtr<IWebPreferences> preferences;
+    if (SUCCEEDED(WebKitCreateInstance(CLSID_WebPreferences, 0, IID_IWebPreferences, (void**)&preferences))) {
+        COMPtr<IWebPreferencesPrivate4> prefsPrivate4(Query, preferences);
+        ASSERT(prefsPrivate4);
+        _bstr_t fileName = applicationId().wideCharacters().data();
+        prefsPrivate4->setApplicationId(fileName);
+    }
 }
 
 // Called once on DumpRenderTree startup.
 static void setDefaultsToConsistentValuesForTesting()
 {
 #if USE(CF)
+    // Create separate preferences for each DRT instance
+    setApplicationId();
+
+    RetainPtr<CFStringRef> appId = applicationId().createCFString();
+
     String libraryPath = libraryPathForDumpRenderTree();
 
     // Set up these values before creating the WebView so that the various initializations will see these preferred values.
-    CFPreferencesSetAppValue(WebDatabaseDirectoryDefaultsKey, WebCore::pathByAppendingComponent(libraryPath, "Databases").createCFString().get(), kCFPreferencesCurrentApplication);
-    CFPreferencesSetAppValue(WebStorageDirectoryDefaultsKey, WebCore::pathByAppendingComponent(libraryPath, "LocalStorage").createCFString().get(), kCFPreferencesCurrentApplication);
-    CFPreferencesSetAppValue(WebKitLocalCacheDefaultsKey, WebCore::pathByAppendingComponent(libraryPath, "LocalCache").createCFString().get(), kCFPreferencesCurrentApplication);
+    CFPreferencesSetAppValue(WebDatabaseDirectoryDefaultsKey, FileSystem::pathByAppendingComponent(libraryPath, "Databases").createCFString().get(), appId.get());
+    CFPreferencesSetAppValue(WebStorageDirectoryDefaultsKey, FileSystem::pathByAppendingComponent(libraryPath, "LocalStorage").createCFString().get(), appId.get());
+    CFPreferencesSetAppValue(WebKitLocalCacheDefaultsKey, FileSystem::pathByAppendingComponent(libraryPath, "LocalCache").createCFString().get(), appId.get());
 #endif
 }
 
-static void resetWebViewToConsistentStateBeforeTesting()
+static void resetWebViewToConsistentStateBeforeTesting(const TestOptions& options)
 {
     COMPtr<IWebView> webView;
     if (FAILED(frame->webView(&webView))) 
@@ -889,8 +964,12 @@ static void resetWebViewToConsistentStateBeforeTesting()
     }
 
     COMPtr<IWebViewPrivate2> webViewPrivate(Query, webView);
-    if (webViewPrivate)
+    if (webViewPrivate) {
+        POINT origin = { 0, 0 };
+        webViewPrivate->scaleWebView(1.0, origin);
+        webViewPrivate->setCustomBackingScaleFactor(0);
         webViewPrivate->setTabKeyCyclesThroughElements(TRUE);
+    }
 
     webView->setPolicyDelegate(nullptr);
     policyDelegate->setPermissive(false);
@@ -905,8 +984,10 @@ static void resetWebViewToConsistentStateBeforeTesting()
     }
 
     COMPtr<IWebPreferences> preferences;
-    if (SUCCEEDED(webView->preferences(&preferences)))
+    if (SUCCEEDED(webView->preferences(&preferences))) {
         resetWebPreferencesToConsistentValues(preferences.get());
+        setWebPreferencesForTestOptions(preferences.get(), options);
+    }
 
     TestRunner::setSerializeHTTPLoads(false);
 
@@ -938,6 +1019,9 @@ static void resetWebViewToConsistentStateBeforeTesting()
     COMPtr<IWebFramePrivate> framePrivate;
     if (SUCCEEDED(frame->QueryInterface(&framePrivate)))
         framePrivate->clearOpener();
+
+    COMPtr<IWebViewPrivate5> webViewPrivate5(Query, webView);
+    webViewPrivate5->exitFullscreenIfNeeded();
 }
 
 static void sizeWebViewForCurrentTest()
@@ -952,10 +1036,10 @@ static void sizeWebViewForCurrentTest()
 
 static String findFontFallback(const char* pathOrUrl)
 {
-    String pathToFontFallback = WebCore::directoryName(pathOrUrl);
+    String pathToFontFallback = FileSystem::directoryName(pathOrUrl);
 
     wchar_t fullPath[_MAX_PATH];
-    if (!_wfullpath(fullPath, pathToFontFallback.charactersWithNullTermination().data(), _MAX_PATH))
+    if (!_wfullpath(fullPath, pathToFontFallback.wideCharacters().data(), _MAX_PATH))
         return emptyString();
 
     if (!::PathIsDirectoryW(fullPath))
@@ -971,22 +1055,22 @@ static String findFontFallback(const char* pathOrUrl)
         return emptyString();
 
     String pathToTest = pathToCheck.substring(location + layoutTests.length() + 1);
-    String possiblePathToLogue = WebCore::pathByAppendingComponent(pathToCheck.substring(0, location + layoutTests.length() + 1), "platform\\win");
+    String possiblePathToLogue = FileSystem::pathByAppendingComponent(pathToCheck.substring(0, location + layoutTests.length() + 1), "platform\\win");
 
     Vector<String> possiblePaths;
-    possiblePaths.append(WebCore::pathByAppendingComponent(possiblePathToLogue, pathToTest));
+    possiblePaths.append(FileSystem::pathByAppendingComponent(possiblePathToLogue, pathToTest));
 
     size_t nextCandidateEnd = pathToTest.reverseFind('\\');
     while (nextCandidateEnd && nextCandidateEnd != WTF::notFound) {
         pathToTest = pathToTest.substring(0, nextCandidateEnd);
-        possiblePaths.append(WebCore::pathByAppendingComponent(possiblePathToLogue, pathToTest));
+        possiblePaths.append(FileSystem::pathByAppendingComponent(possiblePathToLogue, pathToTest));
         nextCandidateEnd = pathToTest.reverseFind('\\');
     }
 
     for (Vector<String>::iterator pos = possiblePaths.begin(); pos != possiblePaths.end(); ++pos) {
-        pathToFontFallback = WebCore::pathByAppendingComponent(*pos, "resources\\"); 
+        pathToFontFallback = FileSystem::pathByAppendingComponent(*pos, "resources\\");
 
-        if (::PathIsDirectoryW(pathToFontFallback.charactersWithNullTermination().data()))
+        if (::PathIsDirectoryW(pathToFontFallback.wideCharacters().data()))
             return pathToFontFallback;
     }
 
@@ -998,9 +1082,9 @@ static void addFontFallbackIfPresent(const String& fontFallbackPath)
     if (fontFallbackPath.isEmpty())
         return;
 
-    String fontFallback = WebCore::pathByAppendingComponent(fontFallbackPath, "Mac-compatible-font-fallback.css");
+    String fontFallback = FileSystem::pathByAppendingComponent(fontFallbackPath, "Mac-compatible-font-fallback.css");
 
-    if (!::PathFileExistsW(fontFallback.charactersWithNullTermination().data()))
+    if (!::PathFileExistsW(fontFallback.wideCharacters().data()))
         return;
 
     ::setPersistentUserStyleSheetLocation(fontFallback.createCFString().get());
@@ -1011,14 +1095,30 @@ static void removeFontFallbackIfPresent(const String& fontFallbackPath)
     if (fontFallbackPath.isEmpty())
         return;
 
-    String fontFallback = WebCore::pathByAppendingComponent(fontFallbackPath, "Mac-compatible-font-fallback.css");
+    String fontFallback = FileSystem::pathByAppendingComponent(fontFallbackPath, "Mac-compatible-font-fallback.css");
 
-    if (!::PathFileExistsW(fontFallback.charactersWithNullTermination().data()))
+    if (!::PathFileExistsW(fontFallback.wideCharacters().data()))
         return;
 
     ::setPersistentUserStyleSheetLocation(nullptr);
 }
 
+static bool handleControlCommand(const char* command)
+{
+    if (!strcmp("#CHECK FOR ABANDONED DOCUMENTS", command)) {
+        // DumpRenderTree does not support checking for abandonded documents.
+        String result("\n");
+        printf("Content-Type: text/plain\n");
+        printf("Content-Length: %u\n", result.length());
+        fwrite(result.utf8().data(), 1, result.length(), stdout);
+        printf("#EOF\n");
+        fprintf(stderr, "#EOF\n");
+        fflush(stdout);
+        fflush(stderr);
+        return true;
+    }
+    return false;
+}
 
 static void runTest(const string& inputLine)
 {
@@ -1048,6 +1148,8 @@ static void runTest(const string& inputLine)
         return;
     }
 
+    String hostName = String(adoptCF(CFURLCopyHostName(url)).get());
+
     String fallbackPath = findFontFallback(pathOrURL.c_str());
 
     str = CFURLGetString(url);
@@ -1066,10 +1168,14 @@ static void runTest(const string& inputLine)
 
     CFRelease(url);
 
-    resetWebViewToConsistentStateBeforeTesting();
+    TestOptions options { command.pathOrURL, command.absolutePath };
+
+    resetWebViewToConsistentStateBeforeTesting(options);
 
     ::gTestRunner = TestRunner::create(testURL.data(), command.expectedPixelHash);
     ::gTestRunner->setCustomTimeout(command.timeout);
+    ::gTestRunner->setDumpJSConsoleLogInStdErr(command.dumpJSConsoleLogInStdErr || options.dumpJSConsoleLogInStdErr);
+
     topLoadingFrame = nullptr;
     done = false;
 
@@ -1111,11 +1217,11 @@ static void runTest(const string& inputLine)
     if (webView && SUCCEEDED(webView->backForwardList(&bfList)))
         bfList->currentItem(&prevTestBFItem);
 
-    auto& workQueue = WorkQueue::singleton();
+    auto& workQueue = DRT::WorkQueue::singleton();
     workQueue.clear();
     workQueue.setFrozen(false);
 
-    MSG msg = { 0 };
+    MSG msg { };
     HWND hostWindow;
     webView->hostWindow(&hostWindow);
 
@@ -1126,9 +1232,11 @@ static void runTest(const string& inputLine)
 
     request->initWithURL(urlBStr, WebURLRequestUseProtocolCachePolicy, 60);
     request->setHTTPMethod(methodBStr);
+    if (hostName == "localhost" || hostName == "127.0.0.1")
+        request->setAllowsAnyHTTPSCertificate();
     frame->loadRequest(request.get());
 
-    while (true) {
+    while (!done) {
 #if USE(CF)
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
 #endif
@@ -1168,7 +1276,7 @@ static void runTest(const string& inputLine)
         }
     }
 
-    resetWebViewToConsistentStateBeforeTesting();
+    resetWebViewToConsistentStateBeforeTesting(options);
 
     // Loading an empty request synchronously replaces the document with a blank one, which is necessary
     // to stop timers, WebSockets and other activity that could otherwise spill output into next test's results.
@@ -1176,10 +1284,8 @@ static void runTest(const string& inputLine)
         _bstr_t emptyURL(L"");
         emptyRequest->initWithURL(emptyURL.GetBSTR(), WebURLRequestUseProtocolCachePolicy, 60);
         emptyRequest->setHTTPMethod(methodBStr);
-        frame->loadRequest(request.get());
+        frame->loadRequest(emptyRequest.get());
     }
-
-    frame->stopLoading();
 
     // We should only have our main window left open when we're done
     ASSERT(openWindows().size() == 1);
@@ -1187,7 +1293,14 @@ static void runTest(const string& inputLine)
 
 exit:
     removeFontFallbackIfPresent(fallbackPath);
+    ::gTestRunner->cleanup();
     ::gTestRunner = nullptr;
+
+    if (gcBetweenTests) {
+        GCController gcController;
+        gcController.collect();
+    }
+    JSC::waitForVMDestruction();
 
     fputs("#EOF\n", stderr);
     fflush(stderr);
@@ -1215,7 +1328,7 @@ IWebView* createWebViewAndOffscreenWindow(HWND* webViewWindow)
     IWebView* webView = nullptr;
     HRESULT hr = WebKitCreateInstance(CLSID_WebView, 0, IID_IWebView, (void**)&webView);
     if (FAILED(hr)) {
-        fprintf(stderr, "Failed to create CLSID_WebView instance, error 0x%x\n", hr);
+        fprintf(stderr, "Failed to create CLSID_WebView instance, error 0x%lx\n", hr);
         return nullptr;
     }
 
@@ -1275,7 +1388,7 @@ IWebView* createWebViewAndOffscreenWindow(HWND* webViewWindow)
     return webView;
 }
 
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
 RetainPtr<CFURLCacheRef> sharedCFURLCache()
 {
 #ifndef DEBUG_ALL
@@ -1382,6 +1495,14 @@ static void prepareConsistentTestingEnvironment(IWebPreferences* standardPrefere
     ASSERT(standardPreferencesPrivate);
     standardPreferences->setAutosaves(FALSE);
 
+#if USE(CFURLCONNECTION)
+    auto newCache = adoptCF(CFURLCacheCreate(kCFAllocatorDefault, 1024 * 1024, 0, nullptr));
+    CFURLCacheSetSharedURLCache(newCache.get());
+#endif
+
+    COMPtr<IWebPreferencesPrivate4> prefsPrivate4(Query, standardPreferences);
+    prefsPrivate4->switchNetworkLoaderToNewTestingSession();
+
     standardPreferences->setJavaScriptEnabled(TRUE);
     standardPreferences->setDefaultFontSize(16);
 #if USE(CG)
@@ -1394,15 +1515,6 @@ static void prepareConsistentTestingEnvironment(IWebPreferences* standardPrefere
 
 int main(int argc, const char* argv[])
 {
-#if defined(_M_X64) || defined(__x86_64__)
-    // The VS2013 runtime has a bug where it mis-detects AVX-capable processors
-    // if the feature has been disabled in firmware. This causes us to crash
-    // in some of the math functions. For now, we disable those optimizations
-    // because Microsoft is not going to fix the problem in VS2013.
-    // FIXME: http://webkit.org/b/141449: Remove this workaround when we switch to VS2015+.
-    _set_FMA3_enable(0);
-#endif
-
     // Cygwin calls ::SetErrorMode(SEM_FAILCRITICALERRORS), which we will inherit. This is bad for
     // testing/debugging, as it causes the post-mortem debugger not to be invoked. We reset the
     // error mode here to work around Cygwin's behavior. See <http://webkit.org/b/55222>.
@@ -1412,6 +1524,38 @@ int main(int argc, const char* argv[])
 
     _setmode(1, _O_BINARY);
     _setmode(2, _O_BINARY);
+
+    // Some tests are flaky because certain DLLs are writing to stdout, giving incorrect test results.
+    // We work around that here by duplicating and redirecting stdout.
+    int fdStdout = _dup(1);
+    _setmode(fdStdout, _O_BINARY);
+    testResult = fdopen(fdStdout, "a+b");
+    // Redirect stdout to stderr.
+    int result = _dup2(_fileno(stderr), 1);
+    if (result)
+        return -5;
+
+    // Tests involving the clipboard are flaky when running with multiple DRTs, since the clipboard is global.
+    // We can fix this by assigning each DRT a separate window station (each window station has its own clipboard).
+    DWORD processId = ::GetCurrentProcessId();
+    String windowStationName = makeString("windowStation", processId);
+    String desktopName = makeString("desktop", processId);
+    HDESK desktop = nullptr;
+
+    auto windowsStation = ::CreateWindowStation(windowStationName.wideCharacters().data(), CWF_CREATE_ONLY, WINSTA_ALL_ACCESS, nullptr);
+    if (windowsStation) {
+        if (!::SetProcessWindowStation(windowsStation))
+            fprintf(stderr, "SetProcessWindowStation failed with error %lu\n", ::GetLastError());
+
+        desktop = ::CreateDesktop(desktopName.wideCharacters().data(), nullptr, nullptr, 0, GENERIC_ALL, nullptr);
+        if (!desktop)
+            fprintf(stderr, "Failed to create desktop with error %lu\n", ::GetLastError());
+    } else {
+        DWORD error = ::GetLastError();
+        fprintf(stderr, "Failed to create window station with error %lu\n", error);
+        if (error == ERROR_ACCESS_DENIED)
+            fprintf(stderr, "DumpRenderTree should be run as Administrator!\n");
+    }
 
     initialize();
 
@@ -1445,7 +1589,7 @@ int main(int argc, const char* argv[])
         BOOL threeDTransformsAvailable = FALSE;
 #endif
 
-        printf("SupportedFeatures:%s %s\n", acceleratedCompositingAvailable ? "AcceleratedCompositing" : "", threeDTransformsAvailable ? "3DTransforms" : "");
+        fprintf(testResult, "SupportedFeatures:%s %s\n", acceleratedCompositingAvailable ? "AcceleratedCompositing" : "", threeDTransformsAvailable ? "3DTransforms" : "");
         return 0;
     }
 
@@ -1453,16 +1597,10 @@ int main(int argc, const char* argv[])
     if (!webView)
         return -4;
 
-    COMPtr<IWebIconDatabase> iconDatabase;
-    COMPtr<IWebIconDatabase> tmpIconDatabase;
-    if (FAILED(WebKitCreateInstance(CLSID_WebIconDatabase, 0, IID_IWebIconDatabase, (void**)&tmpIconDatabase)))
-        return -5;
-    if (FAILED(tmpIconDatabase->sharedIconDatabase(&iconDatabase)))
-        return -6;
     if (FAILED(webView->mainFrame(&frame)))
         return -7;
 
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
     RetainPtr<CFURLCacheRef> urlCache = sharedCFURLCache();
     CFURLCacheRemoveAllCachedResponses(urlCache.get());
 #endif
@@ -1485,6 +1623,9 @@ int main(int argc, const char* argv[])
                 *newLineCharacter = '\0';
             
             if (strlen(filenameBuffer) == 0)
+                continue;
+
+            if (handleControlCommand(filenameBuffer))
                 continue;
 
             runTest(filenameBuffer);
@@ -1514,6 +1655,11 @@ int main(int argc, const char* argv[])
 #ifdef _CRTDBG_MAP_ALLOC
     _CrtDumpMemoryLeaks();
 #endif
+
+    if (desktop)
+        ::CloseDesktop(desktop);
+    if (windowsStation)
+        ::CloseWindowStation(windowsStation);
 
     ::OleUninitialize();
 

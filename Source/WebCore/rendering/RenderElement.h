@@ -20,43 +20,45 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef RenderElement_h
-#define RenderElement_h
+#pragma once
 
-#include "AnimationController.h"
+#include "LengthFunctions.h"
 #include "RenderObject.h"
-#include "StyleInheritedData.h"
 
 namespace WebCore {
 
 class ControlStates;
+class KeyframeList;
 class RenderBlock;
+class RenderTreeBuilder;
 
 class RenderElement : public RenderObject {
+    WTF_MAKE_ISO_ALLOCATED(RenderElement);
 public:
     virtual ~RenderElement();
 
-    static RenderPtr<RenderElement> createFor(Element&, Ref<RenderStyle>&&);
+    enum RendererCreationType { CreateAllRenderers, OnlyCreateBlockAndFlexboxRenderers };
+    static RenderPtr<RenderElement> createFor(Element&, RenderStyle&&, RendererCreationType = CreateAllRenderers);
 
     bool hasInitializedStyle() const { return m_hasInitializedStyle; }
 
-    RenderStyle& style() const { return const_cast<RenderStyle&>(m_style.get()); }
-    RenderStyle& firstLineStyle() const;
+    const RenderStyle& style() const { return m_style; }
+    const RenderStyle& firstLineStyle() const;
+
+    // FIXME: Style shouldn't be mutated.
+    RenderStyle& mutableStyle() { return m_style; }
 
     void initializeStyle();
 
-    // Calling with minimalStyleDifference > StyleDifferenceEqual indicates that
+    // Calling with minimalStyleDifference > StyleDifference::Equal indicates that
     // out-of-band state (e.g. animations) requires that styleDidChange processing
     // continue even if the style isn't different from the current style.
-    void setStyle(Ref<RenderStyle>&&, StyleDifference minimalStyleDifference = StyleDifferenceEqual);
-
-    // Called to update a style that is allowed to trigger animations.
-    void setAnimatableStyle(Ref<RenderStyle>&&, StyleDifference minimalStyleDifference);
+    void setStyle(RenderStyle&&, StyleDifference minimalStyleDifference = StyleDifference::Equal);
 
     // The pseudo element style can be cached or uncached.  Use the cached method if the pseudo element doesn't respect
     // any pseudo classes (and therefore has no concept of changing state).
-    RenderStyle* getCachedPseudoStyle(PseudoId, RenderStyle* parentStyle = nullptr) const;
-    PassRefPtr<RenderStyle> getUncachedPseudoStyle(const PseudoStyleRequest&, RenderStyle* parentStyle = nullptr, RenderStyle* ownStyle = nullptr) const;
+    const RenderStyle* getCachedPseudoStyle(PseudoId, const RenderStyle* parentStyle = nullptr) const;
+    std::unique_ptr<RenderStyle> getUncachedPseudoStyle(const PseudoStyleRequest&, const RenderStyle* parentStyle = nullptr, const RenderStyle* ownStyle = nullptr) const;
 
     // This is null for anonymous renderers.
     Element* element() const { return downcast<Element>(RenderObject::node()); }
@@ -66,17 +68,11 @@ public:
     RenderObject* firstChild() const { return m_firstChild; }
     RenderObject* lastChild() const { return m_lastChild; }
 
-    virtual bool isEmpty() const override { return !firstChild(); }
-
     bool canContainFixedPositionObjects() const;
     bool canContainAbsolutelyPositionedObjects() const;
 
-    RenderBlock* containingBlockForFixedPosition() const;
-    RenderBlock* containingBlockForAbsolutePosition() const;
-    RenderBlock* containingBlockForObjectInFlow() const;
-
-    Color selectionColor(int colorProperty) const;
-    PassRefPtr<RenderStyle> selectionPseudoStyle() const;
+    Color selectionColor(CSSPropertyID) const;
+    std::unique_ptr<RenderStyle> selectionPseudoStyle() const;
 
     // Obtains the selection colors that should be used when painting a selection.
     Color selectionBackgroundColor() const;
@@ -90,12 +86,9 @@ public:
     bool isRenderBlockFlow() const;
     bool isRenderReplaced() const;
     bool isRenderInline() const;
-    bool isRenderNamedFlowFragmentContainer() const;
 
     virtual bool isChildAllowed(const RenderObject&, const RenderStyle&) const { return true; }
-    virtual void addChild(RenderObject* newChild, RenderObject* beforeChild = nullptr);
-    virtual void addChildIgnoringContinuation(RenderObject* newChild, RenderObject* beforeChild = nullptr) { return addChild(newChild, beforeChild); }
-    virtual void removeChild(RenderObject&);
+    void didAttachChild(RenderObject& child, RenderObject* beforeChild);
 
     // The following functions are used when the render tree hierarchy changes to make sure layers get
     // properly added and removed. Since containership can be implemented by any subclass, and since a hierarchy
@@ -104,12 +97,6 @@ public:
     void removeLayers(RenderLayer* parentLayer);
     void moveLayers(RenderLayer* oldParent, RenderLayer* newParent);
     RenderLayer* findNextLayer(RenderLayer* parentLayer, RenderObject* startPoint, bool checkParent = true);
-
-    enum NotifyChildrenType { NotifyChildren, DontNotifyChildren };
-    void insertChildInternal(RenderObject*, RenderObject* beforeChild, NotifyChildrenType);
-    void removeChildInternal(RenderObject&, NotifyChildrenType);
-
-    virtual RenderElement* hoverAncestor() const;
 
     virtual void dirtyLinesFromChangedChild(RenderObject&) { }
 
@@ -134,42 +121,42 @@ public:
     /* This function performs a layout only if one is needed. */
     void layoutIfNeeded() { if (needsLayout()) layout(); }
 
-    // Return the renderer whose background style is used to paint the root background. Should only be called on the renderer for which isDocumentElementRenderer() is true.
-    RenderElement& rendererForRootBackground();
-
-    // Used only by Element::pseudoStyleCacheIsInvalid to get a first line style based off of a
-    // given new style, without accessing the cache.
-    PassRefPtr<RenderStyle> uncachedFirstLineStyle(RenderStyle*) const;
-
     // Updates only the local style ptr of the object. Does not update the state of the object,
     // and so only should be called when the style is known not to have changed (or from setStyle).
-    void setStyleInternal(Ref<RenderStyle>&& style) { m_style = WTFMove(style); }
+    void setStyleInternal(RenderStyle&& style) { m_style = WTFMove(style); }
 
     // Repaint only if our old bounds and new bounds are different. The caller may pass in newBounds and newOutlineBox if they are known.
     bool repaintAfterLayoutIfNeeded(const RenderLayerModelObject* repaintContainer, const LayoutRect& oldBounds, const LayoutRect& oldOutlineBox, const LayoutRect* newBoundsPtr = nullptr, const LayoutRect* newOutlineBoxPtr = nullptr);
 
     bool borderImageIsLoadedAndCanBeRendered() const;
     bool mayCauseRepaintInsideViewport(const IntRect* visibleRect = nullptr) const;
+    bool isVisibleInDocumentRect(const IntRect& documentRect) const;
 
     // Returns true if this renderer requires a new stacking context.
-    bool createsGroup() const { return isTransparent() || hasMask() || hasClipPath() || hasFilter() || hasBackdropFilter() || hasBlendMode(); }
+    static bool createsGroupForStyle(const RenderStyle&);
+    bool createsGroup() const { return createsGroupForStyle(style()); }
 
     bool isTransparent() const { return style().opacity() < 1.0f; }
     float opacity() const { return style().opacity(); }
 
-    bool visibleToHitTesting() const { return style().visibility() == VISIBLE && style().pointerEvents() != PE_NONE; }
+    bool visibleToHitTesting() const { return style().visibility() == Visibility::Visible && style().pointerEvents() != PointerEvents::None; }
 
     bool hasBackground() const { return style().hasBackground(); }
     bool hasMask() const { return style().hasMask(); }
     bool hasClip() const { return isOutOfFlowPositioned() && style().hasClip(); }
     bool hasClipOrOverflowClip() const { return hasClip() || hasOverflowClip(); }
     bool hasClipPath() const { return style().clipPath(); }
-    bool hasHiddenBackface() const { return style().backfaceVisibility() == BackfaceVisibilityHidden; }
+    bool hasHiddenBackface() const { return style().backfaceVisibility() == BackfaceVisibility::Hidden; }
+    bool hasOutlineAnnotation() const;
+    bool hasOutline() const { return style().hasOutline() || hasOutlineAnnotation(); }
+    bool hasSelfPaintingLayer() const;
+
+    bool checkForRepaintDuringLayout() const;
 
     // anchorRect() is conceptually similar to absoluteBoundingBoxRect(), but is intended for scrolling to an anchor.
     // For inline renderers, this gets the logical top left of the first leaf child and the logical bottom right of the
     // last leaf child, converts them to absolute coordinates, and makes a box out of them.
-    LayoutRect anchorRect() const;
+    LayoutRect absoluteAnchorRect(bool* insideFixed = nullptr) const;
 
     bool hasFilter() const { return style().hasFilter(); }
     bool hasBackdropFilter() const
@@ -181,27 +168,25 @@ public:
 #endif
     }
 
+
 #if ENABLE(CSS_COMPOSITING)
     bool hasBlendMode() const { return style().hasBlendMode(); }
 #else
     bool hasBlendMode() const { return false; }
 #endif
 
-#if ENABLE(CSS_SHAPES)
     bool hasShapeOutside() const { return style().shapeOutside(); }
-#else
-    bool hasShapeOutside() const { return false; }
-#endif
 
     void registerForVisibleInViewportCallback();
     void unregisterForVisibleInViewportCallback();
-    void visibleInViewportStateChanged(VisibleInViewportState);
 
-    bool repaintForPausedImageAnimationsIfNeeded(const IntRect& visibleRect);
+    VisibleInViewportState visibleInViewportState() const { return static_cast<VisibleInViewportState>(m_visibleInViewportState); }
+    void setVisibleInViewportState(VisibleInViewportState);
+    virtual void visibleInViewportStateChanged();
+
+    bool repaintForPausedImageAnimationsIfNeeded(const IntRect& visibleRect, CachedImage&);
     bool hasPausedImageAnimations() const { return m_hasPausedImageAnimations; }
     void setHasPausedImageAnimations(bool b) { m_hasPausedImageAnimations = b; }
-
-    RenderNamedFlowThread* renderNamedFlowThreadWrapper();
 
     void setRenderBoxNeedsLazyRepaint(bool b) { m_renderBoxNeedsLazyRepaint = b; }
     bool renderBoxNeedsLazyRepaint() const { return m_renderBoxNeedsLazyRepaint; }
@@ -209,14 +194,44 @@ public:
     bool hasCounterNodeMap() const { return m_hasCounterNodeMap; }
     void setHasCounterNodeMap(bool f) { m_hasCounterNodeMap = f; }
 
-    bool isCSSAnimating() const { return m_isCSSAnimating; }
-    void setIsCSSAnimating(bool b) { m_isCSSAnimating = b; }
-    
-    const RenderElement* enclosingRendererWithTextDecoration(TextDecoration, bool firstLine) const;
-    void drawLineForBoxSide(GraphicsContext&, const FloatRect&, BoxSide, Color, EBorderStyle, float adjacentWidth1, float adjacentWidth2, bool antialias = false) const;
+    const RenderElement* enclosingRendererWithTextDecoration(OptionSet<TextDecoration>, bool firstLine) const;
+    void drawLineForBoxSide(GraphicsContext&, const FloatRect&, BoxSide, Color, BorderStyle, float adjacentWidth1, float adjacentWidth2, bool antialias = false) const;
 
-    bool childRequiresTable(const RenderObject& child) const;
-    bool hasContinuation() const { return m_hasContinuation; }
+#if ENABLE(TEXT_AUTOSIZING)
+    void adjustComputedFontSizesOnBlocks(float size, float visibleWidth);
+    WEBCORE_EXPORT void resetTextAutosizing();
+#endif
+    RenderBlock* containingBlockForFixedPosition() const;
+    RenderBlock* containingBlockForAbsolutePosition() const;
+
+    RespectImageOrientationEnum shouldRespectImageOrientation() const;
+
+    void removeFromRenderFragmentedFlow();
+    virtual void resetEnclosingFragmentedFlowAndChildInfoIncludingDescendants(RenderFragmentedFlow*);
+
+    // Called before anonymousChild.setStyle(). Override to set custom styles for
+    // the child.
+    virtual void updateAnonymousChildStyle(RenderStyle&) const { };
+
+    bool hasContinuationChainNode() const { return m_hasContinuationChainNode; }
+    bool isContinuation() const { return m_isContinuation; }
+    void setIsContinuation() { m_isContinuation = true; }
+    bool isFirstLetter() const { return m_isFirstLetter; }
+    void setIsFirstLetter() { m_isFirstLetter = true; }
+
+    RenderObject* attachRendererInternal(RenderPtr<RenderObject> child, RenderObject* beforeChild);
+    RenderPtr<RenderObject> detachRendererInternal(RenderObject&);
+
+    virtual bool startTransition(double /* timeOffset */, CSSPropertyID, const RenderStyle* /* fromStyle */, const RenderStyle* /* toStyle */) { return false; }
+    virtual void transitionPaused(double /* timeOffset */, CSSPropertyID) { }
+    virtual void transitionFinished(CSSPropertyID) { }
+
+    virtual bool startAnimation(double /* timeOffset */, const Animation&, const KeyframeList&) { return false; }
+    virtual void animationPaused(double /* timeOffset */, const String& /* name */) { }
+    virtual void animationSeeked(double /* timeOffset */, const String& /* name */) { }
+    virtual void animationFinished(const String& /* name */) { }
+
+    virtual void suspendAnimations(MonotonicTime = MonotonicTime()) { }
 
 protected:
     enum BaseTypeFlag {
@@ -230,8 +245,8 @@ protected:
     
     typedef unsigned BaseTypeFlags;
 
-    RenderElement(Element&, Ref<RenderStyle>&&, BaseTypeFlags);
-    RenderElement(Document&, Ref<RenderStyle>&&, BaseTypeFlags);
+    RenderElement(Element&, RenderStyle&&, BaseTypeFlags);
+    RenderElement(Document&, RenderStyle&&, BaseTypeFlags);
 
     bool layerCreationAllowedForSubtree() const;
 
@@ -239,80 +254,79 @@ protected:
     void propagateStyleToAnonymousChildren(StylePropagationType);
 
     LayoutUnit valueForLength(const Length&, LayoutUnit maximumValue) const;
-    LayoutUnit minimumValueForLength(const Length&, LayoutUnit maximumValue, bool roundPercentages = false) const;
+    LayoutUnit minimumValueForLength(const Length&, LayoutUnit maximumValue) const;
 
     void setFirstChild(RenderObject* child) { m_firstChild = child; }
     void setLastChild(RenderObject* child) { m_lastChild = child; }
-    void destroyLeftoverChildren();
 
     virtual void styleWillChange(StyleDifference, const RenderStyle& newStyle);
     virtual void styleDidChange(StyleDifference, const RenderStyle* oldStyle);
 
-    virtual void insertedIntoTree() override;
-    virtual void willBeRemovedFromTree() override;
-    virtual void willBeDestroyed() override;
+    void insertedIntoTree() override;
+    void willBeRemovedFromTree() override;
+    void willBeDestroyed() override;
 
     void setRenderInlineAlwaysCreatesLineBoxes(bool b) { m_renderInlineAlwaysCreatesLineBoxes = b; }
     bool renderInlineAlwaysCreatesLineBoxes() const { return m_renderInlineAlwaysCreatesLineBoxes; }
 
-    void setHasContinuation(bool b) { m_hasContinuation = b; }
-
-    static bool hasControlStatesForRenderer(const RenderObject*);
-    static ControlStates* controlStatesForRenderer(const RenderObject*);
-    static void removeControlStatesForRenderer(const RenderObject*);
-    static void addControlStatesForRenderer(const RenderObject*, ControlStates*);
+    void setHasContinuationChainNode(bool b) { m_hasContinuationChainNode = b; }
 
     void setRenderBlockHasMarginBeforeQuirk(bool b) { m_renderBlockHasMarginBeforeQuirk = b; }
     void setRenderBlockHasMarginAfterQuirk(bool b) { m_renderBlockHasMarginAfterQuirk = b; }
-    void setRenderBlockHasBorderOrPaddingLogicalWidthChanged(bool b) { m_renderBlockHasBorderOrPaddingLogicalWidthChanged = b; }
+    void setRenderBlockShouldForceRelayoutChildren(bool b) { m_renderBlockShouldForceRelayoutChildren = b; }
     bool renderBlockHasMarginBeforeQuirk() const { return m_renderBlockHasMarginBeforeQuirk; }
     bool renderBlockHasMarginAfterQuirk() const { return m_renderBlockHasMarginAfterQuirk; }
-    bool renderBlockHasBorderOrPaddingLogicalWidthChanged() const { return m_renderBlockHasBorderOrPaddingLogicalWidthChanged; }
+    bool renderBlockShouldForceRelayoutChildren() const { return m_renderBlockShouldForceRelayoutChildren; }
 
     void setRenderBlockFlowLineLayoutPath(unsigned u) { m_renderBlockFlowLineLayoutPath = u; }
     void setRenderBlockFlowHasMarkupTruncation(bool b) { m_renderBlockFlowHasMarkupTruncation = b; }
     unsigned renderBlockFlowLineLayoutPath() const { return m_renderBlockFlowLineLayoutPath; }
     bool renderBlockFlowHasMarkupTruncation() const { return m_renderBlockFlowHasMarkupTruncation; }
 
-    void paintFocusRing(PaintInfo&, const LayoutPoint&, const RenderStyle&);
+    void paintFocusRing(PaintInfo&, const RenderStyle&, const Vector<LayoutRect>& focusRingRects);
     void paintOutline(PaintInfo&, const LayoutRect&);
-    void updateOutlineAutoAncestor(bool hasOutlineAuto) const;
+    void updateOutlineAutoAncestor(bool hasOutlineAuto);
+
+    void removeFromRenderFragmentedFlowIncludingDescendants(bool shouldUpdateState);
+    void adjustFragmentedFlowStateOnContainingBlockChangeIfNeeded();
+    
+    bool isVisibleInViewport() const;
 
 private:
-    RenderElement(ContainerNode&, Ref<RenderStyle>&&, BaseTypeFlags);
+    RenderElement(ContainerNode&, RenderStyle&&, BaseTypeFlags);
     void node() const = delete;
     void nonPseudoNode() const = delete;
     void generatingNode() const = delete;
     void isText() const = delete;
     void isRenderElement() const = delete;
 
-    virtual RenderObject* firstChildSlow() const override final { return firstChild(); }
-    virtual RenderObject* lastChildSlow() const override final { return lastChild(); }
+    RenderObject* firstChildSlow() const final { return firstChild(); }
+    RenderObject* lastChildSlow() const final { return lastChild(); }
 
     // Called when an object that was floating or positioned becomes a normal flow object
     // again.  We have to make sure the render tree updates as needed to accommodate the new
     // normal flow object.
     void handleDynamicFloatPositionChange();
-    void removeAnonymousWrappersForInlinesIfNecessary();
 
     bool shouldRepaintForStyleDifference(StyleDifference) const;
     bool hasImmediateNonWhitespaceTextChildOrBorderOrOutline() const;
 
-    void updateFillImages(const FillLayer*, const FillLayer*);
+    void updateFillImages(const FillLayer*, const FillLayer&);
     void updateImage(StyleImage*, StyleImage*);
-#if ENABLE(CSS_SHAPES)
     void updateShapeImage(const ShapeValue*, const ShapeValue*);
-#endif
 
-    StyleDifference adjustStyleDifference(StyleDifference, unsigned contextSensitiveProperties) const;
-    RenderStyle* cachedFirstLineStyle() const;
+    StyleDifference adjustStyleDifference(StyleDifference, OptionSet<StyleDifferenceContextSensitiveProperty>) const;
+    std::unique_ptr<RenderStyle> computeFirstLineStyle() const;
+    void invalidateCachedFirstLineStyle();
 
-    virtual void newImageAnimationFrameAvailable(CachedImage&) final override;
+    bool canDestroyDecodedData() final { return !isVisibleInViewport(); }
+    VisibleInViewportState imageFrameAvailable(CachedImage&, ImageAnimatingState, const IntRect* changeRect) final;
+    void didRemoveCachedImageClient(CachedImage&) final;
 
-    bool getLeadingCorner(FloatPoint& output) const;
-    bool getTrailingCorner(FloatPoint& output) const;
+    bool getLeadingCorner(FloatPoint& output, bool& insideFixed) const;
+    bool getTrailingCorner(FloatPoint& output, bool& insideFixed) const;
 
-    void clearLayoutRootIfNeeded() const;
+    void clearSubtreeLayoutRootIfNeeded() const;
     
     bool shouldWillChangeCreateStackingContext() const;
     void issueRepaintForOutlineAuto(float outlineSize);
@@ -325,36 +339,25 @@ private:
     unsigned m_renderBoxNeedsLazyRepaint : 1;
     unsigned m_hasPausedImageAnimations : 1;
     unsigned m_hasCounterNodeMap : 1;
-    unsigned m_isCSSAnimating : 1;
-    unsigned m_hasContinuation : 1;
+    unsigned m_hasContinuationChainNode : 1;
+    unsigned m_isContinuation : 1;
+    unsigned m_isFirstLetter : 1;
+    mutable unsigned m_hasValidCachedFirstLineStyle : 1;
 
     unsigned m_renderBlockHasMarginBeforeQuirk : 1;
     unsigned m_renderBlockHasMarginAfterQuirk : 1;
-    unsigned m_renderBlockHasBorderOrPaddingLogicalWidthChanged : 1;
+    unsigned m_renderBlockShouldForceRelayoutChildren : 1;
     unsigned m_renderBlockFlowHasMarkupTruncation : 1;
     unsigned m_renderBlockFlowLineLayoutPath : 2;
 
-    VisibleInViewportState m_visibleInViewportState { VisibilityUnknown };
+    unsigned m_isRegisteredForVisibleInViewportCallback : 1;
+    unsigned m_visibleInViewportState : 2;
 
     RenderObject* m_firstChild;
     RenderObject* m_lastChild;
 
-    Ref<RenderStyle> m_style;
-
-    // FIXME: Get rid of this hack.
-    // Store state between styleWillChange and styleDidChange
-    static bool s_affectsParentBlock;
-    static bool s_noLongerAffectsParentBlock;
+    RenderStyle m_style;
 };
-
-inline void RenderElement::setAnimatableStyle(Ref<RenderStyle>&& style, StyleDifference minimalStyleDifference)
-{
-    Ref<RenderStyle> animatedStyle = WTFMove(style);
-    if (animation().updateAnimations(*this, animatedStyle, animatedStyle))
-        minimalStyleDifference = std::max(minimalStyleDifference, StyleDifferenceRecompositeLayer);
-    
-    setStyle(WTFMove(animatedStyle), minimalStyleDifference);
-}
 
 inline void RenderElement::setAncestorLineBoxDirty(bool f)
 {
@@ -378,9 +381,9 @@ inline LayoutUnit RenderElement::valueForLength(const Length& length, LayoutUnit
     return WebCore::valueForLength(length, maximumValue);
 }
 
-inline LayoutUnit RenderElement::minimumValueForLength(const Length& length, LayoutUnit maximumValue, bool roundPercentages) const
+inline LayoutUnit RenderElement::minimumValueForLength(const Length& length, LayoutUnit maximumValue) const
 {
-    return WebCore::minimumValueForLength(length, maximumValue, roundPercentages);
+    return WebCore::minimumValueForLength(length, maximumValue);
 }
 
 inline bool RenderElement::isRenderLayerModelObject() const
@@ -415,8 +418,6 @@ inline bool RenderElement::isRenderInline() const
 
 inline Element* RenderElement::generatingElement() const
 {
-    if (parent() && isRenderNamedFlowFragment())
-        return parent()->generatingElement();
     return downcast<Element>(RenderObject::generatingNode());
 }
 
@@ -425,15 +426,20 @@ inline bool RenderElement::canContainFixedPositionObjects() const
     return isRenderView()
         || (hasTransform() && isRenderBlock())
         || isSVGForeignObject()
-        || isOutOfFlowRenderFlowThread();
+        || isOutOfFlowRenderFragmentedFlow();
 }
 
 inline bool RenderElement::canContainAbsolutelyPositionedObjects() const
 {
-    return style().position() != StaticPosition
+    return style().position() != PositionType::Static
         || (isRenderBlock() && hasTransformRelatedProperty())
         || isSVGForeignObject()
         || isRenderView();
+}
+
+inline bool RenderElement::createsGroupForStyle(const RenderStyle& style)
+{
+    return style.opacity() < 1.0f || style.hasMask() || style.clipPath() || style.hasFilter() || style.hasBackdropFilter() || style.hasBlendMode();
 }
 
 inline bool RenderObject::isRenderLayerModelObject() const
@@ -466,14 +472,14 @@ inline bool RenderObject::isRenderInline() const
     return is<RenderElement>(*this) && downcast<RenderElement>(*this).isRenderInline();
 }
 
-inline RenderStyle& RenderObject::style() const
+inline const RenderStyle& RenderObject::style() const
 {
     if (isText())
         return m_parent->style();
     return downcast<RenderElement>(*this).style();
 }
 
-inline RenderStyle& RenderObject::firstLineStyle() const
+inline const RenderStyle& RenderObject::firstLineStyle() const
 {
     if (isText())
         return m_parent->firstLineStyle();
@@ -498,5 +504,3 @@ inline LayoutUnit adjustLayoutUnitForAbsoluteZoom(LayoutUnit value, const Render
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderElement, isRenderElement())
-
-#endif // RenderElement_h

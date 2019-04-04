@@ -23,17 +23,18 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "Benchmark.h"
 #include "CPUCount.h"
+#include "Memory.h"
 #include "balloon.h"
 #include <array>
 #include <chrono>
 #include <memory>
 #include <stddef.h>
+#include <strings.h>
 
 #include "mbmalloc.h"
 
-void benchmark_balloon(bool isParallel)
+void benchmark_balloon(CommandLine&)
 {
     const size_t chunkSize = 1 * 1024;
     const size_t balloonSize = 100 * 1024 * 1024;
@@ -61,7 +62,7 @@ void benchmark_balloon(bool isParallel)
     // Converts bytes to time -- for reporting's sake -- by waiting a while until
     // the heap shrinks back down. This isn't great for pooling with other
     // benchmarks in a geometric mean of throughput, but it's OK for basic testing.
-    while (Benchmark::currentMemoryBytes().resident > 2 * steadySize
+    while (currentMemoryBytes().resident > 2 * steadySize
         && std::chrono::steady_clock::now() - start < 8 * benchmarkTime) {
         for (size_t i = 0; i < steady.size(); ++i) {
             steady[i] = mbmalloc(chunkSize);

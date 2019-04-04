@@ -18,18 +18,19 @@
  *
  */
 
-#ifndef StepRange_h
-#define StepRange_h
+#pragma once
 
 #include "Decimal.h"
 #include <wtf/Forward.h>
-#include <wtf/Noncopyable.h>
 
 namespace WebCore {
 
-class HTMLInputElement;
-
 enum AnyStepHandling { RejectAny, AnyIsDefaultStep };
+
+enum class RangeLimitations {
+    Valid,
+    Invalid
+};
 
 class StepRange {
 public:
@@ -42,12 +43,12 @@ public:
     struct StepDescription {
         WTF_MAKE_FAST_ALLOCATED;
     public:
-        int defaultStep;
-        int defaultStepBase;
-        int stepScaleFactor;
-        StepValueShouldBe stepValueShouldBe;
+        int defaultStep { 1 };
+        int defaultStepBase { 0 };
+        int stepScaleFactor { 1 };
+        StepValueShouldBe stepValueShouldBe { StepValueShouldBeReal };
 
-        StepDescription(int defaultStep, int defaultStepBase, int stepScaleFactor, StepValueShouldBe stepValueShouldBe = StepValueShouldBeReal)
+        constexpr StepDescription(int defaultStep, int defaultStepBase, int stepScaleFactor, StepValueShouldBe stepValueShouldBe = StepValueShouldBeReal)
             : defaultStep(defaultStep)
             , defaultStepBase(defaultStepBase)
             , stepScaleFactor(stepScaleFactor)
@@ -55,13 +56,7 @@ public:
         {
         }
 
-        StepDescription()
-            : defaultStep(1)
-            , defaultStepBase(0)
-            , stepScaleFactor(1)
-            , stepValueShouldBe(StepValueShouldBeReal)
-        {
-        }
+        StepDescription() = default;
 
         Decimal defaultValue() const
         {
@@ -71,11 +66,12 @@ public:
 
     StepRange();
     StepRange(const StepRange&);
-    StepRange(const Decimal& stepBase, const Decimal& minimum, const Decimal& maximum, const Decimal& step, const StepDescription&);
+    StepRange(const Decimal& stepBase, RangeLimitations, const Decimal& minimum, const Decimal& maximum, const Decimal& step, const StepDescription&);
     Decimal acceptableError() const;
     Decimal alignValueForStep(const Decimal& currentValue, const Decimal& newValue) const;
     Decimal clampValue(const Decimal& value) const;
     bool hasStep() const { return m_hasStep; }
+    bool hasRangeLimitations() const { return m_hasRangeLimitations; }
     Decimal maximum() const { return m_maximum; }
     Decimal minimum() const { return m_minimum; }
     static Decimal parseStep(AnyStepHandling, const StepDescription&, const String&);
@@ -114,9 +110,8 @@ private:
     const Decimal m_step;
     const Decimal m_stepBase;
     const StepDescription m_stepDescription;
-    const bool m_hasStep;
+    const bool m_hasRangeLimitations { false };
+    const bool m_hasStep { false };
 };
 
-}
-
-#endif // StepRange_h
+} // namespace WebCore

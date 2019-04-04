@@ -23,19 +23,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ProfilerOriginStack_h
-#define ProfilerOriginStack_h
+#pragma once
 
 #include "JSCJSValue.h"
 #include "ProfilerOrigin.h"
-#include <wtf/HashMap.h>
 #include <wtf/PrintStream.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
 
 class CodeBlock;
-struct CodeOrigin;
+class CodeOrigin;
 
 namespace Profiler {
 
@@ -97,6 +95,3 @@ template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::Profiler::OriginStack> : SimpleClassHashTraits<JSC::Profiler::OriginStack> { };
 
 } // namespace WTF
-
-#endif // ProfilerOriginStack_h
-

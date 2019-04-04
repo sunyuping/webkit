@@ -93,16 +93,20 @@ function getValidationMessageBubbleNode(host) {
 
 function getAbsoluteRect(element) {
     var rect = element.getBoundingClientRect();
-    rect.top += document.body.scrollTop;
-    rect.bottom += document.body.scrollTop;
-    rect.left += document.body.scrollLeft;
-    rect.right += document.body.scrollLeft;
+    rect.top += document.scrollingElement.scrollTop;
+    rect.bottom += document.scrollingElement.scrollTop;
+    rect.left += document.scrollingElement.scrollLeft;
+    rect.right += document.scrollingElement.scrollLeft;
     return rect;
 }
 
-function searchCancelButtonPosition(element) {
+function searchCancelButtonPositionRTL(element) {
+	return searchCancelButtonPosition(element, true);
+}
+
+function searchCancelButtonPosition(element, isRTL = false) {
     var pos = {};
-    pos.x = element.offsetLeft + element.offsetWidth - 9;
+    pos.x = element.offsetLeft + (isRTL ? 9 : (element.offsetWidth - 9));
     pos.y = element.offsetTop + element.offsetHeight / 2;
     return pos;
 }

@@ -26,15 +26,18 @@
 #include "config.h"
 #include "ClassChangeInvalidation.h"
 
-#include "DocumentRuleSets.h"
 #include "ElementChildIterator.h"
 #include "SpaceSplitString.h"
-#include "StyleInvalidationAnalysis.h"
+#include "StyleInvalidationFunctions.h"
+#include "StyleInvalidator.h"
+#include <wtf/BitVector.h>
 
 namespace WebCore {
 namespace Style {
 
-auto ClassChangeInvalidation::collectClasses(const SpaceSplitString& classes) -> ClassChangeVector
+using ClassChangeVector = Vector<AtomicStringImpl*, 4>;
+
+static ClassChangeVector collectClasses(const SpaceSplitString& classes)
 {
     ClassChangeVector result;
     result.reserveCapacity(classes.size());
@@ -43,19 +46,17 @@ auto ClassChangeInvalidation::collectClasses(const SpaceSplitString& classes) ->
     return result;
 }
 
-void ClassChangeInvalidation::computeClassChange(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
+static ClassChangeVector computeClassChange(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
 {
     unsigned oldSize = oldClasses.size();
     unsigned newSize = newClasses.size();
 
-    if (!oldSize) {
-        m_addedClasses = collectClasses(newClasses);
-        return;
-    }
-    if (!newSize) {
-        m_removedClasses = collectClasses(oldClasses);
-        return;
-    }
+    if (!oldSize)
+        return collectClasses(newClasses);
+    if (!newSize)
+        return collectClasses(oldClasses);
+
+    ClassChangeVector changedClasses;
 
     BitVector remainingClassBits;
     remainingClassBits.ensureSize(oldSize);
@@ -70,45 +71,57 @@ void ClassChangeInvalidation::computeClassChange(const SpaceSplitString& oldClas
         }
         if (foundFromBoth)
             continue;
-        m_addedClasses.append(newClasses[i].impl());
+        changedClasses.append(newClasses[i].impl());
     }
     for (unsigned i = 0; i < oldSize; ++i) {
-        // If the bit is not set the the corresponding class has been removed.
+        // If the bit is not set the corresponding class has been removed.
         if (remainingClassBits.quickGet(i))
             continue;
-        m_removedClasses.append(oldClasses[i].impl());
+        changedClasses.append(oldClasses[i].impl());
+    }
+
+    return changedClasses;
+}
+
+void ClassChangeInvalidation::computeInvalidation(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
+{
+    auto changedClasses = computeClassChange(oldClasses, newClasses);
+
+    bool shouldInvalidateCurrent = false;
+    bool mayAffectStyleInShadowTree = false;
+
+    traverseRuleFeatures(m_element, [&] (const RuleFeatureSet& features, bool mayAffectShadowTree) {
+        for (auto* changedClass : changedClasses) {
+            if (mayAffectShadowTree && features.classRules.contains(changedClass))
+                mayAffectStyleInShadowTree = true;
+            if (features.classesAffectingHost.contains(changedClass))
+                shouldInvalidateCurrent = true;
+        }
+    });
+
+    if (mayAffectStyleInShadowTree) {
+        // FIXME: We should do fine-grained invalidation for shadow tree.
+        m_element.invalidateStyleForSubtree();
+    }
+
+    if (shouldInvalidateCurrent)
+        m_element.invalidateStyle();
+
+    auto& ruleSets = m_element.styleResolver().ruleSets();
+
+    for (auto* changedClass : changedClasses) {
+        if (auto* invalidationRuleSets = ruleSets.classInvalidationRuleSets(changedClass)) {
+            for (auto& invalidationRuleSet : *invalidationRuleSets)
+                m_invalidationRuleSets.append(&invalidationRuleSet);
+        }
     }
 }
 
-void ClassChangeInvalidation::invalidateStyle(const ClassChangeVector& changedClasses)
+void ClassChangeInvalidation::invalidateStyleWithRuleSets()
 {
-    auto& ruleSets = m_element.styleResolver().ruleSets();
-
-    Vector<AtomicStringImpl*, 4> changedClassesAffectingStyle;
-    for (auto* changedClass : changedClasses) {
-        if (ruleSets.features().classesInRules.contains(changedClass))
-            changedClassesAffectingStyle.append(changedClass);
-    };
-
-    if (changedClassesAffectingStyle.isEmpty())
-        return;
-
-    if (m_element.shadowRoot() && ruleSets.authorStyle()->hasShadowPseudoElementRules()) {
-        m_element.setNeedsStyleRecalc(FullStyleChange);
-        return;
-    }
-
-    m_element.setNeedsStyleRecalc(InlineStyleChange);
-
-    if (!childrenOfType<Element>(m_element).first())
-        return;
-
-    for (auto* changedClass : changedClassesAffectingStyle) {
-        auto* ancestorClassRules = ruleSets.ancestorClassRules(changedClass);
-        if (!ancestorClassRules)
-            continue;
-        StyleInvalidationAnalysis invalidationAnalysis(*ancestorClassRules);
-        invalidationAnalysis.invalidateStyle(m_element);
+    for (auto* invalidationRuleSet : m_invalidationRuleSets) {
+        Invalidator invalidator(*invalidationRuleSet->ruleSet);
+        invalidator.invalidateStyleWithMatchElement(m_element, invalidationRuleSet->matchElement);
     }
 }
 

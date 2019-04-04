@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef UDis86Disassembler_h
-#define UDis86Disassembler_h
+#pragma once
 
 #include "Disassembler.h"
 
@@ -32,15 +31,12 @@ namespace JSC {
 
 #if USE(UDIS86)
 
-bool tryToDisassembleWithUDis86(const MacroAssemblerCodePtr& codePtr, size_t size, const char* prefix, PrintStream& out, InstructionSubsetHint);
+bool tryToDisassembleWithUDis86(const MacroAssemblerCodePtr<DisassemblyPtrTag>&, size_t, const char* prefix, PrintStream& out);
 
 #else // USE(UDIS86)
 
-inline bool tryToDisassembleWithUDis86(const MacroAssemblerCodePtr&, size_t, const char*, PrintStream&, InstructionSubsetHint) { return false; }
+inline bool tryToDisassembleWithUDis86(const MacroAssemblerCodePtr<DisassemblyPtrTag>&, size_t, const char*, PrintStream&) { return false; }
 
 #endif // USE(UDIS86)
 
 } // namespace JSC
-
-#endif // UDis86Disassembler_h
-

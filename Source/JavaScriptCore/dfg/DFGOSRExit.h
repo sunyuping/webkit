@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,24 +23,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGOSRExit_h
-#define DFGOSRExit_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
-#include "CodeOrigin.h"
-#include "DFGCommon.h"
-#include "DFGExitProfile.h"
 #include "DFGOSRExitBase.h"
+#include "DFGVariableEventStream.h"
 #include "GPRInfo.h"
 #include "MacroAssembler.h"
 #include "MethodOfGettingAValueProfile.h"
 #include "Operands.h"
-#include "ValueProfile.h"
 #include "ValueRecovery.h"
-#include <wtf/Vector.h>
+#include <wtf/RefPtr.h>
 
-namespace JSC { namespace DFG {
+namespace JSC {
+
+class ArrayProfile;
+class CCallHelpers;
+
+namespace Probe {
+class Context;
+} // namespace Probe
+
+namespace Profiler {
+class OSRExit;
+} // namespace Profiler
+
+namespace DFG {
 
 class SpeculativeJIT;
 struct BasicBlock;
@@ -48,8 +57,9 @@ struct Node;
 
 // This enum describes the types of additional recovery that
 // may need be performed should a speculation check fail.
-enum SpeculationRecoveryType {
+enum SpeculationRecoveryType : uint8_t {
     SpeculativeAdd,
+    SpeculativeAddImmediate,
     BooleanSpeculationCheck
 };
 
@@ -60,22 +70,69 @@ enum SpeculationRecoveryType {
 class SpeculationRecovery {
 public:
     SpeculationRecovery(SpeculationRecoveryType type, GPRReg dest, GPRReg src)
-        : m_type(type)
+        : m_src(src)
         , m_dest(dest)
-        , m_src(src)
+        , m_type(type)
     {
+        ASSERT(m_type == SpeculativeAdd || m_type == BooleanSpeculationCheck);
+    }
+
+    SpeculationRecovery(SpeculationRecoveryType type, GPRReg dest, int32_t immediate)
+        : m_immediate(immediate)
+        , m_dest(dest)
+        , m_type(type)
+    {
+        ASSERT(m_type == SpeculativeAddImmediate);
     }
 
     SpeculationRecoveryType type() { return m_type; }
     GPRReg dest() { return m_dest; }
     GPRReg src() { return m_src; }
+    int32_t immediate() { return m_immediate; }
 
 private:
+    // different recovery types may required different additional information here.
+    union {
+        GPRReg m_src;
+        int32_t m_immediate;
+    };
+    GPRReg m_dest;
+
     // Indicates the type of additional recovery to be performed.
     SpeculationRecoveryType m_type;
-    // different recovery types may required different additional information here.
-    GPRReg m_dest;
-    GPRReg m_src;
+};
+
+enum class ExtraInitializationLevel;
+
+struct OSRExitState : RefCounted<OSRExitState> {
+    OSRExitState(OSRExitBase& exit, CodeBlock* codeBlock, CodeBlock* baselineCodeBlock, Operands<ValueRecovery>& operands, Vector<UndefinedOperandSpan>&& undefinedOperandSpans, SpeculationRecovery* recovery, ptrdiff_t stackPointerOffset, int32_t activeThreshold, double memoryUsageAdjustedThreshold, void* jumpTarget, ArrayProfile* arrayProfile)
+        : exit(exit)
+        , codeBlock(codeBlock)
+        , baselineCodeBlock(baselineCodeBlock)
+        , operands(operands)
+        , undefinedOperandSpans(undefinedOperandSpans)
+        , recovery(recovery)
+        , stackPointerOffset(stackPointerOffset)
+        , activeThreshold(activeThreshold)
+        , memoryUsageAdjustedThreshold(memoryUsageAdjustedThreshold)
+        , jumpTarget(jumpTarget)
+        , arrayProfile(arrayProfile)
+    { }
+
+    OSRExitBase& exit;
+    CodeBlock* codeBlock;
+    CodeBlock* baselineCodeBlock;
+    Operands<ValueRecovery> operands;
+    Vector<UndefinedOperandSpan> undefinedOperandSpans;
+    SpeculationRecovery* recovery;
+    ptrdiff_t stackPointerOffset;
+    uint32_t activeThreshold;
+    double memoryUsageAdjustedThreshold;
+    void* jumpTarget;
+    ArrayProfile* arrayProfile;
+
+    ExtraInitializationLevel extraInitializationLevel;
+    Profiler::OSRExit* profilerExit { nullptr };
 };
 
 // === OSRExit ===
@@ -84,26 +141,32 @@ private:
 // going into baseline code.
 struct OSRExit : public OSRExitBase {
     OSRExit(ExitKind, JSValueSource, MethodOfGettingAValueProfile, SpeculativeJIT*, unsigned streamIndex, unsigned recoveryIndex = UINT_MAX);
-    
-    MacroAssemblerCodeRef m_code;
+
+    static void JIT_OPERATION compileOSRExit(ExecState*) WTF_INTERNAL;
+    static void executeOSRExit(Probe::Context&);
+
+    CodeLocationLabel<JSInternalPtrTag> m_patchableJumpLocation;
+    MacroAssemblerCodeRef<OSRExitPtrTag> m_code;
+
+    RefPtr<OSRExitState> exitState;
     
     JSValueSource m_jsValueSource;
     MethodOfGettingAValueProfile m_valueProfile;
-
-    unsigned m_patchableCodeOffset;
     
     unsigned m_recoveryIndex;
 
-    void setPatchableCodeOffset(MacroAssembler::PatchableJump);
-    MacroAssembler::Jump getPatchableCodeOffsetAsJump() const;
-    CodeLocationJump codeLocationForRepatch(CodeBlock*) const;
-    void correctJump(LinkBuffer&);
+    CodeLocationJump<JSInternalPtrTag> codeLocationForRepatch() const;
 
     unsigned m_streamIndex;
     void considerAddingAsFrequentExitSite(CodeBlock* profiledCodeBlock)
     {
         OSRExitBase::considerAddingAsFrequentExitSite(profiledCodeBlock, ExitFromDFG);
     }
+
+private:
+    static void compileExit(CCallHelpers&, VM&, const OSRExit&, const Operands<ValueRecovery>&, SpeculationRecovery*);
+    static void emitRestoreArguments(CCallHelpers&, const Operands<ValueRecovery>&);
+    static void JIT_OPERATION debugOperationPrintSpeculationFailure(ExecState*, void*, void*) WTF_INTERNAL;
 };
 
 struct SpeculationFailureDebugInfo {
@@ -115,6 +178,3 @@ struct SpeculationFailureDebugInfo {
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGOSRExit_h
-

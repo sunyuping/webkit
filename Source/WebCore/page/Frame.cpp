@@ -5,7 +5,7 @@
  *                     2000 Simon Hausmann <hausmann@kde.org>
  *                     2000 Stefan Schimanski <1Stein@gmx.de>
  *                     2001 George Staikos <staikos@kde.org>
- * Copyright (C) 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
  * Copyright (C) 2005 Alexey Proskuryakov <ap@nypop.com>
  * Copyright (C) 2008 Nokia Corporation and/or its subsidiary(-ies)
  * Copyright (C) 2008 Eric Seidel <eric@webkit.org>
@@ -30,9 +30,9 @@
 #include "config.h"
 #include "Frame.h"
 
-#include "AnimationController.h"
 #include "ApplyStyleCommand.h"
 #include "BackForwardController.h"
+#include "CSSAnimationController.h"
 #include "CSSComputedStyleDeclaration.h"
 #include "CSSPropertyNames.h"
 #include "CachedCSSStyleSheet.h"
@@ -40,7 +40,9 @@
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "DOMWindow.h"
+#include "DocumentTimeline.h"
 #include "DocumentType.h"
+#include "Editing.h"
 #include "Editor.h"
 #include "EditorClient.h"
 #include "Event.h"
@@ -55,7 +57,6 @@
 #include "FrameView.h"
 #include "GraphicsContext.h"
 #include "GraphicsLayer.h"
-#include "HTMLDocument.h"
 #include "HTMLFormControlElement.h"
 #include "HTMLFormElement.h"
 #include "HTMLFrameElementBase.h"
@@ -65,17 +66,15 @@
 #include "HitTestResult.h"
 #include "ImageBuffer.h"
 #include "InspectorInstrumentation.h"
-#include "JSDOMWindowShell.h"
+#include "JSWindowProxy.h"
 #include "Logging.h"
-#include "MainFrame.h"
-#include "MathMLNames.h"
-#include "MediaFeatureNames.h"
+#include "NavigationScheduler.h"
 #include "Navigator.h"
 #include "NodeList.h"
 #include "NodeTraversal.h"
 #include "Page.h"
 #include "PageCache.h"
-#include "PageGroup.h"
+#include "ProcessWarming.h"
 #include "RenderLayerCompositor.h"
 #include "RenderTableCell.h"
 #include "RenderText.h"
@@ -86,42 +85,34 @@
 #include "RuntimeEnabledFeatures.h"
 #include "SVGDocument.h"
 #include "SVGDocumentExtensions.h"
-#include "SVGNames.h"
 #include "ScriptController.h"
 #include "ScriptSourceCode.h"
 #include "ScrollingCoordinator.h"
 #include "Settings.h"
 #include "StyleProperties.h"
+#include "StyleScope.h"
 #include "TextNodeTraversal.h"
 #include "TextResourceDecoder.h"
 #include "UserContentController.h"
 #include "UserContentURLPattern.h"
+#include "UserGestureIndicator.h"
 #include "UserScript.h"
 #include "UserTypingGestureIndicator.h"
 #include "VisibleUnits.h"
-#include "WebKitFontFamilyNames.h"
-#include "XLinkNames.h"
-#include "XMLNSNames.h"
-#include "XMLNames.h"
-#include "htmlediting.h"
 #include "markup.h"
 #include "npruntime_impl.h"
 #include "runtime_root.h"
-#include <bindings/ScriptValue.h>
+#include <JavaScriptCore/RegularExpression.h>
 #include <wtf/RefCountedLeakCounter.h>
 #include <wtf/StdLibExtras.h>
-#include <yarr/RegularExpression.h>
-
-#if PLATFORM(IOS)
-#include "WKContentObservation.h"
-#endif
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-#if PLATFORM(IOS)
-const unsigned scrollFrequency = 1000 / 60;
+#if PLATFORM(IOS_FAMILY)
+static const Seconds scrollFrequency { 1000_s / 60. };
 #endif
 
 DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, frameCounter, ("Frame"));
@@ -150,36 +141,22 @@ static inline float parentTextZoomFactor(Frame* frame)
 }
 
 Frame::Frame(Page& page, HTMLFrameOwnerElement* ownerElement, FrameLoaderClient& frameLoaderClient)
-    : m_mainFrame(ownerElement ? page.mainFrame() : static_cast<MainFrame&>(*this))
+    : m_mainFrame(ownerElement ? page.mainFrame() : *this)
     , m_page(&page)
     , m_settings(&page.settings())
     , m_treeNode(*this, parentFromOwnerElement(ownerElement))
-    , m_loader(*this, frameLoaderClient)
-    , m_navigationScheduler(*this)
+    , m_loader(makeUniqueRef<FrameLoader>(*this, frameLoaderClient))
+    , m_navigationScheduler(makeUniqueRef<NavigationScheduler>(*this))
     , m_ownerElement(ownerElement)
-    , m_script(std::make_unique<ScriptController>(*this))
-    , m_editor(std::make_unique<Editor>(*this))
-    , m_selection(std::make_unique<FrameSelection>(this))
-    , m_eventHandler(std::make_unique<EventHandler>(*this))
-    , m_animationController(std::make_unique<AnimationController>(*this))
-#if PLATFORM(IOS)
-    , m_overflowAutoScrollTimer(*this, &Frame::overflowAutoScrollTimerFired)
-    , m_selectionChangeCallbacksDisabled(false)
-#endif
+    , m_script(makeUniqueRef<ScriptController>(*this))
+    , m_editor(makeUniqueRef<Editor>(*this))
+    , m_selection(makeUniqueRef<FrameSelection>(this))
+    , m_animationController(makeUniqueRef<CSSAnimationController>(*this))
     , m_pageZoomFactor(parentPageZoomFactor(this))
     , m_textZoomFactor(parentTextZoomFactor(this))
-    , m_activeDOMObjectsAndAnimationsSuspendedCount(0)
+    , m_eventHandler(makeUniqueRef<EventHandler>(*this))
 {
-    AtomicString::init();
-    HTMLNames::init();
-    QualifiedName::init();
-    MediaFeatureNames::init();
-    SVGNames::init();
-    XLinkNames::init();
-    MathMLNames::init();
-    XMLNSNames::init();
-    XMLNames::init();
-    WebKitFontFamilyNames::init();
+    ProcessWarming::initializeNames();
 
     if (ownerElement) {
         m_mainFrame.selfOnlyRef();
@@ -195,6 +172,11 @@ Frame::Frame(Page& page, HTMLFrameOwnerElement* ownerElement, FrameLoaderClient&
     Frame* parent = parentFromOwnerElement(ownerElement);
     if (parent && parent->activeDOMObjectsAndAnimationsSuspended())
         suspendActiveDOMObjectsAndAnimations();
+}
+
+void Frame::init()
+{
+    m_loader->init();
 }
 
 Ref<Frame> Frame::create(Page* page, HTMLFrameOwnerElement* ownerElement, FrameLoaderClient* client)
@@ -217,8 +199,8 @@ Frame::~Frame()
 
     disconnectOwnerElement();
 
-    for (auto& observer : m_destructionObservers)
-        observer->frameDestroyed();
+    while (auto* destructionObserver = m_destructionObservers.takeAny())
+        destructionObserver->frameDestroyed();
 
     if (!isMainFrame())
         m_mainFrame.selfOnlyDeref();
@@ -245,16 +227,18 @@ void Frame::setView(RefPtr<FrameView>&& view)
     // Prepare for destruction now, so any unload event handlers get run and the DOMWindow is
     // notified. If we wait until the view is destroyed, then things won't be hooked up enough for
     // these calls to work.
-    if (!view && m_doc && !m_doc->inPageCache())
+    if (!view && m_doc && m_doc->pageCacheState() != Document::InPageCache)
         m_doc->prepareForDestruction();
     
     if (m_view)
-        m_view->unscheduleRelayout();
+        m_view->layoutContext().unscheduleLayout();
     
-    eventHandler().clear();
+    m_eventHandler->clear();
+
+    RELEASE_ASSERT(!m_doc || !m_doc->hasLivingRenderTree());
 
     m_view = WTFMove(view);
-
+    
     // Only one form submission is allowed per view of a part.
     // Since this part may be getting reused as a result of being
     // pulled from the back/forward cache, reset this flag.
@@ -265,7 +249,30 @@ void Frame::setDocument(RefPtr<Document>&& newDocument)
 {
     ASSERT(!newDocument || newDocument->frame() == this);
 
-    if (m_doc && !m_doc->inPageCache())
+    if (m_documentIsBeingReplaced)
+        return;
+
+    m_documentIsBeingReplaced = true;
+
+    if (isMainFrame()) {
+        if (m_page)
+            m_page->didChangeMainDocument();
+        m_loader->client().dispatchDidChangeMainDocument();
+
+        // We want to generate the same unique names whenever a page is loaded to avoid making layout tests
+        // flaky and for things like form state restoration to work. To achieve this, we reset our frame
+        // identifier generator every time the page is navigated.
+        tree().resetFrameIdentifiers();
+    }
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+    if (m_doc) {
+        for (auto& attachment : m_doc->attachmentElementsByIdentifier().values())
+            editor().didRemoveAttachmentElement(attachment);
+    }
+#endif
+
+    if (m_doc && m_doc->pageCacheState() != Document::InPageCache)
         m_doc->prepareForDestruction();
 
     m_doc = newDocument.copyRef();
@@ -277,7 +284,16 @@ void Frame::setDocument(RefPtr<Document>&& newDocument)
     if (newDocument)
         newDocument->didBecomeCurrentDocumentInFrame();
 
-    InspectorInstrumentation::frameDocumentUpdated(this);
+#if ENABLE(ATTACHMENT_ELEMENT)
+    if (m_doc) {
+        for (auto& attachment : m_doc->attachmentElementsByIdentifier().values())
+            editor().didInsertAttachmentElement(attachment);
+    }
+#endif
+
+    InspectorInstrumentation::frameDocumentUpdated(*this);
+
+    m_documentIsBeingReplaced = false;
 }
 
 #if ENABLE(ORIENTATION_EVENTS)
@@ -287,9 +303,10 @@ void Frame::orientationChanged()
     for (Frame* frame = this; frame; frame = frame->tree().traverseNext())
         frames.append(*frame);
 
+    auto newOrientation = orientation();
     for (auto& frame : frames) {
         if (Document* document = frame->document())
-            document->dispatchWindowEvent(Event::create(eventNames().orientationchangeEvent, false, false));
+            document->orientationChanged(newOrientation);
     }
 }
 
@@ -306,7 +323,7 @@ static JSC::Yarr::RegularExpression createRegExpForLabels(const Vector<String>& 
     // REVIEW- version of this call in FrameMac.mm caches based on the NSArray ptrs being
     // the same across calls.  We can't do that.
 
-    static NeverDestroyed<JSC::Yarr::RegularExpression> wordRegExp("\\w", TextCaseSensitive);
+    static NeverDestroyed<JSC::Yarr::RegularExpression> wordRegExp("\\w");
     StringBuilder pattern;
     pattern.append('(');
     unsigned int numLabels = labels.size();
@@ -333,7 +350,7 @@ static JSC::Yarr::RegularExpression createRegExpForLabels(const Vector<String>& 
             pattern.appendLiteral("\\b");
     }
     pattern.append(')');
-    return JSC::Yarr::RegularExpression(pattern.toString(), TextCaseInsensitive);
+    return JSC::Yarr::RegularExpression(pattern.toString(), JSC::Yarr::TextCaseInsensitive);
 }
 
 String Frame::searchForLabelsAboveCell(const JSC::Yarr::RegularExpression& regExp, HTMLTableCellElement* cell, size_t* resultDistanceFromStartOfCell)
@@ -343,7 +360,7 @@ String Frame::searchForLabelsAboveCell(const JSC::Yarr::RegularExpression& regEx
         // search within the above cell we found for a match
         size_t lengthSearched = 0;    
         for (Text* textNode = TextNodeTraversal::firstWithin(*aboveCell); textNode; textNode = TextNodeTraversal::next(*textNode, aboveCell)) {
-            if (!textNode->renderer() || textNode->renderer()->style().visibility() != VISIBLE)
+            if (!textNode->renderer() || textNode->renderer()->style().visibility() != Visibility::Visible)
                 continue;
             // For each text chunk, run the regexp
             String nodeString = textNode->data();
@@ -400,7 +417,7 @@ String Frame::searchForLabelsBeforeElement(const Vector<String>& labels, Element
                 return result;
             }
             searchedCellAbove = true;
-        } else if (n->isTextNode() && n->renderer() && n->renderer()->style().visibility() == VISIBLE) {
+        } else if (n->isTextNode() && n->renderer() && n->renderer()->style().visibility() == Visibility::Visible) {
             // For each text chunk, run the regexp
             String nodeString = n->nodeValue();
             // add 100 for slop, to make it more likely that we'll search whole nodes
@@ -437,7 +454,7 @@ static String matchLabelsAgainstString(const Vector<String>& labels, const Strin
     String mutableStringToMatch = stringToMatch;
 
     // Make numbers and _'s in field names behave like word boundaries, e.g., "address2"
-    replace(mutableStringToMatch, JSC::Yarr::RegularExpression("\\d", TextCaseSensitive), " ");
+    replace(mutableStringToMatch, JSC::Yarr::RegularExpression("\\d"), " ");
     mutableStringToMatch.replace('_', ' ');
     
     JSC::Yarr::RegularExpression regExp = createRegExpForLabels(labels);
@@ -474,151 +491,10 @@ String Frame::matchLabelsAgainstElement(const Vector<String>& labels, Element* e
     if (!resultFromNameAttribute.isEmpty())
         return resultFromNameAttribute;
     
-    return matchLabelsAgainstString(labels, element->fastGetAttribute(idAttr));
+    return matchLabelsAgainstString(labels, element->attributeWithoutSynchronization(idAttr));
 }
 
-#if PLATFORM(IOS)
-void Frame::scrollOverflowLayer(RenderLayer* layer, const IntRect& visibleRect, const IntRect& exposeRect)
-{
-    if (!layer)
-        return;
-
-    RenderBox* box = layer->renderBox();
-    if (!box)
-        return;
-
-    if (visibleRect.intersects(exposeRect))
-        return;
-
-    // FIXME: Why isn't this just calling RenderLayer::scrollRectToVisible()?
-    ScrollOffset scrollOffset = layer->scrollOffset();
-    int exposeLeft = exposeRect.x();
-    int exposeRight = exposeLeft + exposeRect.width();
-    int clientWidth = roundToInt(box->clientWidth());
-    if (exposeLeft <= 0)
-        scrollOffset.setX(std::max(0, scrollOffset.x() + exposeLeft - clientWidth / 2));
-    else if (exposeRight >= clientWidth)
-        scrollOffset.setX(std::min(box->scrollWidth() - clientWidth, scrollOffset.x() + clientWidth / 2));
-
-    int exposeTop = exposeRect.y();
-    int exposeBottom = exposeTop + exposeRect.height();
-    int clientHeight = roundToInt(box->clientHeight());
-    if (exposeTop <= 0)
-        scrollOffset.setY(std::max(0, scrollOffset.y() + exposeTop - clientHeight / 2));
-    else if (exposeBottom >= clientHeight)
-        scrollOffset.setY(std::min(box->scrollHeight() - clientHeight, scrollOffset.y() + clientHeight / 2));
-
-    layer->scrollToOffset(scrollOffset);
-    selection().setCaretRectNeedsUpdate();
-    selection().updateAppearance();
-}
-
-void Frame::overflowAutoScrollTimerFired()
-{
-    if (!eventHandler().mousePressed() || checkOverflowScroll(PerformOverflowScroll) == OverflowScrollNone) {
-        if (m_overflowAutoScrollTimer.isActive())
-            m_overflowAutoScrollTimer.stop();
-    }
-}
-
-void Frame::startOverflowAutoScroll(const IntPoint& mousePosition)
-{
-    m_overflowAutoScrollPos = mousePosition;
-
-    if (m_overflowAutoScrollTimer.isActive())
-        return;
-
-    if (checkOverflowScroll(DoNotPerformOverflowScroll) == OverflowScrollNone)
-        return;
-
-    m_overflowAutoScrollTimer.startRepeating(scrollFrequency);
-    m_overflowAutoScrollDelta = 3;
-}
-
-int Frame::checkOverflowScroll(OverflowScrollAction action)
-{
-    Position extent = selection().selection().extent();
-    if (extent.isNull())
-        return OverflowScrollNone;
-
-    RenderObject* renderer = extent.deprecatedNode()->renderer();
-    if (!renderer)
-        return OverflowScrollNone;
-
-    FrameView* view = this->view();
-    if (!view)
-        return OverflowScrollNone;
-
-    RenderBlock* containingBlock = renderer->containingBlock();
-    if (!containingBlock || !containingBlock->hasOverflowClip())
-        return OverflowScrollNone;
-    RenderLayer* layer = containingBlock->layer();
-    ASSERT(layer);
-
-    IntRect visibleRect = IntRect(view->scrollX(), view->scrollY(), view->visibleWidth(), view->visibleHeight());
-    IntPoint position = m_overflowAutoScrollPos;
-    if (visibleRect.contains(position.x(), position.y()))
-        return OverflowScrollNone;
-
-    int scrollType = 0;
-    int deltaX = 0;
-    int deltaY = 0;
-    IntPoint selectionPosition;
-
-    // This constant will make the selection draw a little bit beyond the edge of the visible area.
-    // This prevents a visual glitch, in that you can fail to select a portion of a character that
-    // is being rendered right at the edge of the visible rectangle.
-    // FIXME: This probably needs improvement, and may need to take the font size into account.
-    static const int scrollBoundsAdjustment = 3;
-
-    // FIXME: Make a small buffer at the end of a visible rectangle so that autoscrolling works 
-    // even if the visible extends to the limits of the screen.
-    if (position.x() < visibleRect.x()) {
-        scrollType |= OverflowScrollLeft;
-        if (action == PerformOverflowScroll) {
-            deltaX -= static_cast<int>(m_overflowAutoScrollDelta);
-            selectionPosition.setX(view->scrollX() - scrollBoundsAdjustment);
-        }
-    } else if (position.x() > visibleRect.maxX()) {
-        scrollType |= OverflowScrollRight;
-        if (action == PerformOverflowScroll) {
-            deltaX += static_cast<int>(m_overflowAutoScrollDelta);
-            selectionPosition.setX(view->scrollX() + view->visibleWidth() + scrollBoundsAdjustment);
-        }
-    }
-
-    if (position.y() < visibleRect.y()) {
-        scrollType |= OverflowScrollUp;
-        if (action == PerformOverflowScroll) {
-            deltaY -= static_cast<int>(m_overflowAutoScrollDelta);
-            selectionPosition.setY(view->scrollY() - scrollBoundsAdjustment);
-        }
-    } else if (position.y() > visibleRect.maxY()) {
-        scrollType |= OverflowScrollDown;
-        if (action == PerformOverflowScroll) {
-            deltaY += static_cast<int>(m_overflowAutoScrollDelta);
-            selectionPosition.setY(view->scrollY() + view->visibleHeight() + scrollBoundsAdjustment);
-        }
-    }
-
-    if (action == PerformOverflowScroll && (deltaX || deltaY)) {
-        layer->scrollToOffset(layer->scrollOffset() + IntSize(deltaX, deltaY));
-
-        // Handle making selection.
-        VisiblePosition visiblePosition(renderer->positionForPoint(selectionPosition, nullptr));
-        if (visiblePosition.isNotNull()) {
-            VisibleSelection visibleSelection = selection().selection();
-            visibleSelection.setExtent(visiblePosition);
-            if (selection().granularity() != CharacterGranularity)
-                visibleSelection.expandUsingGranularity(selection().granularity());
-            if (selection().shouldChangeSelection(visibleSelection))
-                selection().setSelection(visibleSelection);
-        }
-
-        m_overflowAutoScrollDelta *= 1.02f; // Accelerate the scroll
-    }
-    return scrollType;
-}
+#if PLATFORM(IOS_FAMILY)
 
 void Frame::setSelectionChangeCallbacksDisabled(bool selectionChangeCallbacksDisabled)
 {
@@ -629,24 +505,65 @@ bool Frame::selectionChangeCallbacksDisabled() const
 {
     return m_selectionChangeCallbacksDisabled;
 }
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)
+
+bool Frame::requestDOMPasteAccess()
+{
+    if (m_settings->javaScriptCanAccessClipboard() && m_settings->DOMPasteAllowed())
+        return true;
+
+    if (!m_settings->domPasteAccessRequestsEnabled() || !m_doc)
+        return false;
+
+    auto gestureToken = UserGestureIndicator::currentUserGesture();
+    if (!gestureToken || !gestureToken->processingUserGesture())
+        return false;
+
+    switch (gestureToken->domPasteAccessPolicy()) {
+    case DOMPasteAccessPolicy::Granted:
+        return true;
+    case DOMPasteAccessPolicy::Denied:
+        return false;
+    case DOMPasteAccessPolicy::NotRequestedYet: {
+        auto* client = m_editor->client();
+        if (!client)
+            return false;
+
+        auto response = client->requestDOMPasteAccess(m_doc->originIdentifierForPasteboard());
+        gestureToken->didRequestDOMPasteAccess(response);
+        switch (response) {
+        case DOMPasteAccessResponse::GrantedForCommand:
+        case DOMPasteAccessResponse::GrantedForGesture:
+            return true;
+        case DOMPasteAccessResponse::DeniedForGesture:
+            return false;
+        }
+    }
+    }
+
+    ASSERT_NOT_REACHED();
+    return false;
+}
 
 void Frame::setPrinting(bool printing, const FloatSize& pageSize, const FloatSize& originalPageSize, float maximumShrinkRatio, AdjustViewSizeOrNot shouldAdjustViewSize)
 {
+    if (!view())
+        return;
     // In setting printing, we should not validate resources already cached for the document.
     // See https://bugs.webkit.org/show_bug.cgi?id=43704
     ResourceCacheValidationSuppressor validationSuppressor(m_doc->cachedResourceLoader());
 
     m_doc->setPrinting(printing);
-    view()->adjustMediaTypeForPrinting(printing);
+    auto& frameView = *view();
+    frameView.adjustMediaTypeForPrinting(printing);
 
-    m_doc->styleResolverChanged(RecalcStyleImmediately);
-    if (shouldUsePrintingLayout()) {
-        view()->forceLayoutForPagination(pageSize, originalPageSize, maximumShrinkRatio, shouldAdjustViewSize);
-    } else {
-        view()->forceLayout();
+    m_doc->styleScope().didChangeStyleSheetEnvironment();
+    if (shouldUsePrintingLayout())
+        frameView.forceLayoutForPagination(pageSize, originalPageSize, maximumShrinkRatio, shouldAdjustViewSize);
+    else {
+        frameView.forceLayout();
         if (shouldAdjustViewSize == AdjustViewSize)
-            view()->adjustViewSize();
+            frameView.adjustViewSize();
     }
 
     // Subframes of the one we're printing don't lay out to the page size.
@@ -689,35 +606,27 @@ void Frame::injectUserScripts(UserScriptInjectionTime injectionTime)
     if (loader().stateMachine().creatingInitialEmptyDocument() && !settings().shouldInjectUserScriptsInInitialEmptyDocument())
         return;
 
-    const auto* userContentController = m_page->userContentController();
-    if (!userContentController)
-        return;
-
-    // Walk the hashtable. Inject by world.
-    const UserScriptMap* userScripts = userContentController->userScripts();
-    if (!userScripts)
-        return;
-
-    for (const auto& worldAndUserScript : *userScripts)
-        injectUserScriptsForWorld(*worldAndUserScript.key, *worldAndUserScript.value, injectionTime);
+    m_page->userContentProvider().forEachUserScript([this, protectedThis = makeRef(*this), injectionTime](DOMWrapperWorld& world, const UserScript& script) {
+        if (script.injectionTime() == injectionTime)
+            injectUserScriptImmediately(world, script);
+    });
 }
 
-void Frame::injectUserScriptsForWorld(DOMWrapperWorld& world, const UserScriptVector& userScripts, UserScriptInjectionTime injectionTime)
+void Frame::injectUserScriptImmediately(DOMWrapperWorld& world, const UserScript& script)
 {
-    if (userScripts.isEmpty())
+    auto* document = this->document();
+    if (!document)
+        return;
+    if (script.injectedFrames() == InjectInTopFrameOnly && !isMainFrame())
+        return;
+    if (!UserContentURLPattern::matchesPatterns(document->url(), script.whitelist(), script.blacklist()))
+        return;
+    if (!m_script->shouldAllowUserAgentScripts(*document))
         return;
 
-    Document* doc = document();
-    if (!doc)
-        return;
-
-    for (auto& script : userScripts) {
-        if (script->injectedFrames() == InjectInTopFrameOnly && ownerElement())
-            continue;
-
-        if (script->injectionTime() == injectionTime && UserContentURLPattern::matchesPatterns(doc->url(), script->whitelist(), script->blacklist()))
-            m_script->evaluateInWorld(ScriptSourceCode(script->source(), script->url()), world);
-    }
+    document->setAsRunningUserScripts();
+    loader().client().willInjectUserScript(world);
+    m_script->evaluateInWorld(ScriptSourceCode(script.source(), URL(script.url())), world);
 }
 
 RenderView* Frame::contentRenderer() const
@@ -727,38 +636,38 @@ RenderView* Frame::contentRenderer() const
 
 RenderWidget* Frame::ownerRenderer() const
 {
-    HTMLFrameOwnerElement* ownerElement = m_ownerElement;
+    auto* ownerElement = m_ownerElement;
     if (!ownerElement)
         return nullptr;
     auto* object = ownerElement->renderer();
-    if (!object)
-        return nullptr;
     // FIXME: If <object> is ever fixed to disassociate itself from frames
     // that it has started but canceled, then this can turn into an ASSERT
-    // since m_ownerElement would be 0 when the load is canceled.
+    // since m_ownerElement would be nullptr when the load is canceled.
     // https://bugs.webkit.org/show_bug.cgi?id=18585
-    if (!is<RenderWidget>(*object))
+    if (!is<RenderWidget>(object))
         return nullptr;
     return downcast<RenderWidget>(object);
 }
 
-Frame* Frame::frameForWidget(const Widget* widget)
+Frame* Frame::frameForWidget(const Widget& widget)
 {
-    ASSERT_ARG(widget, widget);
-
-    if (RenderWidget* renderer = RenderWidget::find(widget))
+    if (auto* renderer = RenderWidget::find(widget))
         return renderer->frameOwnerElement().document().frame();
 
     // Assume all widgets are either a FrameView or owned by a RenderWidget.
     // FIXME: That assumption is not right for scroll bars!
-    return &downcast<FrameView>(*widget).frame();
+    return &downcast<FrameView>(widget).frame();
 }
 
 void Frame::clearTimers(FrameView *view, Document *document)
 {
     if (view) {
-        view->unscheduleRelayout();
-        view->frame().animation().suspendAnimationsForDocument(document);
+        view->layoutContext().unscheduleLayout();
+        if (RuntimeEnabledFeatures::sharedFeatures().webAnimationsCSSIntegrationEnabled()) {
+            if (auto* timeline = document->existingTimeline())
+                timeline->suspendAnimations();
+        } else
+            view->frame().animation().suspendAnimationsForDocument(document);
         view->frame().eventHandler().stopAutoscrollTimer();
     }
 }
@@ -784,13 +693,19 @@ void Frame::willDetachPage()
     if (page() && page()->scrollingCoordinator() && m_view)
         page()->scrollingCoordinator()->willDestroyScrollableArea(*m_view);
 
-#if PLATFORM(IOS)
-    if (WebThreadCountOfObservedContentModifiers() > 0 && m_page)
-        m_page->chrome().client().clearContentChangeObservers(this);
-#endif
-
     script().clearScriptObjects();
     script().updatePlatformScriptObjects();
+
+    // We promise that the Frame is always connected to a Page while the render tree is live.
+    //
+    // The render tree can be torn down in a few different ways, but the two important ones are:
+    //
+    // - When calling Frame::setView() with a null FrameView*. This is always done before calling
+    //   Frame::willDetachPage (this function.) Hence the assertion below.
+    //
+    // - When adding a document to the page cache, the tree is torn down before instantiating
+    //   the CachedPage+CachedFrame object tree.
+    ASSERT(!document() || !document()->renderView());
 }
 
 void Frame::disconnectOwnerElement()
@@ -801,6 +716,9 @@ void Frame::disconnectOwnerElement()
             m_page->decrementSubframeCount();
     }
     m_ownerElement = nullptr;
+
+    if (auto* document = this->document())
+        document->frameWasDisconnectedFromOwner();
 }
 
 String Frame::displayStringModifiedByEncoding(const String& str) const
@@ -826,7 +744,7 @@ VisiblePosition Frame::visiblePositionForPoint(const IntPoint& framePoint) const
 Document* Frame::documentAtPoint(const IntPoint& point)
 {
     if (!view())
-        return 0;
+        return nullptr;
 
     IntPoint pt = view()->windowToContents(point);
     HitTestResult result = HitTestResult(pt);
@@ -844,7 +762,7 @@ RefPtr<Range> Frame::rangeForPoint(const IntPoint& framePoint)
 
     Position deepPosition = position.deepEquivalent();
     Text* containerText = deepPosition.containerText();
-    if (!containerText || !containerText->renderer() || containerText->renderer()->style().userSelect() == SELECT_NONE)
+    if (!containerText || !containerText->renderer() || containerText->renderer()->style().userSelect() == UserSelect::None)
         return nullptr;
 
     VisiblePosition previous = position.previous();
@@ -865,7 +783,7 @@ RefPtr<Range> Frame::rangeForPoint(const IntPoint& framePoint)
     return nullptr;
 }
 
-void Frame::createView(const IntSize& viewportSize, const Color& backgroundColor, bool transparent,
+void Frame::createView(const IntSize& viewportSize, const Optional<Color>& backgroundColor,
     const IntSize& fixedLayoutSize, const IntRect& fixedVisibleContentRect,
     bool useFixedLayout, ScrollbarMode horizontalScrollbarMode, bool horizontalLock,
     ScrollbarMode verticalScrollbarMode, bool verticalLock)
@@ -896,8 +814,7 @@ void Frame::createView(const IntSize& viewportSize, const Color& backgroundColor
 
     setView(frameView.copyRef());
 
-    if (backgroundColor.isValid())
-        frameView->updateBackgroundRecursively(backgroundColor, transparent);
+    frameView->updateBackgroundRecursively(backgroundColor);
 
     if (isMainFrame)
         frameView->setParentVisible(true);
@@ -907,6 +824,16 @@ void Frame::createView(const IntSize& viewportSize, const Color& backgroundColor
 
     if (HTMLFrameOwnerElement* owner = ownerElement())
         view()->setCanHaveScrollbars(owner->scrollingMode() != ScrollbarAlwaysOff);
+}
+
+DOMWindow* Frame::window() const
+{
+    return document() ? document()->domWindow() : nullptr;
+}
+
+AbstractDOMWindow* Frame::virtualWindow() const
+{
+    return window();
 }
 
 String Frame::layerTreeAsText(LayerTreeFlags flags) const
@@ -968,18 +895,15 @@ void Frame::setPageAndTextZoomFactors(float pageZoomFactor, float textZoomFactor
     m_pageZoomFactor = pageZoomFactor;
     m_textZoomFactor = textZoomFactor;
 
-    document->recalcStyle(Style::Force);
+    document->resolveStyle(Document::ResolveStyleType::Rebuild);
 
     for (RefPtr<Frame> child = tree().firstChild(); child; child = child->tree().nextSibling())
         child->setPageAndTextZoomFactors(m_pageZoomFactor, m_textZoomFactor);
 
     if (FrameView* view = this->view()) {
         if (document->renderView() && document->renderView()->needsLayout() && view->didFirstLayout())
-            view->layout();
+            view->layoutContext().layout();
     }
-
-    if (isMainFrame())
-        PageCache::singleton().markPagesForFullStyleRecalc(*page);
 }
 
 float Frame::frameScaleFactor() const
@@ -1005,7 +929,7 @@ void Frame::suspendActiveDOMObjectsAndAnimations()
     // FIXME: Suspend/resume calls will not match if the frame is navigated, and gets a new document.
     clearTimers(); // Suspends animations and pending relayouts.
     if (m_doc)
-        m_doc->suspendScheduledTasks(ActiveDOMObject::PageWillBeSuspended);
+        m_doc->suspendScheduledTasks(ReasonForSuspension::PageWillBeSuspended);
 }
 
 void Frame::resumeActiveDOMObjectsAndAnimations()
@@ -1022,12 +946,12 @@ void Frame::resumeActiveDOMObjectsAndAnimations()
         return;
 
     // FIXME: Suspend/resume calls will not match if the frame is navigated, and gets a new document.
-    m_doc->resumeScheduledTasks(ActiveDOMObject::PageWillBeSuspended);
+    m_doc->resumeScheduledTasks(ReasonForSuspension::PageWillBeSuspended);
 
     // Frame::clearTimers() suspended animations and pending relayouts.
     animation().resumeAnimationsForDocument(m_doc.get());
     if (m_view)
-        m_view->scheduleRelayout();
+        m_view->layoutContext().scheduleLayout();
 }
 
 void Frame::deviceOrPageScaleFactorChanged()
@@ -1054,6 +978,40 @@ bool Frame::isURLAllowed(const URL& url) const
         }
     }
     return true;
+}
+
+bool Frame::isAlwaysOnLoggingAllowed() const
+{
+    return page() && page()->isAlwaysOnLoggingAllowed();
+}
+
+void Frame::dropChildren()
+{
+    ASSERT(isMainFrame());
+    while (Frame* child = tree().firstChild())
+        tree().removeChild(*child);
+}
+
+void Frame::selfOnlyRef()
+{
+    ASSERT(isMainFrame());
+    if (m_selfOnlyRefCount++)
+        return;
+
+    ref();
+}
+
+void Frame::selfOnlyDeref()
+{
+    ASSERT(isMainFrame());
+    ASSERT(m_selfOnlyRefCount);
+    if (--m_selfOnlyRefCount)
+        return;
+
+    if (hasOneRef())
+        dropChildren();
+
+    deref();
 }
 
 } // namespace WebCore

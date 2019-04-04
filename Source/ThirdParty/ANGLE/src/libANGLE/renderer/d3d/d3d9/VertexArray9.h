@@ -9,7 +9,9 @@
 #ifndef LIBANGLE_RENDERER_D3D_D3D9_VERTEXARRAY9_H_
 #define LIBANGLE_RENDERER_D3D_D3D9_VERTEXARRAY9_H_
 
+#include "libANGLE/Context.h"
 #include "libANGLE/renderer/VertexArrayImpl.h"
+#include "libANGLE/renderer/d3d/d3d9/Context9.h"
 #include "libANGLE/renderer/d3d/d3d9/Renderer9.h"
 
 namespace rx
@@ -19,23 +21,26 @@ class Renderer9;
 class VertexArray9 : public VertexArrayImpl
 {
   public:
-    VertexArray9(Renderer9 *renderer)
-        : VertexArrayImpl(),
-          mRenderer(renderer)
-    {
-    }
+    VertexArray9(const gl::VertexArrayState &data) : VertexArrayImpl(data) {}
 
-    virtual ~VertexArray9() { }
+    void syncState(const gl::Context *context,
+                   const gl::VertexArray::DirtyBits &dirtyBits) override;
 
-    virtual void setElementArrayBuffer(const gl::Buffer *buffer) { }
-    virtual void setAttribute(size_t idx, const gl::VertexAttribute &attr) { }
-    virtual void setAttributeDivisor(size_t idx, GLuint divisor) { }
-    virtual void enableAttribute(size_t idx, bool enabledState) { }
+    ~VertexArray9() override {}
+
+    Serial getCurrentStateSerial() const { return mCurrentStateSerial; }
 
   private:
-    Renderer9 *mRenderer;
+    Serial mCurrentStateSerial;
 };
 
+inline void VertexArray9::syncState(const gl::Context *context,
+                                    const gl::VertexArray::DirtyBits &dirtyBits)
+{
+    ASSERT(dirtyBits.any());
+    Renderer9 *renderer = GetImplAs<Context9>(context)->getRenderer();
+    mCurrentStateSerial = renderer->generateSerial();
+}
 }
 
 #endif // LIBANGLE_RENDERER_D3D_D3D9_VERTEXARRAY9_H_

@@ -52,15 +52,13 @@ void BasicShapeCenterCoordinate::updateComputedLength()
         m_computedLength = m_length.isUndefined() ? Length(0, Fixed) : m_length;
         return;
     }
+
     if (m_length.isUndefined()) {
         m_computedLength = Length(100, Percent);
         return;
     }
-
-    auto lhs = std::make_unique<CalcExpressionLength>(Length(100, Percent));
-    auto rhs = std::make_unique<CalcExpressionLength>(m_length);
-    auto op = std::make_unique<CalcExpressionBinaryOperation>(WTFMove(lhs), WTFMove(rhs), CalcSubtract);
-    m_computedLength = Length(CalculationValue::create(WTFMove(op), CalculationRangeAll));
+    
+    m_computedLength = convertTo100PercentMinusLength(m_length);
 }
 
 struct SVGPathTranslatedByteStream {
@@ -75,8 +73,7 @@ struct SVGPathTranslatedByteStream {
 
     Path path() const
     {
-        Path path;
-        buildPathFromByteStream(m_rawStream, path);
+        Path path = buildPathFromByteStream(m_rawStream);
         path.translate(toFloatSize(m_offset));
         return path;
     }
@@ -201,7 +198,7 @@ Ref<BasicShape> BasicShapeCircle::blend(const BasicShape& other, double progress
     result->setCenterX(m_centerX.blend(otherCircle.centerX(), progress));
     result->setCenterY(m_centerY.blend(otherCircle.centerY(), progress));
     result->setRadius(m_radius.blend(otherCircle.radius(), progress));
-    return WTFMove(result);
+    return result;
 }
 
 bool BasicShapeEllipse::operator==(const BasicShape& other) const
@@ -260,14 +257,14 @@ Ref<BasicShape> BasicShapeEllipse::blend(const BasicShape& other, double progres
         result->setCenterY(otherEllipse.centerY());
         result->setRadiusX(otherEllipse.radiusX());
         result->setRadiusY(otherEllipse.radiusY());
-        return WTFMove(result);
+        return result;
     }
 
     result->setCenterX(m_centerX.blend(otherEllipse.centerX(), progress));
     result->setCenterY(m_centerY.blend(otherEllipse.centerY(), progress));
     result->setRadiusX(m_radiusX.blend(otherEllipse.radiusX(), progress));
     result->setRadiusY(m_radiusY.blend(otherEllipse.radiusY(), progress));
-    return WTFMove(result);
+    return result;
 }
 
 bool BasicShapePolygon::operator==(const BasicShape& other) const
@@ -314,16 +311,17 @@ Ref<BasicShape> BasicShapePolygon::blend(const BasicShape& other, double progres
     size_t length = m_values.size();
     auto result = BasicShapePolygon::create();
     if (!length)
-        return WTFMove(result);
+        return result;
 
     result->setWindRule(otherPolygon.windRule());
 
     for (size_t i = 0; i < length; i = i + 2) {
-        result->appendPoint(m_values.at(i).blend(otherPolygon.values().at(i), progress),
-            m_values.at(i + 1).blend(otherPolygon.values().at(i + 1), progress));
+        result->appendPoint(
+            WebCore::blend(otherPolygon.values().at(i), m_values.at(i), progress),
+            WebCore::blend(otherPolygon.values().at(i + 1), m_values.at(i + 1), progress));
     }
 
-    return WTFMove(result);
+    return result;
 }
 
 BasicShapePath::BasicShapePath(std::unique_ptr<SVGPathByteStream>&& byteStream)
@@ -365,7 +363,7 @@ Ref<BasicShape> BasicShapePath::blend(const BasicShape& from, double progress) c
 
     auto result = BasicShapePath::create(WTFMove(resultingPathBytes));
     result->setWindRule(windRule());
-    return WTFMove(result);
+    return result;
 }
 
 bool BasicShapeInset::operator==(const BasicShape& other) const
@@ -386,8 +384,8 @@ bool BasicShapeInset::operator==(const BasicShape& other) const
 
 static FloatSize floatSizeForLengthSize(const LengthSize& lengthSize, const FloatRect& boundingBox)
 {
-    return FloatSize(floatValueForLength(lengthSize.width(), boundingBox.width()),
-        floatValueForLength(lengthSize.height(), boundingBox.height()));
+    return { floatValueForLength(lengthSize.width, boundingBox.width()),
+        floatValueForLength(lengthSize.height, boundingBox.height()) };
 }
 
 const Path& BasicShapeInset::path(const FloatRect& boundingBox)
@@ -411,22 +409,22 @@ bool BasicShapeInset::canBlend(const BasicShape& other) const
     return type() == other.type();
 }
 
-Ref<BasicShape> BasicShapeInset::blend(const BasicShape& other, double progress) const
+Ref<BasicShape> BasicShapeInset::blend(const BasicShape& from, double progress) const
 {
-    ASSERT(type() == other.type());
+    ASSERT(type() == from.type());
 
-    auto& otherInset = downcast<BasicShapeInset>(other);
+    auto& fromInset = downcast<BasicShapeInset>(from);
     auto result =  BasicShapeInset::create();
-    result->setTop(m_top.blend(otherInset.top(), progress));
-    result->setRight(m_right.blend(otherInset.right(), progress));
-    result->setBottom(m_bottom.blend(otherInset.bottom(), progress));
-    result->setLeft(m_left.blend(otherInset.left(), progress));
+    result->setTop(WebCore::blend(fromInset.top(), top(), progress));
+    result->setRight(WebCore::blend(fromInset.right(), right(), progress));
+    result->setBottom(WebCore::blend(fromInset.bottom(), bottom(), progress));
+    result->setLeft(WebCore::blend(fromInset.left(), left(), progress));
 
-    result->setTopLeftRadius(m_topLeftRadius.blend(otherInset.topLeftRadius(), progress));
-    result->setTopRightRadius(m_topRightRadius.blend(otherInset.topRightRadius(), progress));
-    result->setBottomRightRadius(m_bottomRightRadius.blend(otherInset.bottomRightRadius(), progress));
-    result->setBottomLeftRadius(m_bottomLeftRadius.blend(otherInset.bottomLeftRadius(), progress));
+    result->setTopLeftRadius(WebCore::blend(fromInset.topLeftRadius(), topLeftRadius(), progress));
+    result->setTopRightRadius(WebCore::blend(fromInset.topRightRadius(), topRightRadius(), progress));
+    result->setBottomRightRadius(WebCore::blend(fromInset.bottomRightRadius(), bottomRightRadius(), progress));
+    result->setBottomLeftRadius(WebCore::blend(fromInset.bottomLeftRadius(), bottomLeftRadius(), progress));
 
-    return WTFMove(result);
+    return result;
 }
 }

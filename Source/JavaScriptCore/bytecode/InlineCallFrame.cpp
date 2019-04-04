@@ -28,7 +28,6 @@
 
 #include "CallFrame.h"
 #include "CodeBlock.h"
-#include "Executable.h"
 #include "JSCInlines.h"
 
 namespace JSC {
@@ -70,12 +69,13 @@ void InlineCallFrame::dumpInContext(PrintStream& out, DumpContext* context) cons
     out.print(briefFunctionInformation(), ":<", RawPointer(baselineCodeBlock.get()));
     if (isStrictMode())
         out.print(" (StrictMode)");
-    out.print(", bc#", directCaller.bytecodeIndex, ", ", static_cast<Kind>(kind));
+    out.print(", bc#", directCaller.bytecodeIndex(), ", ", static_cast<Kind>(kind));
     if (isClosureCall)
         out.print(", closure call");
     else
         out.print(", known callee: ", inContext(calleeRecovery.constant(), context));
-    out.print(", numArgs+this = ", arguments.size());
+    out.print(", numArgs+this = ", argumentCountIncludingThis);
+    out.print(", numFixup = ", argumentsWithFixup.size() - argumentCountIncludingThis);
     out.print(", stackOffset = ", stackOffset);
     out.print(" (", virtualRegisterForLocal(0), " maps to ", virtualRegisterForLocal(0) + stackOffset, ")>");
 }

@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2017 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -27,10 +27,14 @@
 #include "Event.h"
 #include "EventNames.h"
 #include "HTMLNames.h"
+#include "HTMLParserIdioms.h"
 #include "Text.h"
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLScriptElement);
 
 using namespace HTMLNames;
 
@@ -54,7 +58,7 @@ bool HTMLScriptElement::isURLAttribute(const Attribute& attribute) const
 void HTMLScriptElement::childrenChanged(const ChildChange& change)
 {
     HTMLElement::childrenChanged(change);
-    ScriptElement::childrenChanged();
+    ScriptElement::childrenChanged(change);
 }
 
 void HTMLScriptElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
@@ -67,30 +71,21 @@ void HTMLScriptElement::parseAttribute(const QualifiedName& name, const AtomicSt
         HTMLElement::parseAttribute(name, value);
 }
 
-Node::InsertionNotificationRequest HTMLScriptElement::insertedInto(ContainerNode& insertionPoint)
+Node::InsertedIntoAncestorResult HTMLScriptElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedInto(insertionPoint);
-    return shouldCallFinishedInsertingSubtree(insertionPoint) ? InsertionShouldCallFinishedInsertingSubtree : InsertionDone;
+    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    return ScriptElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
 }
 
-void HTMLScriptElement::finishedInsertingSubtree()
+void HTMLScriptElement::didFinishInsertingNode()
 {
-    ScriptElement::finishedInsertingSubtree();
+    ScriptElement::didFinishInsertingNode();
 }
 
-void HTMLScriptElement::setText(const String &value)
+// https://html.spec.whatwg.org/multipage/scripting.html#dom-script-text
+void HTMLScriptElement::setText(const String& value)
 {
-    Ref<HTMLScriptElement> protectFromMutationEvents(*this);
-
-    if (hasOneChild() && is<Text>(*firstChild())) {
-        downcast<Text>(*firstChild()).setData(value);
-        return;
-    }
-
-    if (hasChildNodes())
-        removeChildren();
-
-    appendChild(document().createTextNode(value.impl()), IGNORE_EXCEPTION);
+    setTextContent(value);
 }
 
 void HTMLScriptElement::setAsync(bool async)
@@ -101,7 +96,17 @@ void HTMLScriptElement::setAsync(bool async)
 
 bool HTMLScriptElement::async() const
 {
-    return fastHasAttribute(asyncAttr) || forceAsync();
+    return hasAttributeWithoutSynchronization(asyncAttr) || forceAsync();
+}
+
+void HTMLScriptElement::setCrossOrigin(const AtomicString& value)
+{
+    setAttributeWithoutSynchronization(crossoriginAttr, value);
+}
+
+String HTMLScriptElement::crossOrigin() const
+{
+    return parseCORSSettingsAttribute(attributeWithoutSynchronization(crossoriginAttr));
 }
 
 URL HTMLScriptElement::src() const
@@ -118,47 +123,52 @@ void HTMLScriptElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) cons
 
 String HTMLScriptElement::sourceAttributeValue() const
 {
-    return fastGetAttribute(srcAttr).string();
+    return attributeWithoutSynchronization(srcAttr).string();
 }
 
 String HTMLScriptElement::charsetAttributeValue() const
 {
-    return fastGetAttribute(charsetAttr).string();
+    return attributeWithoutSynchronization(charsetAttr).string();
 }
 
 String HTMLScriptElement::typeAttributeValue() const
 {
-    return getAttribute(typeAttr).string();
+    return attributeWithoutSynchronization(typeAttr).string();
 }
 
 String HTMLScriptElement::languageAttributeValue() const
 {
-    return fastGetAttribute(languageAttr).string();
+    return attributeWithoutSynchronization(languageAttr).string();
 }
 
 String HTMLScriptElement::forAttributeValue() const
 {
-    return fastGetAttribute(forAttr).string();
+    return attributeWithoutSynchronization(forAttr).string();
 }
 
 String HTMLScriptElement::eventAttributeValue() const
 {
-    return fastGetAttribute(eventAttr).string();
+    return attributeWithoutSynchronization(eventAttr).string();
 }
 
-bool HTMLScriptElement::asyncAttributeValue() const
+bool HTMLScriptElement::hasAsyncAttribute() const
 {
-    return fastHasAttribute(asyncAttr);
+    return hasAttributeWithoutSynchronization(asyncAttr);
 }
 
-bool HTMLScriptElement::deferAttributeValue() const
+bool HTMLScriptElement::hasDeferAttribute() const
 {
-    return fastHasAttribute(deferAttr);
+    return hasAttributeWithoutSynchronization(deferAttr);
+}
+
+bool HTMLScriptElement::hasNoModuleAttribute() const
+{
+    return hasAttributeWithoutSynchronization(nomoduleAttr);
 }
 
 bool HTMLScriptElement::hasSourceAttribute() const
 {
-    return fastHasAttribute(srcAttr);
+    return hasAttributeWithoutSynchronization(srcAttr);
 }
 
 void HTMLScriptElement::dispatchLoadEvent()
@@ -166,7 +176,7 @@ void HTMLScriptElement::dispatchLoadEvent()
     ASSERT(!haveFiredLoadEvent());
     setHaveFiredLoadEvent(true);
 
-    dispatchEvent(Event::create(eventNames().loadEvent, false, false));
+    dispatchEvent(Event::create(eventNames().loadEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 Ref<Element> HTMLScriptElement::cloneElementWithoutAttributesAndChildren(Document& targetDocument)

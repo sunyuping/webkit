@@ -26,12 +26,12 @@
 .filter-bar {
     display: flex;
 
-    height: 29px;
+    height: var(--navigation-bar-height);
 
     white-space: nowrap;
     overflow: hidden;
 
-    background-color: hsl(0, 0%, 94%);
+    background-color: var(--panel-background-color);
 }
 
 .filter-bar > .navigation-bar {
@@ -39,7 +39,8 @@
 }
 
 .filter-bar > .navigation-bar > .item {
-    padding: 0 0 3px 8px;
+    padding: 0 0 3px;
+    -webkit-padding-start: 8px;
 }
 
 .filter-bar > input[type="search"] {
@@ -62,7 +63,7 @@
     height: 22px;
 }
 
-.filter-bar > input[type="search"]::-webkit-input-placeholder {
+.filter-bar > input[type="search"]::placeholder {
     color: hsla(0, 0%, 0%, 0.35);
 }
 
@@ -72,12 +73,26 @@
     width: 13px;
     height: 13px;
 
-    margin-left: 6px;
-    margin-right: 6px;
+    margin: 4px 4px 3px 3px;
 
-    vertical-align: bottom;
+    align-self: center;
 
     background-image: url(../Images/FilterFieldGlyph.svg);
 
     -webkit-appearance: none;
+}
+
+.filter-bar.active > input[type="search"]::-webkit-search-decoration {
+    background-image: url(../Images/FilterFieldActiveGlyph.svg);
+}
+
+.filter-bar.indicating-progress > input[type="search"]::-webkit-search-decoration {
+    background-image: url(../Images/IndeterminateProgressSpinner1.svg);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+
+    animation-name: discrete-spinner;
+    animation-duration: 1s;
+    animation-iteration-count: infinite;
+    animation-timing-function: step-start;
 }

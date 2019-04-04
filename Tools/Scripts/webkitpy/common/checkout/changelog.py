@@ -66,6 +66,8 @@ class ChangeLogEntry(object):
     # e.g. (ChangeLogEntry.touched_functions): Added.
     touched_functions_regexp = r'^\s*\((?P<function>[^)]*)\):'
 
+    radar_id_regexp = r'^\s*(<?rdar://problems?/)?(?P<radar_id>-?\d{7,})>?'
+
     # e.g. Reviewed by Darin Adler.
     # (Discard everything after the first period to match more invalid lines.)
     reviewed_by_regexp = r'^\s*((\w+\s+)+and\s+)?(Review|Rubber(\s*|-)stamp)(s|ed)?\s+([a-z]+\s+)*?by\s+(?P<reviewer>.*?)[\.,]?\s*$'
@@ -110,6 +112,19 @@ class ChangeLogEntry(object):
         self._committer_list = committer_list
         self._revision = revision
         self._parse_entry()
+
+    @classmethod
+    def _parse_radar_id(cls, text):
+        if not text:
+            return None
+        match = re.search(ChangeLogEntry.radar_id_regexp, text, re.MULTILINE | re.IGNORECASE)
+        if not match:
+            return None
+        radar_id = int(match.group('radar_id'))
+        if radar_id < 0:
+            return None
+
+        return radar_id
 
     @classmethod
     def _parse_reviewer_text(cls, text):
@@ -294,6 +309,7 @@ class ChangeLogEntry(object):
             return False
         return True
 
+
 # FIXME: Various methods on ChangeLog should move into ChangeLogEntry instead.
 class ChangeLog(object):
 
@@ -307,7 +323,7 @@ class ChangeLog(object):
     def parse_latest_entry_from_file(cls, changelog_file):
         try:
             return next(cls.parse_entries_from_file(changelog_file))
-        except StopIteration, e:
+        except StopIteration as e:
             return None
 
     svn_blame_regexp = re.compile(r'^(\s*(?P<revision>\d+) [^ ]+)\s*(?P<line>.*?\n)')
@@ -429,14 +445,17 @@ class ChangeLog(object):
             self._filesystem.write_text_file(self.path, newdata)
 
     def set_short_description_and_bug_url(self, short_description, bug_url):
-        message = "%s\n%s%s" % (short_description, self._changelog_indent, bug_url)
-        bug_boilerplate = "%sNeed the bug URL (OOPS!).\n" % self._changelog_indent
         result = StringIO()
         with self._filesystem.open_text_file_for_reading(self.path) as file:
+            short_description_placeholder = "Need a short description (OOPS!)."
+            bug_url_placeholder = "Need the bug URL (OOPS!)."
             for line in file:
-                line = line.replace("Need a short description (OOPS!).", message)
-                if line != bug_boilerplate:
-                    result.write(line)
+                stripped = line.strip()
+                if stripped == short_description_placeholder:
+                    line = self._changelog_indent + short_description + "\n"
+                if stripped == bug_url_placeholder:
+                    line = self._changelog_indent + bug_url + "\n"
+                result.write(line)
         self._filesystem.write_text_file(self.path, result.getvalue())
 
     def delete_entries(self, num_entries):

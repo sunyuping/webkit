@@ -23,18 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.CodeMirrorBezierEditingController = class CodeMirrorBezierEditingController extends WebInspector.CodeMirrorEditingController
+WI.CodeMirrorBezierEditingController = class CodeMirrorBezierEditingController extends WI.CodeMirrorEditingController
 {
-    constructor(codeMirror, marker)
-    {
-        super(codeMirror, marker);
-    }
-
     // Public
 
     get initialValue()
     {
-        return WebInspector.CubicBezier.fromString(this.text);
+        return WI.CubicBezier.fromString(this.text);
     }
 
     get cssClassName()
@@ -44,14 +39,19 @@ WebInspector.CodeMirrorBezierEditingController = class CodeMirrorBezierEditingCo
 
     popoverWillPresent(popover)
     {
-        this._bezierEditor = new WebInspector.BezierEditor;
-        this._bezierEditor.addEventListener(WebInspector.BezierEditor.Event.BezierChanged, this._bezierEditorBezierChanged, this);
+        this._bezierEditor = new WI.BezierEditor;
+        this._bezierEditor.addEventListener(WI.BezierEditor.Event.BezierChanged, this._bezierEditorBezierChanged, this);
         popover.content = this._bezierEditor.element;
     }
 
     popoverDidPresent(popover)
     {
         this._bezierEditor.bezier = this.value;
+    }
+
+    popoverDidDismiss(popover)
+    {
+        this._bezierEditor.removeListeners();
     }
 
     // Private

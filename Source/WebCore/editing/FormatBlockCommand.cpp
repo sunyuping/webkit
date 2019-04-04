@@ -24,11 +24,11 @@
  */
 
 #include "config.h"
-#include "Element.h"
 #include "FormatBlockCommand.h"
+
 #include "Document.h"
-#include "ExceptionCodePlaceholder.h"
-#include "htmlediting.h"
+#include "Editing.h"
+#include "Element.h"
 #include "HTMLElement.h"
 #include "HTMLNames.h"
 #include "Range.h"
@@ -41,6 +41,7 @@ using namespace HTMLNames;
 
 static Node* enclosingBlockToSplitTreeTo(Node* startNode);
 static bool isElementForFormatBlock(const QualifiedName& tagName);
+
 static inline bool isElementForFormatBlock(Node* node)
 {
     return is<Element>(*node) && isElementForFormatBlock(downcast<Element>(*node).tagQName());
@@ -63,18 +64,19 @@ void FormatBlockCommand::formatSelection(const VisiblePosition& startOfSelection
 void FormatBlockCommand::formatRange(const Position& start, const Position& end, const Position& endOfSelection, RefPtr<Element>& blockNode)
 {
     Node* nodeToSplitTo = enclosingBlockToSplitTreeTo(start.deprecatedNode());
-    RefPtr<Node> outerBlock = (start.deprecatedNode() == nodeToSplitTo) ? start.deprecatedNode() : splitTreeToNode(start.deprecatedNode(), nodeToSplitTo);
+    ASSERT(nodeToSplitTo);
+    RefPtr<Node> outerBlock = (start.deprecatedNode() == nodeToSplitTo) ? start.deprecatedNode() : splitTreeToNode(*start.deprecatedNode(), *nodeToSplitTo);
     RefPtr<Node> nodeAfterInsertionPosition = outerBlock;
 
-    RefPtr<Range> range = Range::create(document(), start, endOfSelection);
+    auto range = Range::create(document(), start, endOfSelection);
     Element* refNode = enclosingBlockFlowElement(end);
     Element* root = editableRootForPosition(start);
     // Root is null for elements with contenteditable=false.
     if (!root || !refNode)
         return;
     if (isElementForFormatBlock(refNode->tagQName()) && start == startOfBlock(start)
-        && (end == endOfBlock(end) || isNodeVisiblyContainedWithin(refNode, range.get()))
-        && refNode != root && !root->isDescendantOf(refNode)) {
+        && (end == endOfBlock(end) || isNodeVisiblyContainedWithin(*refNode, range.get()))
+        && refNode != root && !root->isDescendantOf(*refNode)) {
         // Already in a block element that only contains the current paragraph
         if (refNode->hasTagName(tagName()))
             return;
@@ -85,7 +87,7 @@ void FormatBlockCommand::formatRange(const Position& start, const Position& end,
         // Create a new blockquote and insert it as a child of the root editable element. We accomplish
         // this by splitting all parents of the current paragraph up to that point.
         blockNode = createBlockElement();
-        insertNodeBefore(blockNode, nodeAfterInsertionPosition);
+        insertNodeBefore(*blockNode, *nodeAfterInsertionPosition);
     }
 
     Position lastParagraphInBlockNode = blockNode->lastChild() ? positionAfterNode(blockNode->lastChild()) : Position();
@@ -118,31 +120,30 @@ Element* FormatBlockCommand::elementForFormatBlockCommand(Range* range)
 
 bool isElementForFormatBlock(const QualifiedName& tagName)
 {
-    static NeverDestroyed<HashSet<QualifiedName>> blockTags;
-    if (blockTags.get().isEmpty()) {
-        blockTags.get().add(addressTag);
-        blockTags.get().add(articleTag);
-        blockTags.get().add(asideTag);
-        blockTags.get().add(blockquoteTag);
-        blockTags.get().add(ddTag);
-        blockTags.get().add(divTag);
-        blockTags.get().add(dlTag);
-        blockTags.get().add(dtTag);
-        blockTags.get().add(footerTag);
-        blockTags.get().add(h1Tag);
-        blockTags.get().add(h2Tag);
-        blockTags.get().add(h3Tag);
-        blockTags.get().add(h4Tag);
-        blockTags.get().add(h5Tag);
-        blockTags.get().add(h6Tag);
-        blockTags.get().add(headerTag);
-        blockTags.get().add(hgroupTag);
-        blockTags.get().add(mainTag);
-        blockTags.get().add(navTag);
-        blockTags.get().add(pTag);
-        blockTags.get().add(preTag);
-        blockTags.get().add(sectionTag);
-    }
+    static const auto blockTags = makeNeverDestroyed(HashSet<QualifiedName> {
+        addressTag,
+        articleTag,
+        asideTag,
+        blockquoteTag,
+        ddTag,
+        divTag,
+        dlTag,
+        dtTag,
+        footerTag,
+        h1Tag,
+        h2Tag,
+        h3Tag,
+        h4Tag,
+        h5Tag,
+        h6Tag,
+        headerTag,
+        hgroupTag,
+        mainTag,
+        navTag,
+        pTag,
+        preTag,
+        sectionTag,
+    });
     return blockTags.get().contains(tagName);
 }
 
@@ -156,7 +157,7 @@ Node* enclosingBlockToSplitTreeTo(Node* startNode)
             return n;
         if (isBlock(n))
             lastBlock = n;
-        if (isListElement(n))
+        if (isListHTMLElement(n))
             return n->parentNode()->hasEditableStyle() ? n->parentNode() : n;
     }
     return lastBlock;

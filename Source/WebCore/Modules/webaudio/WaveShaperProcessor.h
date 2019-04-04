@@ -22,14 +22,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WaveShaperProcessor_h
-#define WaveShaperProcessor_h
+#pragma once
 
 #include "AudioDSPKernel.h"
 #include "AudioDSPKernelProcessor.h"
 #include "AudioNode.h"
+#include <JavaScriptCore/Float32Array.h>
 #include <memory>
-#include <runtime/Float32Array.h>
 #include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
 
@@ -37,7 +36,7 @@ namespace WebCore {
 
 // WaveShaperProcessor is an AudioDSPKernelProcessor which uses WaveShaperDSPKernel objects to implement non-linear distortion effects.
 
-class WaveShaperProcessor : public AudioDSPKernelProcessor {
+class WaveShaperProcessor final : public AudioDSPKernelProcessor {
 public:
     enum OverSampleType {
         OverSampleNone,
@@ -49,9 +48,9 @@ public:
 
     virtual ~WaveShaperProcessor();
 
-    virtual std::unique_ptr<AudioDSPKernel> createKernel() override;
+    std::unique_ptr<AudioDSPKernel> createKernel() override;
 
-    virtual void process(const AudioBus* source, AudioBus* destination, size_t framesToProcess) override;
+    void process(const AudioBus* source, AudioBus* destination, size_t framesToProcess) override;
 
     void setCurve(Float32Array*);
     Float32Array* curve() { return m_curve.get(); }
@@ -70,5 +69,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // WaveShaperProcessor_h

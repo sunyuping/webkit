@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,13 +23,17 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef StringCommon_h
-#define StringCommon_h
+#pragma once
 
+#include <algorithm>
 #include <unicode/uchar.h>
 #include <wtf/ASCIICType.h>
+#include <wtf/NotFound.h>
+#include <wtf/UnalignedAccess.h>
 
 namespace WTF {
+
+using CodeUnitMatchFunction = bool (*)(UChar);
 
 template<typename CharacterTypeA, typename CharacterTypeB> bool equalIgnoringASCIICase(const CharacterTypeA*, const CharacterTypeB*, unsigned length);
 template<typename CharacterTypeA, typename CharacterTypeB> bool equalIgnoringASCIICase(const CharacterTypeA*, unsigned lengthA, const CharacterTypeB*, unsigned lengthB);
@@ -41,18 +45,8 @@ template<typename CharacterType, unsigned lowercaseLettersLength> bool equalLett
 
 template<typename StringClass, unsigned length> bool equalLettersIgnoringASCIICaseCommon(const StringClass&, const char (&lowercaseLetters)[length]);
 
-template<typename T>
-inline T loadUnaligned(const char* s)
-{
-#if COMPILER(CLANG)
-    T tmp;
-    memcpy(&tmp, s, sizeof(T));
-    return tmp;
-#else
-    // This may result in undefined behavior due to unaligned access.
-    return *reinterpret_cast<const T*>(s);
-#endif
-}
+bool equalIgnoringASCIICase(const char*, const char*);
+template<unsigned lowercaseLettersLength> bool equalLettersIgnoringASCIICase(const char*, const char (&lowercaseLetters)[lowercaseLettersLength]);
 
 // Do comparisons 8 or 4 bytes-at-a-time on architectures where it's safe.
 #if (CPU(X86_64) || CPU(ARM64)) && !ASAN_ENABLED
@@ -65,7 +59,7 @@ ALWAYS_INLINE bool equal(const LChar* aLChar, const LChar* bLChar, unsigned leng
 
     if (dwordLength) {
         for (unsigned i = 0; i != dwordLength; ++i) {
-            if (loadUnaligned<uint64_t>(a) != loadUnaligned<uint64_t>(b))
+            if (unalignedLoad<uint64_t>(a) != unalignedLoad<uint64_t>(b))
                 return false;
 
             a += sizeof(uint64_t);
@@ -74,7 +68,7 @@ ALWAYS_INLINE bool equal(const LChar* aLChar, const LChar* bLChar, unsigned leng
     }
 
     if (length & 4) {
-        if (loadUnaligned<uint32_t>(a) != loadUnaligned<uint32_t>(b))
+        if (unalignedLoad<uint32_t>(a) != unalignedLoad<uint32_t>(b))
             return false;
 
         a += sizeof(uint32_t);
@@ -82,7 +76,7 @@ ALWAYS_INLINE bool equal(const LChar* aLChar, const LChar* bLChar, unsigned leng
     }
 
     if (length & 2) {
-        if (loadUnaligned<uint16_t>(a) != loadUnaligned<uint16_t>(b))
+        if (unalignedLoad<uint16_t>(a) != unalignedLoad<uint16_t>(b))
             return false;
 
         a += sizeof(uint16_t);
@@ -104,7 +98,7 @@ ALWAYS_INLINE bool equal(const UChar* aUChar, const UChar* bUChar, unsigned leng
 
     if (dwordLength) {
         for (unsigned i = 0; i != dwordLength; ++i) {
-            if (loadUnaligned<uint64_t>(a) != loadUnaligned<uint64_t>(b))
+            if (unalignedLoad<uint64_t>(a) != unalignedLoad<uint64_t>(b))
                 return false;
 
             a += sizeof(uint64_t);
@@ -113,7 +107,7 @@ ALWAYS_INLINE bool equal(const UChar* aUChar, const UChar* bUChar, unsigned leng
     }
 
     if (length & 2) {
-        if (loadUnaligned<uint32_t>(a) != loadUnaligned<uint32_t>(b))
+        if (unalignedLoad<uint32_t>(a) != unalignedLoad<uint32_t>(b))
             return false;
 
         a += sizeof(uint32_t);
@@ -133,7 +127,7 @@ ALWAYS_INLINE bool equal(const LChar* aLChar, const LChar* bLChar, unsigned leng
 
     unsigned wordLength = length >> 2;
     for (unsigned i = 0; i != wordLength; ++i) {
-        if (loadUnaligned<uint32_t>(a) != loadUnaligned<uint32_t>(b))
+        if (unalignedLoad<uint32_t>(a) != unalignedLoad<uint32_t>(b))
             return false;
         a += sizeof(uint32_t);
         b += sizeof(uint32_t);
@@ -161,7 +155,7 @@ ALWAYS_INLINE bool equal(const UChar* aUChar, const UChar* bUChar, unsigned leng
 
     unsigned wordLength = length >> 1;
     for (unsigned i = 0; i != wordLength; ++i) {
-        if (loadUnaligned<uint32_t>(a) != loadUnaligned<uint32_t>(b))
+        if (unalignedLoad<uint32_t>(a) != unalignedLoad<uint32_t>(b))
             return false;
         a += sizeof(uint32_t);
         b += sizeof(uint32_t);
@@ -172,7 +166,7 @@ ALWAYS_INLINE bool equal(const UChar* aUChar, const UChar* bUChar, unsigned leng
 
     return true;
 }
-#elif PLATFORM(IOS) && WTF_ARM_ARCH_AT_LEAST(7) && !ASAN_ENABLED
+#elif PLATFORM(IOS_FAMILY) && WTF_ARM_ARCH_AT_LEAST(7) && !ASAN_ENABLED
 ALWAYS_INLINE bool equal(const LChar* a, const LChar* b, unsigned length)
 {
     bool isEqual = false;
@@ -321,6 +315,17 @@ ALWAYS_INLINE bool equalCommon(const StringClassA* a, const StringClassB* b)
     if (!a || !b)
         return false;
     return equal(*a, *b);
+}
+
+template<typename StringClass, unsigned length> bool equal(const StringClass& a, const UChar (&codeUnits)[length])
+{
+    if (a.length() != length)
+        return false;
+
+    if (a.is8Bit())
+        return equal(a.characters8(), codeUnits, length);
+
+    return equal(a.characters16(), codeUnits, length);
 }
 
 template<typename CharacterTypeA, typename CharacterTypeB>
@@ -590,20 +595,37 @@ template<typename CharacterType, unsigned lowercaseLettersLength> inline bool eq
     return charactersLength == lowercaseLettersStringLength && equalLettersIgnoringASCIICase(characters, lowercaseLetters, lowercaseLettersStringLength);
 }
 
-// This is intentionally not marked inline because it's used often and is not speed-critical enough to want it inlined everywhere.
-template<typename StringClass> bool equalLettersIgnoringASCIICaseCommonWithoutLength(const StringClass& string, const char* lowercaseLetters)
+template<typename StringClass> bool inline hasPrefixWithLettersIgnoringASCIICaseCommon(const StringClass& string, const char* lowercaseLetters, unsigned length)
 {
 #if !ASSERT_DISABLED
     ASSERT(*lowercaseLetters);
     for (const char* letter = lowercaseLetters; *letter; ++letter)
         ASSERT(toASCIILowerUnchecked(*letter) == *letter);
 #endif
-    unsigned length = string.length();
-    if (length != strlen(lowercaseLetters))
-        return false;
+    ASSERT(string.length() >= length);
+
     if (string.is8Bit())
         return equalLettersIgnoringASCIICase(string.characters8(), lowercaseLetters, length);
     return equalLettersIgnoringASCIICase(string.characters16(), lowercaseLetters, length);
+}
+
+// This is intentionally not marked inline because it's used often and is not speed-critical enough to want it inlined everywhere.
+template<typename StringClass> bool equalLettersIgnoringASCIICaseCommonWithoutLength(const StringClass& string, const char* lowercaseLetters)
+{
+    unsigned length = string.length();
+    if (length != strlen(lowercaseLetters))
+        return false;
+    return hasPrefixWithLettersIgnoringASCIICaseCommon(string, lowercaseLetters, length);
+}
+
+template<typename StringClass> bool startsWithLettersIgnoringASCIICaseCommonWithoutLength(const StringClass& string, const char* lowercaseLetters)
+{
+    size_t prefixLength = strlen(lowercaseLetters);
+    if (!prefixLength)
+        return true;
+    if (string.length() < prefixLength)
+        return false;
+    return hasPrefixWithLettersIgnoringASCIICaseCommon(string, lowercaseLetters, prefixLength);
 }
 
 template<typename StringClass, unsigned length> inline bool equalLettersIgnoringASCIICaseCommon(const StringClass& string, const char (&lowercaseLetters)[length])
@@ -614,9 +636,25 @@ template<typename StringClass, unsigned length> inline bool equalLettersIgnoring
     return equalLettersIgnoringASCIICaseCommonWithoutLength(string, pointer);
 }
 
+template<typename StringClass, unsigned length> inline bool startsWithLettersIgnoringASCIICaseCommon(const StringClass& string, const char (&lowercaseLetters)[length])
+{
+    const char* pointer = lowercaseLetters;
+    return startsWithLettersIgnoringASCIICaseCommonWithoutLength(string, pointer);
+}
+
+inline bool equalIgnoringASCIICase(const char* a, const char* b)
+{
+    auto length = strlen(a);
+    return length == strlen(b) && equalIgnoringASCIICase(a, b, length);
+}
+
+template<unsigned lowercaseLettersLength> inline bool equalLettersIgnoringASCIICase(const char* string, const char (&lowercaseLetters)[lowercaseLettersLength])
+{
+    auto length = strlen(lowercaseLetters);
+    return strlen(string) == length && equalLettersIgnoringASCIICase(string, lowercaseLetters, length);
+}
+
 }
 
 using WTF::equalIgnoringASCIICase;
 using WTF::equalLettersIgnoringASCIICase;
-
-#endif // StringCommon_h

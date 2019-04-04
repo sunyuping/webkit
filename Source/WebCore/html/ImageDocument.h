@@ -22,8 +22,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ImageDocument_h
-#define ImageDocument_h
+#pragma once
 
 #include "HTMLDocument.h"
 
@@ -33,6 +32,7 @@ class ImageDocumentElement;
 class HTMLImageElement;
 
 class ImageDocument final : public HTMLDocument {
+    WTF_MAKE_ISO_ALLOCATED(ImageDocument);
 public:
     static Ref<ImageDocument> create(Frame& frame, const URL& url)
     {
@@ -46,7 +46,7 @@ public:
 
     void disconnectImageElement() { m_imageElement = nullptr; }
 
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     void windowSizeChanged();
     void imageClicked(int x, int y);
 #endif
@@ -54,12 +54,12 @@ public:
 private:
     ImageDocument(Frame&, const URL&);
 
-    virtual Ref<DocumentParser> createParser() override;
+    Ref<DocumentParser> createParser() override;
 
     LayoutSize imageSize();
 
     void createDocumentStructure();
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     void resizeImageToFit();
     void restoreImageSize();
     bool imageFitsInWindow();
@@ -73,7 +73,7 @@ private:
     // Whether enough of the image has been loaded to determine its size.
     bool m_imageSizeIsKnown;
 
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
     // Whether the image is shrunk to fit or not.
     bool m_didShrinkImage;
 #endif
@@ -88,5 +88,3 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ImageDocument)
     static bool isType(const WebCore::Document& document) { return document.isImageDocument(); }
     static bool isType(const WebCore::Node& node) { return is<WebCore::Document>(node) && isType(downcast<WebCore::Document>(node)); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // ImageDocument_h

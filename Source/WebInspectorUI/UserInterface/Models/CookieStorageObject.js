@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.CookieStorageObject = class CookieStorageObject
+WI.CookieStorageObject = class CookieStorageObject
 {
     constructor(host)
     {
@@ -35,12 +35,12 @@ WebInspector.CookieStorageObject = class CookieStorageObject
     static cookieMatchesResourceURL(cookie, resourceURL)
     {
         var parsedURL = parseURL(resourceURL);
-        if (!parsedURL || !WebInspector.CookieStorageObject.cookieDomainMatchesResourceDomain(cookie.domain, parsedURL.host))
+        if (!parsedURL || !WI.CookieStorageObject.cookieDomainMatchesResourceDomain(cookie.domain, parsedURL.host))
             return false;
 
-        return (parsedURL.path.startsWith(cookie.path)
+        return parsedURL.path.startsWith(cookie.path)
             && (!cookie.port || parsedURL.port === cookie.port)
-            && (!cookie.secure || parsedURL.scheme === "https"));
+            && (!cookie.secure || parsedURL.scheme === "https");
     }
 
     static cookieDomainMatchesResourceDomain(cookieDomain, resourceDomain)
@@ -60,9 +60,9 @@ WebInspector.CookieStorageObject = class CookieStorageObject
     saveIdentityToCookie(cookie)
     {
         // FIXME <https://webkit.org/b/151413>: This class should actually store cookie data for this host.
-        cookie[WebInspector.CookieStorageObject.CookieHostCookieKey] = this.host;
+        cookie[WI.CookieStorageObject.CookieHostCookieKey] = this.host;
     }
 };
 
-WebInspector.CookieStorageObject.TypeIdentifier = "cookie-storage";
-WebInspector.CookieStorageObject.CookieHostCookieKey = "cookie-storage-host";
+WI.CookieStorageObject.TypeIdentifier = "cookie-storage";
+WI.CookieStorageObject.CookieHostCookieKey = "cookie-storage-host";

@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ThemeTypes_h
-#define ThemeTypes_h
+#pragma once
 
 namespace WebCore {
 
@@ -49,9 +48,18 @@ enum ControlPart {
 #if ENABLE(SERVICE_CONTROLS)
     ImageControlsButtonPart,
 #endif
+#if ENABLE(APPLE_PAY)
+    ApplePayButtonPart,
+#endif
+#if ENABLE(INPUT_TYPE_COLOR)
+    ColorWellPart,
+#endif
+#if ENABLE(DATALIST_ELEMENT)
+    ListButtonPart,
+#endif
     TextAreaPart,
 #if ENABLE(ATTACHMENT_ELEMENT)
-    AttachmentPart,
+    AttachmentPart, BorderlessAttachmentPart,
 #endif
     CapsLockIndicatorPart
 };
@@ -73,4 +81,3 @@ enum ThemeColor {
 };
 
 }
-#endif

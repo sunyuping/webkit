@@ -10,30 +10,42 @@
 #ifndef LIBANGLE_COMPILER_H_
 #define LIBANGLE_COMPILER_H_
 
+#include "GLSLANG/ShaderLang.h"
 #include "libANGLE/Error.h"
+#include "libANGLE/RefCountObject.h"
 
 namespace rx
 {
 class CompilerImpl;
+class GLImplFactory;
 }
 
 namespace gl
 {
+class ContextState;
 
-class Compiler final
+class Compiler final : public RefCountObjectNoID
 {
   public:
-    explicit Compiler(rx::CompilerImpl *impl);
-    ~Compiler();
+    Compiler(rx::GLImplFactory *implFactory, const ContextState &data);
 
-    Error release();
-
-    rx::CompilerImpl *getImplementation();
+    ShHandle getCompilerHandle(GLenum type);
+    ShShaderOutput getShaderOutputType() const { return mOutputType; }
+    const std::string &getBuiltinResourcesString(GLenum type);
 
   private:
-    rx::CompilerImpl *mCompiler;
+    ~Compiler() override;
+    std::unique_ptr<rx::CompilerImpl> mImplementation;
+    ShShaderSpec mSpec;
+    ShShaderOutput mOutputType;
+    ShBuiltInResources mResources;
+
+    ShHandle mFragmentCompiler;
+    ShHandle mVertexCompiler;
+    ShHandle mComputeCompiler;
+    ShHandle mGeometryCompiler;
 };
 
-}
+}  // namespace gl
 
 #endif // LIBANGLE_COMPILER_H_

@@ -24,8 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
  
-#ifndef TextControlInnerElements_h
-#define TextControlInnerElements_h
+#pragma once
 
 #include "HTMLDivElement.h"
 #include <wtf/Forward.h>
@@ -35,67 +34,84 @@ namespace WebCore {
 class RenderTextControlInnerBlock;
 
 class TextControlInnerContainer final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(TextControlInnerContainer);
 public:
     static Ref<TextControlInnerContainer> create(Document&);
 protected:
     TextControlInnerContainer(Document&);
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    Optional<ElementStyle> resolveCustomStyle(const RenderStyle& parentStyle, const RenderStyle* shadowHostStyle) override;
 };
 
 class TextControlInnerElement final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(TextControlInnerElement);
 public:
     static Ref<TextControlInnerElement> create(Document&);
 
 protected:
     TextControlInnerElement(Document&);
-    virtual RefPtr<RenderStyle> customStyleForRenderer(RenderStyle& parentStyle) override;
+    Optional<ElementStyle> resolveCustomStyle(const RenderStyle& parentStyle, const RenderStyle* shadowHostStyle) override;
 
 private:
-    virtual bool isMouseFocusable() const override { return false; }
+    bool isMouseFocusable() const override { return false; }
 };
 
 class TextControlInnerTextElement final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(TextControlInnerTextElement);
 public:
     static Ref<TextControlInnerTextElement> create(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
     RenderTextControlInnerBlock* renderer() const;
 
 private:
     TextControlInnerTextElement(Document&);
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual RefPtr<RenderStyle> customStyleForRenderer(RenderStyle& parentStyle) override;
-    virtual bool isMouseFocusable() const override { return false; }
-    virtual bool isTextControlInnerTextElement() const override { return true; }
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    Optional<ElementStyle> resolveCustomStyle(const RenderStyle& parentStyle, const RenderStyle* shadowHostStyle) override;
+    bool isMouseFocusable() const override { return false; }
+    bool isTextControlInnerTextElement() const override { return true; }
+};
+
+class TextControlPlaceholderElement final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(TextControlPlaceholderElement);
+public:
+    static Ref<TextControlPlaceholderElement> create(Document&);
+
+private:
+    TextControlPlaceholderElement(Document&);
+    
+    Optional<ElementStyle> resolveCustomStyle(const RenderStyle& parentStyle, const RenderStyle* shadowHostStyle) override;
 };
 
 class SearchFieldResultsButtonElement final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(SearchFieldResultsButtonElement);
 public:
     static Ref<SearchFieldResultsButtonElement> create(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override;
+    void defaultEventHandler(Event&) override;
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override;
 #endif
 
 private:
     SearchFieldResultsButtonElement(Document&);
-    virtual bool isMouseFocusable() const override { return false; }
+    bool isMouseFocusable() const override { return false; }
 };
 
 class SearchFieldCancelButtonElement final : public HTMLDivElement {
+    WTF_MAKE_ISO_ALLOCATED(SearchFieldCancelButtonElement);
 public:
     static Ref<SearchFieldCancelButtonElement> create(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
-#if !PLATFORM(IOS)
-    virtual bool willRespondToMouseClickEvents() override;
+    void defaultEventHandler(Event&) override;
+#if !PLATFORM(IOS_FAMILY)
+    bool willRespondToMouseClickEvents() override;
 #endif
 
 private:
     SearchFieldCancelButtonElement(Document&);
-    virtual bool isMouseFocusable() const override { return false; }
+    bool isMouseFocusable() const override { return false; }
 };
 
 } // namespace WebCore
@@ -104,5 +120,3 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::TextControlInnerTextElement)
     static bool isType(const WebCore::HTMLElement& element) { return element.isTextControlInnerTextElement(); }
     static bool isType(const WebCore::Node& node) { return is<WebCore::HTMLElement>(node) && isType(downcast<WebCore::HTMLElement>(node)); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif

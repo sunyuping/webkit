@@ -18,8 +18,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGInlineFlowBox_h
-#define SVGInlineFlowBox_h
+#pragma once
 
 #include "InlineFlowBox.h"
 #include "RenderSVGInline.h"
@@ -29,6 +28,7 @@ namespace WebCore {
 class RenderSVGInlineText;
 
 class SVGInlineFlowBox final : public InlineFlowBox {
+    WTF_MAKE_ISO_ALLOCATED(SVGInlineFlowBox);
 public:
     SVGInlineFlowBox(RenderSVGInline& renderer)
         : InlineFlowBox(renderer)
@@ -38,15 +38,15 @@ public:
 
     RenderSVGInline& renderer() { return static_cast<RenderSVGInline&>(InlineFlowBox::renderer()); }
 
-    virtual FloatRect calculateBoundaries() const override;
+    FloatRect calculateBoundaries() const override;
 
     void setLogicalHeight(float h) { m_logicalHeight = h; }
     void paintSelectionBackground(PaintInfo&);
 
 private:
-    virtual bool isSVGInlineFlowBox() const override { return true; }
-    virtual float virtualLogicalHeight() const override { return m_logicalHeight; }
-    virtual void paint(PaintInfo&, const LayoutPoint&, LayoutUnit lineTop, LayoutUnit lineBottom) override;
+    bool isSVGInlineFlowBox() const override { return true; }
+    float virtualLogicalHeight() const override { return m_logicalHeight; }
+    void paint(PaintInfo&, const LayoutPoint&, LayoutUnit lineTop, LayoutUnit lineBottom) override;
 
     float m_logicalHeight;
 };
@@ -54,5 +54,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_INLINE_BOX(SVGInlineFlowBox, isSVGInlineFlowBox())
-
-#endif // SVGInlineFlowBox_h

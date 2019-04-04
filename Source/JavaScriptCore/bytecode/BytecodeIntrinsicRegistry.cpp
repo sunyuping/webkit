@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,16 +26,23 @@
 
 #include "config.h"
 #include "BytecodeIntrinsicRegistry.h"
+
+#include "ArrayIteratorPrototype.h"
+#include "BuiltinNames.h"
 #include "BytecodeGenerator.h"
-#include "JSArrayIterator.h"
+#include "IterationKind.h"
+#include "JSAsyncGeneratorFunction.h"
 #include "JSCJSValueInlines.h"
+#include "JSGeneratorFunction.h"
+#include "JSGlobalObject.h"
+#include "JSModuleLoader.h"
 #include "JSPromise.h"
 #include "Nodes.h"
 #include "StrongInlines.h"
 
 namespace JSC {
 
-#define INITIALIZE_BYTECODE_INTRINSIC_NAMES_TO_SET(name) m_bytecodeIntrinsicMap.add(vm.propertyNames->name##PrivateName.impl(), &BytecodeIntrinsicNode::emit_intrinsic_##name);
+#define INITIALIZE_BYTECODE_INTRINSIC_NAMES_TO_SET(name) m_bytecodeIntrinsicMap.add(vm.propertyNames->builtinNames().name##PrivateName().impl(), &BytecodeIntrinsicNode::emit_intrinsic_##name);
 
 BytecodeIntrinsicRegistry::BytecodeIntrinsicRegistry(VM& vm)
     : m_vm(vm)
@@ -44,19 +52,41 @@ BytecodeIntrinsicRegistry::BytecodeIntrinsicRegistry(VM& vm)
     JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_EACH_NAME(INITIALIZE_BYTECODE_INTRINSIC_NAMES_TO_SET)
 
     m_undefined.set(m_vm, jsUndefined());
-    m_arrayIterationKindKey.set(m_vm, jsNumber(ArrayIterateKey));
-    m_arrayIterationKindValue.set(m_vm, jsNumber(ArrayIterateValue));
-    m_arrayIterationKindKeyValue.set(m_vm, jsNumber(ArrayIterateKeyValue));
+    m_Infinity.set(m_vm, jsDoubleNumber(std::numeric_limits<double>::infinity()));
+    m_iterationKindKey.set(m_vm, jsNumber(IterateKey));
+    m_iterationKindValue.set(m_vm, jsNumber(IterateValue));
+    m_iterationKindKeyValue.set(m_vm, jsNumber(IterateKeyValue));
+    m_MAX_ARRAY_INDEX.set(m_vm, jsNumber(MAX_ARRAY_INDEX));
+    m_MAX_STRING_LENGTH.set(m_vm, jsNumber(JSString::MaxLength));
+    m_MAX_SAFE_INTEGER.set(m_vm, jsDoubleNumber(maxSafeInteger()));
+    m_ModuleFetch.set(m_vm, jsNumber(static_cast<unsigned>(JSModuleLoader::Status::Fetch)));
+    m_ModuleInstantiate.set(m_vm, jsNumber(static_cast<unsigned>(JSModuleLoader::Status::Instantiate)));
+    m_ModuleSatisfy.set(m_vm, jsNumber(static_cast<unsigned>(JSModuleLoader::Status::Satisfy)));
+    m_ModuleLink.set(m_vm, jsNumber(static_cast<unsigned>(JSModuleLoader::Status::Link)));
+    m_ModuleReady.set(m_vm, jsNumber(static_cast<unsigned>(JSModuleLoader::Status::Ready)));
+    m_promiseRejectionReject.set(m_vm, jsNumber(static_cast<unsigned>(JSPromiseRejectionOperation::Reject)));
+    m_promiseRejectionHandle.set(m_vm, jsNumber(static_cast<unsigned>(JSPromiseRejectionOperation::Handle)));
     m_promiseStatePending.set(m_vm, jsNumber(static_cast<unsigned>(JSPromise::Status::Pending)));
     m_promiseStateFulfilled.set(m_vm, jsNumber(static_cast<unsigned>(JSPromise::Status::Fulfilled)));
     m_promiseStateRejected.set(m_vm, jsNumber(static_cast<unsigned>(JSPromise::Status::Rejected)));
-    m_symbolIterator.set(m_vm, Symbol::create(m_vm, static_cast<SymbolImpl&>(*m_vm.propertyNames->iteratorSymbol.impl())));
-    m_symbolSearch.set(m_vm, Symbol::create(m_vm, static_cast<SymbolImpl&>(*m_vm.propertyNames->searchSymbol.impl())));
+    m_GeneratorResumeModeNormal.set(m_vm, jsNumber(static_cast<int32_t>(JSGeneratorFunction::GeneratorResumeMode::NormalMode)));
+    m_GeneratorResumeModeThrow.set(m_vm, jsNumber(static_cast<int32_t>(JSGeneratorFunction::GeneratorResumeMode::ThrowMode)));
+    m_GeneratorResumeModeReturn.set(m_vm, jsNumber(static_cast<int32_t>(JSGeneratorFunction::GeneratorResumeMode::ReturnMode)));
+    m_GeneratorStateCompleted.set(m_vm, jsNumber(static_cast<int32_t>(JSGeneratorFunction::GeneratorState::Completed)));
+    m_GeneratorStateExecuting.set(m_vm, jsNumber(static_cast<int32_t>(JSGeneratorFunction::GeneratorState::Executing)));
+    m_AsyncGeneratorStateCompleted.set(m_vm, jsNumber(static_cast<int32_t>(JSAsyncGeneratorFunction::AsyncGeneratorState::Completed)));
+    m_AsyncGeneratorStateExecuting.set(m_vm, jsNumber(static_cast<int32_t>(JSAsyncGeneratorFunction::AsyncGeneratorState::Executing)));
+    m_AsyncGeneratorStateSuspendedStart.set(m_vm, jsNumber(static_cast<int32_t>(JSAsyncGeneratorFunction::AsyncGeneratorState::SuspendedStart)));
+    m_AsyncGeneratorStateSuspendedYield.set(m_vm, jsNumber(static_cast<int32_t>(JSAsyncGeneratorFunction::AsyncGeneratorState::SuspendedYield)));
+    m_AsyncGeneratorStateAwaitingReturn.set(m_vm, jsNumber(static_cast<int32_t>(JSAsyncGeneratorFunction::AsyncGeneratorState::AwaitingReturn)));
+    m_AsyncGeneratorSuspendReasonYield.set(m_vm, jsNumber(static_cast<int32_t>(JSAsyncGeneratorFunction::AsyncGeneratorSuspendReason::Yield)));
+    m_AsyncGeneratorSuspendReasonAwait.set(m_vm, jsNumber(static_cast<int32_t>(JSAsyncGeneratorFunction::AsyncGeneratorSuspendReason::Await)));
+    m_AsyncGeneratorSuspendReasonNone.set(m_vm, jsNumber(static_cast<int32_t>(JSAsyncGeneratorFunction::AsyncGeneratorSuspendReason::None)));
 }
 
 BytecodeIntrinsicNode::EmitterType BytecodeIntrinsicRegistry::lookup(const Identifier& ident) const
 {
-    if (!m_vm.propertyNames->isPrivateName(ident))
+    if (!ident.isPrivateName())
         return nullptr;
     auto iterator = m_bytecodeIntrinsicMap.find(ident.impl());
     if (iterator == m_bytecodeIntrinsicMap.end())
@@ -69,8 +99,18 @@ BytecodeIntrinsicNode::EmitterType BytecodeIntrinsicRegistry::lookup(const Ident
     { \
         return m_##name.get(); \
     }
-    JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_EACH_NAME(JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS)
+    JSC_COMMON_BYTECODE_INTRINSIC_CONSTANTS_SIMPLE_EACH_NAME(JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS)
 #undef JSC_DECLARE_BYTECODE_INTRINSIC_CONSTANT_GENERATORS
+
+JSValue BytecodeIntrinsicRegistry::sentinelMapBucketValue(BytecodeGenerator& generator)
+{
+    return generator.vm()->sentinelMapBucket();
+}
+
+JSValue BytecodeIntrinsicRegistry::sentinelSetBucketValue(BytecodeGenerator& generator)
+{
+    return generator.vm()->sentinelSetBucket();
+}
 
 } // namespace JSC
 

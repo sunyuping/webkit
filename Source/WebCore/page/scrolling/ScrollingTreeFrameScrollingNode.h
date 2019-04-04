@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ScrollingTreeFrameScrollingNode_h
-#define ScrollingTreeFrameScrollingNode_h
+#pragma once
 
 #if ENABLE(ASYNC_SCROLLING)
 
@@ -36,42 +35,49 @@ class PlatformWheelEvent;
 class ScrollingTree;
 class ScrollingStateScrollingNode;
 
-class ScrollingTreeFrameScrollingNode : public ScrollingTreeScrollingNode {
+class WEBCORE_EXPORT ScrollingTreeFrameScrollingNode : public ScrollingTreeScrollingNode {
 public:
     virtual ~ScrollingTreeFrameScrollingNode();
 
-    virtual void updateBeforeChildren(const ScrollingStateNode&) override;
+    void commitStateBeforeChildren(const ScrollingStateNode&) override;
     
-    // FIXME: We should implement this when we support ScrollingTreeScrollingNodes as children.
-    virtual void updateLayersAfterAncestorChange(const ScrollingTreeNode& /*changedNode*/, const FloatRect& /*fixedPositionRect*/, const FloatSize& /*cumulativeDelta*/) override { }
-
-    virtual void handleWheelEvent(const PlatformWheelEvent&) override = 0;
-    virtual void setScrollPosition(const FloatPoint&) override;
-    virtual void setScrollPositionWithoutContentEdgeConstraints(const FloatPoint&) override = 0;
-
-    virtual void updateLayersAfterViewportChange(const FloatRect& fixedPositionRect, double scale) override = 0;
-    virtual void updateLayersAfterDelegatedScroll(const FloatPoint&) override { }
-
     SynchronousScrollingReasons synchronousScrollingReasons() const { return m_synchronousScrollingReasons; }
     bool shouldUpdateScrollLayerPositionSynchronously() const { return m_synchronousScrollingReasons; }
     bool fixedElementsLayoutRelativeToFrame() const { return m_fixedElementsLayoutRelativeToFrame; }
 
     FloatSize viewToContentsOffset(const FloatPoint& scrollPosition) const;
+    FloatRect layoutViewportForScrollPosition(const FloatPoint& visibleContentOrigin, float scale) const;
 
-protected:
-    ScrollingTreeFrameScrollingNode(ScrollingTree&, ScrollingNodeID);
-
-    void scrollBy(const FloatSize&);
-    void scrollByWithoutContentEdgeConstraints(const FloatSize&);
+    FloatRect layoutViewport() const { return m_layoutViewport; };
+    void setLayoutViewport(const FloatRect& r) { m_layoutViewport = r; };
 
     float frameScaleFactor() const { return m_frameScaleFactor; }
+
+protected:
+    ScrollingTreeFrameScrollingNode(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
+
     int headerHeight() const { return m_headerHeight; }
     int footerHeight() const { return m_footerHeight; }
     float topContentInset() const { return m_topContentInset; }
-    
+
+    FloatPoint minLayoutViewportOrigin() const { return m_minLayoutViewportOrigin; }
+    FloatPoint maxLayoutViewportOrigin() const { return m_maxLayoutViewportOrigin; }
+
     ScrollBehaviorForFixedElements scrollBehaviorForFixedElements() const { return m_behaviorForFixed; }
-    
+
 private:
+    LayoutPoint parentToLocalPoint(LayoutPoint) const final;
+    LayoutPoint localToContentsPoint(LayoutPoint) const final;
+
+    WEBCORE_EXPORT void updateViewportForCurrentScrollPosition(Optional<FloatRect>) override;
+    bool scrollPositionAndLayoutViewportMatch(const FloatPoint& position, Optional<FloatRect> overrideLayoutViewport) override;
+
+    void dumpProperties(WTF::TextStream&, ScrollingStateTreeAsTextBehavior) const override;
+
+    FloatRect m_layoutViewport;
+    FloatPoint m_minLayoutViewportOrigin;
+    FloatPoint m_maxLayoutViewportOrigin;
+    
     float m_frameScaleFactor { 1 };
     float m_topContentInset { 0 };
 
@@ -89,5 +95,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_SCROLLING_NODE(ScrollingTreeFrameScrollingNode, isFrameScrollingNode())
 
 #endif // ENABLE(ASYNC_SCROLLING)
-
-#endif // ScrollingTreeScrollingNode_h

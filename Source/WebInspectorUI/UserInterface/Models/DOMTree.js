@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.DOMTree = class DOMTree extends WebInspector.Object
+WI.DOMTree = class DOMTree extends WI.Object
 {
     constructor(frame)
     {
@@ -33,43 +33,25 @@ WebInspector.DOMTree = class DOMTree extends WebInspector.Object
 
         this._rootDOMNode = null;
         this._requestIdentifier = 0;
-        this._flowMap = {};
 
-        this._frame.addEventListener(WebInspector.Frame.Event.PageExecutionContextChanged, this._framePageExecutionContextChanged, this);
+        this._frame.addEventListener(WI.Frame.Event.PageExecutionContextChanged, this._framePageExecutionContextChanged, this);
 
-        WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.DocumentUpdated, this._documentUpdated, this);
+        WI.domManager.addEventListener(WI.DOMManager.Event.DocumentUpdated, this._documentUpdated, this);
 
         // Only add extra event listeners when not the main frame. Since DocumentUpdated is enough for the main frame.
         if (!this._frame.isMainFrame()) {
-            WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.NodeRemoved, this._nodeRemoved, this);
-            this._frame.addEventListener(WebInspector.Frame.Event.MainResourceDidChange, this._frameMainResourceDidChange, this);
+            WI.domManager.addEventListener(WI.DOMManager.Event.NodeRemoved, this._nodeRemoved, this);
+            this._frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this._frameMainResourceDidChange, this);
         }
-
-        WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.ContentFlowListWasUpdated, this._contentFlowListWasUpdated, this);
-        WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.ContentFlowWasAdded, this._contentFlowWasAdded, this);
-        WebInspector.domTreeManager.addEventListener(WebInspector.DOMTreeManager.Event.ContentFlowWasRemoved, this._contentFlowWasRemoved, this);
     }
 
     // Public
 
-    get frame()
-    {
-        return this._frame;
-    }
-
-    get flowMap()
-    {
-        return this._flowMap;
-    }
-
-    get flowsCount()
-    {
-        return Object.keys(this._flowMap).length;
-    }
+    get frame() { return this._frame; }
 
     disconnect()
     {
-        WebInspector.domTreeManager.removeEventListener(null, null, this);
+        WI.domManager.removeEventListener(null, null, this);
         this._frame.removeEventListener(null, null, this);
     }
 
@@ -89,7 +71,7 @@ WebInspector.DOMTree = class DOMTree extends WebInspector.Object
         {
             this._invalidateTimeoutIdentifier = undefined;
 
-            this.dispatchEventToListeners(WebInspector.DOMTree.Event.RootDOMNodeInvalidated);
+            this.dispatchEventToListeners(WI.DOMTree.Event.RootDOMNodeInvalidated);
         }
 
         // Delay the invalidation on a timeout to coalesce multiple calls to invalidate.
@@ -124,14 +106,6 @@ WebInspector.DOMTree = class DOMTree extends WebInspector.Object
         this._requestRootDOMNode();
     }
 
-    requestContentFlowList()
-    {
-        this.requestRootDOMNode(function(rootNode) {
-            // Let the backend know we are interested about the named flow events for this document.
-            WebInspector.domTreeManager.getNamedFlowCollection(rootNode.id);
-        });
-    }
-
     // Private
 
     _requestRootDOMNode()
@@ -157,7 +131,7 @@ WebInspector.DOMTree = class DOMTree extends WebInspector.Object
             }
 
             // Convert the RemoteObject to a DOMNode by asking the backend to push it to us.
-            var remoteObject = WebInspector.RemoteObject.fromPayload(result);
+            var remoteObject = WI.RemoteObject.fromPayload(result);
             remoteObject.pushNodeToFrontend(rootDOMNodeAvailable.bind(this, remoteObject));
         }
 
@@ -175,7 +149,7 @@ WebInspector.DOMTree = class DOMTree extends WebInspector.Object
                 return;
             }
 
-            this._rootDOMNode = WebInspector.domTreeManager.nodeForId(nodeId);
+            this._rootDOMNode = WI.domManager.nodeForId(nodeId);
 
             console.assert(this._rootDOMNode);
             if (!this._rootDOMNode) {
@@ -211,7 +185,7 @@ WebInspector.DOMTree = class DOMTree extends WebInspector.Object
         // a specific way to request a document given a frame identifier. The child frame approach
         // involves evaluating the JavaScript "document" and resolving that into a DOMNode.
         if (this._frame.isMainFrame())
-            WebInspector.domTreeManager.requestDocument(mainDocumentAvailable.bind(this));
+            WI.domManager.requestDocument(mainDocumentAvailable.bind(this));
         else {
             var contextId = this._frame.pageExecutionContext.id;
             RuntimeAgent.evaluate.invoke({expression: appendWebInspectorSourceURL("document"), objectGroup: "", includeCommandLineAPI: false, doNotPauseOnExceptionsAndMuteConsole: true, contextId, returnByValue: false, generatePreview: false}, rootObjectAvailable.bind(this));
@@ -251,83 +225,8 @@ WebInspector.DOMTree = class DOMTree extends WebInspector.Object
             this._requestRootDOMNode();
         }
     }
-
-    _isContentFlowInCurrentDocument(flow)
-    {
-        return this._rootDOMNode && this._rootDOMNode.id === flow.documentNodeIdentifier;
-    }
-
-    _contentFlowListWasUpdated(event)
-    {
-        if (!this._rootDOMNode || this._rootDOMNode.id !== event.data.documentNodeIdentifier)
-            return;
-
-        // Assume that all the flows have been removed.
-        var deletedFlows = {};
-        for (var flowId in this._flowMap)
-            deletedFlows[flowId] = this._flowMap[flowId];
-
-        var newFlows = [];
-
-        var flows = event.data.flows;
-        for (var i = 0; i < flows.length; ++i) {
-            var flow = flows[i];
-            // All the flows received from WebKit are part of the same document.
-            console.assert(this._isContentFlowInCurrentDocument(flow));
-
-            var flowId = flow.id;
-            if (this._flowMap.hasOwnProperty(flowId)) {
-                // Remove the flow name from the deleted list.
-                console.assert(deletedFlows.hasOwnProperty(flowId));
-                delete deletedFlows[flowId];
-            } else {
-                this._flowMap[flowId] = flow;
-                newFlows.push(flow);
-            }
-        }
-
-        for (var flowId in deletedFlows) {
-            delete this._flowMap[flowId];
-        }
-
-        // Send update events to listeners.
-
-        for (var flowId in deletedFlows)
-            this.dispatchEventToListeners(WebInspector.DOMTree.Event.ContentFlowWasRemoved, {flow: deletedFlows[flowId]});
-
-        for (var i = 0; i < newFlows.length; ++i)
-            this.dispatchEventToListeners(WebInspector.DOMTree.Event.ContentFlowWasAdded, {flow: newFlows[i]});
-    }
-
-    _contentFlowWasAdded(event)
-    {
-        var flow = event.data.flow;
-        if (!this._isContentFlowInCurrentDocument(flow))
-            return;
-
-        var flowId = flow.id;
-        console.assert(!this._flowMap.hasOwnProperty(flowId));
-        this._flowMap[flowId] = flow;
-
-        this.dispatchEventToListeners(WebInspector.DOMTree.Event.ContentFlowWasAdded, {flow});
-    }
-
-    _contentFlowWasRemoved(event)
-    {
-        var flow = event.data.flow;
-        if (!this._isContentFlowInCurrentDocument(flow))
-            return;
-
-        var flowId = flow.id;
-        console.assert(this._flowMap.hasOwnProperty(flowId));
-        delete this._flowMap[flowId];
-
-        this.dispatchEventToListeners(WebInspector.DOMTree.Event.ContentFlowWasRemoved, {flow});
-    }
 };
 
-WebInspector.DOMTree.Event = {
+WI.DOMTree.Event = {
     RootDOMNodeInvalidated: "dom-tree-root-dom-node-invalidated",
-    ContentFlowWasAdded: "dom-tree-content-flow-was-added",
-    ContentFlowWasRemoved: "dom-tree-content-flow-was-removed"
 };

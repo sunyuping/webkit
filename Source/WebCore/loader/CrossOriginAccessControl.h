@@ -24,35 +24,44 @@
  *
  */
 
-#ifndef CrossOriginAccessControl_h
-#define CrossOriginAccessControl_h
+#pragma once
 
-#include "ResourceHandleTypes.h"
+#include "HTTPHeaderNames.h"
+#include "StoredCredentialsPolicy.h"
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
-#include <wtf/text/StringHash.h>
 
 namespace WebCore {
 
-typedef HashSet<String, ASCIICaseInsensitiveHash> HTTPHeaderSet;
-
+class CachedResourceRequest;
+class Document;
 class HTTPHeaderMap;
-enum class HTTPHeaderName;
+class ResourceError;
 class ResourceRequest;
 class ResourceResponse;
 class SecurityOrigin;
 
-bool isSimpleCrossOriginAccessRequest(const String& method, const HTTPHeaderMap&);
+struct ResourceLoaderOptions;
+
+WEBCORE_EXPORT bool isSimpleCrossOriginAccessRequest(const String& method, const HTTPHeaderMap&);
 bool isOnAccessControlSimpleRequestMethodWhitelist(const String&);
-bool isOnAccessControlSimpleRequestHeaderWhitelist(HTTPHeaderName, const String& value);
-bool isOnAccessControlResponseHeaderWhitelist(const String&);
 
-void updateRequestForAccessControl(ResourceRequest&, SecurityOrigin*, StoredCredentials);
-ResourceRequest createAccessControlPreflightRequest(const ResourceRequest&, SecurityOrigin*);
+void updateRequestReferrer(ResourceRequest&, ReferrerPolicy, const String&);
+    
+WEBCORE_EXPORT void updateRequestForAccessControl(ResourceRequest&, SecurityOrigin&, StoredCredentialsPolicy);
 
-bool passesAccessControlCheck(const ResourceResponse&, StoredCredentials, SecurityOrigin*, String& errorDescription);
-void parseAccessControlExposeHeadersAllowList(const String& headerValue, HTTPHeaderSet&);
+WEBCORE_EXPORT ResourceRequest createAccessControlPreflightRequest(const ResourceRequest&, SecurityOrigin&, const String&);
+CachedResourceRequest createPotentialAccessControlRequest(ResourceRequest&&, Document&, const String& crossOriginAttribute, ResourceLoaderOptions&&);
+
+bool isValidCrossOriginRedirectionURL(const URL&);
+
+using HTTPHeaderNameSet = HashSet<HTTPHeaderName, WTF::IntHash<HTTPHeaderName>, WTF::StrongEnumHashTraits<HTTPHeaderName>>;
+HTTPHeaderNameSet httpHeadersToKeepFromCleaning(const HTTPHeaderMap&);
+WEBCORE_EXPORT void cleanHTTPRequestHeadersForAccessControl(ResourceRequest&, const HTTPHeaderNameSet& = { });
+
+WEBCORE_EXPORT bool passesAccessControlCheck(const ResourceResponse&, StoredCredentialsPolicy, SecurityOrigin&, String& errorDescription);
+WEBCORE_EXPORT bool validatePreflightResponse(const ResourceRequest&, const ResourceResponse&, StoredCredentialsPolicy, SecurityOrigin&, String& errorDescription);
+
+WEBCORE_EXPORT Optional<ResourceError> validateCrossOriginResourcePolicy(const SecurityOrigin&, const URL&, const ResourceResponse&);
 
 } // namespace WebCore
-
-#endif // CrossOriginAccessControl_h

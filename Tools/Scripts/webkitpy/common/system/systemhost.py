@@ -1,4 +1,5 @@
 # Copyright (c) 2011 Google Inc. All rights reserved.
+# Copyright (C) 2019 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -30,15 +31,15 @@ import os
 import platform
 import sys
 
-from webkitpy.common.system import environment, executive, file_lock, filesystem, platforminfo, user, workspace
+from . import environment, executive, file_lock, filesystem, platforminfo, user, workspace
 
 
 class SystemHost(object):
     def __init__(self):
         self.executive = executive.Executive()
         self.filesystem = filesystem.FileSystem()
-        self.user = user.User()
         self.platform = platforminfo.PlatformInfo(sys, platform, self.executive)
+        self.user = user.User(self.platform)
         self.workspace = workspace.Workspace(self.filesystem, self.executive)
 
     def copy_current_environment(self):
@@ -46,3 +47,15 @@ class SystemHost(object):
 
     def make_file_lock(self, path):
         return file_lock.FileLock(path)
+
+    def symbolicate_crash_log_if_needed(self, path):
+        return self.filesystem.read_text_file(path)
+
+    def path_to_lldb_python_directory(self):
+        if not self.platform.is_mac():
+            return ''
+        return self.executive.run_command(['xcrun', 'lldb', '--python-path'], return_stderr=False).rstrip()
+
+    @property
+    def device_type(self):
+        return None

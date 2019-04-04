@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSInternalPromiseConstructor_h
-#define JSInternalPromiseConstructor_h
+#pragma once
 
 #include "JSPromiseConstructor.h"
 
@@ -33,10 +32,10 @@ namespace JSC {
 class JSInternalPromise;
 class JSInternalPromisePrototype;
 
-class JSInternalPromiseConstructor : public JSPromiseConstructor {
+class JSInternalPromiseConstructor final : public JSPromiseConstructor {
 public:
     typedef JSPromiseConstructor Base;
-    static const unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot;
+    static const unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
     static JSInternalPromiseConstructor* create(VM&, Structure*, JSInternalPromisePrototype*, GetterSetter*);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
@@ -45,11 +44,6 @@ public:
 
 private:
     JSInternalPromiseConstructor(VM&, Structure*);
-    static ConstructType getConstructData(JSCell*, ConstructData&);
-    static CallType getCallData(JSCell*, CallData&);
-    static bool getOwnPropertySlot(JSObject*, ExecState*, PropertyName, PropertySlot&);
 };
 
 } // namespace JSC
-
-#endif // JSInternalPromiseConstructor_h

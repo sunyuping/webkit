@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NavigatorGamepad_h
-#define NavigatorGamepad_h
+#pragma once
 
 #if ENABLE(GAMEPAD)
 
@@ -38,6 +37,7 @@ class Navigator;
 class PlatformGamepad;
 
 class NavigatorGamepad : public Supplement<Navigator> {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     NavigatorGamepad();
     virtual ~NavigatorGamepad();
@@ -47,8 +47,6 @@ public:
     // The array of Gamepads might be sparse.
     // Null checking each entry is necessary.
     static const Vector<RefPtr<Gamepad>>& getGamepads(Navigator&);
-
-    double navigationStart() const { return m_navigationStart; }
 
     void gamepadConnected(PlatformGamepad&);
     void gamepadDisconnected(PlatformGamepad&);
@@ -62,12 +60,9 @@ private:
 
     const Vector<RefPtr<Gamepad>>& gamepads();
 
-    double m_navigationStart;
     Vector<RefPtr<Gamepad>> m_gamepads;
 };
 
 } // namespace WebCore
 
 #endif // ENABLE(GAMEPAD)
-
-#endif // NavigatorGamepad_h

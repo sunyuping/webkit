@@ -30,7 +30,7 @@
 
 #include "MediaPlayerPrivateAVFoundation.h"
 
-#if HAVE(AVFOUNDATION_LOADER_DELEGATE) || HAVE(ENCRYPTED_MEDIA_V2)
+#if HAVE(AVFOUNDATION_LOADER_DELEGATE) || HAVE(LEGACY_ENCRYPTED_MEDIA)
 typedef struct OpaqueAVCFAssetResourceLoadingRequest* AVCFAssetResourceLoadingRequestRef;
 #endif
 
@@ -45,14 +45,15 @@ public:
     explicit MediaPlayerPrivateAVFoundationCF(MediaPlayer*);
     virtual ~MediaPlayerPrivateAVFoundationCF();
 
-    virtual void tracksChanged() override;
+    void tracksChanged() override;
+    void resolvedURLChanged() override;
 
 #if HAVE(AVFOUNDATION_LOADER_DELEGATE)
     bool shouldWaitForLoadingOfResource(AVCFAssetResourceLoadingRequestRef);
     void didCancelLoadingRequest(AVCFAssetResourceLoadingRequestRef);
     void didStopLoadingRequest(AVCFAssetResourceLoadingRequestRef);
 
-#if ENABLE(ENCRYPTED_MEDIA_V2)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
     RetainPtr<AVCFAssetResourceLoadingRequestRef> takeRequestForKeyURI(const String&);
 #endif
 #endif
@@ -67,12 +68,10 @@ private:
 
     virtual void cancelLoad();
 
-    virtual PlatformMedia platformMedia() const;
-
     virtual void platformSetVisible(bool);
     virtual void platformPlay();
     virtual void platformPause();
-    virtual MediaTime currentMediaTime() const override;
+    MediaTime currentMediaTime() const override;
     virtual void setVolume(float);
     virtual void setClosedCaptionsVisible(bool);
     virtual void paint(GraphicsContext&, const FloatRect&);
@@ -83,13 +82,13 @@ private:
 
     virtual void createAVPlayer();
     virtual void createAVPlayerItem();
-    virtual void createAVAssetForURL(const String& url);
+    virtual void createAVAssetForURL(const URL&);
     virtual MediaPlayerPrivateAVFoundation::ItemStatus playerItemStatus() const;
     virtual MediaPlayerPrivateAVFoundation::AssetStatus assetStatus() const;
 
     virtual void checkPlayability();
-    virtual void setRate(float) override;
-    virtual double rate() const override;
+    void setRate(float) override;
+    double rate() const override;
     virtual void seekToTime(const MediaTime&, const MediaTime& negativeTolerance, const MediaTime& positiveTolerance);
     virtual unsigned long long totalBytes() const;
     virtual std::unique_ptr<PlatformTimeRanges> platformBufferedTimeRanges() const;
@@ -99,7 +98,7 @@ private:
     virtual MediaTime platformMaxTimeLoaded() const;
     virtual void beginLoadingMetadata();
     virtual void sizeChanged();
-    virtual bool requiresImmediateCompositing() const override;
+    bool requiresImmediateCompositing() const override;
 
     virtual bool hasAvailableVideoFrame() const;
 
@@ -112,24 +111,24 @@ private:
     virtual bool hasContextRenderer() const;
     virtual bool hasLayerRenderer() const;
 
-    virtual void updateVideoLayerGravity() override;
+    void updateVideoLayerGravity() override;
 
     virtual void contentsNeedsDisplay();
 
-#if ENABLE(ENCRYPTED_MEDIA_V2)
-    virtual std::unique_ptr<CDMSession> createSession(const String&, CDMSessionClient*) override;
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    std::unique_ptr<LegacyCDMSession> createSession(const String&, LegacyCDMSessionClient*) override;
 #endif
 
-    virtual String languageOfPrimaryAudioTrack() const override;
+    String languageOfPrimaryAudioTrack() const override;
 
 #if HAVE(AVFOUNDATION_MEDIA_SELECTION_GROUP)
     void processMediaSelectionOptions();
 #endif
 
-    virtual void setCurrentTextTrack(InbandTextTrackPrivateAVF*) override;
-    virtual InbandTextTrackPrivateAVF* currentTextTrack() const override;
+    void setCurrentTextTrack(InbandTextTrackPrivateAVF*) override;
+    InbandTextTrackPrivateAVF* currentTextTrack() const override;
 
-    virtual long assetErrorCode() const override final;
+    long assetErrorCode() const final;
 
 #if !HAVE(AVFOUNDATION_LEGIBLE_OUTPUT_SUPPORT)
     void processLegacyClosedCaptionsTracks();

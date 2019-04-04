@@ -23,14 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef MapIteratorPrototype_h
-#define MapIteratorPrototype_h
+#pragma once
 
 #include "JSObject.h"
 
 namespace JSC {
 
-class MapIteratorPrototype : public JSNonFinalObject {
+class MapIteratorPrototype final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
 
@@ -56,6 +55,4 @@ private:
     void finishCreation(VM&, JSGlobalObject*);
 };
 
-}
-
-#endif // !defined(MapIteratorPrototype_h)
+} // namespace JSC

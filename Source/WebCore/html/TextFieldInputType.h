@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,79 +29,91 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TextFieldInputType_h
-#define TextFieldInputType_h
+#pragma once
 
 #include "AutoFillButtonElement.h"
+#include "DataListButtonElement.h"
+#include "DataListSuggestionPicker.h"
+#include "DataListSuggestionsClient.h"
 #include "InputType.h"
 #include "SpinButtonElement.h"
 
 namespace WebCore {
 
-class FormDataList;
+class DOMFormData;
 class TextControlInnerTextElement;
 
 // The class represents types of which UI contain text fields.
 // It supports not only the types for BaseTextInputType but also type=number.
-class TextFieldInputType : public InputType, protected SpinButtonElement::SpinButtonOwner, protected AutoFillButtonElement::AutoFillButtonOwner {
+class TextFieldInputType : public InputType, protected SpinButtonElement::SpinButtonOwner, protected AutoFillButtonElement::AutoFillButtonOwner
+#if ENABLE(DATALIST_ELEMENT)
+    , private DataListSuggestionsClient, protected DataListButtonElement::DataListButtonOwner
+#endif
+{
 protected:
     explicit TextFieldInputType(HTMLInputElement&);
     virtual ~TextFieldInputType();
-    virtual void handleKeydownEvent(KeyboardEvent*) override;
-    void handleKeydownEventForSpinButton(KeyboardEvent*);
+    ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) override;
+    void handleKeydownEventForSpinButton(KeyboardEvent&);
+#if ENABLE(DATALIST_ELEMENT)
+    void handleClickEvent(MouseEvent&) final;
+#endif
 
-    virtual HTMLElement* containerElement() const override final;
-    virtual HTMLElement* innerBlockElement() const override final;
-    virtual TextControlInnerTextElement* innerTextElement() const override final;
-    virtual HTMLElement* innerSpinButtonElement() const override final;
-    virtual HTMLElement* capsLockIndicatorElement() const override final;
-    virtual HTMLElement* autoFillButtonElement() const override final;
+    HTMLElement* containerElement() const final;
+    HTMLElement* innerBlockElement() const final;
+    RefPtr<TextControlInnerTextElement> innerTextElement() const final;
+    HTMLElement* innerSpinButtonElement() const final;
+    HTMLElement* capsLockIndicatorElement() const final;
+    HTMLElement* autoFillButtonElement() const final;
+#if ENABLE(DATALIST_ELEMENT)
+    HTMLElement* dataListButtonElement() const final;
+#endif
 
-protected:
     virtual bool needsContainer() const;
-    virtual void createShadowSubtree() override;
-    virtual void destroyShadowSubtree() override;
-    virtual void attributeChanged() override final;
-    virtual void disabledAttributeChanged() override final;
-    virtual void readonlyAttributeChanged() override final;
-    virtual bool supportsReadOnly() const override final;
-    void handleFocusEvent(Node* oldFocusedNode, FocusDirection) override final;
-    virtual void handleBlurEvent() override final;
-    virtual void setValue(const String&, bool valueChanged, TextFieldEventBehavior) override;
-    virtual void updateInnerTextValue() override final;
-    virtual String sanitizeValue(const String&) const override;
+    void createShadowSubtree() override;
+    void destroyShadowSubtree() override;
+    void attributeChanged(const QualifiedName&) override;
+    void disabledStateChanged() final;
+    void readOnlyStateChanged() final;
+    bool supportsReadOnly() const final;
+    void handleFocusEvent(Node* oldFocusedNode, FocusDirection) final;
+    void handleBlurEvent() final;
+    void setValue(const String&, bool valueChanged, TextFieldEventBehavior) override;
+    void updateInnerTextValue() final;
+    String sanitizeValue(const String&) const override;
 
     virtual String convertFromVisibleValue(const String&) const;
     virtual void didSetValueByUserEdit();
 
 private:
-    virtual bool isKeyboardFocusable(KeyboardEvent*) const override final;
-    virtual bool isMouseFocusable() const override final;
-    virtual bool isTextField() const override final;
-    virtual bool isEmptyValue() const override final;
-    virtual bool valueMissing(const String&) const override final;
-    virtual void handleBeforeTextInsertedEvent(BeforeTextInsertedEvent*) override final;
-    virtual void forwardEvent(Event*) override final;
-    virtual bool shouldSubmitImplicitly(Event*) override final;
-    virtual RenderPtr<RenderElement> createInputRenderer(Ref<RenderStyle>&&) override;
-    virtual bool shouldUseInputMethod() const override;
-    virtual bool shouldRespectListAttribute() override;
-    virtual HTMLElement* placeholderElement() const override final;
-    virtual void updatePlaceholderText() override final;
-    virtual bool appendFormData(FormDataList&, bool multipart) const override final;
-    virtual void subtreeHasChanged() override final;
-    virtual void capsLockStateMayHaveChanged() override final;
-    virtual void updateAutoFillButton() override final;
+    bool isKeyboardFocusable(KeyboardEvent*) const final;
+    bool isMouseFocusable() const final;
+    bool isTextField() const final;
+    bool isEmptyValue() const final;
+    bool valueMissing(const String&) const final;
+    void handleBeforeTextInsertedEvent(BeforeTextInsertedEvent&) final;
+    void forwardEvent(Event&) final;
+    bool shouldSubmitImplicitly(Event&) final;
+    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) override;
+    bool shouldUseInputMethod() const override;
+    bool shouldRespectListAttribute() override;
+    HTMLElement* placeholderElement() const final;
+    void updatePlaceholderText() final;
+    bool appendFormData(DOMFormData&, bool multipart) const final;
+    void subtreeHasChanged() final;
+    void capsLockStateMayHaveChanged() final;
+    void updateAutoFillButton() final;
+    void elementDidBlur() final;
 
     // SpinButtonElement::SpinButtonOwner functions.
-    virtual void focusAndSelectSpinButtonOwner() override final;
-    virtual bool shouldSpinButtonRespondToMouseEvents() override final;
-    virtual bool shouldSpinButtonRespondToWheelEvents() override final;
-    virtual void spinButtonStepDown() override final;
-    virtual void spinButtonStepUp() override final;
+    void focusAndSelectSpinButtonOwner() final;
+    bool shouldSpinButtonRespondToMouseEvents() final;
+    bool shouldSpinButtonRespondToWheelEvents() final;
+    void spinButtonStepDown() final;
+    void spinButtonStepUp() final;
 
     // AutoFillButtonElement::AutoFillButtonOwner
-    virtual void autoFillButtonElementWasClicked() override final;
+    void autoFillButtonElementWasClicked() final;
 
     bool shouldHaveSpinButton() const;
     bool shouldHaveCapsLockIndicator() const;
@@ -109,6 +122,26 @@ private:
 
     void createContainer();
     void createAutoFillButton(AutoFillButtonType);
+
+#if ENABLE(DATALIST_ELEMENT)
+    void createDataListDropdownIndicator();
+    bool isPresentingAttachedView() const final;
+    void listAttributeTargetChanged() final;
+    void displaySuggestions(DataListSuggestionActivationType);
+    void closeSuggestions();
+
+    // DataListSuggestionsClient
+    IntRect elementRectInRootViewCoordinates() const final;
+    Vector<String> suggestions() final;
+    void didSelectDataListOption(const String&) final;
+    void didCloseSuggestions() final;
+
+    void dataListButtonElementWasClicked() final;
+    RefPtr<DataListButtonElement> m_dataListDropdownIndicator;
+
+    std::pair<String, Vector<String>> m_cachedSuggestions;
+    std::unique_ptr<DataListSuggestionPicker> m_suggestionPicker;
+#endif
 
     RefPtr<HTMLElement> m_container;
     RefPtr<HTMLElement> m_innerBlock;
@@ -120,5 +153,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // TextFieldInputType_h

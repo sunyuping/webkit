@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,34 +28,81 @@ function next()
 {
     "use strict";
 
-    if (this == null)
-        throw new @TypeError("%ArrayIteratorPrototype%.next requires that |this| not be null or undefined");
+    if (@isUndefinedOrNull(this))
+        @throwTypeError("%ArrayIteratorPrototype%.next requires that |this| not be null or undefined");
 
-    var itemKind = this.@arrayIterationKind;
-    if (itemKind === @undefined)
-        throw new @TypeError("%ArrayIteratorPrototype%.next requires that |this| be an Array Iterator instance");
+    let next = @getByIdDirectPrivate(this, "arrayIteratorNext");
+    if (next === @undefined)
+        @throwTypeError("%ArrayIteratorPrototype%.next requires that |this| be an Array Iterator instance");
 
+    return next.@call(this);
+}
+
+@globalPrivate
+function arrayIteratorValueNext()
+{
+    "use strict";
     var done = true;
-    var value = @undefined;
+    var value;
 
-    var array = this.@iteratedObject;
-    if (array !== @undefined) {
-        var index = this.@arrayIteratorNextIndex;
+    var array = @getByIdDirectPrivate(this, "iteratedObject");
+    if (!@getByIdDirectPrivate(this, "arrayIteratorIsDone")) {
+        var index = @getByIdDirectPrivate(this, "arrayIteratorNextIndex");
         var length = array.length >>> 0;
-        if (index >= length) {
-            this.@iteratedObject = @undefined;
-        } else {
-            this.@arrayIteratorNextIndex = index + 1;
+        if (index >= length)
+            @putByIdDirectPrivate(this, "arrayIteratorIsDone", true);
+        else {
+            @putByIdDirectPrivate(this, "arrayIteratorNextIndex", index + 1);
             done = false;
-            if (itemKind === @arrayIterationKindKey) {
-                value = index;
-            } else if (itemKind === @arrayIterationKindValue) {
-                value = array[index];
-            } else {
-                value = [ index, array[index] ];
-            }
+            value = array[index];
         }
     }
 
-    return {done, value};
+    return { value, done };
+}
+
+@globalPrivate
+function arrayIteratorKeyNext()
+{
+    "use strict";
+    var done = true;
+    var value;
+
+    var array = @getByIdDirectPrivate(this, "iteratedObject");
+    if (!@getByIdDirectPrivate(this, "arrayIteratorIsDone")) {
+        var index = @getByIdDirectPrivate(this, "arrayIteratorNextIndex");
+        var length = array.length >>> 0;
+        if (index >= length)
+            @putByIdDirectPrivate(this, "arrayIteratorIsDone", true);
+        else {
+            @putByIdDirectPrivate(this, "arrayIteratorNextIndex", index + 1);
+            done = false;
+            value = index;
+        }
+    }
+
+    return { value, done };
+}
+
+@globalPrivate
+function arrayIteratorKeyValueNext()
+{
+    "use strict";
+    var done = true;
+    var value;
+
+    var array = @getByIdDirectPrivate(this, "iteratedObject");
+    if (!@getByIdDirectPrivate(this, "arrayIteratorIsDone")) {
+        var index = @getByIdDirectPrivate(this, "arrayIteratorNextIndex");
+        var length = array.length >>> 0;
+        if (index >= length)
+            @putByIdDirectPrivate(this, "arrayIteratorIsDone", true);
+        else {
+            @putByIdDirectPrivate(this, "arrayIteratorNextIndex", index + 1);
+            done = false;
+            value = [ index, array[index] ];
+        }
+    }
+
+    return { value, done };
 }

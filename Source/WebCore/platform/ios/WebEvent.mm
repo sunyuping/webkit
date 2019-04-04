@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// FIXME: Rename this file to WebEventIOS.mm after we upstream the iOS port and remove the PLATFORM(IOS)-guard.
+// FIXME: Rename this file to WebEventIOS.mm after we upstream the iOS port and remove the PLATFORM(IOS_FAMILY)-guard.
 
 #import "config.h"
 #import "WebEvent.h"
@@ -31,11 +31,17 @@
 #import "KeyEventCocoa.h"
 #import <wtf/Assertions.h>
 
-using namespace WebCore;
+#if PLATFORM(IOS_FAMILY)
 
-#if PLATFORM(IOS)
-
+#import "KeyEventCodesIOS.h"
 #import "WAKAppKitStubs.h"
+#import <pal/ios/UIKitSoftLink.h>
+#import <pal/spi/cocoa/IOKitSPI.h>
+#import <pal/spi/ios/GraphicsServicesSPI.h>
+#import <pal/spi/ios/UIKitSPI.h>
+
+using WebCore::windowsKeyCodeForKeyCode;
+using WebCore::windowsKeyCodeForCharCode;
 
 @implementation WebEvent
 
@@ -43,19 +49,20 @@ using namespace WebCore;
 @synthesize timestamp = _timestamp;
 @synthesize wasHandled = _wasHandled;
 
-- (WebEvent *)initWithMouseEventType:(WebEventType)type
-                           timeStamp:(CFTimeInterval)timeStamp
-                            location:(CGPoint)point
+- (WebEvent *)initWithMouseEventType:(WebEventType)type timeStamp:(CFTimeInterval)timeStamp location:(CGPoint)point
+{
+    return [self initWithMouseEventType:type timeStamp:timeStamp location:point modifiers:0];
+}
+
+- (WebEvent *)initWithMouseEventType:(WebEventType)type timeStamp:(CFTimeInterval)timeStamp location:(CGPoint)point modifiers:(WebEventFlags)modifiers
 {
     self = [super init];
     if (!self)
         return nil;
-    
     _type = type;
     _timestamp = timeStamp;
-
     _locationInWindow = point;
-    
+    _modifierFlags = modifiers;
     return self;
 }
 
@@ -121,48 +128,42 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
     return windowsKeyCodeForCharCode(charCode);
 }
 
-- (WebEvent *)initWithKeyEventType:(WebEventType)type
-                         timeStamp:(CFTimeInterval)timeStamp
-                        characters:(NSString *)characters
-       charactersIgnoringModifiers:(NSString *)charactersIgnoringModifiers
-                         modifiers:(WebEventFlags)modifiers
-                       isRepeating:(BOOL)repeating
-                    isPopupVariant:(BOOL)popupVariant
-                           keyCode:(uint16_t)keyCode
-                          isTabKey:(BOOL)tabKey
-                      characterSet:(WebEventCharacterSet)characterSet
+static NSString *normalizedStringWithAppKitCompatibilityMapping(NSString *characters, uint16_t keyCode)
 {
-    self = [super init];
-    if (!self)
-        return nil;
-    
-    _type = type;
-    _timestamp = timeStamp;
+    auto makeNSStringWithCharacter = [] (unichar c) { return [NSString stringWithCharacters:&c length:1]; };
 
-    _characters = [characters retain];
-    _charactersIgnoringModifiers = [charactersIgnoringModifiers retain];
-    _modifierFlags = modifiers;
-    _keyRepeating = repeating;
-    _popupVariant = popupVariant;
-    _tabKey = tabKey;
-    _characterSet = characterSet;
-
-    if (keyCode)
-        _keyCode = windowsKeyCodeForKeyCode(keyCode);
-
-    // NOTE: this preserves the original semantics which used the
-    // characters string for the keyCode. This should be changed in iOS 4.0 to
-    // allow the client to explicitly specify a keyCode, otherwise default to
-    // mapping the characters string to a keyCode.
-    // e.g. add an 'else' before this 'if'.
-    if ([charactersIgnoringModifiers length] == 1) {
-        unichar ch = [charactersIgnoringModifiers characterAtIndex:0];
-        _keyCode = windowsKeyCodeForCharCodeIOS(ch);
+    switch (keyCode) {
+    case kHIDUsage_KeyboardUpArrow:
+        return makeNSStringWithCharacter(NSUpArrowFunctionKey);
+    case kHIDUsage_KeyboardDownArrow:
+        return makeNSStringWithCharacter(NSDownArrowFunctionKey);
+    case kHIDUsage_KeyboardLeftArrow:
+        return makeNSStringWithCharacter(NSLeftArrowFunctionKey);
+    case kHIDUsage_KeyboardRightArrow:
+        return makeNSStringWithCharacter(NSRightArrowFunctionKey);
+    case kHIDUsage_KeyboardPageUp:
+        return makeNSStringWithCharacter(NSPageUpFunctionKey);
+    case kHIDUsage_KeyboardPageDown:
+        return makeNSStringWithCharacter(NSPageDownFunctionKey);
+    case kHIDUsage_KeyboardEscape:
+        return @"\x1B";
+    case kHIDUsage_KeypadNumLock: // Num Lock / Clear
+        return makeNSStringWithCharacter(NSClearLineFunctionKey);
+    case kHIDUsage_KeyboardDeleteForward:
+        return makeNSStringWithCharacter(NSDeleteFunctionKey);
+    case kHIDUsage_KeyboardEnd:
+        return makeNSStringWithCharacter(NSEndFunctionKey);
+    case kHIDUsage_KeyboardInsert:
+        return makeNSStringWithCharacter(NSInsertFunctionKey);
+    case kHIDUsage_KeyboardHome:
+        return makeNSStringWithCharacter(NSHomeFunctionKey);
     }
-
-    return self;
+    if (keyCode >= kHIDUsage_KeyboardF1 && keyCode <= kHIDUsage_KeyboardF12)
+        return makeNSStringWithCharacter(NSF1FunctionKey + (keyCode - kHIDUsage_KeyboardF1));
+    if (keyCode >= kHIDUsage_KeyboardF13 && keyCode <= kHIDUsage_KeyboardF24)
+        return makeNSStringWithCharacter(NSF13FunctionKey + (keyCode - kHIDUsage_KeyboardF13));
+    return characters;
 }
-
 
 - (WebEvent *)initWithKeyEventType:(WebEventType)type
                          timeStamp:(CFTimeInterval)timeStamp
@@ -171,9 +172,9 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
                          modifiers:(WebEventFlags)modifiers
                        isRepeating:(BOOL)repeating
                          withFlags:(NSUInteger)flags
+              withInputManagerHint:(NSString *)hint
                            keyCode:(uint16_t)keyCode
                           isTabKey:(BOOL)tabKey
-                      characterSet:(WebEventCharacterSet)characterSet
 {
     self = [super init];
     if (!self)
@@ -181,26 +182,21 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
     
     _type = type;
     _timestamp = timeStamp;
-
-    _characters = [characters retain];
-    _charactersIgnoringModifiers = [charactersIgnoringModifiers retain];
     _modifierFlags = modifiers;
-    _keyRepeating = repeating;
     _keyboardFlags = flags;
-    _tabKey = tabKey;
-    _characterSet = characterSet;
-    
+    _inputManagerHint = [hint retain];
     if (keyCode)
         _keyCode = windowsKeyCodeForKeyCode(keyCode);
+    else if ([charactersIgnoringModifiers length] == 1) {
+        // This event is likely for a software keyboard-generated event.
+        _keyCode = windowsKeyCodeForCharCodeIOS([charactersIgnoringModifiers characterAtIndex:0]);
+    }
 
-    // NOTE: this preserves the original semantics which used the 
-    // characters string for the keyCode. This should be changed in iOS 4.0 to
-    // allow the client to explicitly specify a keyCode, otherwise default to 
-    // mapping the characters string to a keyCode.
-    // e.g. add an 'else' before this 'if'.
-    if ([charactersIgnoringModifiers length] == 1) {
-        unichar ch = [charactersIgnoringModifiers characterAtIndex:0];
-        _keyCode = windowsKeyCodeForCharCodeIOS(ch);
+    if (!(_keyboardFlags & WebEventKeyboardInputModifierFlagsChanged)) {
+        _characters = [normalizedStringWithAppKitCompatibilityMapping(characters, keyCode) retain];
+        _charactersIgnoringModifiers = [normalizedStringWithAppKitCompatibilityMapping(charactersIgnoringModifiers, keyCode) retain];
+        _tabKey = tabKey;
+        _keyRepeating = repeating;
     }
 
     return self;
@@ -210,6 +206,7 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
 {
     [_characters release];
     [_charactersIgnoringModifiers release];
+    [_inputManagerHint release];
 
     [_touchLocations release];
     [_touchIdentifiers release];
@@ -221,28 +218,28 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
 - (NSString *)_typeDescription
 {
     switch (_type) {
-        case WebEventMouseDown:
-            return @"WebEventMouseDown";
-        case WebEventMouseUp:
-            return @"WebEventMouseUp";
-        case WebEventMouseMoved:
-            return @"WebEventMouseMoved";
-        case WebEventScrollWheel:
-            return @"WebEventScrollWheel";
-        case WebEventKeyDown:
-            return @"WebEventKeyDown";
-        case WebEventKeyUp:
-            return @"WebEventKeyUp";
-        case WebEventTouchBegin:
-            return @"WebEventTouchBegin";
-        case WebEventTouchChange:
-            return @"WebEventTouchChange";
-        case WebEventTouchEnd:
-            return @"WebEventTouchEnd";
-        case WebEventTouchCancel:
-            return @"WebEventTouchCancel";
-        default:
-            ASSERT_NOT_REACHED();
+    case WebEventMouseDown:
+        return @"WebEventMouseDown";
+    case WebEventMouseUp:
+        return @"WebEventMouseUp";
+    case WebEventMouseMoved:
+        return @"WebEventMouseMoved";
+    case WebEventScrollWheel:
+        return @"WebEventScrollWheel";
+    case WebEventKeyDown:
+        return @"WebEventKeyDown";
+    case WebEventKeyUp:
+        return @"WebEventKeyUp";
+    case WebEventTouchBegin:
+        return @"WebEventTouchBegin";
+    case WebEventTouchChange:
+        return @"WebEventTouchChange";
+    case WebEventTouchEnd:
+        return @"WebEventTouchEnd";
+    case WebEventTouchCancel:
+        return @"WebEventTouchCancel";
+    default:
+        ASSERT_NOT_REACHED();
     }
     return @"Unknown";
 }
@@ -250,47 +247,28 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
 - (NSString *)_modiferFlagsDescription
 {
     switch (_modifierFlags) {
-        case WebEventMouseDown:
-            return @"WebEventMouseDown";
-        case WebEventMouseUp:
-            return @"WebEventMouseUp";
-        case WebEventMouseMoved:
-            return @"WebEventMouseMoved";
-        case WebEventScrollWheel:
-            return @"WebEventScrollWheel";
-        case WebEventKeyDown:
-            return @"WebEventKeyDown";
-        case WebEventKeyUp:
-            return @"WebEventKeyUp";
-        case WebEventTouchBegin:
-            return @"WebEventTouchBegin";
-        case WebEventTouchChange:
-            return @"WebEventTouchChange";
-        case WebEventTouchEnd:
-            return @"WebEventTouchEnd";
-        case WebEventTouchCancel:
-            return @"WebEventTouchCancel";
-        default:
-            ASSERT_NOT_REACHED();
-    }
-    return @"Unknown";
-}
-
-- (NSString *)_characterSetDescription
-{
-    switch (_characterSet) {
-        case WebEventCharacterSetASCII:
-            return @"WebEventCharacterSetASCII";
-        case WebEventCharacterSetSymbol:
-            return @"WebEventCharacterSetSymbol";
-        case WebEventCharacterSetDingbats:
-            return @"WebEventCharacterSetDingbats";
-        case WebEventCharacterSetUnicode:
-            return @"WebEventCharacterSetUnicode";
-        case WebEventCharacterSetFunctionKeys:
-            return @"WebEventCharacterSetFunctionKeys";
-        default:
-            ASSERT_NOT_REACHED();
+    case WebEventMouseDown:
+        return @"WebEventMouseDown";
+    case WebEventMouseUp:
+        return @"WebEventMouseUp";
+    case WebEventMouseMoved:
+        return @"WebEventMouseMoved";
+    case WebEventScrollWheel:
+        return @"WebEventScrollWheel";
+    case WebEventKeyDown:
+        return @"WebEventKeyDown";
+    case WebEventKeyUp:
+        return @"WebEventKeyUp";
+    case WebEventTouchBegin:
+        return @"WebEventTouchBegin";
+    case WebEventTouchChange:
+        return @"WebEventTouchChange";
+    case WebEventTouchEnd:
+        return @"WebEventTouchEnd";
+    case WebEventTouchCancel:
+        return @"WebEventTouchCancel";
+    default:
+        ASSERT_NOT_REACHED();
     }
     return @"Unknown";
 }
@@ -321,18 +299,18 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
 - (NSString *)_touchPhaseDescription:(WebEventTouchPhaseType)phase
 {
     switch (phase) {
-        case WebEventTouchPhaseBegan:
-            return @"WebEventTouchPhaseBegan";
-        case WebEventTouchPhaseMoved:
-            return @"WebEventTouchPhaseMoved";
-        case WebEventTouchPhaseStationary:
-            return @"WebEventTouchPhaseStationary";
-        case WebEventTouchPhaseEnded:
-            return @"WebEventTouchPhaseEnded";
-        case WebEventTouchPhaseCancelled:
-            return @"WebEventTouchPhaseCancelled";
-        default:
-            ASSERT_NOT_REACHED();
+    case WebEventTouchPhaseBegan:
+        return @"WebEventTouchPhaseBegan";
+    case WebEventTouchPhaseMoved:
+        return @"WebEventTouchPhaseMoved";
+    case WebEventTouchPhaseStationary:
+        return @"WebEventTouchPhaseStationary";
+    case WebEventTouchPhaseEnded:
+        return @"WebEventTouchPhaseEnded";
+    case WebEventTouchPhaseCancelled:
+        return @"WebEventTouchPhaseCancelled";
+    default:
+        ASSERT_NOT_REACHED();
     }
     return @"Unknown";
 }
@@ -351,22 +329,24 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
 - (NSString *)_eventDescription
 {
     switch (_type) {
-        case WebEventMouseDown:
-        case WebEventMouseUp:
-        case WebEventMouseMoved:
-            return [NSString stringWithFormat:@"location: (%f, %f)", _locationInWindow.x, _locationInWindow.y];
-        case WebEventScrollWheel:
-            return [NSString stringWithFormat:@"location: (%f, %f) deltaX: %f deltaY: %f", _locationInWindow.x, _locationInWindow.y, _deltaX, _deltaY];
-        case WebEventKeyDown:
-        case WebEventKeyUp:
-            return [NSString stringWithFormat:@"chars: %@ charsNoModifiers: %@ flags: %d repeating: %d keyboardFlags: %lu keyCode %d, isTab: %d charSet: %@", _characters, _charactersIgnoringModifiers, _modifierFlags, _keyRepeating, static_cast<unsigned long>(_keyboardFlags), _keyCode, _tabKey, [self _characterSetDescription]];
-        case WebEventTouchBegin:
-        case WebEventTouchChange:
-        case WebEventTouchEnd:
-        case WebEventTouchCancel:
-            return [NSString stringWithFormat:@"location: (%f, %f) count: %d locations: %@ identifiers: %@ phases: %@ isGesture: %d scale: %f rotation: %f", _locationInWindow.x, _locationInWindow.y, _touchCount, [self _touchLocationsDescription:_touchLocations], [self _touchIdentifiersDescription], [self _touchPhasesDescription], (_isGesture ? 1 : 0), _gestureScale, _gestureRotation];
-        default:
-            ASSERT_NOT_REACHED();
+    case WebEventMouseDown:
+    case WebEventMouseUp:
+    case WebEventMouseMoved:
+        return [NSString stringWithFormat:@"location: (%f, %f)", _locationInWindow.x, _locationInWindow.y];
+    case WebEventScrollWheel:
+        return [NSString stringWithFormat:@"location: (%f, %f) deltaX: %f deltaY: %f", _locationInWindow.x, _locationInWindow.y, _deltaX, _deltaY];
+    case WebEventKeyDown:
+    case WebEventKeyUp:
+        if (_keyboardFlags & WebEventKeyboardInputModifierFlagsChanged)
+            return [NSString stringWithFormat:@"flags: %d keyboardFlags: %lu keyCode %d", _modifierFlags, static_cast<unsigned long>(_keyboardFlags), _keyCode];
+        return [NSString stringWithFormat:@"chars: %@ charsNoModifiers: %@ flags: %d repeating: %d keyboardFlags: %lu keyCode %d, isTab: %d", _characters, _charactersIgnoringModifiers, _modifierFlags, _keyRepeating, static_cast<unsigned long>(_keyboardFlags), _keyCode, _tabKey];
+    case WebEventTouchBegin:
+    case WebEventTouchChange:
+    case WebEventTouchEnd:
+    case WebEventTouchCancel:
+        return [NSString stringWithFormat:@"location: (%f, %f) count: %d locations: %@ identifiers: %@ phases: %@ isGesture: %d scale: %f rotation: %f", _locationInWindow.x, _locationInWindow.y, _touchCount, [self _touchLocationsDescription:_touchLocations], [self _touchIdentifiersDescription], [self _touchPhasesDescription], (_isGesture ? 1 : 0), _gestureScale, _gestureRotation];
+    default:
+        ASSERT_NOT_REACHED();
     }
     return @"Unknown";
 }
@@ -388,13 +368,20 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
 - (NSString *)characters
 {
     ASSERT(_type == WebEventKeyDown || _type == WebEventKeyUp);
+    ASSERT(!(_keyboardFlags & WebEventKeyboardInputModifierFlagsChanged));
     return [[_characters retain] autorelease];
 }
 
 - (NSString *)charactersIgnoringModifiers
 {
     ASSERT(_type == WebEventKeyDown || _type == WebEventKeyUp);
+    ASSERT(!(_keyboardFlags & WebEventKeyboardInputModifierFlagsChanged));
     return [[_charactersIgnoringModifiers retain] autorelease];
+}
+
+- (NSString *)inputManagerHint
+{
+    return [[_inputManagerHint retain] autorelease];
 }
 
 - (WebEventFlags)modifierFlags
@@ -408,14 +395,7 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
     return _keyRepeating;
 }
 
-// FIXME: to be removed
-- (BOOL)isPopupVariant
-{
-    ASSERT(_type == WebEventKeyDown || _type == WebEventKeyUp);
-    return _popupVariant;
-}
-
-- (NSUInteger)keyboardFlags
+- (WebKeyboardInputFlags)keyboardFlags
 {
     ASSERT(_type == WebEventKeyDown || _type == WebEventKeyUp);
     return _keyboardFlags;
@@ -431,12 +411,6 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
 {
     ASSERT(_type == WebEventKeyDown || _type == WebEventKeyUp);
     return _tabKey;
-}
-
-- (WebEventCharacterSet)characterSet
-{
-    ASSERT(_type == WebEventKeyDown || _type == WebEventKeyUp);
-    return _characterSet;
 }
 
 - (float)deltaX
@@ -495,6 +469,11 @@ static int windowsKeyCodeForCharCodeIOS(unichar charCode)
     return _gestureRotation;
 }
 
++ (WebEventFlags)modifierFlags
+{
+    return GSEventIsHardwareKeyboardAttached() ? GSKeyboardGetModifierState([PAL::getUIApplicationClass() sharedApplication]._hardwareKeyboard) : 0;
+}
+
 @end
 
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)

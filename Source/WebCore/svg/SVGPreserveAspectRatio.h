@@ -1,90 +1,88 @@
 /*
- * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
- * Copyright (C) 2004, 2005, 2006, 2007 Rob Buis <buis@kde.org>
+ * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
- *
- * You should have received a copy of the GNU Library General Public License
- * along with this library; see the file COPYING.LIB.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301, USA.
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SVGPreserveAspectRatio_h
-#define SVGPreserveAspectRatio_h
+#pragma once
 
-#include "SVGPropertyTraits.h"
+#include "SVGPreserveAspectRatioValue.h"
+#include "SVGValueProperty.h"
 
 namespace WebCore {
 
-class AffineTransform;
-class FloatRect;
+class SVGPreserveAspectRatio : public SVGValueProperty<SVGPreserveAspectRatioValue> {
+    using Base = SVGValueProperty<SVGPreserveAspectRatioValue>;
+    using Base::Base;
+    using Base::m_value;
 
-typedef int ExceptionCode;
-
-class SVGPreserveAspectRatio {
-    WTF_MAKE_FAST_ALLOCATED;
 public:
-    enum SVGPreserveAspectRatioType {
-        SVG_PRESERVEASPECTRATIO_UNKNOWN = 0,
-        SVG_PRESERVEASPECTRATIO_NONE = 1,
-        SVG_PRESERVEASPECTRATIO_XMINYMIN = 2,
-        SVG_PRESERVEASPECTRATIO_XMIDYMIN = 3,
-        SVG_PRESERVEASPECTRATIO_XMAXYMIN = 4,
-        SVG_PRESERVEASPECTRATIO_XMINYMID = 5,
-        SVG_PRESERVEASPECTRATIO_XMIDYMID = 6,
-        SVG_PRESERVEASPECTRATIO_XMAXYMID = 7,
-        SVG_PRESERVEASPECTRATIO_XMINYMAX = 8,
-        SVG_PRESERVEASPECTRATIO_XMIDYMAX = 9,
-        SVG_PRESERVEASPECTRATIO_XMAXYMAX = 10
-    };
+    static Ref<SVGPreserveAspectRatio> create(SVGPropertyOwner* owner, SVGPropertyAccess access, const SVGPreserveAspectRatioValue& value = { })
+    {
+        return adoptRef(*new SVGPreserveAspectRatio(owner, access, value));
+    }
 
-    enum SVGMeetOrSliceType {
-        SVG_MEETORSLICE_UNKNOWN = 0,
-        SVG_MEETORSLICE_MEET = 1,
-        SVG_MEETORSLICE_SLICE = 2
-    };
+    template<typename T>
+    static ExceptionOr<Ref<SVGPreserveAspectRatio>> create(ExceptionOr<T>&& value)
+    {
+        if (value.hasException())
+            return value.releaseException();
+        return adoptRef(*new SVGPreserveAspectRatio(value.releaseReturnValue()));
+    }
 
-    SVGPreserveAspectRatio();
+    unsigned short align() const { return m_value.align(); }
 
-    void setAlign(unsigned short align, ExceptionCode&);
-    unsigned short align() const { return m_align; }
+    ExceptionOr<void> setAlign(float value)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
 
-    void setMeetOrSlice(unsigned short, ExceptionCode&);
-    unsigned short meetOrSlice() const { return m_meetOrSlice; }
+        auto result = m_value.setAlign(value);
+        if (result.hasException())
+            return result;
 
-    void transformRect(FloatRect& destRect, FloatRect& srcRect);
+        commitChange();
+        return result;
+    }
 
-    AffineTransform getCTM(float logicX, float logicY,
-                           float logicWidth, float logicHeight,
-                           float physWidth, float physHeight) const;
+    unsigned short meetOrSlice() const { return m_value.meetOrSlice(); }
 
-    void parse(const String&);
-    bool parse(const UChar*& currParam, const UChar* end, bool validate);
+    ExceptionOr<void> setMeetOrSlice(float value)
+    {
+        if (isReadOnly())
+            return Exception { NoModificationAllowedError };
 
-    String valueAsString() const;
+        auto result = m_value.setMeetOrSlice(value);
+        if (result.hasException())
+            return result;
 
-private:
-    SVGPreserveAspectRatioType m_align;
-    SVGMeetOrSliceType m_meetOrSlice;
+        commitChange();
+        return result;
+    }
 
-    bool parseInternal(const UChar*& currParam, const UChar* end, bool validate);
-};
-
-template<>
-struct SVGPropertyTraits<SVGPreserveAspectRatio> {
-    static SVGPreserveAspectRatio initialValue() { return SVGPreserveAspectRatio(); }
-    static String toString(const SVGPreserveAspectRatio& type) { return type.valueAsString(); }
+    String valueAsString() const override
+    {
+        return m_value.valueAsString();
+    }
 };
 
 } // namespace WebCore
-
-#endif // SVGPreserveAspectRatio_h

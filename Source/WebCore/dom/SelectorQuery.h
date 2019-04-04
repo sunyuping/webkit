@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,34 +23,29 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SelectorQuery_h
-#define SelectorQuery_h
+#pragma once
 
 #include "CSSSelectorList.h"
+#include "ExceptionOr.h"
 #include "NodeList.h"
 #include "SelectorCompiler.h"
 #include <wtf/HashMap.h>
 #include <wtf/Vector.h>
 #include <wtf/text/AtomicStringHash.h>
-#include <wtf/text/CString.h>
 
 namespace WebCore {
 
-typedef int ExceptionCode;
-    
 class CSSSelector;
 class ContainerNode;
 class Document;
 class Element;
-class Node;
-class NodeList;
 
 class SelectorDataList {
 public:
     explicit SelectorDataList(const CSSSelectorList&);
     bool matches(Element&) const;
     Element* closest(Element&) const;
-    RefPtr<NodeList> queryAll(ContainerNode& rootNode) const;
+    Ref<NodeList> queryAll(ContainerNode& rootNode) const;
     Element* queryFirst(ContainerNode& rootNode) const;
 
 private:
@@ -65,7 +60,7 @@ private:
 
         const CSSSelector* selector;
 #if ENABLE(CSS_SELECTOR_JIT)
-        mutable JSC::MacroAssemblerCodeRef compiledSelectorCodeRef;
+        mutable JSC::MacroAssemblerCodeRef<CSSSelectorPtrTag> compiledSelectorCodeRef;
         mutable SelectorCompilationStatus compilationStatus;
 #if CSS_SELECTOR_JIT_PROFILING
         ~SelectorData()
@@ -92,7 +87,7 @@ private:
     template <typename SelectorQueryTrait> void executeCompiledSimpleSelectorChecker(const ContainerNode& searchRootNode, SelectorCompiler::QuerySelectorSimpleSelectorChecker, typename SelectorQueryTrait::OutputType&, const SelectorData&) const;
     template <typename SelectorQueryTrait> void executeCompiledSelectorCheckerWithCheckingContext(const ContainerNode& rootNode, const ContainerNode& searchRootNode, SelectorCompiler::QuerySelectorSelectorCheckerWithCheckingContext, typename SelectorQueryTrait::OutputType&, const SelectorData&) const;
     template <typename SelectorQueryTrait> void executeCompiledSingleMultiSelectorData(const ContainerNode& rootNode, typename SelectorQueryTrait::OutputType&) const;
-    static bool compileSelector(const SelectorData&, const ContainerNode& rootNode);
+    static bool compileSelector(const SelectorData&);
 #endif // ENABLE(CSS_SELECTOR_JIT)
 
     Vector<SelectorData> m_selectors;
@@ -120,7 +115,7 @@ public:
     explicit SelectorQuery(CSSSelectorList&&);
     bool matches(Element&) const;
     Element* closest(Element&) const;
-    RefPtr<NodeList> queryAll(ContainerNode& rootNode) const;
+    Ref<NodeList> queryAll(ContainerNode& rootNode) const;
     Element* queryFirst(ContainerNode& rootNode) const;
 
 private:
@@ -130,10 +125,8 @@ private:
 
 class SelectorQueryCache {
     WTF_MAKE_FAST_ALLOCATED;
-
 public:
-    SelectorQuery* add(const String&, Document&, ExceptionCode&);
-
+    ExceptionOr<SelectorQuery&> add(const String&, Document&);
 private:
     HashMap<String, std::unique_ptr<SelectorQuery>> m_entries;
 };
@@ -148,7 +141,7 @@ inline Element* SelectorQuery::closest(Element& element) const
     return m_selectors.closest(element);
 }
 
-inline RefPtr<NodeList> SelectorQuery::queryAll(ContainerNode& rootNode) const
+inline Ref<NodeList> SelectorQuery::queryAll(ContainerNode& rootNode) const
 {
     return m_selectors.queryAll(rootNode);
 }
@@ -158,6 +151,4 @@ inline Element* SelectorQuery::queryFirst(ContainerNode& rootNode) const
     return m_selectors.queryFirst(rootNode);
 }
 
-}
-
-#endif
+} // namespace WebCore

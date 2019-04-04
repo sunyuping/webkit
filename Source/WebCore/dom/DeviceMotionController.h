@@ -24,8 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DeviceMotionController_h
-#define DeviceMotionController_h
+#pragma once
 
 #include "DeviceController.h"
 #include <wtf/Noncopyable.h>
@@ -38,21 +37,21 @@ class DeviceMotionData;
 class DeviceMotionController final : public DeviceController {
     WTF_MAKE_NONCOPYABLE(DeviceMotionController);
 public:
-    explicit DeviceMotionController(DeviceMotionClient*);
-    virtual ~DeviceMotionController() { }
+    explicit DeviceMotionController(DeviceMotionClient&);
+    virtual ~DeviceMotionController() = default;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     // FIXME: We should look to reconcile the iOS and OpenSource differences with this class
-    // so that we can either remove these methods or remove the PLATFORM(IOS)-guard.
+    // so that we can either remove these methods or remove the PLATFORM(IOS_FAMILY)-guard.
     void suspendUpdates();
     void resumeUpdates();
 #endif
 
     void didChangeDeviceMotion(DeviceMotionData*);
-    DeviceMotionClient* deviceMotionClient();
+    DeviceMotionClient& deviceMotionClient();
 
-    virtual bool hasLastData() override;
-    virtual RefPtr<Event> getLastEvent() override;
+    bool hasLastData() override;
+    RefPtr<Event> getLastEvent() override;
 
     static const char* supplementName();
     static DeviceMotionController* from(Page*);
@@ -60,5 +59,3 @@ public:
 };
 
 } // namespace WebCore
-
-#endif // DeviceMotionController_h

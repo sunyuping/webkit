@@ -23,10 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef RegisterAtOffset_h
-#define RegisterAtOffset_h
+#pragma once
 
-#if ENABLE(JIT)
+#if ENABLE(ASSEMBLER)
 
 #include "Reg.h"
 #include <wtf/PrintStream.h>
@@ -50,7 +49,7 @@ public:
     
     Reg reg() const { return m_reg; }
     ptrdiff_t offset() const { return m_offset; }
-    int offsetAsIndex() const { return offset() / sizeof(void*); }
+    int offsetAsIndex() const { ASSERT(!(offset() % sizeof(CPURegister))); return offset() / static_cast<int>(sizeof(CPURegister)); }
     
     bool operator==(const RegisterAtOffset& other) const
     {
@@ -70,12 +69,9 @@ public:
 
 private:
     Reg m_reg;
-    ptrdiff_t m_offset : sizeof(ptrdiff_t) * 8 - sizeof(Reg) * 8;
+    ptrdiff_t m_offset : (sizeof(ptrdiff_t) - sizeof(Reg)) * CHAR_BIT;
 };
 
 } // namespace JSC
 
-#endif // ENABLE(JIT)
-
-#endif // RegisterAtOffset_h
-
+#endif // ENABLE(ASSEMBLER)

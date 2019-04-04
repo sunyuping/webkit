@@ -20,27 +20,35 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef RenderLayerModelObject_h
-#define RenderLayerModelObject_h
+#pragma once
 
 #include "RenderElement.h"
 
 namespace WebCore {
 
+class KeyframeList;
 class RenderLayer;
 
+struct RepaintLayoutRects {
+    LayoutRect m_repaintRect; // This rect is clipped by enclosing objects (e.g., overflow:hidden).
+    LayoutRect m_outlineBox; // This rect is unclipped.
+
+    RepaintLayoutRects(const RenderLayerModelObject& renderer, const RenderLayerModelObject* repaintContainer, const RenderGeometryMap* = nullptr);
+    RepaintLayoutRects() { };
+};
+
 class RenderLayerModelObject : public RenderElement {
+    WTF_MAKE_ISO_ALLOCATED(RenderLayerModelObject);
 public:
     virtual ~RenderLayerModelObject();
 
-    // Called by RenderObject::willBeDestroyed() and is the only way layers should ever be destroyed
     void destroyLayer();
 
     bool hasSelfPaintingLayer() const;
     RenderLayer* layer() const { return m_layer.get(); }
 
-    virtual void styleWillChange(StyleDifference, const RenderStyle& newStyle) override;
-    virtual void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
+    void styleWillChange(StyleDifference, const RenderStyle& newStyle) override;
+    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
     virtual void updateFromStyle() { }
 
     virtual bool requiresLayer() const = 0;
@@ -51,11 +59,33 @@ public:
 
     virtual bool isScrollableOrRubberbandableBox() const { return false; }
 
+    bool shouldPlaceBlockDirectionScrollbarOnLeft() const;
+    
+    void computeRepaintLayoutRects(const RenderLayerModelObject* repaintContainer, const RenderGeometryMap* = nullptr);
+
+    RepaintLayoutRects repaintLayoutRects() const;
+    
+    bool hasRepaintLayoutRects() const;
+    void setRepaintLayoutRects(const RepaintLayoutRects&);
+    void clearRepaintLayoutRects();
+
+    bool startTransition(double timeOffset, CSSPropertyID, const RenderStyle* fromStyle, const RenderStyle* toStyle) override;
+    void transitionPaused(double timeOffset, CSSPropertyID) override;
+    void transitionFinished(CSSPropertyID) override;
+
+    bool startAnimation(double timeOffset, const Animation&, const KeyframeList&) override;
+    void animationPaused(double timeOffset, const String& name) override;
+    void animationSeeked(double timeOffset, const String& name) override;
+    void animationFinished(const String& name) override;
+
+    void suspendAnimations(MonotonicTime = MonotonicTime()) override;
+
 protected:
-    RenderLayerModelObject(Element&, Ref<RenderStyle>&&, BaseTypeFlags);
-    RenderLayerModelObject(Document&, Ref<RenderStyle>&&, BaseTypeFlags);
+    RenderLayerModelObject(Element&, RenderStyle&&, BaseTypeFlags);
+    RenderLayerModelObject(Document&, RenderStyle&&, BaseTypeFlags);
 
     void createLayer();
+    void willBeDestroyed() override;
 
 private:
     std::unique_ptr<RenderLayer> m_layer;
@@ -70,5 +100,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderLayerModelObject, isRenderLayerModelObject())
-
-#endif // RenderLayerModelObject_h

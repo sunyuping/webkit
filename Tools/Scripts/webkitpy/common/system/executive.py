@@ -37,8 +37,8 @@ import subprocess
 import sys
 import time
 
+from webkitpy.common.system.abstractexecutive import AbstractExecutive
 from webkitpy.common.system.outputtee import Tee
-from webkitpy.common.system.filesystem import FileSystem
 
 
 _log = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class ScriptError(Exception):
                 message += " cwd: %s" % cwd
 
         Exception.__init__(self, message)
-        self.script_args = script_args # 'args' is already used by Exception
+        self.script_args = script_args  # 'args' is already used by Exception
         self.exit_code = exit_code
         self.output = output
         self.cwd = cwd
@@ -80,20 +80,26 @@ class ScriptError(Exception):
         return os.path.basename(command_path)
 
 
-class Executive(object):
+class Executive(AbstractExecutive):
     PIPE = subprocess.PIPE
     STDOUT = subprocess.STDOUT
 
     def __init__(self):
         self.pid_to_system_pid = {}
+        self._is_native_win = sys.platform.startswith('win')
+        self._is_cygwin = sys.platform == 'cygwin'
 
     def _should_close_fds(self):
         # We need to pass close_fds=True to work around Python bug #2320
         # (otherwise we can hang when we kill DumpRenderTree when we are running
         # multiple threads). See http://bugs.python.org/issue2320 .
-        # Note that close_fds isn't supported on Windows, but this bug only
-        # shows up on Mac and Linux.
-        return not (sys.platform == 'cygwin' or sys.platform.startswith('win'))
+        # In Python 2.7.10, close_fds is also supported on Windows.
+        # However, "you cannot set close_fds to true and also redirect the standard
+        # handles by setting stdin, stdout or stderr.".
+        if self._is_native_win:
+            return False
+        else:
+            return True
 
     def _run_command_with_teed_output(self, args, teed_output, **kwargs):
         child_process = self.popen(args,
@@ -153,75 +159,56 @@ class Executive(object):
             pass
         return multiprocessing.cpu_count()
 
-    @staticmethod
-    def interpreter_for_script(script_path, fs=None):
-        fs = fs or FileSystem()
-        lines = fs.read_text_file(script_path).splitlines()
-        if not len(lines):
-            return None
-        first_line = lines[0]
-        if not first_line.startswith('#!'):
-            return None
-        if first_line.find('python') > -1:
-            return sys.executable
-        if first_line.find('perl') > -1:
-            return 'perl'
-        if first_line.find('ruby') > -1:
-            return 'ruby'
-        return None
-
-    @staticmethod
-    def shell_command_for_script(script_path, fs=None):
-        fs = fs or FileSystem()
-        # Win32 does not support shebang. We need to detect the interpreter ourself.
-        if sys.platform.startswith('win'):
-            interpreter = Executive.interpreter_for_script(script_path, fs)
-            if interpreter:
-                return [interpreter, script_path]
-        return [script_path]
-
     def kill_process(self, pid):
+        # Killing a process with a pid of 0 or a negative pid is a valid command, but
+        # will kill all processes in this process' group (if 0) or all non-system processes
+        # (if -1) (kill(2)). Throw an exception if this is the behavior requested, this
+        # class is not designed to provide this functionality.
+        if pid is None or pid <= 0:
+            raise RuntimeError('Cannot kill process with invalid pid of {}'.format(pid))
+
         """Attempts to kill the given pid.
         Will fail silently if pid does not exist or insufficient permisssions."""
-        if sys.platform.startswith('win32'):
+        if self._is_native_win:
             # We only use taskkill.exe on windows (not cygwin) because subprocess.pid
             # is a CYGWIN pid and taskkill.exe expects a windows pid.
             # Thankfully os.kill on CYGWIN handles either pid type.
             task_kill_executable = os.path.join('C:', os.sep, 'WINDOWS', 'system32', 'taskkill.exe')
             command = [task_kill_executable, "/f", "/t", "/pid", pid]
             # taskkill will exit 128 if the process is not found.  We should log.
-            self.run_command(command, error_handler=self.ignore_error)
+            self.run_command(command, ignore_errors=True)
             return
 
         # According to http://docs.python.org/library/os.html
         # os.kill isn't available on Windows. python 2.5.5 os.kill appears
         # to work in cygwin, however it occasionally raises EAGAIN.
-        retries_left = 10 if sys.platform == "cygwin" else 1
-        while retries_left > 0:
+        retries_left = 10 if self._is_cygwin else 2
+        current_signal = signal.SIGTERM
+        while retries_left > 0 and self.check_running_pid(pid):
             try:
                 retries_left -= 1
-                # Give processes one change to clean up quickly before exiting.
-                # Following up with a kill should have no effect if the process
-                # already exited, and forcefully kill it if SIGTERM wasn't enough.
-                os.kill(pid, signal.SIGTERM)
-                os.kill(pid, signal.SIGKILL)
-                _ = os.waitpid(pid, os.WNOHANG)
-            except OSError, e:
-                if e.errno == errno.EAGAIN:
+                os.kill(pid, current_signal)
+            except OSError as e:
+                if current_signal == signal.SIGTERM:
+                    pass
+                elif e.errno == errno.EAGAIN:
                     if retries_left <= 0:
                         _log.warn("Failed to kill pid %s.  Too many EAGAIN errors." % pid)
-                    continue
-                if e.errno == errno.ESRCH:  # The process does not exist.
+                elif e.errno == errno.ESRCH:  # The process does not exist.
                     return
-                if e.errno == errno.EPIPE:  # The process has exited already on cygwin
+                elif e.errno == errno.EPIPE:  # The process has exited already on cygwin
                     return
-                if e.errno == errno.ECHILD:
+                elif e.errno == errno.ECHILD:
                     # Can't wait on a non-child process, but the kill worked.
                     return
-                if e.errno == errno.EACCES and sys.platform == 'cygwin':
+                elif e.errno == errno.EACCES and self._is_cygwin:
                     # Cygwin python sometimes can't kill native processes.
                     return
-                raise
+                else:
+                    raise
+
+            # Give processes one chance to clean up quickly before exiting.
+            current_signal = signal.SIGKILL
 
     def _win32_check_running_pid(self, pid):
         # importing ctypes at the top-level seems to cause weird crashes at
@@ -264,8 +251,12 @@ class Executive(object):
         return result
 
     def check_running_pid(self, pid):
+        # An undefined process or a negative process are never running.
+        if pid is None or pid <= 0:
+            return False
+
         """Return True if pid is alive, otherwise return False."""
-        if sys.platform.startswith('win'):
+        if self._is_native_win:
             return self._win32_check_running_pid(pid)
 
         try:
@@ -275,7 +266,7 @@ class Executive(object):
             return False
 
     def running_pids(self, process_name_filter=None):
-        if sys.platform.startswith('win'):
+        if self._is_native_win:
             # FIXME: running_pids isn't implemented on native Windows yet...
             return []
 
@@ -283,8 +274,8 @@ class Executive(object):
             process_name_filter = lambda process_name: True
 
         running_pids = []
-        if sys.platform in ("cygwin"):
-            ps_process = self.run_command(['ps', '-e'], error_handler=Executive.ignore_error)
+        if self._is_cygwin:
+            ps_process = self.run_command(['ps', '-e'], ignore_errors=True)
             for line in ps_process.splitlines():
                 tokens = line.strip().split()
                 try:
@@ -292,7 +283,7 @@ class Executive(object):
                     if process_name_filter(process_name):
                         running_pids.append(int(pid))
                         self.pid_to_system_pid[int(pid)] = int(winpid)
-                except ValueError, e:
+                except ValueError as e:
                     pass
         else:
             ps_process = self.popen(['ps', '-eo', 'pid,comm'], stdout=self.PIPE, stderr=self.PIPE)
@@ -304,29 +295,10 @@ class Executive(object):
                     pid, process_name = line.strip().split(' ', 1)
                     if process_name_filter(process_name):
                         running_pids.append(int(pid))
-                except ValueError, e:
+                except ValueError as e:
                     pass
 
         return sorted(running_pids)
-
-    def wait_newest(self, process_name_filter=None):
-        if not process_name_filter:
-            process_name_filter = lambda process_name: True
-
-        running_pids = self.running_pids(process_name_filter)
-        if not running_pids:
-            return
-        pid = running_pids[-1]
-
-        while self.check_running_pid(pid):
-            time.sleep(0.25)
-
-    def wait_limited(self, pid, limit_in_seconds=None, check_frequency_in_seconds=None):
-        seconds_left = limit_in_seconds or 10
-        sleep_length = check_frequency_in_seconds or 1
-        while seconds_left > 0 and self.check_running_pid(pid):
-            seconds_left -= sleep_length
-            time.sleep(sleep_length)
 
     def _windows_image_name(self, process_name):
         name, extension = os.path.splitext(process_name)
@@ -337,9 +309,7 @@ class Executive(object):
         return process_name
 
     def interrupt(self, pid):
-        interrupt_signal = signal.SIGINT
-        # FIXME: The python docs seem to imply that platform == 'win32' may need to use signal.CTRL_C_EVENT
-        # http://docs.python.org/2/library/signal.html
+        interrupt_signal = signal.CTRL_C_EVENT if self._is_native_win else signal.SIGINT
         try:
             os.kill(pid, interrupt_signal)
         except OSError:
@@ -350,14 +320,14 @@ class Executive(object):
     def kill_all(self, process_name):
         """Attempts to kill processes matching process_name.
         Will fail silently if no process are found."""
-        if sys.platform == 'cygwin' or sys.platform.startswith('win'):
+        if self._is_cygwin or self._is_native_win:
             image_name = self._windows_image_name(process_name)
             killCommmand = 'taskkill.exe'
-            if sys.platform.startswith('win'):
+            if self._is_native_win:
                 killCommand = os.path.join('C:', os.sep, 'WINDOWS', 'system32', 'taskkill.exe')
             command = [killCommmand, "/f", "/im", image_name]
             # taskkill will exit 128 if the process is not found.  We should log.
-            self.run_command(command, error_handler=self.ignore_error)
+            self.run_command(command, ignore_errors=True)
             return
 
         # FIXME: This is inconsistent that kill_all uses TERM and kill_process
@@ -368,18 +338,7 @@ class Executive(object):
         # killall returns 1 if no process can be found and 2 on command error.
         # FIXME: We should pass a custom error_handler to allow only exit_code 1.
         # We should log in exit_code == 1
-        self.run_command(command, error_handler=self.ignore_error)
-
-    # Error handlers do not need to be static methods once all callers are
-    # updated to use an Executive object.
-
-    @staticmethod
-    def default_error_handler(error):
-        raise error
-
-    @staticmethod
-    def ignore_error(error):
-        pass
+        self.run_command(command, ignore_errors=True)
 
     def _compute_stdin(self, input):
         """Returns (stdin, string_to_communicate)"""
@@ -400,19 +359,6 @@ class Executive(object):
             input = input.encode(self._child_process_encoding())
         return (self.PIPE, input)
 
-    def command_for_printing(self, args):
-        """Returns a print-ready string representing command args.
-        The string should be copy/paste ready for execution in a shell."""
-        args = self._stringify_args(args)
-        escaped_args = []
-        for arg in args:
-            if isinstance(arg, unicode):
-                # Escape any non-ascii characters for easy copy/paste
-                arg = arg.encode("unicode_escape")
-            # FIXME: Do we need to fix quotes here?
-            escaped_args.append(arg)
-        return " ".join(escaped_args)
-
     # FIXME: run_and_throw_if_fail should be merged into this method.
     def run_command(self,
                     args,
@@ -420,6 +366,7 @@ class Executive(object):
                     env=None,
                     input=None,
                     error_handler=None,
+                    ignore_errors=False,
                     return_exit_code=False,
                     return_stderr=True,
                     decode_output=True):
@@ -439,9 +386,9 @@ class Executive(object):
                              close_fds=self._should_close_fds())
         output = process.communicate(string_to_communicate)[0]
 
-        # run_command automatically decodes to unicode() unless explicitly told not to.
+        # run_command automatically decodes to unicode() and converts CRLF to LF unless explicitly told not to.
         if decode_output:
-            output = output.decode(self._child_process_encoding())
+            output = output.decode(self._child_process_encoding()).replace('\r\n', '\n')
 
         # wait() is not threadsafe and can throw OSError due to:
         # http://bugs.python.org/issue1731717
@@ -457,6 +404,11 @@ class Executive(object):
                                        exit_code=exit_code,
                                        output=output,
                                        cwd=cwd)
+
+            if ignore_errors:
+                assert error_handler is None, "don't specify error_handler if ignore_errors is True"
+                error_handler = Executive.ignore_error
+
             (error_handler or self.default_error_handler)(script_error)
         return output
 
@@ -464,7 +416,7 @@ class Executive(object):
         # Win32 Python 2.x uses CreateProcessA rather than CreateProcessW
         # to launch subprocesses, so we have to encode arguments using the
         # current code page.
-        if sys.platform.startswith('win') and sys.version < '3':
+        if self._is_native_win and sys.version < '3':
             return 'mbcs'
         # All other platforms use UTF-8.
         # FIXME: Using UTF-8 on Cygwin will confuse Windows-native commands
@@ -475,13 +427,13 @@ class Executive(object):
     def _should_encode_child_process_arguments(self):
         # Cygwin's Python's os.execv doesn't support unicode command
         # arguments, and neither does Cygwin's execv itself.
-        if sys.platform == 'cygwin':
+        if self._is_cygwin:
             return True
 
         # Win32 Python 2.x uses CreateProcessA rather than CreateProcessW
         # to launch subprocesses, so we have to encode arguments using the
         # current code page.
-        if sys.platform.startswith('win') and sys.version < '3':
+        if self._is_native_win and sys.version < '3':
             return True
 
         return False
@@ -502,7 +454,7 @@ class Executive(object):
 
     # The only required argument to popen is named "args", the rest are optional keyword arguments.
     def popen(self, args, **kwargs):
-        if sys.platform.startswith('win'):
+        if self._is_native_win:
             _log.debug("Looking at {0}".format(args))
             # Must include proper interpreter
             if self._needs_interpreter_check(args[0]):
@@ -532,7 +484,7 @@ class Executive(object):
         """Runs a list of (cmd_line list, cwd string) tuples in parallel and returns a list of (retcode, stdout, stderr) tuples."""
         assert len(command_lines_and_cwds)
 
-        if sys.platform == 'cygwin' or sys.platform.startswith('win'):
+        if self._is_cygwin or self._is_native_win:
             return map(_run_command_thunk, command_lines_and_cwds)
         pool = multiprocessing.Pool(processes=processes)
         results = pool.map(_run_command_thunk, command_lines_and_cwds)

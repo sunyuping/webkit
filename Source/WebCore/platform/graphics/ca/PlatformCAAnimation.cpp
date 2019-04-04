@@ -26,7 +26,7 @@
 #include "config.h"
 #include "PlatformCAAnimation.h"
 
-#include "TextStream.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -35,6 +35,7 @@ TextStream& operator<<(TextStream& ts, PlatformCAAnimation::AnimationType type)
     switch (type) {
     case PlatformCAAnimation::Basic: ts << "basic"; break;
     case PlatformCAAnimation::Keyframe: ts << "keyframe"; break;
+    case PlatformCAAnimation::Spring: ts << "spring"; break;
     }
     return ts;
 }
@@ -67,6 +68,11 @@ TextStream& operator<<(TextStream& ts, PlatformCAAnimation::ValueFunctionType va
     case PlatformCAAnimation::Translate: ts << "translate"; break;
     }
     return ts;
+}
+
+bool PlatformCAAnimation::isBasicAnimation() const
+{
+    return animationType() == Basic || animationType() == Spring;
 }
 
 } // namespace WebCore

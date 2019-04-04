@@ -24,47 +24,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PseudoElement_h
-#define PseudoElement_h
+#pragma once
 
 #include "Element.h"
-#include "Event.h"
-#include "RenderStyle.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
 class PseudoElement final : public Element {
+    WTF_MAKE_ISO_ALLOCATED(PseudoElement);
 public:
-    static Ref<PseudoElement> create(Element& host, PseudoId pseudoId)
-    {
-        return adoptRef(*new PseudoElement(host, pseudoId));
-    }
+    static Ref<PseudoElement> create(Element& host, PseudoId);
     virtual ~PseudoElement();
 
     Element* hostElement() const { return m_hostElement; }
     void clearHostElement();
 
-    virtual RefPtr<RenderStyle> customStyleForRenderer(RenderStyle& parentStyle) override;
-    virtual void didAttachRenderers() override;
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
+    bool rendererIsNeeded(const RenderStyle&) override;
 
-    // As per http://dev.w3.org/csswg/css3-regions/#flow-into, pseudo-elements such as ::first-line, ::first-letter, ::before or ::after
-    // cannot be directly collected into a named flow.
-#if ENABLE(CSS_REGIONS)
-    virtual bool shouldMoveToFlowThread(const RenderStyle&) const override { return false; }
-#endif
-
-    virtual bool canStartSelection() const override { return false; }
-    virtual bool canContainRangeEndPoint() const override { return false; }
+    bool canStartSelection() const override { return false; }
+    bool canContainRangeEndPoint() const override { return false; }
 
     static String pseudoElementNameForEvents(PseudoId);
 
 private:
     PseudoElement(Element&, PseudoId);
 
-    virtual void didRecalcStyle(Style::Change) override;
-    virtual PseudoId customPseudoId() const override { return m_pseudoId; }
+    PseudoId customPseudoId() const override { return m_pseudoId; }
 
     Element* m_hostElement;
     PseudoId m_pseudoId;
@@ -72,15 +58,8 @@ private:
 
 const QualifiedName& pseudoElementTagName();
 
-inline bool pseudoElementRendererIsNeeded(const RenderStyle* style)
-{
-    return style && style->display() != NONE && (style->contentData() || style->hasFlowFrom());
-}
-
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::PseudoElement)
     static bool isType(const WebCore::Node& node) { return node.isPseudoElement(); }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif

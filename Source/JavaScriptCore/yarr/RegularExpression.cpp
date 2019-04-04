@@ -1,4 +1,3 @@
-
 /*
  * Copyright (C) 2004, 2008, 2009 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Collabora Ltd.
@@ -30,6 +29,8 @@
 #include "RegularExpression.h"
 
 #include "Yarr.h"
+#include "YarrFlags.h"
+#include "YarrInterpreter.h"
 #include <wtf/Assertions.h>
 #include <wtf/BumpPointerAllocator.h>
 
@@ -37,29 +38,38 @@ namespace JSC { namespace Yarr {
 
 class RegularExpression::Private : public RefCounted<RegularExpression::Private> {
 public:
-    static Ref<Private> create(const String& pattern, TextCaseSensitivity caseSensitivity, MultilineMode multilineMode)
+    static Ref<Private> create(const String& pattern, TextCaseSensitivity caseSensitivity, MultilineMode multilineMode, UnicodeMode unicodeMode)
     {
-        return adoptRef(*new Private(pattern, caseSensitivity, multilineMode));
+        return adoptRef(*new Private(pattern, caseSensitivity, multilineMode, unicodeMode));
     }
 
-    int lastMatchLength;
+    int lastMatchLength { -1 };
 
     unsigned m_numSubpatterns;
     std::unique_ptr<JSC::Yarr::BytecodePattern> m_regExpByteCode;
 
 private:
-    Private(const String& pattern, TextCaseSensitivity caseSensitivity, MultilineMode multilineMode)
-        : lastMatchLength(-1)
-        , m_regExpByteCode(compile(pattern, caseSensitivity, multilineMode))
-        , m_constructionError(nullptr)
+    Private(const String& pattern, TextCaseSensitivity caseSensitivity, MultilineMode multilineMode, UnicodeMode unicodeMode)
+        : m_regExpByteCode(compile(pattern, caseSensitivity, multilineMode, unicodeMode))
     {
     }
 
-    std::unique_ptr<JSC::Yarr::BytecodePattern> compile(const String& patternString, TextCaseSensitivity caseSensitivity, MultilineMode multilineMode)
+    std::unique_ptr<JSC::Yarr::BytecodePattern> compile(const String& patternString, TextCaseSensitivity caseSensitivity, MultilineMode multilineMode, UnicodeMode unicodeMode)
     {
-        JSC::Yarr::YarrPattern pattern(patternString, (caseSensitivity == TextCaseInsensitive), (multilineMode == MultilineEnabled), &m_constructionError);
-        if (m_constructionError) {
-            LOG_ERROR("RegularExpression: YARR compile failed with '%s'", m_constructionError);
+        OptionSet<JSC::Yarr::Flags> flags;
+
+        if (caseSensitivity == TextCaseInsensitive)
+            flags.add(Flags::IgnoreCase);
+
+        if (multilineMode == MultilineEnabled)
+            flags.add(Flags::Multiline);
+
+        if (unicodeMode == UnicodeAwareMode)
+            flags.add(Flags::Unicode);
+
+        JSC::Yarr::YarrPattern pattern(patternString, flags, m_constructionErrorCode);
+        if (JSC::Yarr::hasError(m_constructionErrorCode)) {
+            LOG_ERROR("RegularExpression: YARR compile failed with '%s'", JSC::Yarr::errorMessage(m_constructionErrorCode));
             return nullptr;
         }
 
@@ -69,11 +79,11 @@ private:
     }
 
     BumpPointerAllocator m_regexAllocator;
-    const char* m_constructionError;
+    JSC::Yarr::ErrorCode m_constructionErrorCode { Yarr::ErrorCode::NoError };
 };
 
-RegularExpression::RegularExpression(const String& pattern, TextCaseSensitivity caseSensitivity, MultilineMode multilineMode)
-    : d(Private::create(pattern, caseSensitivity, multilineMode))
+RegularExpression::RegularExpression(const String& pattern, TextCaseSensitivity caseSensitivity, MultilineMode multilineMode, UnicodeMode unicodeMode)
+    : d(Private::create(pattern, caseSensitivity, multilineMode, unicodeMode))
 {
 }
 
@@ -104,7 +114,7 @@ int RegularExpression::match(const String& str, int startFrom, int* matchLength)
     unsigned* offsetVector;
     Vector<unsigned, 32> nonReturnedOvector;
 
-    nonReturnedOvector.resize(offsetVectorSize);
+    nonReturnedOvector.grow(offsetVectorSize);
     offsetVector = nonReturnedOvector.data();
 
     ASSERT(offsetVector);

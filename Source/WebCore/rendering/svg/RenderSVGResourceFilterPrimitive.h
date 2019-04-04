@@ -24,8 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RenderSVGResourceFilterPrimitive_h
-#define RenderSVGResourceFilterPrimitive_h
+#pragma once
 
 #include "RenderSVGResourceFilter.h"
 
@@ -35,16 +34,14 @@ class FilterEffect;
 class SVGFilterPrimitiveStandardAttributes;
 
 class RenderSVGResourceFilterPrimitive final : public RenderSVGHiddenContainer {
+    WTF_MAKE_ISO_ALLOCATED(RenderSVGResourceFilterPrimitive);
 public:
-    RenderSVGResourceFilterPrimitive(SVGFilterPrimitiveStandardAttributes&, Ref<RenderStyle>&&);
+    RenderSVGResourceFilterPrimitive(SVGFilterPrimitiveStandardAttributes&, RenderStyle&&);
     SVGFilterPrimitiveStandardAttributes& filterPrimitiveElement() const;
 
-    virtual void styleDidChange(StyleDifference, const RenderStyle*) override;
+    void styleDidChange(StyleDifference, const RenderStyle*) override;
 
-    virtual const char* renderName() const override { return "RenderSVGResourceFilterPrimitive"; }
-
-    // They depend on the RenderObject argument of RenderSVGResourceFilter::applyResource.
-    static FloatRect determineFilterPrimitiveSubregion(FilterEffect&);
+    const char* renderName() const override { return "RenderSVGResourceFilterPrimitive"; }
 
     inline void primitiveAttributeChanged(const QualifiedName& attribute)
     {
@@ -54,10 +51,8 @@ public:
         static_cast<RenderSVGResourceFilter*>(filter)->primitiveAttributeChanged(this, attribute);
     }
 private:
-    virtual bool isSVGResourceFilterPrimitive() const override { return true; }
+    bool isSVGResourceFilterPrimitive() const override { return true; }
     void element() const = delete;
 };
 
 } // namespace WebCore
-
-#endif // RenderSVGResourceFilterPrimitive_h

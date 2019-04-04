@@ -26,7 +26,7 @@
 #ifndef LegacyTileGridTile_h
 #define LegacyTileGridTile_h
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 
 #include "IntRect.h"
 #include <wtf/RefCounted.h>
@@ -42,7 +42,10 @@ class LegacyTileGrid;
 // Refcount the tiles so they work nicely in vector and we know when to remove the tile layer from the parent.
 class LegacyTileGridTile : public RefCounted<LegacyTileGridTile> {
 public:
-    static PassRefPtr<LegacyTileGridTile> create(LegacyTileGrid* grid, const IntRect& rect) { return adoptRef<LegacyTileGridTile>(new LegacyTileGridTile(grid, rect)); }
+    static Ref<LegacyTileGridTile> create(LegacyTileGrid* grid, const IntRect& rect)
+    {
+        return adoptRef<LegacyTileGridTile>(*new LegacyTileGridTile(grid, rect));
+    }
     ~LegacyTileGridTile();
 
     LegacyTileLayer* tileLayer() const { return m_tileLayer.get(); }
@@ -61,5 +64,5 @@ private:
 
 } // namespace WebCore
 
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY)
 #endif // LegacyTileGridTile_h

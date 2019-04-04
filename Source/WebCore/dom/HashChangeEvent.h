@@ -18,18 +18,12 @@
  *
  */
 
-#ifndef HashChangeEvent_h
-#define HashChangeEvent_h
+#pragma once
 
 #include "Event.h"
 #include "EventNames.h"
 
 namespace WebCore {
-
-struct HashChangeEventInit : public EventInit {
-    String oldURL;
-    String newURL;
-};
 
 class HashChangeEvent final : public Event {
 public:
@@ -43,14 +37,19 @@ public:
         return adoptRef(*new HashChangeEvent);
     }
 
-    static Ref<HashChangeEvent> createForBindings(const AtomicString& type, const HashChangeEventInit& initializer)
+    struct Init : EventInit {
+        String oldURL;
+        String newURL;
+    };
+
+    static Ref<HashChangeEvent> create(const AtomicString& type, const Init& initializer, IsTrusted isTrusted = IsTrusted::No)
     {
-        return adoptRef(*new HashChangeEvent(type, initializer));
+        return adoptRef(*new HashChangeEvent(type, initializer, isTrusted));
     }
 
     void initHashChangeEvent(const AtomicString& eventType, bool canBubble, bool cancelable, const String& oldURL, const String& newURL)
     {
-        if (dispatched())
+        if (isBeingDispatched())
             return;
 
         initEvent(eventType, canBubble, cancelable);
@@ -62,7 +61,7 @@ public:
     const String& oldURL() const { return m_oldURL; }
     const String& newURL() const { return m_newURL; }
 
-    virtual EventInterface eventInterface() const override { return HashChangeEventInterfaceType; }
+    EventInterface eventInterface() const override { return HashChangeEventInterfaceType; }
 
 private:
     HashChangeEvent()
@@ -70,14 +69,14 @@ private:
     }
 
     HashChangeEvent(const String& oldURL, const String& newURL)
-        : Event(eventNames().hashchangeEvent, false, false)
+        : Event(eventNames().hashchangeEvent, CanBubble::No, IsCancelable::No)
         , m_oldURL(oldURL)
         , m_newURL(newURL)
     {
     }
 
-    HashChangeEvent(const AtomicString& type, const HashChangeEventInit& initializer)
-        : Event(type, initializer)
+    HashChangeEvent(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
+        : Event(type, initializer, isTrusted)
         , m_oldURL(initializer.oldURL)
         , m_newURL(initializer.newURL)
     {
@@ -88,5 +87,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // HashChangeEvent_h

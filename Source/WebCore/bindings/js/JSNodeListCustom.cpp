@@ -33,38 +33,50 @@
 #include "NodeList.h"
 #include <wtf/text/AtomicString.h>
 
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
-bool JSNodeListOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, SlotVisitor& visitor)
+bool JSNodeListOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, SlotVisitor& visitor, const char** reason)
 {
     JSNodeList* jsNodeList = jsCast<JSNodeList*>(handle.slot()->asCell());
-    if (!jsNodeList->hasCustomProperties())
+    if (!jsNodeList->hasCustomProperties(*jsNodeList->vm()))
         return false;
-    if (jsNodeList->wrapped().isLiveNodeList())
+
+    if (jsNodeList->wrapped().isLiveNodeList()) {
+        if (UNLIKELY(reason))
+            *reason = "LiveNodeList owner is opaque root";
+
         return visitor.containsOpaqueRoot(root(static_cast<LiveNodeList&>(jsNodeList->wrapped()).ownerNode()));
-    if (jsNodeList->wrapped().isChildNodeList())
+    }
+
+    if (jsNodeList->wrapped().isChildNodeList()) {
+        if (UNLIKELY(reason))
+            *reason = "ChildNodeList owner is opaque root";
+
         return visitor.containsOpaqueRoot(root(static_cast<ChildNodeList&>(jsNodeList->wrapped()).ownerNode()));
-    if (jsNodeList->wrapped().isEmptyNodeList())
+    }
+
+    if (jsNodeList->wrapped().isEmptyNodeList()) {
+        if (UNLIKELY(reason))
+            *reason = "EmptyNodeList owner is opaque root";
+
         return visitor.containsOpaqueRoot(root(static_cast<EmptyNodeList&>(jsNodeList->wrapped()).ownerNode()));
+    }
     return false;
 }
 
-JSC::JSValue createWrapper(JSDOMGlobalObject& globalObject, NodeList& nodeList)
+JSC::JSValue createWrapper(JSDOMGlobalObject& globalObject, Ref<NodeList>&& nodeList)
 {
     // FIXME: Adopt reportExtraMemoryVisited, and switch to reportExtraMemoryAllocated.
     // https://bugs.webkit.org/show_bug.cgi?id=142595
-    globalObject.vm().heap.deprecatedReportExtraMemory(nodeList.memoryCost());
-    return createNewWrapper<JSNodeList>(&globalObject, &nodeList);
+    globalObject.vm().heap.deprecatedReportExtraMemory(nodeList->memoryCost());
+    return createWrapper<NodeList>(&globalObject, WTFMove(nodeList));
 }
 
-JSC::JSValue toJSNewlyCreated(JSC::ExecState*, JSDOMGlobalObject* globalObject, NodeList* nodeList)
+JSC::JSValue toJSNewlyCreated(ExecState*, JSDOMGlobalObject* globalObject, Ref<NodeList>&& nodeList)
 {
-    if (!nodeList)
-        return JSC::jsNull();
-
-    return createWrapper(*globalObject, *nodeList);
+    return createWrapper(*globalObject, WTFMove(nodeList));
 }
 
 } // namespace WebCore

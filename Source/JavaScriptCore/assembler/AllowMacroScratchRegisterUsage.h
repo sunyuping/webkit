@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef AllowMacroScratchRegisterUsage_h
-#define AllowMacroScratchRegisterUsage_h
+#pragma once
 
 #if ENABLE(ASSEMBLER)
 
@@ -38,6 +37,10 @@ public:
         : m_masm(masm)
         , m_oldValueOfAllowScratchRegister(masm.m_allowScratchRegister)
     {
+#if CPU(ARM64)
+        if (!m_oldValueOfAllowScratchRegister)
+            m_masm.invalidateAllTempRegisters();
+#endif
         masm.m_allowScratchRegister = true;
     }
 
@@ -54,6 +57,3 @@ private:
 } // namespace JSC
 
 #endif // ENABLE(ASSEMBLER)
-
-#endif // AllowMacroScratchRegisterUsage_h
-

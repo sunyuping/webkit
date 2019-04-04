@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,37 +23,91 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef UserGestureIndicator_h
-#define UserGestureIndicator_h
+#pragma once
 
+#include "DOMPasteAccess.h"
+#include <wtf/Function.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/RefCounted.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
 class Document;
 
 enum ProcessingUserGestureState {
-    DefinitelyProcessingUserGesture,
-    DefinitelyProcessingPotentialUserGesture,
-    PossiblyProcessingUserGesture,
-    DefinitelyNotProcessingUserGesture
+    ProcessingUserGesture,
+    ProcessingPotentialUserGesture,
+    NotProcessingUserGesture
+};
+
+enum class UserGestureType { EscapeKey, Other };
+
+class UserGestureToken : public RefCounted<UserGestureToken> {
+public:
+    static Ref<UserGestureToken> create(ProcessingUserGestureState state, UserGestureType gestureType)
+    {
+        return adoptRef(*new UserGestureToken(state, gestureType));
+    }
+
+    WEBCORE_EXPORT ~UserGestureToken();
+
+    ProcessingUserGestureState state() const { return m_state; }
+    bool processingUserGesture() const { return m_state == ProcessingUserGesture; }
+    bool processingUserGestureForMedia() const { return m_state == ProcessingUserGesture || m_state == ProcessingPotentialUserGesture; }
+    UserGestureType gestureType() const { return m_gestureType; }
+
+    void addDestructionObserver(WTF::Function<void (UserGestureToken&)>&& observer)
+    {
+        m_destructionObservers.append(WTFMove(observer));
+    }
+
+    DOMPasteAccessPolicy domPasteAccessPolicy() const { return m_domPasteAccessPolicy; }
+    void didRequestDOMPasteAccess(DOMPasteAccessResponse response)
+    {
+        switch (response) {
+        case DOMPasteAccessResponse::DeniedForGesture:
+            m_domPasteAccessPolicy = DOMPasteAccessPolicy::Denied;
+            break;
+        case DOMPasteAccessResponse::GrantedForCommand:
+            break;
+        case DOMPasteAccessResponse::GrantedForGesture:
+            m_domPasteAccessPolicy = DOMPasteAccessPolicy::Granted;
+            break;
+        }
+    }
+    void resetDOMPasteAccess() { m_domPasteAccessPolicy = DOMPasteAccessPolicy::NotRequestedYet; }
+
+private:
+    UserGestureToken(ProcessingUserGestureState state, UserGestureType gestureType)
+        : m_state(state)
+        , m_gestureType(gestureType)
+    {
+    }
+
+    ProcessingUserGestureState m_state = NotProcessingUserGesture;
+    Vector<WTF::Function<void (UserGestureToken&)>> m_destructionObservers;
+    UserGestureType m_gestureType;
+    DOMPasteAccessPolicy m_domPasteAccessPolicy { DOMPasteAccessPolicy::NotRequestedYet };
 };
 
 class UserGestureIndicator {
+    WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(UserGestureIndicator);
 public:
-    static bool processingUserGesture();
-    static bool processingUserGestureForMedia();
+    WEBCORE_EXPORT static RefPtr<UserGestureToken> currentUserGesture();
+
+    WEBCORE_EXPORT static bool processingUserGesture();
+    WEBCORE_EXPORT static bool processingUserGestureForMedia();
 
     // If a document is provided, its last known user gesture timestamp is updated.
-    WEBCORE_EXPORT explicit UserGestureIndicator(ProcessingUserGestureState, Document* = nullptr);
+    enum class ProcessInteractionStyle { Immediate, Delayed };
+    WEBCORE_EXPORT explicit UserGestureIndicator(Optional<ProcessingUserGestureState>, Document* = nullptr, UserGestureType = UserGestureType::Other, ProcessInteractionStyle = ProcessInteractionStyle::Immediate);
+    WEBCORE_EXPORT explicit UserGestureIndicator(RefPtr<UserGestureToken>);
     WEBCORE_EXPORT ~UserGestureIndicator();
 
 private:
-    WEBCORE_EXPORT static ProcessingUserGestureState s_state;
-    ProcessingUserGestureState m_previousState;
+    RefPtr<UserGestureToken> m_previousToken;
 };
 
 }
-
-#endif

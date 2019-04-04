@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2018 Apple Inc. All rights reserved.
  * Copyright (C) 2011 Torch Mobile (Beijing) Co. Ltd. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -25,29 +25,23 @@
 
 #if ENABLE(SVG_FONTS)
 
-#include "ExceptionCode.h"
 #include "RenderInline.h"
 #include "RenderSVGTSpan.h"
 #include "SVGAltGlyphDefElement.h"
 #include "SVGGlyphElement.h"
 #include "SVGNames.h"
 #include "XLinkNames.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
-// Animated property definitions
-DEFINE_ANIMATED_STRING(SVGAltGlyphElement, XLinkNames::hrefAttr, Href, href)
-
-BEGIN_REGISTER_ANIMATED_PROPERTIES(SVGAltGlyphElement)
-    REGISTER_LOCAL_ANIMATED_PROPERTY(href)
-    REGISTER_PARENT_ANIMATED_PROPERTIES(SVGTextPositioningElement)
-END_REGISTER_ANIMATED_PROPERTIES
+WTF_MAKE_ISO_ALLOCATED_IMPL(SVGAltGlyphElement);
 
 inline SVGAltGlyphElement::SVGAltGlyphElement(const QualifiedName& tagName, Document& document)
     : SVGTextPositioningElement(tagName, document)
+    , SVGURIReference(this)
 {
     ASSERT(hasTagName(SVGNames::altGlyphTag));
-    registerAnimatedPropertiesForSVGAltGlyphElement();
 }
 
 Ref<SVGAltGlyphElement> SVGAltGlyphElement::create(const QualifiedName& tagName, Document& document)
@@ -55,55 +49,50 @@ Ref<SVGAltGlyphElement> SVGAltGlyphElement::create(const QualifiedName& tagName,
     return adoptRef(*new SVGAltGlyphElement(tagName, document));
 }
 
-void SVGAltGlyphElement::setGlyphRef(const AtomicString&, ExceptionCode& ec)
+ExceptionOr<void> SVGAltGlyphElement::setGlyphRef(const AtomicString&)
 {
-    ec = NO_MODIFICATION_ALLOWED_ERR;
+    return Exception { NoModificationAllowedError };
 }
 
 const AtomicString& SVGAltGlyphElement::glyphRef() const
 {
-    return fastGetAttribute(SVGNames::glyphRefAttr);
+    return attributeWithoutSynchronization(SVGNames::glyphRefAttr);
 }
 
-void SVGAltGlyphElement::setFormat(const AtomicString&, ExceptionCode& ec)
+ExceptionOr<void> SVGAltGlyphElement::setFormat(const AtomicString&)
 {
-    ec = NO_MODIFICATION_ALLOWED_ERR;
+    return Exception { NoModificationAllowedError };
 }
 
 const AtomicString& SVGAltGlyphElement::format() const
 {
-    return fastGetAttribute(SVGNames::formatAttr);
+    return attributeWithoutSynchronization(SVGNames::formatAttr);
 }
 
 bool SVGAltGlyphElement::childShouldCreateRenderer(const Node& child) const
 {
-    if (child.isTextNode())
-        return true;
-    return false;
+    return child.isTextNode();
 }
 
-RenderPtr<RenderElement> SVGAltGlyphElement::createElementRenderer(Ref<RenderStyle>&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGAltGlyphElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderSVGTSpan>(*this, WTFMove(style));
 }
 
 bool SVGAltGlyphElement::hasValidGlyphElements(Vector<String>& glyphNames) const
 {
-    String target;
-    Element* element = targetElementFromIRIString(getAttribute(XLinkNames::hrefAttr), document(), &target);
-    if (!element)
-        return false;
+    // No need to support altGlyph referencing another node inside a shadow tree.
+    auto target = targetElementFromIRIString(getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr), document());
 
-    if (is<SVGGlyphElement>(*element)) {
-        glyphNames.append(target);
+    if (is<SVGGlyphElement>(target.element)) {
+        glyphNames.append(target.identifier);
         return true;
     }
+    
+    if (!is<SVGAltGlyphDefElement>(target.element))
+        return false;
 
-    if (is<SVGAltGlyphDefElement>(*element)
-        && downcast<SVGAltGlyphDefElement>(*element).hasValidGlyphElements(glyphNames))
-        return true;
-
-    return false;
+    return downcast<SVGAltGlyphDefElement>(*target.element).hasValidGlyphElements(glyphNames);
 }
 
 }

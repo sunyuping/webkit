@@ -20,23 +20,94 @@
 #include "config.h"
 
 #if USE(SOUP)
-
 #include "ResourceRequest.h"
 
+#include "BlobData.h"
+#include "BlobRegistryImpl.h"
 #include "GUniquePtrSoup.h"
 #include "HTTPParsers.h"
 #include "MIMETypeRegistry.h"
+#include "SharedBuffer.h"
+#include "URLSoup.h"
 #include "WebKitSoupRequestGeneric.h"
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+static uint64_t appendEncodedBlobItemToSoupMessageBody(SoupMessage* soupMessage, const BlobDataItem& blobItem)
+{
+    switch (blobItem.type()) {
+    case BlobDataItem::Type::Data:
+        soup_message_body_append(soupMessage->request_body, SOUP_MEMORY_TEMPORARY, blobItem.data().data()->data() + blobItem.offset(), blobItem.length());
+        return blobItem.length();
+    case BlobDataItem::Type::File: {
+        if (!blobItem.file()->expectedModificationTime())
+            return 0;
+
+        auto fileModificationTime = FileSystem::getFileModificationTime(blobItem.file()->path());
+        if (!fileModificationTime)
+            return 0;
+
+        if (fileModificationTime->secondsSinceEpoch().secondsAs<time_t>() != blobItem.file()->expectedModificationTime()->secondsSinceEpoch().secondsAs<time_t>())
+            return 0;
+
+        if (auto buffer = SharedBuffer::createWithContentsOfFile(blobItem.file()->path())) {
+            if (buffer->isEmpty())
+                return 0;
+
+            GUniquePtr<SoupBuffer> soupBuffer(buffer->createSoupBuffer(blobItem.offset(), blobItem.length() == BlobDataItem::toEndOfFile ? 0 : blobItem.length()));
+            if (soupBuffer->length)
+                soup_message_body_append_buffer(soupMessage->request_body, soupBuffer.get());
+            return soupBuffer->length;
+        }
+        break;
+    }
+    }
+
+    return 0;
+}
+
+void ResourceRequest::updateSoupMessageBody(SoupMessage* soupMessage) const
+{
+    auto* formData = httpBody();
+    if (!formData || formData->isEmpty())
+        return;
+
+    soup_message_body_set_accumulate(soupMessage->request_body, FALSE);
+    uint64_t bodySize = 0;
+    for (const auto& element : formData->elements()) {
+        switchOn(element.data,
+            [&] (const Vector<char>& bytes) {
+                bodySize += bytes.size();
+                soup_message_body_append(soupMessage->request_body, SOUP_MEMORY_TEMPORARY, bytes.data(), bytes.size());
+            }, [&] (const FormDataElement::EncodedFileData& fileData) {
+                if (auto buffer = SharedBuffer::createWithContentsOfFile(fileData.filename)) {
+                    if (buffer->isEmpty())
+                        return;
+                    
+                    GUniquePtr<SoupBuffer> soupBuffer(buffer->createSoupBuffer());
+                    bodySize += buffer->size();
+                    if (soupBuffer->length)
+                        soup_message_body_append_buffer(soupMessage->request_body, soupBuffer.get());
+                }
+            }, [&] (const FormDataElement::EncodedBlobData& blob) {
+                if (auto* blobData = static_cast<BlobRegistryImpl&>(blobRegistry()).getBlobDataFromURL(blob.url)) {
+                    for (const auto& item : blobData->items())
+                        bodySize += appendEncodedBlobItemToSoupMessageBody(soupMessage, item);
+                }
+            }
+        );
+    }
+
+    ASSERT(bodySize == static_cast<uint64_t>(soupMessage->request_body->length));
+}
+
 void ResourceRequest::updateSoupMessageMembers(SoupMessage* soupMessage) const
 {
     updateSoupMessageHeaders(soupMessage->request_headers);
 
-    GUniquePtr<SoupURI> firstParty = firstPartyForCookies().createSoupURI();
+    GUniquePtr<SoupURI> firstParty = urlToSoupURI(firstPartyForCookies());
     if (firstParty)
         soup_message_set_first_party(soupMessage, firstParty.get());
 
@@ -77,26 +148,13 @@ void ResourceRequest::updateSoupMessage(SoupMessage* soupMessage) const
     soup_message_set_uri(soupMessage, uri.get());
 
     updateSoupMessageMembers(soupMessage);
-}
-
-SoupMessage* ResourceRequest::toSoupMessage() const
-{
-    SoupMessage* soupMessage = soup_message_new(httpMethod().ascii().data(), url().string().utf8().data());
-    if (!soupMessage)
-        return 0;
-
-    updateSoupMessageMembers(soupMessage);
-
-    // Body data is only handled at ResourceHandleSoup::startHttp for
-    // now; this is because this may not be a good place to go
-    // openning and mmapping files. We should maybe revisit this.
-    return soupMessage;
+    updateSoupMessageBody(soupMessage);
 }
 
 void ResourceRequest::updateFromSoupMessage(SoupMessage* soupMessage)
 {
-    bool shouldPortBeResetToZero = m_url.hasPort() && !m_url.port();
-    m_url = URL(soup_message_get_uri(soupMessage));
+    bool shouldPortBeResetToZero = m_url.port() && !m_url.port().value();
+    m_url = soupURIToURL(soup_message_get_uri(soupMessage));
 
     // SoupURI cannot differeniate between an explicitly specified port 0 and
     // no port specified.
@@ -111,7 +169,7 @@ void ResourceRequest::updateFromSoupMessage(SoupMessage* soupMessage)
         m_httpBody = FormData::create(soupMessage->request_body->data, soupMessage->request_body->length);
 
     if (SoupURI* firstParty = soup_message_get_first_party(soupMessage))
-        m_firstPartyForCookies = URL(firstParty);
+        m_firstPartyForCookies = soupURIToURL(firstParty);
 
     m_soupFlags = soup_message_get_flags(soupMessage);
 
@@ -159,13 +217,7 @@ GUniquePtr<SoupURI> ResourceRequest::createSoupURI() const
         return GUniquePtr<SoupURI>(soup_uri_new(urlString.utf8().data()));
     }
 
-    GUniquePtr<SoupURI> soupURI;
-    if (m_url.hasFragmentIdentifier()) {
-        URL url = m_url;
-        url.removeFragmentIdentifier();
-        soupURI.reset(soup_uri_new(url.string().utf8().data()));
-    } else
-        soupURI = m_url.createSoupURI();
+    GUniquePtr<SoupURI> soupURI = urlToSoupURI(m_url);
 
     // Versions of libsoup prior to 2.42 have a soup_uri_new that will convert empty passwords that are not
     // prefixed by a colon into null. Some parts of soup like the SoupAuthenticationManager will only be active

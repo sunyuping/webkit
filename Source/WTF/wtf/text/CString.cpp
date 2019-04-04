@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2006, 2008, 2009, 2010, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,21 +25,21 @@
 
 
 #include "config.h"
-#include "CString.h"
+#include <wtf/text/CString.h>
 
 #include <string.h>
-#include <wtf/Hasher.h>
+#include <wtf/text/StringHasher.h>
 
 namespace WTF {
 
-PassRefPtr<CStringBuffer> CStringBuffer::createUninitialized(size_t length)
+Ref<CStringBuffer> CStringBuffer::createUninitialized(size_t length)
 {
     RELEASE_ASSERT(length < (std::numeric_limits<unsigned>::max() - sizeof(CStringBuffer)));
 
     // The +1 is for the terminating null character.
     size_t size = sizeof(CStringBuffer) + length + 1;
     CStringBuffer* stringBuffer = static_cast<CStringBuffer*>(fastMalloc(size));
-    return adoptRef(new (NotNull, stringBuffer) CStringBuffer(length));
+    return adoptRef(*new (NotNull, stringBuffer) CStringBuffer(length));
 }
 
 CString::CString(const char* str)
@@ -76,7 +76,7 @@ char* CString::mutableData()
         return 0;
     return m_buffer->mutableData();
 }
-    
+
 CString CString::newUninitialized(size_t length, char*& characterBuffer)
 {
     CString result;
@@ -92,7 +92,7 @@ void CString::copyBufferIfNeeded()
     if (!m_buffer || m_buffer->hasOneRef())
         return;
 
-    RefPtr<CStringBuffer> buffer = m_buffer.release();
+    RefPtr<CStringBuffer> buffer = WTFMove(m_buffer);
     size_t length = buffer->length();
     m_buffer = CStringBuffer::createUninitialized(length);
     memcpy(m_buffer->mutableData(), buffer->data(), length + 1);

@@ -18,19 +18,18 @@
     Boston, MA 02110-1301, USA.
 */
 
-#ifndef JSTestException_h
-#define JSTestException_h
+#pragma once
 
 #include "JSDOMWrapper.h"
 #include "TestException.h"
-#include <runtime/ErrorPrototype.h>
+#include <JavaScriptCore/ErrorPrototype.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
 class JSTestException : public JSDOMWrapper<TestException> {
 public:
-    typedef JSDOMWrapper<TestException> Base;
+    using Base = JSDOMWrapper<TestException>;
     static JSTestException* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestException>&& impl)
     {
         JSTestException* ptr = new (NotNull, JSC::allocateCell<JSTestException>(globalObject->vm().heap)) JSTestException(structure, *globalObject, WTFMove(impl));
@@ -38,12 +37,9 @@ public:
         return ptr;
     }
 
-    static const bool hasStaticPropertyTable = true;
-
-    static JSC::JSObject* createPrototype(JSC::VM&, JSC::JSGlobalObject*);
-    static JSC::JSObject* getPrototype(JSC::VM&, JSC::JSGlobalObject*);
-    static TestException* toWrapped(JSC::JSValue);
-    static bool getOwnPropertySlot(JSC::JSObject*, JSC::ExecState*, JSC::PropertyName, JSC::PropertySlot&);
+    static JSC::JSObject* createPrototype(JSC::VM&, JSDOMGlobalObject&);
+    static JSC::JSObject* prototype(JSC::VM&, JSDOMGlobalObject&);
+    static TestException* toWrapped(JSC::VM&, JSC::JSValue);
     static void destroy(JSC::JSCell*);
 
     DECLARE_INFO;
@@ -54,22 +50,16 @@ public:
     }
 
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
-public:
-    static const unsigned StructureFlags = JSC::OverridesGetOwnPropertySlot | Base::StructureFlags;
+    static void heapSnapshot(JSCell*, JSC::HeapSnapshotBuilder&);
 protected:
     JSTestException(JSC::Structure*, JSDOMGlobalObject&, Ref<TestException>&&);
 
-    void finishCreation(JSC::VM& vm)
-    {
-        Base::finishCreation(vm);
-        ASSERT(inherits(info()));
-    }
-
+    void finishCreation(JSC::VM&);
 };
 
 class JSTestExceptionOwner : public JSC::WeakHandleOwner {
 public:
-    virtual bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::SlotVisitor&);
+    virtual bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::SlotVisitor&, const char**);
     virtual void finalize(JSC::Handle<JSC::Unknown>, void* context);
 };
 
@@ -84,11 +74,14 @@ inline void* wrapperKey(TestException* wrappableObject)
     return wrappableObject;
 }
 
-JSC::JSValue toJS(JSC::ExecState*, JSDOMGlobalObject*, TestException*);
-inline JSC::JSValue toJS(JSC::ExecState* state, JSDOMGlobalObject* globalObject, TestException& impl) { return toJS(state, globalObject, &impl); }
-JSC::JSValue toJSNewlyCreated(JSC::ExecState*, JSDOMGlobalObject*, TestException*);
+JSC::JSValue toJS(JSC::ExecState*, JSDOMGlobalObject*, TestException&);
+inline JSC::JSValue toJS(JSC::ExecState* state, JSDOMGlobalObject* globalObject, TestException* impl) { return impl ? toJS(state, globalObject, *impl) : JSC::jsNull(); }
+JSC::JSValue toJSNewlyCreated(JSC::ExecState*, JSDOMGlobalObject*, Ref<TestException>&&);
+inline JSC::JSValue toJSNewlyCreated(JSC::ExecState* state, JSDOMGlobalObject* globalObject, RefPtr<TestException>&& impl) { return impl ? toJSNewlyCreated(state, globalObject, impl.releaseNonNull()) : JSC::jsNull(); }
 
+template<> struct JSDOMWrapperConverterTraits<TestException> {
+    using WrapperClass = JSTestException;
+    using ToWrappedReturnType = TestException*;
+};
 
 } // namespace WebCore
-
-#endif

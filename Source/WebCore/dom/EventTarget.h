@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2017 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Alexey Proskuryakov (ap@webkit.org)
  *           (C) 2007, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  *
@@ -28,85 +28,26 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef EventTarget_h
-#define EventTarget_h
+#pragma once
 
 #include "EventListenerMap.h"
-#include "EventNames.h"
 #include "EventTargetInterfaces.h"
+#include "ExceptionOr.h"
 #include "ScriptWrappable.h"
 #include <memory>
 #include <wtf/Forward.h>
-#include <wtf/HashMap.h>
-
-namespace WTF {
-class AtomicString;
-}
+#include <wtf/Variant.h>
 
 namespace WebCore {
 
-class AudioNode;
-class AudioContext;
-class AudioTrackList;
-class DedicatedWorkerGlobalScope;
-class DOMApplicationCache;
-class DOMWindow;
-class Event;
-class EventListener;
-class EventSource;
-class FileReader;
-class FileWriter;
-class IDBDatabase;
-class IDBRequest;
-class IDBTransaction;
-class ScriptProcessorNode;
-class MediaController;
-class MediaStream;
-class MessagePort;
-class Node;
-class Notification;
-class ScriptExecutionContext;
-class TextTrack;
-class TextTrackCue;
-class VideoTrackList;
-class WebSocket;
-class WebKitNamedFlow;
-class Worker;
-class XMLHttpRequest;
-class XMLHttpRequestUpload;
-
-typedef int ExceptionCode;
-
-struct FiringEventIterator {
-    FiringEventIterator(const AtomicString& eventType, size_t& iterator, size_t& size)
-        : eventType(eventType)
-        , iterator(iterator)
-        , size(size)
-    {
-    }
-
-    const AtomicString& eventType;
-    size_t& iterator;
-    size_t& size;
-};
-typedef Vector<FiringEventIterator, 1> FiringEventIteratorVector;
+class DOMWrapperWorld;
 
 struct EventTargetData {
     WTF_MAKE_NONCOPYABLE(EventTargetData); WTF_MAKE_FAST_ALLOCATED;
 public:
-    EventTargetData();
-    ~EventTargetData();
-
+    EventTargetData() = default;
     EventListenerMap eventListenerMap;
-    std::unique_ptr<FiringEventIteratorVector> firingEventIterators;
-};
-
-enum EventTargetInterface {
-
-#define DOM_EVENT_INTERFACE_DECLARE(name) name##EventTargetInterfaceType,
-DOM_EVENT_TARGET_INTERFACES_FOR_EACH(DOM_EVENT_INTERFACE_DECLARE)
-#undef DOM_EVENT_INTERFACE_DECLARE
-
+    bool isFiringEventListeners { false };
 };
 
 class EventTarget : public ScriptWrappable {
@@ -117,95 +58,113 @@ public:
     virtual EventTargetInterface eventTargetInterface() const = 0;
     virtual ScriptExecutionContext* scriptExecutionContext() const = 0;
 
-    virtual Node* toNode();
-    virtual DOMWindow* toDOMWindow();
-    virtual bool isMessagePort() const;
+    virtual bool isNode() const;
+    virtual bool isPaymentRequest() const;
 
-    virtual bool addEventListener(const AtomicString& eventType, RefPtr<EventListener>&&, bool useCapture);
-    virtual bool removeEventListener(const AtomicString& eventType, EventListener*, bool useCapture);
+    struct ListenerOptions {
+        ListenerOptions(bool capture = false)
+            : capture(capture)
+        { }
+
+        bool capture { false };
+    };
+
+    struct AddEventListenerOptions : ListenerOptions {
+        AddEventListenerOptions(bool capture = false, Optional<bool> passive = WTF::nullopt, bool once = false)
+            : ListenerOptions(capture)
+            , passive(passive)
+            , once(once)
+        { }
+
+        Optional<bool> passive;
+        bool once { false };
+    };
+
+    using AddEventListenerOptionsOrBoolean = Variant<AddEventListenerOptions, bool>;
+    WEBCORE_EXPORT void addEventListenerForBindings(const AtomicString& eventType, RefPtr<EventListener>&&, AddEventListenerOptionsOrBoolean&&);
+    using ListenerOptionsOrBoolean = Variant<ListenerOptions, bool>;
+    WEBCORE_EXPORT void removeEventListenerForBindings(const AtomicString& eventType, RefPtr<EventListener>&&, ListenerOptionsOrBoolean&&);
+    WEBCORE_EXPORT ExceptionOr<bool> dispatchEventForBindings(Event&);
+
+    virtual bool addEventListener(const AtomicString& eventType, Ref<EventListener>&&, const AddEventListenerOptions& = { });
+    virtual bool removeEventListener(const AtomicString& eventType, EventListener&, const ListenerOptions&);
+
     virtual void removeAllEventListeners();
-    virtual bool dispatchEvent(Event&);
-    bool dispatchEventForBindings(Event*, ExceptionCode&); // DOM API
+    virtual void dispatchEvent(Event&);
     virtual void uncaughtExceptionInEventHandler();
 
-    // Used for legacy "onEvent" attribute APIs.
-    bool setAttributeEventListener(const AtomicString& eventType, PassRefPtr<EventListener>);
-    bool clearAttributeEventListener(const AtomicString& eventType);
-    EventListener* getAttributeEventListener(const AtomicString& eventType);
+    // Used for legacy "onevent" attributes.
+    bool setAttributeEventListener(const AtomicString& eventType, RefPtr<EventListener>&&, DOMWrapperWorld&);
+    EventListener* attributeEventListener(const AtomicString& eventType, DOMWrapperWorld&);
 
     bool hasEventListeners() const;
-    bool hasEventListeners(const AtomicString& eventType);
+    bool hasEventListeners(const AtomicString& eventType) const;
     bool hasCapturingEventListeners(const AtomicString& eventType);
-    const EventListenerVector& getEventListeners(const AtomicString& eventType);
+    bool hasActiveEventListeners(const AtomicString& eventType) const;
 
-    bool fireEventListeners(Event&);
-    bool isFiringEventListeners();
+    Vector<AtomicString> eventTypes();
+    const EventListenerVector& eventListeners(const AtomicString& eventType);
+
+    enum class EventInvokePhase { Capturing, Bubbling };
+    void fireEventListeners(Event&, EventInvokePhase);
+    bool isFiringEventListeners() const;
 
     void visitJSEventListeners(JSC::SlotVisitor&);
     void invalidateJSEventListeners(JSC::JSObject*);
 
 protected:
-    virtual ~EventTarget();
+    virtual ~EventTarget() = default;
     
     virtual EventTargetData* eventTargetData() = 0;
+    virtual EventTargetData* eventTargetDataConcurrently() = 0;
     virtual EventTargetData& ensureEventTargetData() = 0;
+    const EventTargetData* eventTargetData() const;
 
 private:
     virtual void refEventTarget() = 0;
     virtual void derefEventTarget() = 0;
     
-    void fireEventListeners(Event&, EventTargetData*, EventListenerVector&);
+    void innerInvokeEventListeners(Event&, EventListenerVector, EventInvokePhase);
 
     friend class EventListenerIterator;
 };
 
 class EventTargetWithInlineData : public EventTarget {
 protected:
-    virtual EventTargetData* eventTargetData() override final { return &m_eventTargetData; }
-    virtual EventTargetData& ensureEventTargetData() override final { return m_eventTargetData; }
+    EventTargetData* eventTargetData() final { return &m_eventTargetData; }
+    EventTargetData* eventTargetDataConcurrently() final { return &m_eventTargetData; }
+    EventTargetData& ensureEventTargetData() final { return m_eventTargetData; }
 private:
     EventTargetData m_eventTargetData;
 };
 
-inline void EventTarget::visitJSEventListeners(JSC::SlotVisitor& visitor)
+inline const EventTargetData* EventTarget::eventTargetData() const
 {
-    EventListenerIterator iterator(this);
-    while (EventListener* listener = iterator.nextListener())
-        listener->visitJSFunction(visitor);
+    return const_cast<EventTarget*>(this)->eventTargetData();
 }
 
-inline bool EventTarget::isFiringEventListeners()
+inline bool EventTarget::isFiringEventListeners() const
 {
-    EventTargetData* d = eventTargetData();
-    if (!d)
-        return false;
-    return d->firingEventIterators && !d->firingEventIterators->isEmpty();
+    auto* data = eventTargetData();
+    return data && data->isFiringEventListeners;
 }
 
 inline bool EventTarget::hasEventListeners() const
 {
-    EventTargetData* d = const_cast<EventTarget*>(this)->eventTargetData();
-    if (!d)
-        return false;
-    return !d->eventListenerMap.isEmpty();
+    auto* data = eventTargetData();
+    return data && !data->eventListenerMap.isEmpty();
 }
 
-inline bool EventTarget::hasEventListeners(const AtomicString& eventType)
+inline bool EventTarget::hasEventListeners(const AtomicString& eventType) const
 {
-    EventTargetData* d = eventTargetData();
-    if (!d)
-        return false;
-    return d->eventListenerMap.contains(eventType);
+    auto* data = eventTargetData();
+    return data && data->eventListenerMap.contains(eventType);
 }
 
 inline bool EventTarget::hasCapturingEventListeners(const AtomicString& eventType)
 {
-    EventTargetData* d = eventTargetData();
-    if (!d)
-        return false;
-    return d->eventListenerMap.containsCapturing(eventType);
+    auto* data = eventTargetData();
+    return data && data->eventListenerMap.containsCapturing(eventType);
 }
 
 } // namespace WebCore
-
-#endif // EventTarget_h

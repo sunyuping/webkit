@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGStructureClobberState_h
-#define DFGStructureClobberState_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -32,7 +31,7 @@
 
 namespace JSC { namespace DFG {
 
-enum StructureClobberState {
+enum StructureClobberState : uint8_t {
     StructuresAreWatched, // Constants with watchable structures must have those structures.
     StructuresAreClobbered // Constants with watchable structures could have any structure.
 };
@@ -69,5 +68,3 @@ inline void printInternal(PrintStream& out, JSC::DFG::StructureClobberState stat
 } // namespace WTF
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGStructureClobberState_h

@@ -26,13 +26,13 @@
 #import "config.h"
 #import "Widget.h"
 
-#import "BlockExceptions.h"
+#if PLATFORM(IOS_FAMILY)
+
 #import "Cursor.h"
 #import "Document.h"
 #import "FontCascade.h"
 #import "Frame.h"
 #import "GraphicsContext.h"
-#import "Page.h"
 #import "PlatformMouseEvent.h"
 #import "ScrollView.h"
 #import "WAKScrollView.h"
@@ -40,7 +40,7 @@
 #import "WAKWindow.h"
 #import "WebCoreFrameView.h"
 #import "WebCoreView.h"
-#import <wtf/RetainPtr.h>
+#import <wtf/BlockObjCExceptions.h>
 
 @interface NSView (WebSetSelectedMethods)
 - (void)setIsSelected:(BOOL)isSelected;
@@ -141,7 +141,7 @@ NSView* Widget::getOuterView() const
     return view;
 }
 
-void Widget::paint(GraphicsContext& p, const IntRect& r)
+void Widget::paint(GraphicsContext& p, const IntRect& r, SecurityOriginPaintPolicy)
 {
     if (p.paintingDisabled())
         return;
@@ -275,3 +275,5 @@ void Widget::setPlatformWidget(NSView *widget)
 }
 
 }
+
+#endif // PLATFORM(IOS_FAMILY)

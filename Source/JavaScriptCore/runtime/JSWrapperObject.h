@@ -19,20 +19,19 @@
  *
  */
 
-#ifndef JSWrapperObject_h
-#define JSWrapperObject_h
+#pragma once
 
-#include "JSDestructibleObject.h"
+#include "JSObject.h"
 
 namespace JSC {
 
 // This class is used as a base for classes such as String,
-// Number, Boolean and Date which are wrappers for primitive types.
-class JSWrapperObject : public JSDestructibleObject {
+// Number, Boolean and Symbol which are wrappers for primitive types.
+class JSWrapperObject : public JSNonFinalObject {
 public:
-    typedef JSDestructibleObject Base;
+    using Base = JSNonFinalObject;
 
-    static size_t allocationSize(size_t inlineCapacity)
+    static size_t allocationSize(Checked<size_t> inlineCapacity)
     {
         ASSERT_UNUSED(inlineCapacity, !inlineCapacity);
         return sizeof(JSWrapperObject);
@@ -66,7 +65,7 @@ private:
 };
 
 inline JSWrapperObject::JSWrapperObject(VM& vm, Structure* structure)
-    : JSDestructibleObject(vm, structure)
+    : Base(vm, structure)
 {
 }
 
@@ -83,5 +82,3 @@ inline void JSWrapperObject::setInternalValue(VM& vm, JSValue value)
 }
 
 } // namespace JSC
-
-#endif // JSWrapperObject_h

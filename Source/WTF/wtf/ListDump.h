@@ -23,12 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ListDump_h
-#define ListDump_h
+#pragma once
 
-#include "CommaPrinter.h"
-#include "PrintStream.h"
-#include "StringPrintStream.h"
+#include <wtf/CommaPrinter.h>
+#include <wtf/PrintStream.h>
+#include <wtf/StringPrintStream.h>
 
 namespace WTF {
 
@@ -177,10 +176,8 @@ ListDumpInContext<T, U> listDumpInContext(
 } // namespace WTF
 
 using WTF::listDump;
-using WTF::sortedListDump;
-using WTF::mapDump;
-using WTF::sortedMapDump;
 using WTF::listDumpInContext;
-
-#endif // ListDump_h
-
+using WTF::mapDump;
+using WTF::pointerListDump;
+using WTF::sortedListDump;
+using WTF::sortedMapDump;

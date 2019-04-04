@@ -23,16 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.DetailsSidebarPanel = class DetailsSidebarPanel extends WebInspector.SidebarPanel
+WI.DetailsSidebarPanel = class DetailsSidebarPanel extends WI.SidebarPanel
 {
-    constructor(identifier, displayName, singularDisplayName, element, dontCreateNavigationItem)
+    constructor(identifier, displayName, dontCreateNavigationItem)
     {
-        super(identifier, displayName, element);
+        super(identifier, displayName);
 
         this.element.classList.add("details");
 
         if (!dontCreateNavigationItem)
-            this._navigationItem = new WebInspector.RadioButtonNavigationItem(identifier, displayName);
+            this._navigationItem = new WI.RadioButtonNavigationItem(identifier, displayName);
     }
 
     // Public
@@ -46,30 +46,5 @@ WebInspector.DetailsSidebarPanel = class DetailsSidebarPanel extends WebInspecto
     {
         // Implemented by subclasses.
         return false;
-    }
-
-    shown()
-    {
-        super.shown();
-
-        if (this._needsRefresh) {
-            this._needsRefresh = false;
-            this.refresh();
-        }
-    }
-
-    needsRefresh()
-    {
-        if (!this.selected) {
-            this._needsRefresh = true;
-            return;
-        }
-
-        this.refresh();
-    }
-
-    refresh()
-    {
-        // Implemented by subclasses.
     }
 };

@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGNodeFlags_h
-#define DFGNodeFlags_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
@@ -47,30 +46,32 @@ namespace JSC { namespace DFG {
 #define NodeMustGenerate                 0x0008 // set on nodes that have side effects, and may not trivially be removed by DCE.
 #define NodeHasVarArgs                   0x0010
     
-#define NodeBehaviorMask                 0x07e0
-#define NodeMayHaveNonIntResult          0x0020
-#define NodeMayOverflowInt52             0x0040
-#define NodeMayOverflowInt32InBaseline   0x0080
-#define NodeMayOverflowInt32InDFG        0x0100
-#define NodeMayNegZeroInBaseline         0x0200
-#define NodeMayNegZeroInDFG              0x0400
+#define NodeBehaviorMask                 0x007e0
+#define NodeMayHaveDoubleResult          0x00020
+#define NodeMayOverflowInt52             0x00040
+#define NodeMayOverflowInt32InBaseline   0x00080
+#define NodeMayOverflowInt32InDFG        0x00100
+#define NodeMayNegZeroInBaseline         0x00200
+#define NodeMayNegZeroInDFG              0x00400
+#define NodeMayHaveNonNumericResult      0x00800
+#define NodeMayHaveBigIntResult          0x01000
+#define NodeMayHaveNonIntResult          (NodeMayHaveDoubleResult | NodeMayHaveNonNumericResult | NodeMayHaveBigIntResult)
                                 
-#define NodeBytecodeBackPropMask         0xf800
-#define NodeBytecodeUseBottom            0x0000
-#define NodeBytecodeUsesAsNumber         0x0800 // The result of this computation may be used in a context that observes fractional, or bigger-than-int32, results.
-#define NodeBytecodeNeedsNegZero         0x1000 // The result of this computation may be used in a context that observes -0.
-#define NodeBytecodeUsesAsOther          0x2000 // The result of this computation may be used in a context that distinguishes between NaN and other things (like undefined).
-#define NodeBytecodeUsesAsValue          (NodeBytecodeUsesAsNumber | NodeBytecodeNeedsNegZero | NodeBytecodeUsesAsOther)
-#define NodeBytecodeUsesAsInt            0x4000 // The result of this computation is known to be used in a context that prefers, but does not require, integer values.
-#define NodeBytecodeUsesAsArrayIndex     0x8000 // The result of this computation is known to be used in a context that strongly prefers integer values, to the point that we should avoid using doubles if at all possible.
+#define NodeBytecodeBackPropMask        0x3e000
+#define NodeBytecodeUseBottom           0x00000
+#define NodeBytecodeUsesAsNumber        0x02000 // The result of this computation may be used in a context that observes fractional, or bigger-than-int32, results.
+#define NodeBytecodeNeedsNegZero        0x04000 // The result of this computation may be used in a context that observes -0.
+#define NodeBytecodeUsesAsOther         0x08000 // The result of this computation may be used in a context that distinguishes between NaN and other things (like undefined).
+#define NodeBytecodeUsesAsValue         (NodeBytecodeUsesAsNumber | NodeBytecodeNeedsNegZero | NodeBytecodeUsesAsOther)
+#define NodeBytecodeUsesAsInt           0x10000 // The result of this computation is known to be used in a context that prefers, but does not require, integer values.
+#define NodeBytecodeUsesAsArrayIndex    0x20000 // The result of this computation is known to be used in a context that strongly prefers integer values, to the point that we should avoid using doubles if at all possible.
 
 #define NodeArithFlagsMask               (NodeBehaviorMask | NodeBytecodeBackPropMask)
 
-#define NodeIsFlushed                   0x10000 // Computed by CPSRethreadingPhase, will tell you which local nodes are backwards-reachable from a Flush.
+#define NodeIsFlushed                   0x40000 // Computed by CPSRethreadingPhase, will tell you which local nodes are backwards-reachable from a Flush.
 
-#define NodeMiscFlag1                   0x20000
-#define NodeMiscFlag2                   0x40000
-#define NodeMiscFlag3                   0x80000
+#define NodeMiscFlag1                   0x80000
+#define NodeMiscFlag2                   0x100000
 
 typedef uint32_t NodeFlags;
 
@@ -176,6 +177,3 @@ MAKE_PRINT_ADAPTOR(NodeFlagsDump, NodeFlags, dumpNodeFlags);
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGNodeFlags_h
-

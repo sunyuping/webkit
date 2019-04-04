@@ -39,8 +39,8 @@
 #include <JavaScriptCore/JSStringRefBSTR.h>
 #include <JavaScriptCore/JavaScriptCore.h>
 #include <WebCore/COMPtr.h>
-#include <WebKit/WebKit.h>
-#include <WebKit/WebKitCOMAPI.h>
+#include <WebKitLegacy/WebKit.h>
+#include <WebKitLegacy/WebKitCOMAPI.h>
 #include <comutil.h>
 #include <shlguid.h>
 #include <shlwapi.h>
@@ -74,10 +74,15 @@ TestRunner::~TestRunner()
         editingDelegate->setAcceptsEditing(TRUE);
 }
 
+JSContextRef TestRunner::mainFrameJSContext()
+{
+    return frame->globalContext();
+}
+
 void TestRunner::addDisallowedURL(JSStringRef url)
 {
     // FIXME: Implement!
-    printf("ERROR: TestRunner::addDisallowedURL(JSStringRef) not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::addDisallowedURL(JSStringRef) not implemented\n");
 }
 
 bool TestRunner::callShouldCloseOnWebView()
@@ -144,7 +149,7 @@ void TestRunner::clearApplicationCacheForOrigin(JSStringRef origin)
 JSValueRef TestRunner::originsWithApplicationCache(JSContextRef context)
 {
     // FIXME: Implement to get origins that have application caches.
-    printf("ERROR: TestRunner::originsWithApplicationCache(JSContextRef) not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::originsWithApplicationCache(JSContextRef) not implemented\n");
     return JSValueMakeUndefined(context);
 }
 
@@ -159,18 +164,40 @@ void TestRunner::clearAllDatabases()
         return;
 
     databaseManager->deleteAllDatabases();
+
+    COMPtr<IWebDatabaseManager2> databaseManager2;
+    if (FAILED(databaseManager->QueryInterface(&databaseManager2)))
+        return;
+
+    databaseManager2->deleteAllIndexedDatabases();
+}
+
+void TestRunner::setIDBPerOriginQuota(uint64_t quota)
+{
+    COMPtr<IWebDatabaseManager> databaseManager;
+    COMPtr<IWebDatabaseManager> tmpDatabaseManager;
+    if (FAILED(WebKitCreateInstance(CLSID_WebDatabaseManager, 0, IID_IWebDatabaseManager, (void**)&tmpDatabaseManager)))
+        return;
+    if (FAILED(tmpDatabaseManager->sharedWebDatabaseManager(&databaseManager)))
+        return;
+
+    COMPtr<IWebDatabaseManager2> databaseManager2;
+    if (FAILED(databaseManager->QueryInterface(&databaseManager2)))
+        return;
+
+    databaseManager2->setIDBPerOriginQuota(quota);
 }
 
 void TestRunner::setStorageDatabaseIdleInterval(double)
 {
     // FIXME: Implement. Requires non-existant (on Windows) WebStorageManager
-    printf("ERROR: TestRunner::setStorageDatabaseIdleInterval(double) not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::setStorageDatabaseIdleInterval(double) not implemented\n");
 }
 
 void TestRunner::closeIdleLocalStorageDatabases()
 {
     // FIXME: Implement. Requires non-existant (on Windows) WebStorageManager
-    printf("ERROR: TestRunner::closeIdleLocalStorageDatabases(double) not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::closeIdleLocalStorageDatabases(double) not implemented\n");
 }
 
 void TestRunner::clearBackForwardList()
@@ -199,21 +226,26 @@ void TestRunner::clearBackForwardList()
     backForwardList->goToItem(item.get());
 }
 
-JSStringRef TestRunner::copyDecodedHostName(JSStringRef name)
+JSRetainPtr<JSStringRef> TestRunner::copyDecodedHostName(JSStringRef name)
 {
     // FIXME: Implement!
-    printf("ERROR: TestRunner::copyDecodedHostName(JSStringRef) not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::copyDecodedHostName(JSStringRef) not implemented\n");
     return 0;
 }
 
-JSStringRef TestRunner::copyEncodedHostName(JSStringRef name)
+JSRetainPtr<JSStringRef> TestRunner::copyEncodedHostName(JSStringRef name)
 {
     // FIXME: Implement!
-    printf("ERROR: TestRunner::copyEncodedHostName(JSStringRef) not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::copyEncodedHostName(JSStringRef) not implemented\n");
     return 0;
 }
 
 void TestRunner::display()
+{
+    displayWebView();
+}
+
+void TestRunner::displayAndTrackRepaints()
 {
     displayWebView();
 }
@@ -237,14 +269,14 @@ void TestRunner::keepWebHistory()
 int TestRunner::numberOfPendingGeolocationPermissionRequests()
 {
     // FIXME: Implement for Geolocation layout tests.
-    printf("ERROR: TestRunner::numberOfPendingGeolocationPermissionRequests() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::numberOfPendingGeolocationPermissionRequests() not implemented\n");
     return -1;
 }
 
 bool TestRunner::isGeolocationProviderActive()
 {
     // FIXME: Implement for Geolocation layout tests.
-    printf("ERROR: TestRunner::isGeolocationProviderActive() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::isGeolocationProviderActive() not implemented\n");
     return false;
 }
 
@@ -272,7 +304,15 @@ size_t TestRunner::webHistoryItemCount()
 void TestRunner::notifyDone()
 {
     // Same as on mac.  This can be shared.
-    if (m_waitToDump && !topLoadingFrame && !WorkQueue::singleton().count())
+    if (m_waitToDump && !topLoadingFrame && !DRT::WorkQueue::singleton().count())
+        dump();
+    m_waitToDump = false;
+}
+
+void TestRunner::forceImmediateCompletion()
+{
+    // Same as on mac. This can be shared.
+    if (m_waitToDump && !DRT::WorkQueue::singleton().count())
         dump();
     m_waitToDump = false;
 }
@@ -287,17 +327,17 @@ static wstring jsStringRefToWString(JSStringRef jsStr)
     return buffer.data();
 }
 
-JSStringRef TestRunner::pathToLocalResource(JSContextRef context, JSStringRef url)
+JSRetainPtr<JSStringRef> TestRunner::pathToLocalResource(JSContextRef context, JSStringRef url)
 {
     wstring input(JSStringGetCharactersPtr(url), JSStringGetLength(url));
 
     wstring localPath;
     if (!resolveCygwinPath(input, localPath)) {
-        printf("ERROR: Failed to resolve Cygwin path %S\n", input.c_str());
+        fprintf(testResult, "ERROR: Failed to resolve Cygwin path %S\n", input.c_str());
         return nullptr;
     }
 
-    return JSStringCreateWithCharacters(localPath.c_str(), localPath.length());
+    return adopt(JSStringCreateWithCharacters(localPath.c_str(), localPath.length()));
 }
 
 void TestRunner::queueLoad(JSStringRef url, JSStringRef target)
@@ -314,17 +354,19 @@ void TestRunner::queueLoad(JSStringRef url, JSStringRef target)
     if (FAILED(response->URL(&responseURLBSTR.GetBSTR())))
         return;
     wstring responseURL(responseURLBSTR, responseURLBSTR.length());
-
-    // FIXME: We should do real relative URL resolution here.
-    int lastSlash = responseURL.rfind('/');
-    if (lastSlash != -1)
-        responseURL = responseURL.substr(0, lastSlash);
-
     wstring wURL = jsStringRefToWString(url);
-    wstring wAbsoluteURL = responseURL + TEXT("/") + wURL;
-    JSRetainPtr<JSStringRef> jsAbsoluteURL(Adopt, JSStringCreateWithCharacters(wAbsoluteURL.data(), wAbsoluteURL.length()));
 
-    WorkQueue::singleton().queue(new LoadItem(jsAbsoluteURL.get(), target));
+    DWORD bufferSize = responseURL.size() + wURL.size() + 1;
+    std::vector<wchar_t> buffer(bufferSize);
+    auto result = UrlCombine(responseURL.data(), wURL.data(), buffer.data(), &bufferSize, 0);
+    if (result == E_POINTER) {
+        buffer.resize(bufferSize);
+        result = UrlCombine(responseURL.data(), wURL.data(), buffer.data(), &bufferSize, 0);
+        ASSERT(result  == S_OK);
+    }
+
+    auto jsAbsoluteURL = adopt(JSStringCreateWithCharacters(buffer.data(), bufferSize));
+    DRT::WorkQueue::singleton().queue(new LoadItem(jsAbsoluteURL.get(), target));
 }
 
 void TestRunner::setAcceptsEditing(bool acceptsEditing)
@@ -353,6 +395,12 @@ void TestRunner::setAlwaysAcceptCookies(bool alwaysAcceptCookies)
     if (!::setAlwaysAcceptCookies(alwaysAcceptCookies))
         return;
     m_alwaysAcceptCookies = alwaysAcceptCookies;
+}
+
+void TestRunner::setOnlyAcceptFirstPartyCookies(bool onlyAcceptFirstPartyCookies)
+{
+    // FIXME: Implement.
+    fprintf(testResult, "ERROR: TestRunner::setOnlyAcceptFirstPartyCookies() not implemented\n");
 }
 
 void TestRunner::setAppCacheMaximumSize(unsigned long long size)
@@ -406,7 +454,7 @@ void TestRunner::setDatabaseQuota(unsigned long long quota)
     if (FAILED(tmpDatabaseManager->sharedWebDatabaseManager(&databaseManager)))
         return;
 
-    databaseManager->setQuota(TEXT("file:///"), quota);
+    databaseManager->setQuota(_bstr_t(L"file:///"), quota);
 }
 
 void TestRunner::goBack()
@@ -446,21 +494,21 @@ void TestRunner::setMockDeviceOrientation(bool canProvideAlpha, double alpha, bo
 {
     // FIXME: Implement for DeviceOrientation layout tests.
     // See https://bugs.webkit.org/show_bug.cgi?id=30335.
-    printf("ERROR: TestRunner::setMockDeviceOrientation() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::setMockDeviceOrientation() not implemented\n");
 }
 
-void TestRunner::setMockGeolocationPosition(double latitude, double longitude, double accuracy, bool providesAltitude, double altitude, bool providesAltitudeAccuracy, double altitudeAccuracy, bool providesHeading, double heading, bool providesSpeed, double speed)
+void TestRunner::setMockGeolocationPosition(double latitude, double longitude, double accuracy, bool providesAltitude, double altitude, bool providesAltitudeAccuracy, double altitudeAccuracy, bool providesHeading, double heading, bool providesSpeed, double speed, bool providesFloorLevel, double floorLevel)
 {
     // FIXME: Implement for Geolocation layout tests.
     // See https://bugs.webkit.org/show_bug.cgi?id=28264.
-    printf("ERROR: TestRunner::setMockGeolocationPosition() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::setMockGeolocationPosition() not implemented\n");
 }
 
 void TestRunner::setMockGeolocationPositionUnavailableError(JSStringRef message)
 {
     // FIXME: Implement for Geolocation layout tests.
     // See https://bugs.webkit.org/show_bug.cgi?id=28264.
-    printf("ERROR: TestRunner::setMockGeolocationPositionUnavailableError() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::setMockGeolocationPositionUnavailableError() not implemented\n");
 }
 
 void TestRunner::setGeolocationPermission(bool allow)
@@ -469,19 +517,8 @@ void TestRunner::setGeolocationPermission(bool allow)
     setGeolocationPermissionCommon(allow);
 }
 
-void TestRunner::setIconDatabaseEnabled(bool iconDatabaseEnabled)
+void TestRunner::setIconDatabaseEnabled(bool)
 {
-#if ENABLE(ICONDATABASE)
-    // See also <rdar://problem/6480108>
-    COMPtr<IWebIconDatabase> iconDatabase;
-    COMPtr<IWebIconDatabase> tmpIconDatabase;
-    if (FAILED(WebKitCreateInstance(CLSID_WebIconDatabase, 0, IID_IWebIconDatabase, (void**)&tmpIconDatabase)))
-        return;
-    if (FAILED(tmpIconDatabase->sharedIconDatabase(&iconDatabase)))
-        return;
-
-    iconDatabase->setEnabled(iconDatabaseEnabled);
-#endif
 }
 
 void TestRunner::setMainFrameIsFirstResponder(bool)
@@ -521,8 +558,19 @@ void TestRunner::setXSSAuditorEnabled(bool enabled)
 
 void TestRunner::setSpatialNavigationEnabled(bool enabled)
 {
-    // FIXME: Implement for SpatialNavigation layout tests.
-    printf("ERROR: TestRunner::setSpatialNavigationEnabled(bool) not implemented\n");
+    COMPtr<IWebView> webView;
+    if (FAILED(frame->webView(&webView)))
+        return;
+
+    COMPtr<IWebPreferences> preferences;
+    if (FAILED(webView->preferences(&preferences)))
+        return;
+
+    COMPtr<IWebPreferencesPrivate6> prefsPrivate(Query, preferences);
+    if (!prefsPrivate)
+        return;
+
+    prefsPrivate->setSpatialNavigationEnabled(enabled);
 }
 
 void TestRunner::setAllowUniversalAccessFromFileURLs(bool enabled)
@@ -557,6 +605,23 @@ void TestRunner::setAllowFileAccessFromFileURLs(bool enabled)
         return;
 
     prefsPrivate->setAllowFileAccessFromFileURLs(enabled);
+}
+
+void TestRunner::setNeedsStorageAccessFromFileURLsQuirk(bool needsQuirk)
+{
+    COMPtr<IWebView> webView;
+    if (FAILED(frame->webView(&webView)))
+        return;
+
+    COMPtr<IWebPreferences> preferences;
+    if (FAILED(webView->preferences(&preferences)))
+        return;
+
+    COMPtr<IWebPreferencesPrivate> prefsPrivate(Query, preferences);
+    if (!prefsPrivate)
+        return;
+
+    // FIXME: <https://webkit.org/b/164575> Call IWebPreferencesPrivate method when available.
 }
 
 void TestRunner::setPopupBlockingEnabled(bool enabled)
@@ -605,7 +670,7 @@ void TestRunner::setJavaScriptCanAccessClipboard(bool enabled)
 void TestRunner::setAutomaticLinkDetectionEnabled(bool)
 {
     // FIXME: Implement this.
-    printf("ERROR: TestRunner::setAutomaticLinkDetectionEnabled(bool) not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::setAutomaticLinkDetectionEnabled(bool) not implemented\n");
 }
 
 void TestRunner::setTabKeyCyclesThroughElements(bool shouldCycle)
@@ -812,11 +877,6 @@ void TestRunner::setValueForUser(JSContextRef context, JSValueRef element, JSStr
     domInputElement->setValueForUser(valueBSTR);
 }
 
-void TestRunner::setViewModeMediaFeature(JSStringRef mode)
-{
-    // FIXME: implement
-}
-
 void TestRunner::dispatchPendingLoadRequests()
 {
     COMPtr<IWebView> webView;
@@ -894,7 +954,22 @@ void TestRunner::setWindowIsKey(bool flag)
     ::SendMessage(webViewWindow, flag ? WM_SETFOCUS : WM_KILLFOCUS, (WPARAM)::GetDesktopWindow(), 0);
 }
 
-static const CFTimeInterval waitToDumpWatchdogInterval = 30.0;
+void TestRunner::setViewSize(double width, double height)
+{
+    COMPtr<IWebView> webView;
+    if (FAILED(frame->webView(&webView)))
+        return;
+
+    COMPtr<IWebViewPrivate2> viewPrivate;
+    if (FAILED(webView->QueryInterface(&viewPrivate)))
+        return;
+
+    HWND webViewWindow;
+    if (FAILED(viewPrivate->viewWindow(&webViewWindow)))
+        return;
+
+    ::SetWindowPos(webViewWindow, 0, 0, 0, width, height, SWP_NOMOVE);
+}
 
 static void CALLBACK waitUntilDoneWatchdogFired(HWND, UINT, UINT_PTR, DWORD)
 {
@@ -905,7 +980,7 @@ void TestRunner::setWaitToDump(bool waitUntilDone)
 {
     m_waitToDump = waitUntilDone;
     if (m_waitToDump && !waitToDumpWatchdog)
-        waitToDumpWatchdog = SetTimer(0, 0, waitToDumpWatchdogInterval * 1000, waitUntilDoneWatchdogFired);
+        waitToDumpWatchdog = SetTimer(0, 0, m_timeout, waitUntilDoneWatchdogFired);
 }
 
 int TestRunner::windowCount()
@@ -928,11 +1003,52 @@ void TestRunner::execCommand(JSStringRef name, JSStringRef value)
     viewPrivate->executeCoreCommandByName(nameBSTR, valueBSTR);
 }
 
-bool TestRunner::findString(JSContextRef /* context */, JSStringRef /* target */, JSObjectRef /* optionsArray */)
+bool TestRunner::findString(JSContextRef context, JSStringRef target, JSObjectRef optionsArray)
 {
-    // FIXME: Implement
-    printf("ERROR: TestRunner::findString(...) not implemented\n");
-    return false;
+    COMPtr<IWebView> webView;
+    if (FAILED(frame->webView(&webView)))
+        return false;
+
+    COMPtr<IWebViewPrivate3> viewPrivate;
+    if (FAILED(webView->QueryInterface(&viewPrivate)))
+        return false;
+
+    unsigned char options = 0;
+
+    auto lengthPropertyName = adopt(JSStringCreateWithUTF8CString("length"));
+    JSValueRef lengthValue = JSObjectGetProperty(context, optionsArray, lengthPropertyName.get(), nullptr);
+    if (!JSValueIsNumber(context, lengthValue))
+        return false;
+
+    _bstr_t targetBSTR(JSStringCopyBSTR(target), false);
+
+    size_t length = static_cast<size_t>(JSValueToNumber(context, lengthValue, nullptr));
+    for (size_t i = 0; i < length; ++i) {
+        JSValueRef value = JSObjectGetPropertyAtIndex(context, optionsArray, i, nullptr);
+        if (!JSValueIsString(context, value))
+            continue;
+
+        auto optionName = adopt(JSValueToStringCopy(context, value, nullptr));
+
+        if (JSStringIsEqualToUTF8CString(optionName.get(), "CaseInsensitive"))
+            options |= WebFindOptionsCaseInsensitive;
+        else if (JSStringIsEqualToUTF8CString(optionName.get(), "AtWordStarts"))
+            options |= WebFindOptionsAtWordStarts;
+        else if (JSStringIsEqualToUTF8CString(optionName.get(), "TreatMedialCapitalAsWordStart"))
+            options |= WebFindOptionsTreatMedialCapitalAsWordStart;
+        else if (JSStringIsEqualToUTF8CString(optionName.get(), "Backwards"))
+            options |= WebFindOptionsBackwards;
+        else if (JSStringIsEqualToUTF8CString(optionName.get(), "WrapAround"))
+            options |= WebFindOptionsWrapAround;
+        else if (JSStringIsEqualToUTF8CString(optionName.get(), "StartInSelection"))
+            options |= WebFindOptionsStartInSelection;
+    }
+
+    BOOL found = FALSE;
+    if (FAILED(viewPrivate->findString(targetBSTR, static_cast<WebFindOptions>(options), &found)))
+        return false;
+
+    return found;
 }
 
 void TestRunner::setCacheModel(int cacheModel)
@@ -950,7 +1066,7 @@ void TestRunner::setCacheModel(int cacheModel)
 
 bool TestRunner::isCommandEnabled(JSStringRef /*name*/)
 {
-    printf("ERROR: TestRunner::isCommandEnabled() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::isCommandEnabled() not implemented\n");
     return false;
 }
 
@@ -1093,7 +1209,7 @@ void TestRunner::evaluateInWebInspector(JSStringRef script)
     inspectorPrivate->evaluateInFrontend(bstrT(script).GetBSTR());
 }
 
-JSStringRef TestRunner::inspectorTestStubURL()
+JSRetainPtr<JSStringRef> TestRunner::inspectorTestStubURL()
 {
     CFBundleRef webkitBundle = webKitBundle();
     if (!webkitBundle)
@@ -1103,7 +1219,7 @@ JSStringRef TestRunner::inspectorTestStubURL()
     if (!url)
         return nullptr;
 
-    return JSStringCreateWithCFString(CFURLGetString(url.get()));
+    return adopt(JSStringCreateWithCFString(CFURLGetString(url.get())));
 }
 
 typedef HashMap<unsigned, COMPtr<IWebScriptWorld> > WorldMap;
@@ -1191,7 +1307,7 @@ void TestRunner::setWebViewEditable(bool editable)
 
 void TestRunner::authenticateSession(JSStringRef, JSStringRef, JSStringRef)
 {
-    printf("ERROR: TestRunner::authenticateSession() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::authenticateSession() not implemented\n");
 }
 
 void TestRunner::abortModal()
@@ -1223,17 +1339,17 @@ void TestRunner::setTextDirection(JSStringRef direction)
 
 void TestRunner::addChromeInputField()
 {
-    printf("ERROR: TestRunner::addChromeInputField() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::addChromeInputField() not implemented\n");
 }
 
 void TestRunner::removeChromeInputField()
 {
-    printf("ERROR: TestRunner::removeChromeInputField() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::removeChromeInputField() not implemented\n");
 }
 
 void TestRunner::focusWebView()
 {
-    printf("ERROR: TestRunner::focusWebView() not implemented\n");
+    fprintf(testResult, "ERROR: TestRunner::focusWebView() not implemented\n");
 }
 
 void TestRunner::setBackingScaleFactor(double)
@@ -1243,35 +1359,79 @@ void TestRunner::setBackingScaleFactor(double)
 
 void TestRunner::resetPageVisibility()
 {
-    // FIXME: Implement this.
+    COMPtr<IWebView> webView;
+    if (FAILED(frame->webView(&webView)))
+        return;
+
+    COMPtr<IWebViewPrivate4> viewPrivate;
+    if (FAILED(webView->QueryInterface(&viewPrivate)))
+        return;
+
+    viewPrivate->setVisibilityState(WebPageVisibilityStateVisible);
 }
 
-void TestRunner::setPageVisibility(const char*)
+void TestRunner::setPageVisibility(const char* newVisibility)
 {
-    // FIXME: Implement this.
+    if (!newVisibility)
+        return;
+
+    COMPtr<IWebView> webView;
+    if (FAILED(frame->webView(&webView)))
+        return;
+
+    COMPtr<IWebViewPrivate4> viewPrivate;
+    if (FAILED(webView->QueryInterface(&viewPrivate)))
+        return;
+
+    if (!strcmp(newVisibility, "visible"))
+        viewPrivate->setVisibilityState(WebPageVisibilityStateVisible);
+    else if (!strcmp(newVisibility, "hidden"))
+        viewPrivate->setVisibilityState(WebPageVisibilityStateHidden);
+    else if (!strcmp(newVisibility, "prerender"))
+        viewPrivate->setVisibilityState(WebPageVisibilityStatePrerender);
 }
 
 void TestRunner::grantWebNotificationPermission(JSStringRef origin)
 {
-    printf("ERROR: TestRunner::grantWebNotificationPermission(JSStringRef) not implemented\n");
+    // FIXME: Implement.
+    // See https://bugs.webkit.org/show_bug.cgi?id=172295
 }
 
 void TestRunner::denyWebNotificationPermission(JSStringRef jsOrigin)
 {
-    printf("ERROR: TestRunner::denyWebNotificationPermission(JSStringRef) not implemented\n");
+    // FIXME: Implement.
+    // See https://bugs.webkit.org/show_bug.cgi?id=172295
 }
 
 void TestRunner::removeAllWebNotificationPermissions()
 {
-    printf("ERROR: TestRunner::removeAllWebNotificationPermissions() not implemented\n");
+    // FIXME: Implement.
+    // See https://bugs.webkit.org/show_bug.cgi?id=172295
 }
 
 void TestRunner::simulateWebNotificationClick(JSValueRef jsNotification)
 {
-    printf("ERROR: TestRunner::simulateWebNotificationClick() not implemented\n");
+    // FIXME: Implement.
+    // See https://bugs.webkit.org/show_bug.cgi?id=172295
 }
 
 void TestRunner::simulateLegacyWebNotificationClick(JSStringRef title)
 {
     // FIXME: Implement.
+}
+
+unsigned TestRunner::imageCountInGeneralPasteboard() const
+{
+    fprintf(testResult, "ERROR: TestRunner::imageCountInGeneralPasteboard() not implemented\n");
+    return 0;
+}
+
+void TestRunner::setSpellCheckerLoggingEnabled(bool enabled)
+{
+    fprintf(testResult, "ERROR: TestRunner::setSpellCheckerLoggingEnabled() not implemented\n");
+}
+
+void TestRunner::setSpellCheckerResults(JSContextRef, JSObjectRef)
+{
+    fprintf(testResult, "ERROR: TestRunner::setSpellCheckerResults() not implemented\n");
 }

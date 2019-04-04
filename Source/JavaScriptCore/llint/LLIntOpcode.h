@@ -23,20 +23,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef LLIntOpcode_h
-#define LLIntOpcode_h
+#pragma once
 
-#if !ENABLE(JIT)
+#if ENABLE(C_LOOP)
 
 #define FOR_EACH_LLINT_NOJIT_NATIVE_HELPER(macro) \
     FOR_EACH_CLOOP_BYTECODE_HELPER_ID(macro)
 
-#else // ENABLE(JIT)
+#else // !ENABLE(C_LOOP)
 
 #define FOR_EACH_LLINT_NOJIT_NATIVE_HELPER(macro) \
-    // Nothing to do here. Use the JIT impl instead.
+    // Nothing to do here. Use the LLInt ASM / JIT impl instead.
 
-#endif // !ENABLE(JIT)
+#endif // ENABLE(C_LOOP)
 
 
 #define FOR_EACH_LLINT_NATIVE_HELPER(macro) \
@@ -45,7 +44,4 @@
     FOR_EACH_BYTECODE_HELPER_ID(macro)
 
 
-
 #define FOR_EACH_LLINT_OPCODE_EXTENSION(macro) FOR_EACH_LLINT_NATIVE_HELPER(macro)
-
-#endif // LLIntOpcode_h

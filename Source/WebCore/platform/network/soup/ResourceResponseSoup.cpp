@@ -27,8 +27,8 @@
 #include "HTTPHeaderNames.h"
 #include "HTTPParsers.h"
 #include "MIMETypeRegistry.h"
+#include "URLSoup.h"
 #include <wtf/text/CString.h>
-#include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -39,28 +39,9 @@ void ResourceResponse::updateSoupMessageHeaders(SoupMessageHeaders* soupHeaders)
         soup_message_headers_append(soupHeaders, header.key.utf8().data(), header.value.utf8().data());
 }
 
-SoupMessage* ResourceResponse::toSoupMessage() const
-{
-    // This GET here is just because SoupMessage wants it, we dn't really know.
-    SoupMessage* soupMessage = soup_message_new("GET", url().string().utf8().data());
-    if (!soupMessage)
-        return 0;
-
-    soupMessage->status_code = httpStatusCode();
-
-    updateSoupMessageHeaders(soupMessage->response_headers);
-
-    soup_message_set_flags(soupMessage, m_soupFlags);
-
-    g_object_set(G_OBJECT(soupMessage), "tls-certificate", m_certificate.get(), "tls-errors", m_tlsErrors, NULL);
-
-    // Body data is not in the message.
-    return soupMessage;
-}
-
 void ResourceResponse::updateFromSoupMessage(SoupMessage* soupMessage)
 {
-    m_url = URL(soup_message_get_uri(soupMessage));
+    m_url = soupURIToURL(soup_message_get_uri(soupMessage));
 
     switch (soup_message_get_http_version(soupMessage)) {
     case SOUP_HTTP_1_0:
@@ -117,7 +98,18 @@ CertificateInfo ResourceResponse::platformCertificateInfo() const
 String ResourceResponse::platformSuggestedFilename() const
 {
     String contentDisposition(httpHeaderField(HTTPHeaderName::ContentDisposition));
-    return filenameFromHTTPContentDisposition(String::fromUTF8WithLatin1Fallback(contentDisposition.characters8(), contentDisposition.length()));
+    if (contentDisposition.isEmpty())
+        return String();
+
+    if (contentDisposition.is8Bit())
+        contentDisposition = String::fromUTF8WithLatin1Fallback(contentDisposition.characters8(), contentDisposition.length());
+    SoupMessageHeaders* soupHeaders = soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE);
+    soup_message_headers_append(soupHeaders, "Content-Disposition", contentDisposition.utf8().data());
+    GRefPtr<GHashTable> params;
+    soup_message_headers_get_content_disposition(soupHeaders, nullptr, &params.outPtr());
+    soup_message_headers_free(soupHeaders);
+    char* filename = params ? static_cast<char*>(g_hash_table_lookup(params.get(), "filename")) : nullptr;
+    return filename ? String::fromUTF8(filename) : String();
 }
 
 }

@@ -28,6 +28,7 @@
 
 #include "AnimationUtilities.h"
 #include <wtf/MathExtras.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -66,6 +67,11 @@ Ref<TransformOperation> PerspectiveTransformOperation::blend(const TransformOper
         return PerspectiveTransformOperation::create(Length(clampToPositiveInteger(val), Fixed));
     }
     return PerspectiveTransformOperation::create(Length(0, Fixed));
+}
+
+void PerspectiveTransformOperation::dump(TextStream& ts) const
+{
+    ts << type() << "(" << m_p << ")";
 }
 
 } // namespace WebCore

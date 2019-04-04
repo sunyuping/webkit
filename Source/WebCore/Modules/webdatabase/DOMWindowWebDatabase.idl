@@ -25,7 +25,9 @@
  */
 
 [
-] partial interface DOMWindow {
-    [RaisesException] Database openDatabase(DOMString name, DOMString version, DOMString displayName, unsigned long estimatedSize, optional DatabaseCallback creationCallback);
+    EnabledAtRuntime=WebSQL,
+    EnabledByQuirk=hasWebSQLSupport,
+]
+partial interface DOMWindow {
+    [MayThrowException] Database? openDatabase(DOMString name, DOMString version, DOMString displayName, unsigned long estimatedSize, optional DatabaseCallback? creationCallback);
 };
-

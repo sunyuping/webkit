@@ -23,14 +23,34 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ResourceTimelineRecord = class ResourceTimelineRecord extends WebInspector.TimelineRecord
+WI.ResourceTimelineRecord = class ResourceTimelineRecord extends WI.TimelineRecord
 {
     constructor(resource)
     {
-        super(WebInspector.TimelineRecord.Type.Network);
+        super(WI.TimelineRecord.Type.Network);
 
         this._resource = resource;
-        this._resource.addEventListener(WebInspector.Resource.Event.TimestampsDidChange, this._dispatchUpdatedEvent, this);
+        this._resource.addEventListener(WI.Resource.Event.TimestampsDidChange, this._dispatchUpdatedEvent, this);
+    }
+
+    // Import / Export
+
+    static fromJSON(json)
+    {
+        let {entry, archiveStartTime} = json;
+        let localResource = WI.LocalResource.fromHAREntry(entry, archiveStartTime);
+        return new WI.ResourceTimelineRecord(localResource);
+    }
+
+    toJSON()
+    {
+        const content = "";
+
+        return {
+            type: this.type,
+            archiveStartTime: this._resource.requestSentWalltime - this.startTime,
+            entry: WI.HARBuilder.entry(this._resource, content),
+        };
     }
 
     // Public
@@ -52,23 +72,23 @@ WebInspector.ResourceTimelineRecord = class ResourceTimelineRecord extends WebIn
 
     get startTime()
     {
-        return this._resource.requestSentTimestamp;
+        return this._resource.timingData.startTime;
     }
 
     get activeStartTime()
     {
-        return this._resource.responseReceivedTimestamp;
+        return this._resource.timingData.responseStart;
     }
 
     get endTime()
     {
-        return this._resource.finishedOrFailedTimestamp;
+        return this._resource.timingData.responseEnd;
     }
 
     // Private
 
     _dispatchUpdatedEvent()
     {
-        this.dispatchEventToListeners(WebInspector.TimelineRecord.Event.Updated);
+        this.dispatchEventToListeners(WI.TimelineRecord.Event.Updated);
     }
 };

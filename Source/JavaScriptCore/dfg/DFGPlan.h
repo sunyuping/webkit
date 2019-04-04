@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,12 +23,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGPlan_h
-#define DFGPlan_h
+#pragma once
 
 #include "CompilationResult.h"
 #include "DFGCompilationKey.h"
 #include "DFGCompilationMode.h"
+#include "DFGDesiredGlobalProperties.h"
 #include "DFGDesiredIdentifiers.h"
 #include "DFGDesiredTransitions.h"
 #include "DFGDesiredWatchpoints.h"
@@ -37,9 +37,9 @@
 #include "DeferredCompilationCallback.h"
 #include "Operands.h"
 #include "ProfilerCompilation.h"
+#include "RecordedStatuses.h"
 #include <wtf/HashMap.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/text/CString.h>
 
 namespace JSC {
 
@@ -48,89 +48,127 @@ class SlotVisitor;
 
 namespace DFG {
 
-class LongLivedState;
 class ThreadData;
 
 #if ENABLE(DFG_JIT)
 
-struct Plan : public ThreadSafeRefCounted<Plan> {
+class Plan : public ThreadSafeRefCounted<Plan> {
+public:
     Plan(
         CodeBlock* codeBlockToCompile, CodeBlock* profiledDFGCodeBlock,
         CompilationMode, unsigned osrEntryBytecodeIndex,
-        const Operands<JSValue>& mustHandleValues);
+        const Operands<Optional<JSValue>>& mustHandleValues);
     ~Plan();
 
-    void compileInThread(LongLivedState&, ThreadData*);
+    void compileInThread(ThreadData*);
     
     CompilationResult finalizeWithoutNotifyingCallback();
     void finalizeAndNotifyCallback();
     
     void notifyCompiling();
-    void notifyCompiled();
     void notifyReady();
     
     CompilationKey key();
     
-    void rememberCodeBlocks();
+    template<typename Func>
+    void iterateCodeBlocksForGC(const Func&);
     void checkLivenessAndVisitChildren(SlotVisitor&);
     bool isKnownToBeLiveDuringGC();
+    void finalizeInGC();
     void cancel();
-    
-    VM& vm;
 
-    // These can be raw pointers because we visit them during every GC in checkLivenessAndVisitChildren.
-    CodeBlock* codeBlock;
-    CodeBlock* profiledDFGCodeBlock;
+    bool canTierUpAndOSREnter() const { return !m_tierUpAndOSREnterBytecodes.isEmpty(); }
 
-    CompilationMode mode;
-    const unsigned osrEntryBytecodeIndex;
-    Operands<JSValue> mustHandleValues;
-    
-    ThreadData* threadData;
+    void cleanMustHandleValuesIfNecessary();
 
-    RefPtr<Profiler::Compilation> compilation;
+    VM* vm() const { return m_vm; }
 
-    std::unique_ptr<Finalizer> finalizer;
-    
-    RefPtr<InlineCallFrameSet> inlineCallFrames;
-    DesiredWatchpoints watchpoints;
-    DesiredIdentifiers identifiers;
-    DesiredWeakReferences weakReferences;
-    DesiredTransitions transitions;
-    
-    bool willTryToTierUp;
+    CodeBlock* codeBlock() { return m_codeBlock; }
 
-    enum Stage { Preparing, Compiling, Compiled, Ready, Cancelled };
-    Stage stage;
+    bool isFTL() const { return DFG::isFTL(m_mode); }
+    CompilationMode mode() const { return m_mode; }
+    unsigned osrEntryBytecodeIndex() const { return m_osrEntryBytecodeIndex; }
+    const Operands<Optional<JSValue>>& mustHandleValues() const { return m_mustHandleValues; }
+    ThreadData* threadData() const { return m_threadData; }
+    Profiler::Compilation* compilation() const { return m_compilation.get(); }
 
-    RefPtr<DeferredCompilationCallback> callback;
+    Finalizer* finalizer() const { return m_finalizer.get(); }
+    void setFinalizer(std::unique_ptr<Finalizer>&& finalizer) { m_finalizer = WTFMove(finalizer); }
 
-    JS_EXPORT_PRIVATE static HashMap<CString, double> compileTimeStats();
+    RefPtr<InlineCallFrameSet> inlineCallFrames() const { return m_inlineCallFrames; }
+    DesiredWatchpoints& watchpoints() { return m_watchpoints; }
+    DesiredIdentifiers& identifiers() { return m_identifiers; }
+    DesiredWeakReferences& weakReferences() { return m_weakReferences; }
+    DesiredTransitions& transitions() { return m_transitions; }
+    DesiredGlobalProperties& globalProperties() { return m_globalProperties; }
+    RecordedStatuses& recordedStatuses() { return m_recordedStatuses; }
+
+    bool willTryToTierUp() const { return m_willTryToTierUp; }
+    void setWillTryToTierUp(bool willTryToTierUp) { m_willTryToTierUp = willTryToTierUp; }
+
+    HashMap<unsigned, Vector<unsigned>>& tierUpInLoopHierarchy() { return m_tierUpInLoopHierarchy; }
+    Vector<unsigned>& tierUpAndOSREnterBytecodes() { return m_tierUpAndOSREnterBytecodes; }
+
+    enum Stage { Preparing, Compiling, Ready, Cancelled };
+    Stage stage() const { return m_stage; }
+
+    DeferredCompilationCallback* callback() const { return m_callback.get(); }
+    void setCallback(Ref<DeferredCompilationCallback>&& callback) { m_callback = WTFMove(callback); }
 
 private:
     bool computeCompileTimes() const;
     bool reportCompileTimes() const;
     
     enum CompilationPath { FailPath, DFGPath, FTLPath, CancelPath };
-    CompilationPath compileInThreadImpl(LongLivedState&);
+    CompilationPath compileInThreadImpl();
     
+    bool isStillValidOnMainThread();
     bool isStillValid();
     void reallyAdd(CommonData*);
 
-    double m_timeBeforeFTL;
-};
+    // Warning: pretty much all of the pointer fields in this object get nulled by cancel(). So, if
+    // you're writing code that is callable on the cancel path, be sure to null check everything!
 
-#else // ENABLE(DFG_JIT)
+    CompilationMode m_mode;
 
-class Plan : public RefCounted<Plan> {
-    // Dummy class to allow !ENABLE(DFG_JIT) to build.
-public:
-    static HashMap<CString, double> compileTimeStats() { return HashMap<CString, double>(); }
+    VM* m_vm;
+
+    // These can be raw pointers because we visit them during every GC in checkLivenessAndVisitChildren.
+    CodeBlock* m_codeBlock;
+    CodeBlock* m_profiledDFGCodeBlock;
+
+    Operands<Optional<JSValue>> m_mustHandleValues;
+    bool m_mustHandleValuesMayIncludeGarbage { true };
+    Lock m_mustHandleValueCleaningLock;
+
+    bool m_willTryToTierUp { false };
+
+    const unsigned m_osrEntryBytecodeIndex;
+
+    ThreadData* m_threadData;
+
+    RefPtr<Profiler::Compilation> m_compilation;
+
+    std::unique_ptr<Finalizer> m_finalizer;
+
+    RefPtr<InlineCallFrameSet> m_inlineCallFrames;
+    DesiredWatchpoints m_watchpoints;
+    DesiredIdentifiers m_identifiers;
+    DesiredWeakReferences m_weakReferences;
+    DesiredTransitions m_transitions;
+    DesiredGlobalProperties m_globalProperties;
+    RecordedStatuses m_recordedStatuses;
+
+    HashMap<unsigned, Vector<unsigned>> m_tierUpInLoopHierarchy;
+    Vector<unsigned> m_tierUpAndOSREnterBytecodes;
+
+    Stage m_stage;
+
+    RefPtr<DeferredCompilationCallback> m_callback;
+
+    MonotonicTime m_timeBeforeFTL;
 };
 
 #endif // ENABLE(DFG_JIT)
 
 } } // namespace JSC::DFG
-
-#endif // DFGPlan_h
-

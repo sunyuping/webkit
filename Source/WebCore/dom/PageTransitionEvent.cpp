@@ -26,25 +26,21 @@
 #include "config.h"
 #include "PageTransitionEvent.h"
 
-#include "EventNames.h"
-
 namespace WebCore {
 
 PageTransitionEvent::PageTransitionEvent(const AtomicString& type, bool persisted)
-    : Event(type, true, true)
+    : Event(type, CanBubble::Yes, IsCancelable::Yes)
     , m_persisted(persisted)
 {
 }
 
-PageTransitionEvent::PageTransitionEvent(const AtomicString& type, const PageTransitionEventInit& initializer)
-    : Event(type, initializer)
+PageTransitionEvent::PageTransitionEvent(const AtomicString& type, const Init& initializer, IsTrusted isTrusted)
+    : Event(type, initializer, isTrusted)
     , m_persisted(initializer.persisted)
 {
 }
 
-PageTransitionEvent::~PageTransitionEvent()
-{
-}
+PageTransitionEvent::~PageTransitionEvent() = default;
 
 EventInterface PageTransitionEvent::eventInterface() const
 {

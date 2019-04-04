@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2007, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,32 +19,36 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGLangSpace_h
-#define SVGLangSpace_h
+#pragma once
 
 #include "QualifiedName.h"
 #include <wtf/HashSet.h>
 
 namespace WebCore {
 
+class SVGElement;
+
 class SVGLangSpace {
 public:
     const AtomicString& xmllang() const { return m_lang; }
-    void setXmllang(const AtomicString& xmlLang);
+    void setXmllang(const AtomicString& xmlLang) { m_lang = xmlLang; }
 
     const AtomicString& xmlspace() const;
-    void setXmlspace(const AtomicString& xmlSpace);
+    void setXmlspace(const AtomicString& xmlSpace) { m_space = xmlSpace; }
 
     void parseAttribute(const QualifiedName&, const AtomicString&);
 
+    void svgAttributeChanged(const QualifiedName&);
+
     static bool isKnownAttribute(const QualifiedName&);
-    static void addSupportedAttributes(HashSet<QualifiedName>&);
+
+protected:
+    SVGLangSpace(SVGElement* contextElement);
 
 private:
+    SVGElement& m_contextElement;
     AtomicString m_lang;
     AtomicString m_space;
 };
 
 } // namespace WebCore
-
-#endif // SVGLangSpace_h

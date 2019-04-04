@@ -34,20 +34,20 @@ public:
     virtual ~LocaleNone();
 
 private:
-    virtual void initializeLocaleData() override final;
+    void initializeLocaleData() final;
 #if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-    virtual String dateFormat() override;
-    virtual String monthFormat() override;
-    virtual String shortMonthFormat() override;
-    virtual String timeFormat() override;
-    virtual String shortTimeFormat() override;
-    virtual String dateTimeFormatWithSeconds() override;
-    virtual String dateTimeFormatWithoutSeconds() override;
-    virtual const Vector<String>& monthLabels() override;
-    virtual const Vector<String>& shortMonthLabels() override;
-    virtual const Vector<String>& standAloneMonthLabels() override;
-    virtual const Vector<String>& shortStandAloneMonthLabels() override;
-    virtual const Vector<String>& timeAMPMLabels() override;
+    String dateFormat() override;
+    String monthFormat() override;
+    String shortMonthFormat() override;
+    String timeFormat() override;
+    String shortTimeFormat() override;
+    String dateTimeFormatWithSeconds() override;
+    String dateTimeFormatWithoutSeconds() override;
+    const Vector<String>& monthLabels() override;
+    const Vector<String>& shortMonthLabels() override;
+    const Vector<String>& standAloneMonthLabels() override;
+    const Vector<String>& shortStandAloneMonthLabels() override;
+    const Vector<String>& timeAMPMLabels() override;
 
     Vector<String> m_timeAMPMLabels;
     Vector<String> m_shortMonthLabels;
@@ -60,9 +60,7 @@ std::unique_ptr<Locale> Locale::create(const AtomicString&)
     return std::make_unique<LocaleNone>();
 }
 
-LocaleNone::~LocaleNone()
-{
-}
+LocaleNone::~LocaleNone() = default;
 
 void LocaleNone::initializeLocaleData()
 {
@@ -81,37 +79,37 @@ const Vector<String>& LocaleNone::monthLabels()
 
 String LocaleNone::dateFormat()
 {
-    return ASCIILiteral("yyyy-MM-dd");
+    return "yyyy-MM-dd"_s;
 }
 
 String LocaleNone::monthFormat()
 {
-    return ASCIILiteral("yyyy-MM");
+    return "yyyy-MM"_s;
 }
 
 String LocaleNone::shortMonthFormat()
 {
-    return ASCIILiteral("yyyy-MM");
+    return "yyyy-MM"_s;
 }
 
 String LocaleNone::timeFormat()
 {
-    return ASCIILiteral("HH:mm:ss");
+    return "HH:mm:ss"_s;
 }
 
 String LocaleNone::shortTimeFormat()
 {
-    return ASCIILiteral("HH:mm");
+    return "HH:mm"_s;
 }
 
 String LocaleNone::dateTimeFormatWithSeconds()
 {
-    return ASCIILiteral("yyyy-MM-dd'T'HH:mm:ss");
+    return "yyyy-MM-dd'T'HH:mm:ss"_s;
 }
 
 String LocaleNone::dateTimeFormatWithoutSeconds()
 {
-    return ASCIILiteral("yyyy-MM-dd'T'HH:mm");
+    return "yyyy-MM-dd'T'HH:mm"_s;
 }
 
 const Vector<String>& LocaleNone::shortMonthLabels()

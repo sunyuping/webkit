@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TextTrackLoader_h
-#define TextTrackLoader_h
+#pragma once
 
 #if ENABLE(VIDEO_TRACK)
 
@@ -38,16 +37,18 @@ namespace WebCore {
 
 class CachedTextTrack;
 class Document;
+class HTMLTrackElement;
 class TextTrackLoader;
 class ScriptExecutionContext;
 
 class TextTrackLoaderClient {
 public:
-    virtual ~TextTrackLoaderClient() { }
+    virtual ~TextTrackLoaderClient() = default;
     
-    virtual void newCuesAvailable(TextTrackLoader*) = 0;
-    virtual void cueLoadingCompleted(TextTrackLoader*, bool loadingFailed) = 0;
-    virtual void newRegionsAvailable(TextTrackLoader*) = 0;
+    virtual void newCuesAvailable(TextTrackLoader&) = 0;
+    virtual void cueLoadingCompleted(TextTrackLoader&, bool loadingFailed) = 0;
+    virtual void newRegionsAvailable(TextTrackLoader&) = 0;
+    virtual void newStyleSheetsAvailable(TextTrackLoader&) = 0;
 };
 
 class TextTrackLoader : public CachedResourceClient, private WebVTTParserClient {
@@ -56,34 +57,35 @@ class TextTrackLoader : public CachedResourceClient, private WebVTTParserClient 
 public:
     TextTrackLoader(TextTrackLoaderClient&, ScriptExecutionContext*);
     virtual ~TextTrackLoader();
-    
-    bool load(const URL&, const String& crossOriginMode, bool isInitiatingElementInUserAgentShadowTree);
+
+    bool load(const URL&, HTMLTrackElement&);
     void cancelLoad();
     void getNewCues(Vector<RefPtr<TextTrackCue>>& outputCues);
     void getNewRegions(Vector<RefPtr<VTTRegion>>& outputRegions);
+    Vector<String> getNewStyleSheets();
 private:
 
     // CachedResourceClient
-    virtual void notifyFinished(CachedResource*) override;
-    virtual void deprecatedDidReceiveCachedResource(CachedResource*) override;
-    
+    void notifyFinished(CachedResource&) override;
+    void deprecatedDidReceiveCachedResource(CachedResource&) override;
+
     // WebVTTParserClient
-    virtual void newCuesParsed() override;
-    virtual void newRegionsParsed() override;
-    virtual void fileFailedToParse() override;
-    
-    void processNewCueData(CachedResource*);
+    void newCuesParsed() override;
+    void newRegionsParsed() override;
+    void newStyleSheetsParsed() final;
+    void fileFailedToParse() override;
+
+    void processNewCueData(CachedResource&);
     void cueLoadTimerFired();
     void corsPolicyPreventedLoad();
 
     enum State { Idle, Loading, Finished, Failed };
-    
+
     TextTrackLoaderClient& m_client;
     std::unique_ptr<WebVTTParser> m_cueParser;
     CachedResourceHandle<CachedTextTrack> m_resource;
     ScriptExecutionContext* m_scriptExecutionContext;
     Timer m_cueLoadTimer;
-    String m_crossOriginMode;
     State m_state;
     unsigned m_parseOffset;
     bool m_newCuesAvailable;
@@ -91,5 +93,4 @@ private:
 
 } // namespace WebCore
 
-#endif
-#endif
+#endif // ENABLE(VIDEO_TRACK)

@@ -25,6 +25,7 @@
 #include "AnimationUtilities.h"
 #include <algorithm>
 #include <wtf/MathExtras.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -42,7 +43,7 @@ Ref<TransformOperation> RotateTransformOperation::blend(const TransformOperation
         return *this;
     
     if (blendToIdentity)
-        return RotateTransformOperation::create(m_x, m_y, m_z, m_angle - m_angle * progress, m_type);
+        return RotateTransformOperation::create(m_x, m_y, m_z, m_angle - m_angle * progress, type());
     
     const RotateTransformOperation* fromOp = downcast<RotateTransformOperation>(from);
     
@@ -54,7 +55,7 @@ Ref<TransformOperation> RotateTransformOperation::blend(const TransformOperation
         return RotateTransformOperation::create(fromOp ? fromOp->m_x : m_x, 
                                                 fromOp ? fromOp->m_y : m_y, 
                                                 fromOp ? fromOp->m_z : m_z, 
-                                                WebCore::blend(fromAngle, m_angle, progress), m_type);
+                                                WebCore::blend(fromAngle, m_angle, progress), type());
     }
 
     const RotateTransformOperation* toOp = this;
@@ -97,6 +98,11 @@ Ref<TransformOperation> RotateTransformOperation::blend(const TransformOperation
         z = 1;
     }
     return RotateTransformOperation::create(x, y, z, angle, ROTATE_3D);
+}
+
+void RotateTransformOperation::dump(TextStream& ts) const
+{
+    ts << type() << "(" << TextStream::FormatNumberRespectingIntegers(m_x) << ", " << TextStream::FormatNumberRespectingIntegers(m_y) << ", " << TextStream::FormatNumberRespectingIntegers(m_z) << ", " << TextStream::FormatNumberRespectingIntegers(m_angle) << "deg)";
 }
 
 } // namespace WebCore

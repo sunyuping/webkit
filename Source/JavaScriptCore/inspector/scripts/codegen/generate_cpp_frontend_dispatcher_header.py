@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (c) 2014, 2015 Apple Inc. All rights reserved.
+# Copyright (c) 2014-2016 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,44 +30,53 @@ import re
 import string
 from string import Template
 
-from cpp_generator import CppGenerator
-from cpp_generator_templates import CppGeneratorTemplates as CppTemplates
-from generator import Generator, ucfirst
-from models import EnumType
+try:
+    from .cpp_generator import CppGenerator
+    from .cpp_generator_templates import CppGeneratorTemplates as CppTemplates
+    from .generator import Generator, ucfirst
+    from .models import EnumType
+except ValueError:
+    from cpp_generator import CppGenerator
+    from cpp_generator_templates import CppGeneratorTemplates as CppTemplates
+    from generator import Generator, ucfirst
+    from models import EnumType
 
 log = logging.getLogger('global')
 
 
-class CppFrontendDispatcherHeaderGenerator(Generator):
-    def __init__(self, model, input_filepath):
-        Generator.__init__(self, model, input_filepath)
+class CppFrontendDispatcherHeaderGenerator(CppGenerator):
+    def __init__(self, *args, **kwargs):
+        CppGenerator.__init__(self, *args, **kwargs)
 
     def output_filename(self):
-        return "InspectorFrontendDispatchers.h"
+        return "%sFrontendDispatchers.h" % self.protocol_name()
 
     def domains_to_generate(self):
-        return filter(lambda domain: len(domain.events) > 0, Generator.domains_to_generate(self))
+        return [domain for domain in Generator.domains_to_generate(self) if len(self.events_for_domain(domain)) > 0]
 
     def generate_output(self):
-        headers = [
-            '"InspectorProtocolObjects.h"',
-            '<inspector/InspectorValues.h>',
-            '<wtf/text/WTFString.h>']
-
         header_args = {
-            'headerGuardString': re.sub('\W+', '_', self.output_filename()),
-            'includes': '\n'.join(['#include ' + header for header in headers]),
+            'includes': self._generate_secondary_header_includes(),
             'typedefs': 'class FrontendRouter;',
         }
 
         sections = []
         sections.append(self.generate_license())
         sections.append(Template(CppTemplates.HeaderPrelude).substitute(None, **header_args))
-        sections.extend(map(self._generate_dispatcher_declarations_for_domain, self.domains_to_generate()))
+        sections.extend(list(map(self._generate_dispatcher_declarations_for_domain, self.domains_to_generate())))
         sections.append(Template(CppTemplates.HeaderPostlude).substitute(None, **header_args))
         return "\n\n".join(sections)
 
     # Private methods.
+
+    def _generate_secondary_header_includes(self):
+        header_includes = [
+            (["JavaScriptCore", "WebKit"], (self.model().framework.name, "%sProtocolObjects.h" % self.protocol_name())),
+            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/JSONValues.h")),
+            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/text/WTFString.h"))
+        ]
+
+        return '\n'.join(self.generate_includes_from_entries(header_includes))
 
     def _generate_anonymous_enum_for_parameter(self, parameter, event):
         enum_args = {
@@ -91,8 +100,9 @@ class CppFrontendDispatcherHeaderGenerator(Generator):
 
         used_enum_names = set([])
 
+        events = self.events_for_domain(domain)
         event_declarations = []
-        for event in domain.events:
+        for event in events:
             event_declarations.append(self._generate_dispatcher_declaration_for_event(event, domain, used_enum_names))
 
         handler_args = {

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011, 2015 Google Inc. All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,18 +32,23 @@
 #include "Internals.h"
 #include "JSDocument.h"
 #include "JSInternals.h"
+#include "JSServiceWorkerInternals.h"
+#include "JSWorkerGlobalScope.h"
+#include "LogInitialization.h"
+#include "MockGamepadProvider.h"
 #include "Page.h"
+#include "SWContextManager.h"
+#include "ServiceWorkerGlobalScope.h"
 #include "WheelEventTestTrigger.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/CallFrame.h>
+#include <JavaScriptCore/IdentifierInlines.h>
 #include <JavaScriptCore/JSValueRef.h>
-#include <JavaScriptCore/Profile.h>
-#include <interpreter/CallFrame.h>
-#include <runtime/IdentifierInlines.h>
-
-using namespace JSC;
-using namespace WebCore;
+#include <wtf/URLParser.h>
 
 namespace WebCoreTestSupport {
+using namespace JSC;
+using namespace WebCore;
 
 void injectInternalsObject(JSContextRef context)
 {
@@ -50,8 +56,11 @@ void injectInternalsObject(JSContextRef context)
     JSLockHolder lock(exec);
     JSDOMGlobalObject* globalObject = jsCast<JSDOMGlobalObject*>(exec->lexicalGlobalObject());
     ScriptExecutionContext* scriptContext = globalObject->scriptExecutionContext();
-    if (is<Document>(*scriptContext))
-        globalObject->putDirect(exec->vm(), Identifier::fromString(exec, Internals::internalsId), toJS(exec, globalObject, Internals::create(downcast<Document>(scriptContext))));
+    if (is<Document>(*scriptContext)) {
+        VM& vm = exec->vm();
+        globalObject->putDirect(vm, Identifier::fromString(&vm, Internals::internalsId), toJS(exec, globalObject, Internals::create(downcast<Document>(*scriptContext))));
+        globalObject->exposeDollarVM(vm);
+    }
 }
 
 void resetInternalsObject(JSContextRef context)
@@ -61,7 +70,7 @@ void resetInternalsObject(JSContextRef context)
     JSDOMGlobalObject* globalObject = jsCast<JSDOMGlobalObject*>(exec->lexicalGlobalObject());
     ScriptExecutionContext* scriptContext = globalObject->scriptExecutionContext();
     Page* page = downcast<Document>(scriptContext)->frame()->page();
-    Internals::resetToConsistentState(page);
+    Internals::resetToConsistentState(*page);
     InternalSettings::from(page)->resetToConsistentState();
 }
 
@@ -95,6 +104,105 @@ void clearWheelEventTestTrigger(WebCore::Frame& frame)
         return;
     
     page->clearTrigger();
+}
+
+void setLogChannelToAccumulate(const String& name)
+{
+#if !LOG_DISABLED
+    WebCore::setLogChannelToAccumulate(name);
+#else
+    UNUSED_PARAM(name);
+#endif
+}
+
+void initializeLogChannelsIfNecessary()
+{
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+    WebCore::initializeLogChannelsIfNecessary();
+#endif
+}
+
+void setAllowsAnySSLCertificate(bool allowAnySSLCertificate)
+{
+    InternalSettings::setAllowsAnySSLCertificate(allowAnySSLCertificate);
+}
+
+void installMockGamepadProvider()
+{
+#if ENABLE(GAMEPAD)
+    GamepadProvider::setSharedProvider(MockGamepadProvider::singleton());
+#endif
+}
+
+void connectMockGamepad(unsigned gamepadIndex)
+{
+#if ENABLE(GAMEPAD)
+    MockGamepadProvider::singleton().connectMockGamepad(gamepadIndex);
+#else
+    UNUSED_PARAM(gamepadIndex);
+#endif
+}
+
+void disconnectMockGamepad(unsigned gamepadIndex)
+{
+#if ENABLE(GAMEPAD)
+    MockGamepadProvider::singleton().disconnectMockGamepad(gamepadIndex);
+#else
+    UNUSED_PARAM(gamepadIndex);
+#endif
+}
+
+void setMockGamepadDetails(unsigned gamepadIndex, const WTF::String& gamepadID, unsigned axisCount, unsigned buttonCount)
+{
+#if ENABLE(GAMEPAD)
+    MockGamepadProvider::singleton().setMockGamepadDetails(gamepadIndex, gamepadID, axisCount, buttonCount);
+#else
+    UNUSED_PARAM(gamepadIndex);
+    UNUSED_PARAM(gamepadID);
+    UNUSED_PARAM(axisCount);
+    UNUSED_PARAM(buttonCount);
+#endif
+}
+
+void setMockGamepadAxisValue(unsigned gamepadIndex, unsigned axisIndex, double axisValue)
+{
+#if ENABLE(GAMEPAD)
+    MockGamepadProvider::singleton().setMockGamepadAxisValue(gamepadIndex, axisIndex, axisValue);
+#else
+    UNUSED_PARAM(gamepadIndex);
+    UNUSED_PARAM(axisIndex);
+    UNUSED_PARAM(axisValue);
+#endif
+}
+
+void setMockGamepadButtonValue(unsigned gamepadIndex, unsigned buttonIndex, double buttonValue)
+{
+#if ENABLE(GAMEPAD)
+    MockGamepadProvider::singleton().setMockGamepadButtonValue(gamepadIndex, buttonIndex, buttonValue);
+#else
+    UNUSED_PARAM(gamepadIndex);
+    UNUSED_PARAM(buttonIndex);
+    UNUSED_PARAM(buttonValue);
+#endif
+}
+
+void setupNewlyCreatedServiceWorker(uint64_t serviceWorkerIdentifier)
+{
+#if ENABLE(SERVICE_WORKER)
+    auto identifier = makeObjectIdentifier<ServiceWorkerIdentifierType>(serviceWorkerIdentifier);
+    SWContextManager::singleton().postTaskToServiceWorker(identifier, [identifier] (ServiceWorkerGlobalScope& globalScope) {
+        auto* script = globalScope.script();
+        if (!script)
+            return;
+
+        auto& state = *globalScope.execState();
+        JSLockHolder locker(state.vm());
+        auto* contextWrapper = script->workerGlobalScopeWrapper();
+        contextWrapper->putDirect(state.vm(), Identifier::fromString(&state, Internals::internalsId), toJS(&state, contextWrapper, ServiceWorkerInternals::create(identifier)));
+    });
+#else
+    UNUSED_PARAM(serviceWorkerIdentifier);
+#endif
 }
 
 }

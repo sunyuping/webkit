@@ -18,15 +18,13 @@ shouldBeEqualToString("ws.binaryType", "arraybuffer");
 ws.binaryType = "blob";
 shouldBeEqualToString("ws.binaryType", "blob");
 
-debug("Set invalid values to binaryType. They should be ignored. No exception should be thrown.");
-
-ws.binaryType = "Blob";
+shouldThrowErrorName("ws.binaryType = 'Blob'", "SyntaxError");
 shouldBeEqualToString("ws.binaryType", "blob");
 
-ws.binaryType = "ArrayBuffer"
+shouldThrowErrorName("ws.binaryType = 'ArrayBuffer'", "SyntaxError");
 shouldBeEqualToString("ws.binaryType", "blob");
 
-ws.binaryType = "";
+shouldThrowErrorName("ws.binaryType = ''", "SyntaxError");
 shouldBeEqualToString("ws.binaryType", "blob");
 
 </script>

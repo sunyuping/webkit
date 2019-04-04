@@ -28,26 +28,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PerformanceTiming_h
-#define PerformanceTiming_h
-
-#if ENABLE(WEB_TIMING)
+#pragma once
 
 #include "DOMWindowProperty.h"
-#include <wtf/PassRefPtr.h>
+#include <wtf/MonotonicTime.h>
+#include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
-class DocumentLoadTiming;
 class DocumentLoader;
+class LoadTiming;
 struct DocumentTiming;
-class Frame;
-class ResourceLoadTiming;
 
 class PerformanceTiming : public RefCounted<PerformanceTiming>, public DOMWindowProperty {
 public:
-    static Ref<PerformanceTiming> create(Frame* frame) { return adoptRef(*new PerformanceTiming(frame)); }
+    static Ref<PerformanceTiming> create(DOMWindow* window) { return adoptRef(*new PerformanceTiming(window)); }
 
     unsigned long long navigationStart() const;
     unsigned long long unloadEventStart() const;
@@ -72,16 +68,13 @@ public:
     unsigned long long loadEventEnd() const;
 
 private:
-    explicit PerformanceTiming(Frame*);
+    explicit PerformanceTiming(DOMWindow*);
 
     const DocumentTiming* documentTiming() const;
     DocumentLoader* documentLoader() const;
-    DocumentLoadTiming* documentLoadTiming() const;
-    unsigned long long resourceLoadTimeRelativeToFetchStart(int) const;
-    unsigned long long monotonicTimeToIntegerMilliseconds(double) const;
+    LoadTiming* loadTiming() const;
+    unsigned long long resourceLoadTimeRelativeToFetchStart(Seconds) const;
+    unsigned long long monotonicTimeToIntegerMilliseconds(MonotonicTime) const;
 };
 
-}
-
-#endif // !ENABLE(WEB_TIMING)
-#endif // !defined(PerformanceTiming_h)
+} // namespace WebCore

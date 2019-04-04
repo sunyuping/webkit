@@ -29,18 +29,19 @@
  */
 
 [
-    GlobalContext=DedicatedWorkerGlobalScope,
     CustomProxyToJSObject,
+    Exposed=DedicatedWorker,
+    Global=(Worker,DedicatedWorker),
     JSGenerateToNativeObject,
+    ImplicitThis,
+    IsImmutablePrototypeExoticObject,
+    IsImmutablePrototypeExoticObjectOnPrototype,
 ] interface DedicatedWorkerGlobalScope : WorkerGlobalScope {
+    [Replaceable] readonly attribute DOMString name;
 
-#if defined(LANGUAGE_JAVASCRIPT) && LANGUAGE_JAVASCRIPT
-    [Custom, RaisesException] void postMessage(any message, optional Array messagePorts);
-#else
-    // There's no good way to expose an array via the ObjC bindings, so for now just allow passing in a single port.
-    [RaisesException] void postMessage(DOMString message, optional MessagePort messagePort);
-#endif
+    [CallWith=ExecState, MayThrowException] void postMessage(any message, optional sequence<object> transfer = []);
+
+    void close();
 
     attribute EventHandler onmessage;
 };
-

@@ -28,8 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef StorageErrorCallback_h
-#define StorageErrorCallback_h
+#pragma once
 
 #if ENABLE(QUOTA)
 
@@ -38,18 +37,18 @@
 
 namespace WebCore {
 
-class DOMCoreException;
+class DOMException;
 
 typedef int ExceptionCode;
 
 class StorageErrorCallback : public RefCounted<StorageErrorCallback> {
 public:
-    virtual ~StorageErrorCallback() { }
-    virtual bool handleEvent(DOMCoreException*) = 0;
+    virtual ~StorageErrorCallback() = default;
+    virtual bool handleEvent(DOMException*) = 0;
 
     class CallbackTask : public ScriptExecutionContext::Task {
     public:
-        CallbackTask(PassRefPtr<StorageErrorCallback>, ExceptionCode);
+        CallbackTask(StorageErrorCallback*, ExceptionCode);
 
     private:
         RefPtr<StorageErrorCallback> m_callback;
@@ -60,5 +59,3 @@ public:
 } // namespace WebCore
 
 #endif // ENABLE(QUOTA)
-
-#endif // StorageErrorCallback_h

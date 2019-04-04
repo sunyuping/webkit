@@ -114,8 +114,8 @@ switch (condition) {
 
 ```cpp
 return attribute.name() == srcAttr
-        || attribute.name() == lowsrcAttr
-        || (attribute.name() == usemapAttr && attribute.value().string()[0] != '#');
+    || attribute.name() == lowsrcAttr
+    || (attribute.name() == usemapAttr && attribute.value().string()[0] != '#');
 ```
 
 
@@ -123,8 +123,8 @@ return attribute.name() == srcAttr
 
 ```cpp
 return attribute.name() == srcAttr ||
-        attribute.name() == lowsrcAttr ||
-        (attribute.name() == usemapAttr && attr->value().string()[0] != '#');
+    attribute.name() == lowsrcAttr ||
+    (attribute.name() == usemapAttr && attr->value().string()[0] != '#');
 ```
 
 
@@ -232,6 +232,49 @@ f(a, b);
 ```cpp
 f (a, b);
 f( a, b );
+```
+
+[](#spacing-braced-init) When initializing an object, place a space before the leading brace as well as between the braces and their content.
+
+###### Right:
+
+```cpp
+Foo foo { bar };
+```
+
+###### Wrong:
+
+```cpp
+Foo foo{ bar };
+Foo foo {bar};
+```
+
+[](#spacing-objc-block) In Objective-C, do not place spaces between the start of a block and its arguments, or the start of a block and its opening brace. **Do** place a space between argument lists and the opening brace of the block.
+
+###### Right:
+
+```cpp
+block = ^{
+...
+};
+
+block = ^(int, int) {
+...
+};
+
+```
+
+###### Wrong:
+
+```cpp
+block = ^ {
+...
+};
+
+block = ^ (int, int){
+...
+};
+
 ```
 
 ### Line breaking
@@ -633,6 +676,34 @@ bool convertToASCII(short*, size_t);
 bool toASCII(short*, size_t);
 ```
 
+[](#names-if-exists) The getter function for a member variable should not have any suffix or prefix indicating the function can optionally create or initialize the member variable. Suffix the getter function which does not automatically create the object with `IfExists` if there is a variant which does.
+
+###### Right:
+
+```cpp
+StyleResolver* styleResolverIfExists();
+StyleResolver& styleResolver();
+```
+
+###### Wrong:
+
+```cpp
+StyleResolver* styleResolver();
+StyleResolver& ensureStyleResolver();
+```
+
+###### Right:
+
+```cpp
+Frame* frame();
+```
+
+###### Wrong:
+
+```cpp
+Frame* frameIfExists();
+```
+
 [](#names-variable-name-in-function-decl) Leave meaningless variable names out of function declarations. A good rule of thumb is if the parameter type name contains the parameter name (without trailing numbers or pluralization), then the parameter name isn't needed. Usually, there should be a parameter name for bools, strings, and numerical types.
 
 ###### Right:
@@ -695,9 +766,16 @@ setResizable(NotResizable);
         NSLocalizedString(@"Stop", @"Stop button title")
 ```
 
-[](#names-header-guards) `#define`, `#ifdef` "header guards" should be named exactly the same as the file (including case), replacing the `.` with a `_`.
+[](#header-guards) Use `#pragma once` instead of `#define` and `#ifdef` for header guards.
 
 ###### Right:
+
+```cpp
+// HTMLDocument.h
+#pragma once
+```
+
+###### Wrong:
 
 ```cpp
 // HTMLDocument.h
@@ -705,12 +783,44 @@ setResizable(NotResizable);
 #define HTMLDocument_h
 ```
 
+[](#names-protectors-this) Ref and RefPtr objects meant to protect `this` from deletion should be named "protectedThis".
+
+###### Right:
+
+```cpp
+RefPtr<Node> protectedThis(this);
+Ref<Element> protectedThis(*this);
+RefPtr<Widget> protectedThis = this;
+```
+
 ###### Wrong:
 
 ```cpp
-// HTMLDocument.h
-#ifndef _HTML_DOCUMENT_H_
-#define _HTML_DOCUMENT_H_
+RefPtr<Node> protector(this);
+Ref<Node> protector = *this;
+RefPtr<Widget> self(this);
+Ref<Element> elementRef(*this);
+```
+
+[](#names-protectors) Ref and RefPtr objects meant to protect variables other than `this` from deletion should be named either "protector", or "protected" combined with the capitalized form of the variable name.
+
+###### Right:
+
+```cpp
+RefPtr<Element> protector(&element);
+RefPtr<Element> protector = &element;
+RefPtr<Node> protectedNode(node);
+RefPtr<Widget> protectedMainWidget(m_mainWidget);
+RefPtr<Loader> protectedFontLoader = m_fontLoader;
+```
+
+###### Wrong:
+
+```cpp
+RefPtr<Node> nodeRef(&rootNode);
+Ref<Element> protect(*element);
+RefPtr<Node> protectorNode(node);
+RefPtr<Widget> protected = widget;
 ```
 
 ### Other Punctuation
@@ -751,7 +861,7 @@ MyOtherClass::MyOtherClass() : MySuperClass() {}
 
 ```cpp
 for (auto& frameView : frameViews)
-        frameView->updateLayoutAndStyleIfNeededRecursive();
+    frameView->updateLayoutAndStyleIfNeededRecursive();
 ```
 
 
@@ -1044,16 +1154,16 @@ namespace WebCore {
 } // namespace WebCore
 ```
 
-[](#using-position) In implementation files, put all other "using" statements at the beginning of the file, before any namespace definitions and after any "include" statements.
+[](#using-position) In implementation files, put all "using namespace" statements inside namespace definitions.
 
 ###### Right:
 
 ```cpp
 // HTMLSelectElement.cpp
 
-using namespace other;
-
 namespace WebCore {
+
+using namespace other;
 
 } // namespace WebCore
 ```
@@ -1063,9 +1173,9 @@ namespace WebCore {
 ```cpp
 // HTMLSelectElement.cpp
 
-namespace WebCore {
-
 using namespace other;
+
+namespace WebCore {
 
 } // namespace WebCore
 ```
@@ -1188,3 +1298,77 @@ drawJpg(); // FIXME(joe): Make this code handle jpg in addition to the png suppo
 ```cpp
 drawJpg(); // TODO: Make this code handle jpg in addition to the png support.
 ```
+
+### Overriding Virtual Methods
+
+[](#override-methods) The base level declaration of a virtual method inside a class must be declared with the `virtual` keyword. All subclasses of that class must either specify the `override` keyword when overriding the virtual method or the `final` keyword when overriding the virtual method and requiring that no further subclasses can override it. You never want to annotate a method with more than one of the `virtual`, `override`, or `final` keywords.
+
+###### Right:
+
+```cpp
+class Person {
+public:
+    virtual String description() { ... };
+}
+
+class Student : public Person {
+public:
+    String description() override { ... }; // This is correct because it only contains the "override" keyword to indicate that the method is overridden.
+}
+
+```
+
+```cpp
+class Person {
+public:
+    virtual String description() { ... };
+}
+
+class Student : public Person {
+public:
+    String description() final { ... }; // This is correct because it only contains the "final" keyword to indicate that the method is overridden and that no subclasses of "Student" can override "description".
+}
+
+```
+
+###### Wrong:
+
+```cpp
+class Person {
+public:
+    virtual String description() { ... };
+}
+
+class Student : public Person {
+public:
+    virtual String description() override { ... }; // This is incorrect because it uses both the "virtual" and "override" keywords to indicate that the method is overridden. Instead, it should only use the "override" keyword.
+}
+```
+
+```cpp
+class Person {
+public:
+    virtual String description() { ... };
+}
+
+class Student : public Person {
+public:
+    virtual String description() final { ... }; // This is incorrect because it uses both the "virtual" and "final" keywords to indicate that the method is overridden and final. Instead, it should only use the "final" keyword.
+}
+```
+
+```cpp
+class Person {
+public:
+    virtual String description() { ... };
+}
+
+class Student : public Person {
+public:
+    virtual String description() { ... }; // This is incorrect because it uses the "virtual" keyword to indicate that the method is overridden.
+}
+```
+
+### Python
+
+[](#python) For Python use PEP8 style.

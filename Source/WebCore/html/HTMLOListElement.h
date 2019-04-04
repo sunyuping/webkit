@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,51 +20,41 @@
  *
  */
 
-#ifndef HTMLOListElement_h
-#define HTMLOListElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLOListElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLOListElement);
 public:
     static Ref<HTMLOListElement> create(Document&);
     static Ref<HTMLOListElement> create(const QualifiedName&, Document&);
 
-    int start() const { return m_hasExplicitStart ? m_start : (m_isReversed ? itemCount() : 1); }
-    void setStart(int);
+    int startForBindings() const { return m_start.valueOr(1); }
+    WEBCORE_EXPORT void setStartForBindings(int);
 
+    // FIXME: The reason start() does not trigger layout is because it is called
+    // from rendering code. This is unfortunately one of the few cases where the
+    // render tree is mutated during layout.
+
+    int start() const { return m_start ? m_start.value() : (m_isReversed ? itemCount() : 1); }
     bool isReversed() const { return m_isReversed; }
-
-    void itemCountChanged() { m_shouldRecalculateItemCount = true; }
+    void itemCountChanged() { m_itemCount = WTF::nullopt; }
 
 private:
     HTMLOListElement(const QualifiedName&, Document&);
         
-    void updateItemValues();
+    WEBCORE_EXPORT unsigned itemCount() const;
 
-    unsigned itemCount() const
-    {
-        if (m_shouldRecalculateItemCount)
-            const_cast<HTMLOListElement*>(this)->recalculateItemCount();
-        return m_itemCount;
-    }
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    bool isPresentationAttribute(const QualifiedName&) const final;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
 
-    void recalculateItemCount();
-
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
-
-    int m_start;
-    unsigned m_itemCount;
-
-    bool m_hasExplicitStart : 1;
-    bool m_isReversed : 1;
-    bool m_shouldRecalculateItemCount : 1;
+    Optional<int> m_start;
+    mutable Optional<unsigned> m_itemCount;
+    bool m_isReversed { false };
 };
 
 } //namespace
-
-#endif

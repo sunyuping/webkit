@@ -26,19 +26,25 @@
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
 #include "HTMLNames.h"
+#include "HTMLParserIdioms.h"
 #include "RenderListItem.h"
+#include <wtf/IsoMallocInlines.h>
+
+// FIXME: There should be a standard way to turn a std::expected into a Optional.
+// Maybe we should put this into the header file for Expected and give it a better name.
+template<typename T, typename E> inline Optional<T> optionalValue(Expected<T, E>&& expected)
+{
+    return expected ? Optional<T>(WTFMove(expected.value())) : WTF::nullopt;
+}
 
 namespace WebCore {
 
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLOListElement);
+
 using namespace HTMLNames;
 
-HTMLOListElement::HTMLOListElement(const QualifiedName& tagName, Document& document)
+inline HTMLOListElement::HTMLOListElement(const QualifiedName& tagName, Document& document)
     : HTMLElement(tagName, document)
-    , m_start(0xBADBEEF)
-    , m_itemCount(0)
-    , m_hasExplicitStart(false)
-    , m_isReversed(false)
-    , m_shouldRecalculateItemCount(false)
 {
     ASSERT(hasTagName(olTag));
 }
@@ -81,37 +87,30 @@ void HTMLOListElement::parseAttribute(const QualifiedName& name, const AtomicStr
 {
     if (name == startAttr) {
         int oldStart = start();
-        bool canParse;
-        int parsedStart = value.toInt(&canParse);
-        m_hasExplicitStart = canParse;
-        m_start = canParse ? parsedStart : 0xBADBEEF;
+        m_start = optionalValue(parseHTMLInteger(value));
         if (oldStart == start())
             return;
-        updateItemValues();
+        RenderListItem::updateItemValuesForOrderedList(*this);
     } else if (name == reversedAttr) {
         bool reversed = !value.isNull();
         if (reversed == m_isReversed)
             return;
         m_isReversed = reversed;
-        updateItemValues();
+        RenderListItem::updateItemValuesForOrderedList(*this);
     } else
         HTMLElement::parseAttribute(name, value);
 }
 
-void HTMLOListElement::setStart(int start)
+void HTMLOListElement::setStartForBindings(int start)
 {
     setIntegralAttribute(startAttr, start);
 }
 
-void HTMLOListElement::updateItemValues()
+unsigned HTMLOListElement::itemCount() const
 {
-    RenderListItem::updateItemValuesForOrderedList(*this);
-}
-
-void HTMLOListElement::recalculateItemCount()
-{
-    m_itemCount = RenderListItem::itemCountForOrderedList(*this);
-    m_shouldRecalculateItemCount = false;
+    if (!m_itemCount)
+        m_itemCount = RenderListItem::itemCountForOrderedList(*this);
+    return m_itemCount.value();
 }
 
 }

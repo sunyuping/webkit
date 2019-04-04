@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2013 Google Inc.  All rights reserved.
- * Copyright (C) 2014 Apple Inc.  All rights reserved.
+ * Copyright (C) 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,19 +26,18 @@
 
 [
     Conditional=VIDEO_TRACK,
-    JSGenerateToNativeObject,
     Constructor(),
-    ConstructorCallWith=ScriptExecutionContext
+    ConstructorCallWith=ScriptExecutionContext,
+    JSGenerateToNativeObject,
 ] interface VTTRegion {
     readonly attribute TextTrack track;
 
     attribute DOMString id;
-    [SetterRaisesException] attribute unrestricted double width;
-    [SetterRaisesException] attribute long height;
-    [SetterRaisesException] attribute unrestricted double regionAnchorX;
-    [SetterRaisesException] attribute unrestricted double regionAnchorY;
-    [SetterRaisesException] attribute unrestricted double viewportAnchorX;
-    [SetterRaisesException] attribute unrestricted double viewportAnchorY;
-    [SetterRaisesException] attribute DOMString scroll;
+    attribute double width;
+    attribute long lines;
+    attribute double regionAnchorX;
+    attribute double regionAnchorY;
+    attribute double viewportAnchorX;
+    attribute double viewportAnchorY;
+    attribute DOMString scroll;
 };
-

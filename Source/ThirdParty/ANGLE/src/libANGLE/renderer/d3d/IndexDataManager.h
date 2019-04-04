@@ -19,7 +19,10 @@
 
 namespace
 {
-    enum { INITIAL_INDEX_BUFFER_SIZE = 4096 * sizeof(GLuint) };
+enum
+{
+    INITIAL_INDEX_BUFFER_SIZE = 4096 * sizeof(GLuint)
+};
 }
 
 namespace gl
@@ -36,35 +39,67 @@ class IndexBuffer;
 class BufferD3D;
 class RendererD3D;
 
+struct SourceIndexData
+{
+    BufferD3D *srcBuffer;
+    const void *srcIndices;
+    unsigned int srcCount;
+    GLenum srcIndexType;
+    bool srcIndicesChanged;
+};
+
 struct TranslatedIndexData
 {
-    RangeUI indexRange;
     unsigned int startIndex;
-    unsigned int startOffset;   // In bytes
+    unsigned int startOffset;  // In bytes
 
     IndexBuffer *indexBuffer;
     BufferD3D *storage;
     GLenum indexType;
     unsigned int serial;
+
+    SourceIndexData srcIndexData;
 };
 
 class IndexDataManager : angle::NonCopyable
 {
   public:
-    explicit IndexDataManager(BufferFactoryD3D *factory, RendererClass rendererClass);
+    explicit IndexDataManager(BufferFactoryD3D *factory);
     virtual ~IndexDataManager();
 
-    gl::Error prepareIndexData(GLenum type, GLsizei count, gl::Buffer *arrayElementBuffer, const GLvoid *indices, TranslatedIndexData *translated);
+    void deinitialize();
+
+    gl::Error prepareIndexData(const gl::Context *context,
+                               GLenum srcType,
+                               GLenum dstType,
+                               GLsizei count,
+                               gl::Buffer *glBuffer,
+                               const void *indices,
+                               TranslatedIndexData *translated);
 
   private:
-    gl::Error getStreamingIndexBuffer(GLenum destinationIndexType, IndexBufferInterface **outBuffer);
+    gl::Error streamIndexData(const void *data,
+                              unsigned int count,
+                              GLenum srcType,
+                              GLenum dstType,
+                              bool usePrimitiveRestartFixedIndex,
+                              TranslatedIndexData *translated);
+    gl::Error getStreamingIndexBuffer(GLenum destinationIndexType,
+                                      IndexBufferInterface **outBuffer);
+
+    using StreamingBuffer = std::unique_ptr<StreamingIndexBufferInterface>;
 
     BufferFactoryD3D *const mFactory;
-    RendererClass mRendererClass;
-    StreamingIndexBufferInterface *mStreamingBufferShort;
-    StreamingIndexBufferInterface *mStreamingBufferInt;
+    std::unique_ptr<StreamingIndexBufferInterface> mStreamingBufferShort;
+    std::unique_ptr<StreamingIndexBufferInterface> mStreamingBufferInt;
 };
 
-}
+GLenum GetIndexTranslationDestType(GLenum srcType,
+                                   const gl::HasIndexRange &lazyIndexRange,
+                                   bool usePrimitiveRestartWorkaround);
 
-#endif   // LIBANGLE_INDEXDATAMANAGER_H_
+bool IsOffsetAligned(GLenum elementType, unsigned int offset);
+
+}  // namespace rx
+
+#endif  // LIBANGLE_INDEXDATAMANAGER_H_

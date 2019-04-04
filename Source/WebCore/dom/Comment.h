@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2018 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,24 +20,24 @@
  *
  */
 
-#ifndef Comment_h
-#define Comment_h
+#pragma once
 
 #include "CharacterData.h"
 
 namespace WebCore {
 
 class Comment final : public CharacterData {
+    WTF_MAKE_ISO_ALLOCATED(Comment);
 public:
     static Ref<Comment> create(Document&, const String&);
 
 private:
     Comment(Document&, const String&);
 
-    virtual String nodeName() const override;
-    virtual NodeType nodeType() const override;
-    virtual Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
-    virtual bool childTypeAllowed(NodeType) const override;
+    String nodeName() const override;
+    NodeType nodeType() const override;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
+    bool childTypeAllowed(NodeType) const override;
 };
 
 } // namespace WebCore
@@ -45,5 +45,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::Comment)
     static bool isType(const WebCore::Node& node) { return node.nodeType() == WebCore::Node::COMMENT_NODE; }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // Comment_h

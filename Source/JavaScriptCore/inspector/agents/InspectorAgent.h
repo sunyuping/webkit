@@ -27,12 +27,11 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef InspectorAgent_h
-#define InspectorAgent_h
+#pragma once
 
+#include "InspectorAgentBase.h"
 #include "InspectorBackendDispatchers.h"
 #include "InspectorFrontendDispatchers.h"
-#include "inspector/InspectorAgentBase.h"
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
 
@@ -40,7 +39,6 @@ namespace Inspector {
 
 class BackendDispatcher;
 class InspectorEnvironment;
-class InspectorObject;
 
 typedef String ErrorString;
 
@@ -51,14 +49,14 @@ public:
     InspectorAgent(AgentContext&);
     virtual ~InspectorAgent();
 
-    virtual void didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*) override;
-    virtual void willDestroyFrontendAndBackend(DisconnectReason) override;
+    void didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*) override;
+    void willDestroyFrontendAndBackend(DisconnectReason) override;
 
-    virtual void enable(ErrorString&) override;
-    virtual void disable(ErrorString&) override;
-    virtual void initialized(ErrorString&) override;
+    void enable(ErrorString&) override;
+    void disable(ErrorString&) override;
+    void initialized(ErrorString&) override;
 
-    void inspect(RefPtr<Protocol::Runtime::RemoteObject>&& objectToInspect, RefPtr<InspectorObject>&& hints);
+    void inspect(RefPtr<Protocol::Runtime::RemoteObject>&& objectToInspect, RefPtr<JSON::Object>&& hints);
     void evaluateForTestInFrontend(const String& script);
 
 #if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
@@ -72,13 +70,8 @@ private:
     Ref<InspectorBackendDispatcher> m_backendDispatcher;
 
     Vector<String> m_pendingEvaluateTestCommands;
-    std::pair<RefPtr<Protocol::Runtime::RemoteObject>, RefPtr<InspectorObject>> m_pendingInspectData;
-#if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-    RefPtr<Inspector::Protocol::Array<String>> m_pendingExtraDomainsData;
-#endif
+    std::pair<RefPtr<Protocol::Runtime::RemoteObject>, RefPtr<JSON::Object>> m_pendingInspectData;
     bool m_enabled { false };
 };
 
 } // namespace Inspector
-
-#endif // !defined(InspectorAgent_h)

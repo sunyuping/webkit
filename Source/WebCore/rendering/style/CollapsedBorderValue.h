@@ -22,8 +22,7 @@
  *
  */
 
-#ifndef CollapsedBorderValue_h
-#define CollapsedBorderValue_h
+#pragma once
 
 #include "BorderValue.h"
 #include "LayoutUnit.h"
@@ -33,44 +32,47 @@ namespace WebCore {
 class CollapsedBorderValue {
 public:
     CollapsedBorderValue()
-        : m_colorIsValid(false)
-        , m_style(BNONE)
-        , m_precedence(BOFF)
+        : m_style(static_cast<unsigned>(BorderStyle::None))
+        , m_precedence(static_cast<unsigned>(BorderPrecedence::Off))
         , m_transparent(false)
     {
     }
 
-    CollapsedBorderValue(const BorderValue& border, const Color& color, EBorderPrecedence precedence)
+    CollapsedBorderValue(const BorderValue& border, const Color& color, BorderPrecedence precedence)
         : m_width(LayoutUnit(border.nonZero() ? border.width() : 0))
-        , m_color(color.rgb())
-        , m_colorIsValid(color.isValid())
-        , m_style(border.style())
-        , m_precedence(precedence)
+        , m_color(color)
+        , m_style(static_cast<unsigned>(border.style()))
+        , m_precedence(static_cast<unsigned>(precedence))
         , m_transparent(border.isTransparent())
     {
     }
 
-    LayoutUnit width() const { return m_style > BHIDDEN ? m_width : LayoutUnit::fromPixel(0); }
-    EBorderStyle style() const { return static_cast<EBorderStyle>(m_style); }
-    bool exists() const { return m_precedence != BOFF; }
-    Color color() const { return Color(m_color, m_colorIsValid); }
+    LayoutUnit width() const { return style() > BorderStyle::Hidden ? m_width : 0_lu; }
+    BorderStyle style() const { return static_cast<BorderStyle>(m_style); }
+    bool exists() const { return precedence() != BorderPrecedence::Off; }
+    const Color& color() const { return m_color; }
     bool isTransparent() const { return m_transparent; }
-    EBorderPrecedence precedence() const { return static_cast<EBorderPrecedence>(m_precedence); }
+    BorderPrecedence precedence() const { return static_cast<BorderPrecedence>(m_precedence); }
 
     bool isSameIgnoringColor(const CollapsedBorderValue& o) const
     {
         return width() == o.width() && style() == o.style() && precedence() == o.precedence();
     }
 
+    static LayoutUnit adjustedCollapsedBorderWidth(float borderWidth, float deviceScaleFactor, bool roundUp);
+
 private:
     LayoutUnit m_width;
-    RGBA32 m_color { 0 };
-    unsigned m_colorIsValid : 1;
-    unsigned m_style : 4; // EBorderStyle
-    unsigned m_precedence : 3; // EBorderPrecedence
+    Color m_color;
+    unsigned m_style : 4; // BorderStyle
+    unsigned m_precedence : 3; // BorderPrecedence
     unsigned m_transparent : 1;
 };
 
-} // namespace WebCore
+inline LayoutUnit CollapsedBorderValue::adjustedCollapsedBorderWidth(float borderWidth, float deviceScaleFactor, bool roundUp)
+{
+    float halfCollapsedBorderWidth = (borderWidth + (roundUp ? (1 / deviceScaleFactor) : 0)) / 2;
+    return floorToDevicePixel(halfCollapsedBorderWidth, deviceScaleFactor);
+}
 
-#endif // CollapsedBorderValue_h
+} // namespace WebCore

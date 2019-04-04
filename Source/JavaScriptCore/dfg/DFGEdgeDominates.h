@@ -23,12 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DFGEdgeDominates_h
-#define DFGEdgeDominates_h
+#pragma once
 
 #if ENABLE(DFG_JIT)
 
-#include "DFGDominators.h"
 #include "DFGGraph.h"
 
 namespace JSC { namespace DFG {
@@ -42,11 +40,12 @@ public:
         , m_block(block)
         , m_result(true)
     {
+        ASSERT(graph.m_form == SSA);
     }
     
     void operator()(Node*, Edge edge)
     {
-        bool result = m_graph.m_dominators->dominates(edge.node()->owner, m_block);
+        bool result = m_graph.m_ssaDominators->dominates(edge.node()->owner, m_block);
         if (verbose) {
             dataLog(
                 "Checking if ", edge, " in ", *edge.node()->owner,
@@ -73,6 +72,3 @@ inline bool edgesDominate(Graph& graph, Node* node, BasicBlock* block)
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-
-#endif // DFGEdgeDominates_h
-

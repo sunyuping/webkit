@@ -28,40 +28,66 @@
 #include "RenderLayer.h"
 #include "RenderLayerCompositor.h"
 #include "RenderView.h"
+#include "Settings.h"
+#include "StyleScrollSnapPoints.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderLayerModelObject);
 
 bool RenderLayerModelObject::s_wasFloating = false;
 bool RenderLayerModelObject::s_hadLayer = false;
 bool RenderLayerModelObject::s_hadTransform = false;
 bool RenderLayerModelObject::s_layerWasSelfPainting = false;
 
-RenderLayerModelObject::RenderLayerModelObject(Element& element, Ref<RenderStyle>&& style, BaseTypeFlags baseTypeFlags)
+typedef WTF::HashMap<const RenderLayerModelObject*, RepaintLayoutRects> RepaintLayoutRectsMap;
+static RepaintLayoutRectsMap* gRepaintLayoutRectsMap = nullptr;
+
+RepaintLayoutRects::RepaintLayoutRects(const RenderLayerModelObject& renderer, const RenderLayerModelObject* repaintContainer, const RenderGeometryMap* geometryMap)
+    : m_repaintRect(renderer.clippedOverflowRectForRepaint(repaintContainer))
+    , m_outlineBox(renderer.outlineBoundsForRepaint(repaintContainer, geometryMap))
+{
+}
+
+RenderLayerModelObject::RenderLayerModelObject(Element& element, RenderStyle&& style, BaseTypeFlags baseTypeFlags)
     : RenderElement(element, WTFMove(style), baseTypeFlags | RenderLayerModelObjectFlag)
 {
 }
 
-RenderLayerModelObject::RenderLayerModelObject(Document& document, Ref<RenderStyle>&& style, BaseTypeFlags baseTypeFlags)
+RenderLayerModelObject::RenderLayerModelObject(Document& document, RenderStyle&& style, BaseTypeFlags baseTypeFlags)
     : RenderElement(document, WTFMove(style), baseTypeFlags | RenderLayerModelObjectFlag)
 {
 }
 
 RenderLayerModelObject::~RenderLayerModelObject()
 {
+    // Do not add any code here. Add it to willBeDestroyed() instead.
+}
+
+void RenderLayerModelObject::willBeDestroyed()
+{
     if (isPositioned()) {
         if (style().hasViewportConstrainedPosition())
             view().frameView().removeViewportConstrainedObject(this);
     }
 
-    // Our layer should have been destroyed and cleared by now
-    ASSERT(!hasLayer());
-    ASSERT(!m_layer);
+    if (hasLayer()) {
+        setHasLayer(false);
+        destroyLayer();
+    }
+
+    RenderElement::willBeDestroyed();
+    
+    clearRepaintLayoutRects();
 }
 
 void RenderLayerModelObject::destroyLayer()
 {
-    ASSERT(!hasLayer()); // Callers should have already called setHasLayer(false)
+    ASSERT(!hasLayer());
     ASSERT(m_layer);
+    if (m_layer->isSelfPaintingLayer())
+        clearRepaintLayoutRects();
     m_layer = nullptr;
 }
 
@@ -93,15 +119,15 @@ void RenderLayerModelObject::styleWillChange(StyleDifference diff, const RenderS
         if (parent()) {
             // Do a repaint with the old style first, e.g., for example if we go from
             // having an outline to not having an outline.
-            if (diff == StyleDifferenceRepaintLayer) {
+            if (diff == StyleDifference::RepaintLayer) {
                 layer()->repaintIncludingDescendants();
                 if (!(oldStyle->clip() == newStyle.clip()))
                     layer()->clearClipRectsIncludingDescendants();
-            } else if (diff == StyleDifferenceRepaint || newStyle.outlineSize() < oldStyle->outlineSize())
+            } else if (diff == StyleDifference::Repaint || newStyle.outlineSize() < oldStyle->outlineSize())
                 repaint();
         }
 
-        if (diff == StyleDifferenceLayout || diff == StyleDifferenceSimplifiedLayout) {
+        if (diff == StyleDifference::Layout || diff == StyleDifference::SimplifiedLayout) {
             // When a layout hint happens, we do a repaint of the layer, since the layer could end up being destroyed.
             if (hasLayer()) {
                 if (oldStyle->position() != newStyle.position()
@@ -128,10 +154,7 @@ void RenderLayerModelObject::styleWillChange(StyleDifference diff, const RenderS
 #if ENABLE(CSS_SCROLL_SNAP)
 static bool scrollSnapContainerRequiresUpdateForStyleUpdate(const RenderStyle& oldStyle, const RenderStyle& newStyle)
 {
-    return !(oldStyle.scrollSnapType() == newStyle.scrollSnapType()
-        && oldStyle.scrollSnapPointsX() == newStyle.scrollSnapPointsX()
-        && oldStyle.scrollSnapPointsY() == newStyle.scrollSnapPointsY()
-        && oldStyle.scrollSnapDestination() == newStyle.scrollSnapDestination());
+    return oldStyle.scrollSnapPort() != newStyle.scrollSnapPort();
 }
 #endif
 
@@ -147,9 +170,7 @@ void RenderLayerModelObject::styleDidChange(StyleDifference diff, const RenderSt
             createLayer();
             if (parent() && !needsLayout() && containingBlock()) {
                 layer()->setRepaintStatus(NeedsFullRepaint);
-                // There is only one layer to update, it is not worth using |cachedOffset| since
-                // we are not sure the value will be used.
-                layer()->updateLayerPositions(0);
+                layer()->updateLayerPositions();
             }
         }
     } else if (layer() && layer()->parent()) {
@@ -160,8 +181,8 @@ void RenderLayerModelObject::styleDidChange(StyleDifference diff, const RenderSt
         setHasTransformRelatedProperty(false); // All transform-related propeties force layers, so we know we don't have one or the object doesn't support them.
         setHasReflection(false);
         // Repaint the about to be destroyed self-painting layer when style change also triggers repaint.
-        if (layer()->isSelfPaintingLayer() && layer()->repaintStatus() == NeedsFullRepaint)
-            repaintUsingContainer(containerForRepaint(), layer()->repaintRect());
+        if (layer()->isSelfPaintingLayer() && layer()->repaintStatus() == NeedsFullRepaint && hasRepaintLayoutRects())
+            repaintUsingContainer(containerForRepaint(), repaintLayoutRects().m_repaintRect);
         layer()->removeOnlyThisLayer(); // calls destroyLayer() which clears m_layer
         if (s_wasFloating && isFloating())
             setChildNeedsLayout();
@@ -197,11 +218,11 @@ void RenderLayerModelObject::styleDidChange(StyleDifference diff, const RenderSt
             frameView.updateScrollingCoordinatorScrollSnapProperties();
         }
     }
-    if (oldStyle && oldStyle->scrollSnapCoordinates() != newStyle.scrollSnapCoordinates()) {
-        const RenderBox* scrollSnapBox = enclosingBox().findEnclosingScrollableContainer();
+    if (oldStyle && oldStyle->scrollSnapArea() != newStyle.scrollSnapArea()) {
+        auto* scrollSnapBox = enclosingScrollableContainerForSnapping();
         if (scrollSnapBox && scrollSnapBox->layer()) {
             const RenderStyle& style = scrollSnapBox->style();
-            if (style.scrollSnapType() != ScrollSnapType::None) {
+            if (style.scrollSnapType().strictness != ScrollSnapStrictness::None) {
                 scrollSnapBox->layer()->updateSnapOffsets();
                 scrollSnapBox->layer()->updateScrollSnapState();
                 if (scrollSnapBox->isBody() || scrollSnapBox->isDocumentElementRenderer())
@@ -210,6 +231,112 @@ void RenderLayerModelObject::styleDidChange(StyleDifference diff, const RenderSt
         }
     }
 #endif
+}
+
+bool RenderLayerModelObject::shouldPlaceBlockDirectionScrollbarOnLeft() const
+{
+// RTL Scrollbars require some system support, and this system support does not exist on certain versions of OS X. iOS uses a separate mechanism.
+#if PLATFORM(IOS_FAMILY)
+    return false;
+#else
+    switch (settings().userInterfaceDirectionPolicy()) {
+    case UserInterfaceDirectionPolicy::Content:
+        return style().shouldPlaceBlockDirectionScrollbarOnLeft();
+    case UserInterfaceDirectionPolicy::System:
+        return settings().systemLayoutDirection() == TextDirection::RTL;
+    }
+    ASSERT_NOT_REACHED();
+    return style().shouldPlaceBlockDirectionScrollbarOnLeft();
+#endif
+}
+
+bool RenderLayerModelObject::hasRepaintLayoutRects() const
+{
+    return gRepaintLayoutRectsMap && gRepaintLayoutRectsMap->contains(this);
+}
+
+void RenderLayerModelObject::setRepaintLayoutRects(const RepaintLayoutRects& rects)
+{
+    if (!gRepaintLayoutRectsMap)
+        gRepaintLayoutRectsMap = new RepaintLayoutRectsMap();
+    gRepaintLayoutRectsMap->set(this, rects);
+}
+
+void RenderLayerModelObject::clearRepaintLayoutRects()
+{
+    if (gRepaintLayoutRectsMap)
+        gRepaintLayoutRectsMap->remove(this);
+}
+
+RepaintLayoutRects RenderLayerModelObject::repaintLayoutRects() const
+{
+    if (!hasRepaintLayoutRects())
+        return RepaintLayoutRects();
+    return gRepaintLayoutRectsMap->get(this);
+}
+
+void RenderLayerModelObject::computeRepaintLayoutRects(const RenderLayerModelObject* repaintContainer, const RenderGeometryMap* geometryMap)
+{
+    if (!m_layer || !m_layer->isSelfPaintingLayer())
+        clearRepaintLayoutRects();
+    else
+        setRepaintLayoutRects(RepaintLayoutRects(*this, repaintContainer, geometryMap));
+}
+
+bool RenderLayerModelObject::startTransition(double timeOffset, CSSPropertyID propertyId, const RenderStyle* fromStyle, const RenderStyle* toStyle)
+{
+    if (!layer() || !layer()->backing())
+        return false;
+    return layer()->backing()->startTransition(timeOffset, propertyId, fromStyle, toStyle);
+}
+
+void RenderLayerModelObject::transitionPaused(double timeOffset, CSSPropertyID propertyId)
+{
+    if (!layer() || !layer()->backing())
+        return;
+    layer()->backing()->transitionPaused(timeOffset, propertyId);
+}
+
+void RenderLayerModelObject::transitionFinished(CSSPropertyID propertyId)
+{
+    if (!layer() || !layer()->backing())
+        return;
+    layer()->backing()->transitionFinished(propertyId);
+}
+
+bool RenderLayerModelObject::startAnimation(double timeOffset, const Animation& animation, const KeyframeList& keyframes)
+{
+    if (!layer() || !layer()->backing())
+        return false;
+    return layer()->backing()->startAnimation(timeOffset, animation, keyframes);
+}
+
+void RenderLayerModelObject::animationPaused(double timeOffset, const String& name)
+{
+    if (!layer() || !layer()->backing())
+        return;
+    layer()->backing()->animationPaused(timeOffset, name);
+}
+
+void RenderLayerModelObject::animationSeeked(double timeOffset, const String& name)
+{
+    if (!layer() || !layer()->backing())
+        return;
+    layer()->backing()->animationSeeked(timeOffset, name);
+}
+
+void RenderLayerModelObject::animationFinished(const String& name)
+{
+    if (!layer() || !layer()->backing())
+        return;
+    layer()->backing()->animationFinished(name);
+}
+
+void RenderLayerModelObject::suspendAnimations(MonotonicTime time)
+{
+    if (!layer() || !layer()->backing())
+        return;
+    layer()->backing()->suspendAnimations(time);
 }
 
 } // namespace WebCore

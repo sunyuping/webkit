@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DFABytecodeCompiler_h
-#define DFABytecodeCompiler_h
+#pragma once
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
@@ -65,7 +64,7 @@ private:
     struct JumpTable {
         ~JumpTable()
         {
-            ASSERT(min + destinations.size() == max + 1);
+            ASSERT(min + destinations.size() == static_cast<size_t>(max + 1));
             ASSERT(min == max || destinations.size() > 1);
         }
 
@@ -116,9 +115,6 @@ private:
 };
 
 } // namespace ContentExtensions
-
 } // namespace WebCore
 
 #endif // ENABLE(CONTENT_EXTENSIONS)
-
-#endif // DFABytecodeCompiler_h

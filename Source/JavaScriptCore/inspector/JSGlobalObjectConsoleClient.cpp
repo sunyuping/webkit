@@ -28,6 +28,8 @@
 
 #include "ConsoleMessage.h"
 #include "InspectorConsoleAgent.h"
+#include "InspectorDebuggerAgent.h"
+#include "InspectorScriptProfilerAgent.h"
 #include "ScriptArguments.h"
 #include "ScriptCallStack.h"
 #include "ScriptCallStackFactory.h"
@@ -58,7 +60,7 @@ JSGlobalObjectConsoleClient::JSGlobalObjectConsoleClient(InspectorConsoleAgent* 
 {
 }
 
-void JSGlobalObjectConsoleClient::messageWithTypeAndLevel(MessageType type, MessageLevel level, JSC::ExecState* exec, RefPtr<ScriptArguments>&& arguments)
+void JSGlobalObjectConsoleClient::messageWithTypeAndLevel(MessageType type, MessageLevel level, JSC::ExecState* exec, Ref<ScriptArguments>&& arguments)
 {
     if (JSGlobalObjectConsoleClient::logToSystemConsole())
         ConsoleClient::printConsoleMessageWithArguments(MessageSource::ConsoleAPI, type, level, exec, arguments.copyRef());
@@ -68,19 +70,90 @@ void JSGlobalObjectConsoleClient::messageWithTypeAndLevel(MessageType type, Mess
     m_consoleAgent->addMessageToConsole(std::make_unique<ConsoleMessage>(MessageSource::ConsoleAPI, type, level, message, WTFMove(arguments), exec));
 }
 
-void JSGlobalObjectConsoleClient::count(ExecState* exec, RefPtr<ScriptArguments>&& arguments)
+void JSGlobalObjectConsoleClient::count(ExecState* exec, Ref<ScriptArguments>&& arguments)
 {
-    m_consoleAgent->count(exec, arguments);
+    m_consoleAgent->count(exec, WTFMove(arguments));
 }
 
-void JSGlobalObjectConsoleClient::profile(JSC::ExecState*, const String&)
+void JSGlobalObjectConsoleClient::profile(JSC::ExecState*, const String& title)
 {
-    // FIXME: support |console.profile| for JSContexts. <https://webkit.org/b/136466>
+    if (!m_consoleAgent->enabled())
+        return;
+
+    // Allow duplicate unnamed profiles. Disallow duplicate named profiles.
+    if (!title.isEmpty()) {
+        for (auto& existingTitle : m_profiles) {
+            if (existingTitle == title) {
+                // FIXME: Send an enum to the frontend for localization?
+                String warning = title.isEmpty() ? "Unnamed Profile already exists"_s : makeString("Profile \"", title, "\" already exists");
+                m_consoleAgent->addMessageToConsole(std::make_unique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Profile, MessageLevel::Warning, warning));
+                return;
+            }
+        }
+    }
+
+    m_profiles.append(title);
+    startConsoleProfile();
 }
 
-void JSGlobalObjectConsoleClient::profileEnd(JSC::ExecState*, const String&)
+void JSGlobalObjectConsoleClient::profileEnd(JSC::ExecState*, const String& title)
 {
-    // FIXME: support |console.profile| for JSContexts. <https://webkit.org/b/136466>
+    if (!m_consoleAgent->enabled())
+        return;
+
+    // Stop profiles in reverse order. If the title is empty, then stop the last profile.
+    // Otherwise, match the title of the profile to stop.
+    for (ptrdiff_t i = m_profiles.size() - 1; i >= 0; --i) {
+        if (title.isEmpty() || m_profiles[i] == title) {
+            m_profiles.remove(i);
+            if (m_profiles.isEmpty())
+                stopConsoleProfile();
+            return;
+        }
+    }
+
+    // FIXME: Send an enum to the frontend for localization?
+    String warning = title.isEmpty() ? "No profiles exist"_s : makeString("Profile \"", title, "\" does not exist");
+    m_consoleAgent->addMessageToConsole(std::make_unique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::ProfileEnd, MessageLevel::Warning, warning));
+}
+
+void JSGlobalObjectConsoleClient::startConsoleProfile()
+{
+    ErrorString unused;
+
+    // FIXME: <https://webkit.org/b/158753> Generalize the concept of Instruments on the backend to work equally for JSContext and Web inspection
+    if (m_scriptProfilerAgent)
+        m_scriptProfilerAgent->programmaticCaptureStarted();
+
+    if (m_debuggerAgent) {
+        m_profileRestoreBreakpointActiveValue = m_debuggerAgent->breakpointsActive();
+        m_debuggerAgent->setBreakpointsActive(unused, false);
+    }
+
+    if (m_scriptProfilerAgent) {
+        const bool includeSamples = true;
+        m_scriptProfilerAgent->startTracking(unused, &includeSamples);
+    }
+}
+
+void JSGlobalObjectConsoleClient::stopConsoleProfile()
+{
+    ErrorString unused;
+
+    if (m_scriptProfilerAgent)
+        m_scriptProfilerAgent->stopTracking(unused);
+
+    if (m_debuggerAgent)
+        m_debuggerAgent->setBreakpointsActive(unused, m_profileRestoreBreakpointActiveValue);
+
+    // FIXME: <https://webkit.org/b/158753> Generalize the concept of Instruments on the backend to work equally for JSContext and Web inspection
+    if (m_scriptProfilerAgent)
+        m_scriptProfilerAgent->programmaticCaptureStopped();
+}
+
+void JSGlobalObjectConsoleClient::takeHeapSnapshot(JSC::ExecState*, const String& title)
+{
+    m_consoleAgent->takeHeapSnapshot(title);
 }
 
 void JSGlobalObjectConsoleClient::time(ExecState*, const String& title)
@@ -90,20 +163,27 @@ void JSGlobalObjectConsoleClient::time(ExecState*, const String& title)
 
 void JSGlobalObjectConsoleClient::timeEnd(ExecState* exec, const String& title)
 {
-    RefPtr<ScriptCallStack> callStack(createScriptCallStackForConsole(exec, 1));
-    m_consoleAgent->stopTiming(title, WTFMove(callStack));
+    m_consoleAgent->stopTiming(title, createScriptCallStackForConsole(exec, 1));
 }
 
-void JSGlobalObjectConsoleClient::timeStamp(ExecState*, RefPtr<ScriptArguments>&&)
+void JSGlobalObjectConsoleClient::timeStamp(ExecState*, Ref<ScriptArguments>&&)
 {
     // FIXME: JSContext inspection needs a timeline.
-    warnUnimplemented(ASCIILiteral("console.timeStamp"));
+    warnUnimplemented("console.timeStamp"_s);
+}
+
+void JSGlobalObjectConsoleClient::record(ExecState*, Ref<ScriptArguments>&&) { }
+void JSGlobalObjectConsoleClient::recordEnd(ExecState*, Ref<ScriptArguments>&&) { }
+
+void JSGlobalObjectConsoleClient::screenshot(ExecState*, Ref<ScriptArguments>&&)
+{
+    warnUnimplemented("console.screenshot"_s);
 }
 
 void JSGlobalObjectConsoleClient::warnUnimplemented(const String& method)
 {
     String message = method + " is currently ignored in JavaScript context inspection.";
-    m_consoleAgent->addMessageToConsole(std::make_unique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Log, MessageLevel::Warning, message, nullptr, nullptr));
+    m_consoleAgent->addMessageToConsole(std::make_unique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Log, MessageLevel::Warning, message));
 }
 
 } // namespace Inspector

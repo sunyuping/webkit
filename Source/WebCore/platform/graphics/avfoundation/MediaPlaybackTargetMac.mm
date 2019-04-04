@@ -26,11 +26,11 @@
 #import "config.h"
 #import "MediaPlaybackTargetMac.h"
 
-#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS)
+#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 
-#import <WebCore/AVFoundationSPI.h>
-#import <WebCore/SoftLinking.h>
 #import <objc/runtime.h>
+#import <pal/spi/mac/AVFoundationSPI.h>
+#import <wtf/SoftLinking.h>
 
 SOFT_LINK_FRAMEWORK_OPTIONAL(AVFoundation)
 SOFT_LINK_CLASS(AVFoundation, AVOutputContext)
@@ -84,4 +84,4 @@ const MediaPlaybackTargetMac* toMediaPlaybackTargetMac(const MediaPlaybackTarget
 
 } // namespace WebCore
 
-#endif // ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS)
+#endif // ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)

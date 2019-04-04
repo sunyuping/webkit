@@ -26,13 +26,14 @@
 #ifndef MediaDescription_h
 #define MediaDescription_h
 
+#include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
 class MediaDescription : public RefCounted<MediaDescription> {
 public:
-    virtual ~MediaDescription() { }
+    virtual ~MediaDescription() = default;
 
     virtual AtomicString codec() const = 0;
     virtual bool isVideo() const = 0;

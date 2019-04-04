@@ -26,11 +26,10 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SQLError_h
-#define SQLError_h
+#pragma once
 
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/text/WTFString.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
@@ -39,11 +38,11 @@ public:
     static Ref<SQLError> create(unsigned code, const String& message) { return adoptRef(*new SQLError(code, message)); }
     static Ref<SQLError> create(unsigned code, const char* message, int sqliteCode)
     {
-        return create(code, String::format("%s (%d)", message, sqliteCode));
+        return create(code, makeString(message, " (", sqliteCode, ')'));
     }
     static Ref<SQLError> create(unsigned code, const char* message, int sqliteCode, const char* sqliteMessage)
     {
-        return create(code, String::format("%s (%d %s)", message, sqliteCode, sqliteMessage));
+        return create(code, makeString(message, " (", sqliteCode, ' ', sqliteMessage, ')'));
     }
 
     unsigned code() const { return m_code; }
@@ -66,6 +65,4 @@ private:
     String m_message;
 };
 
-}
-
-#endif // SQLError_h
+} // namespace WebCore

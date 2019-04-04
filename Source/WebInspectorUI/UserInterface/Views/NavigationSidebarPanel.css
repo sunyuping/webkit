@@ -24,7 +24,7 @@
  */
 
 .sidebar > .panel.navigation > .content {
-    bottom: 29px;
+    bottom: var(--navigation-bar-height);
 }
 
 .sidebar > .panel.navigation > .filter-bar {
@@ -36,7 +36,7 @@
 
 .sidebar > .panel.navigation > .overflow-shadow {
     position: absolute;
-    bottom: 28px;
+    bottom: calc(var(--console-prompt-min-height) - 1px);
     left: 0;
     right: 0;
     height: 1px;
@@ -45,47 +45,10 @@
 
     opacity: 0;
 
-    border-bottom: 1px solid hsl(0, 0%, 70%);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .sidebar > .panel.navigation > .overflow-shadow.top {
-    top: 28px;
+    top: calc(var(--navigation-bar-height) - 1px);
     bottom: initial;
-}
-
-body.window-inactive .sidebar > .panel.navigation > .overflow-shadow {
-    border-bottom-color: hsl(0, 0%, 85%);
-}
-
-.sidebar > .panel.navigation > .content .empty-content-placeholder {
-    left: 0;
-    right: 0;
-    padding-top: 15px;
-    padding-bottom: 15px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    overflow: hidden;
-}
-
-.sidebar > .panel.navigation > .content > .empty-content-placeholder {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    padding: 0;
-}
-
-.sidebar > .panel.navigation > .content .empty-content-placeholder > .message {
-    display: inline-block;
-    white-space: nowrap;
-
-    font-size: 13px;
-
-    color: white;
-    background-color: hsla(0, 0%, 0%, 0.15);
-    text-shadow: hsla(0, 0%, 0%, 0.2) 0 1px 0;
-    box-shadow: inset hsla(0, 0%, 0%, 0.2) 0 1px 0, hsla(0, 0%, 100%, 0.4) 0 1px 0;
-
-    border-radius: 6px;
-    padding: 5px 15px 6px;
 }

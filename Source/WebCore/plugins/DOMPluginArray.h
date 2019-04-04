@@ -18,8 +18,7 @@
     Boston, MA 02110-1301, USA.
 */
 
-#ifndef DOMPluginArray_h
-#define DOMPluginArray_h
+#pragma once
 
 #include "DOMPlugin.h"
 #include "DOMWindowProperty.h"
@@ -28,12 +27,11 @@
 
 namespace WebCore {
 
-class Frame;
 class PluginData;
 
 class DOMPluginArray : public ScriptWrappable, public RefCounted<DOMPluginArray>, public DOMWindowProperty {
 public:
-    static Ref<DOMPluginArray> create(Frame* frame) { return adoptRef(*new DOMPluginArray(frame)); }
+    static Ref<DOMPluginArray> create(DOMWindow* window) { return adoptRef(*new DOMPluginArray(window)); }
     ~DOMPluginArray();
 
     unsigned length() const;
@@ -41,13 +39,11 @@ public:
     RefPtr<DOMPlugin> namedItem(const AtomicString& propertyName);
     Vector<AtomicString> supportedPropertyNames();
 
-    void refresh(bool reload);
+    void refresh(bool reloadPages);
 
 private:
-    explicit DOMPluginArray(Frame*);
+    explicit DOMPluginArray(DOMWindow*);
     PluginData* pluginData() const;
 };
 
 } // namespace WebCore
-
-#endif // DOMPluginArray_h

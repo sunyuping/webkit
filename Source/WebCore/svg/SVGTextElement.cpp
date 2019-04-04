@@ -26,8 +26,11 @@
 #include "SVGNames.h"
 #include "SVGRenderStyle.h"
 #include "SVGTSpanElement.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(SVGTextElement);
 
 inline SVGTextElement::SVGTextElement(const QualifiedName& tagName, Document& document)
     : SVGTextPositioningElement(tagName, document)
@@ -45,7 +48,7 @@ Ref<SVGTextElement> SVGTextElement::create(const QualifiedName& tagName, Documen
 AffineTransform SVGTextElement::animatedLocalTransform() const
 {
     AffineTransform matrix;
-    RenderStyle* style = renderer() ? &renderer()->style() : nullptr;
+    auto* style = renderer() ? &renderer()->style() : nullptr;
 
     // if CSS property was set, use that, otherwise fallback to attribute (if set)
     if (style && style->hasTransform()) {
@@ -56,7 +59,7 @@ AffineTransform SVGTextElement::animatedLocalTransform() const
         // Flatten any 3D transform
         matrix = t.toAffineTransform();
     } else
-        transform().concatenate(matrix);
+        matrix = transform().concatenate();
 
     const AffineTransform* transform = const_cast<SVGTextElement*>(this)->supplementalTransform();
     if (transform)
@@ -64,7 +67,7 @@ AffineTransform SVGTextElement::animatedLocalTransform() const
     return matrix;
 }
 
-RenderPtr<RenderElement> SVGTextElement::createElementRenderer(Ref<RenderStyle>&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGTextElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     return createRenderer<RenderSVGText>(*this, WTFMove(style));
 }

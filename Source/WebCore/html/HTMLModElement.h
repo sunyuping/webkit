@@ -21,23 +21,21 @@
  *
  */
 
-#ifndef HTMLModElement_h
-#define HTMLModElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLModElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLModElement);
 public:
     static Ref<HTMLModElement> create(const QualifiedName&, Document&);
 
 private:
     HTMLModElement(const QualifiedName&, Document&);
 
-    virtual bool isURLAttribute(const Attribute&) const override;
+    bool isURLAttribute(const Attribute&) const final;
 };
 
-} //namespace
-
-#endif
+} // namespace WebCore

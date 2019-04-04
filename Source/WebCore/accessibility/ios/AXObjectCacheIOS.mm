@@ -26,7 +26,7 @@
 #import "config.h"
 #import "AXObjectCache.h"
 
-#if HAVE(ACCESSIBILITY) && PLATFORM(IOS)
+#if HAVE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
 
 #import "AccessibilityObject.h"
 #import "WebAccessibilityObjectWrapperIOS.h"
@@ -113,6 +113,11 @@ void AXObjectCache::postTextReplacementPlatformNotification(AccessibilityObject*
     postPlatformNotification(object, AXValueChanged);
 }
 
+void AXObjectCache::postTextReplacementPlatformNotificationForTextControl(AccessibilityObject* object, const String&, const String&, HTMLTextFormControlElement&)
+{
+    postPlatformNotification(object, AXValueChanged);
+}
+
 void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* axFrameObject, AXLoadingEvent loadingEvent)
 {
     if (!axFrameObject)
@@ -133,4 +138,4 @@ void AXObjectCache::handleScrolledToAnchor(const Node*)
     
 }
 
-#endif // HAVE(ACCESSIBILITY) && PLATFORM(IOS)
+#endif // HAVE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)

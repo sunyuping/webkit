@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2009, 2013 Apple Inc. All rights reserved.
+ *  Copyright (C) 2009-2018 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -18,12 +18,10 @@
  *
  */
 
-#ifndef NodeConstructors_h
-#define NodeConstructors_h
+#pragma once
 
 #include "Nodes.h"
-#include "Lexer.h"
-#include "Parser.h"
+#include "Opcode.h"
 
 namespace JSC {
 
@@ -32,9 +30,10 @@ namespace JSC {
         return parserArena.allocateFreeable(size);
     }
 
+    template<typename T>
     inline void* ParserArenaDeletable::operator new(size_t size, ParserArena& parserArena)
     {
-        return parserArena.allocateDeletable(size);
+        return parserArena.allocateDeletable<T>(size);
     }
 
     inline ParserArenaRoot::ParserArenaRoot(ParserArena& parserArena)
@@ -44,7 +43,6 @@ namespace JSC {
 
     inline Node::Node(const JSTokenLocation& location)
         : m_position(location.line, location.startOffset, location.lineStartOffset)
-        , m_endOffset(-1)
     {
         ASSERT(location.startOffset >= location.lineStartOffset);
     }
@@ -57,8 +55,6 @@ namespace JSC {
 
     inline StatementNode::StatementNode(const JSTokenLocation& location)
         : Node(location)
-        , m_next(nullptr)
-        , m_lastLine(-1)
     {
     }
 
@@ -94,6 +90,22 @@ namespace JSC {
     {
     }
 
+    inline BigIntNode::BigIntNode(const JSTokenLocation& location, const Identifier& value, uint8_t radix)
+        : ConstantNode(location, ResultType::bigIntType())
+        , m_value(value)
+        , m_radix(radix)
+        , m_sign(false)
+    {
+    }
+    
+    inline BigIntNode::BigIntNode(const JSTokenLocation& location, const Identifier& value, uint8_t radix, bool sign)
+        : ConstantNode(location, ResultType::bigIntType())
+        , m_value(value)
+        , m_radix(radix)
+        , m_sign(sign)
+    {
+    }
+
     inline StringNode::StringNode(const JSTokenLocation& location, const Identifier& value)
         : ConstantNode(location, ResultType::stringType())
         , m_value(value)
@@ -111,7 +123,7 @@ namespace JSC {
         previous->m_next = this;
     }
 
-    inline TemplateStringNode::TemplateStringNode(const JSTokenLocation& location, const Identifier& cooked, const Identifier& raw)
+    inline TemplateStringNode::TemplateStringNode(const JSTokenLocation& location, const Identifier* cooked, const Identifier* raw)
         : ExpressionNode(location)
         , m_cooked(cooked)
         , m_raw(raw)
@@ -157,9 +169,8 @@ namespace JSC {
     {
     }
 
-    inline ThisNode::ThisNode(const JSTokenLocation& location, ThisTDZMode thisTDZMode)
+    inline ThisNode::ThisNode(const JSTokenLocation& location)
         : ExpressionNode(location)
-        , m_shouldAlwaysEmitTDZCheck(thisTDZMode == ThisTDZMode::AlwaysCheck)
     {
     }
 
@@ -168,8 +179,25 @@ namespace JSC {
     {
     }
 
-    inline NewTargetNode::NewTargetNode(const JSTokenLocation& location)
+    inline ImportNode::ImportNode(const JSTokenLocation& location, ExpressionNode* expr)
         : ExpressionNode(location)
+        , m_expr(expr)
+    {
+    }
+
+    inline MetaPropertyNode::MetaPropertyNode(const JSTokenLocation& location)
+        : ExpressionNode(location)
+    {
+    }
+
+    inline NewTargetNode::NewTargetNode(const JSTokenLocation& location)
+        : MetaPropertyNode(location)
+    {
+    }
+
+    inline ImportMetaNode::ImportMetaNode(const JSTokenLocation& location, ExpressionNode* expr)
+        : MetaPropertyNode(location)
+        , m_expr(expr)
     {
     }
 
@@ -182,23 +210,21 @@ namespace JSC {
     }
 
     inline ElementNode::ElementNode(int elision, ExpressionNode* node)
-        : m_next(0)
+        : m_node(node)
         , m_elision(elision)
-        , m_node(node)
     {
     }
 
     inline ElementNode::ElementNode(ElementNode* l, int elision, ExpressionNode* node)
-        : m_next(0)
+        : m_node(node)
         , m_elision(elision)
-        , m_node(node)
     {
         l->m_next = this;
     }
 
     inline ArrayNode::ArrayNode(const JSTokenLocation& location, int elision)
         : ExpressionNode(location)
-        , m_element(0)
+        , m_element(nullptr)
         , m_elision(elision)
         , m_optional(true)
     {
@@ -220,43 +246,56 @@ namespace JSC {
     {
     }
 
-    inline PropertyNode::PropertyNode(const Identifier& name, ExpressionNode* assign, Type type, PutType putType, SuperBinding superBinding = SuperBinding::NotNeeded)
+    inline PropertyNode::PropertyNode(const Identifier& name, ExpressionNode* assign, Type type, PutType putType, SuperBinding superBinding, ClassElementTag tag)
         : m_name(&name)
         , m_assign(assign)
         , m_type(type)
         , m_needsSuperBinding(superBinding == SuperBinding::Needed)
         , m_putType(putType)
+        , m_classElementTag(static_cast<unsigned>(tag))
+        , m_isOverriddenByDuplicate(false)
+    {
+    }
+    
+    inline PropertyNode::PropertyNode(ExpressionNode* assign, Type type, PutType putType, SuperBinding superBinding, ClassElementTag tag)
+        : m_name(nullptr)
+        , m_assign(assign)
+        , m_type(type)
+        , m_needsSuperBinding(superBinding == SuperBinding::Needed)
+        , m_putType(putType)
+        , m_classElementTag(static_cast<unsigned>(tag))
+        , m_isOverriddenByDuplicate(false)
     {
     }
 
-    inline PropertyNode::PropertyNode(ExpressionNode* name, ExpressionNode* assign, Type type, PutType putType, SuperBinding superBinding = SuperBinding::NotNeeded)
-        : m_name(0)
+    inline PropertyNode::PropertyNode(ExpressionNode* name, ExpressionNode* assign, Type type, PutType putType, SuperBinding superBinding, ClassElementTag tag)
+        : m_name(nullptr)
         , m_expression(name)
         , m_assign(assign)
         , m_type(type)
         , m_needsSuperBinding(superBinding == SuperBinding::Needed)
         , m_putType(putType)
+        , m_classElementTag(static_cast<unsigned>(tag))
+        , m_isOverriddenByDuplicate(false)
     {
     }
 
     inline PropertyListNode::PropertyListNode(const JSTokenLocation& location, PropertyNode* node)
         : ExpressionNode(location)
         , m_node(node)
-        , m_next(0)
     {
     }
 
     inline PropertyListNode::PropertyListNode(const JSTokenLocation& location, PropertyNode* node, PropertyListNode* list)
         : ExpressionNode(location)
         , m_node(node)
-        , m_next(0)
     {
         list->m_next = this;
     }
 
     inline ObjectLiteralNode::ObjectLiteralNode(const JSTokenLocation& location)
         : ExpressionNode(location)
-        , m_list(0)
+        , m_list(nullptr)
     {
     }
 
@@ -287,24 +326,28 @@ namespace JSC {
         , m_expression(expression)
     {
     }
+    
+    inline ObjectSpreadExpressionNode::ObjectSpreadExpressionNode(const JSTokenLocation& location, ExpressionNode* expression)
+        : ExpressionNode(location)
+        , m_expression(expression)
+    {
+    }
 
     inline ArgumentListNode::ArgumentListNode(const JSTokenLocation& location, ExpressionNode* expr)
         : ExpressionNode(location)
-        , m_next(0)
         , m_expr(expr)
     {
     }
 
     inline ArgumentListNode::ArgumentListNode(const JSTokenLocation& location, ArgumentListNode* listNode, ExpressionNode* expr)
         : ExpressionNode(location)
-        , m_next(0)
         , m_expr(expr)
     {
         listNode->m_next = this;
     }
 
     inline ArgumentsNode::ArgumentsNode()
-        : m_listNode(0)
+        : m_listNode(nullptr)
     {
     }
 
@@ -316,7 +359,7 @@ namespace JSC {
     inline NewExprNode::NewExprNode(const JSTokenLocation& location, ExpressionNode* expr)
         : ExpressionNode(location)
         , m_expr(expr)
-        , m_args(0)
+        , m_args(nullptr)
     {
     }
 
@@ -373,20 +416,22 @@ namespace JSC {
     inline BytecodeIntrinsicNode::BytecodeIntrinsicNode(Type type, const JSTokenLocation& location, EmitterType emitter, const Identifier& ident, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
         : ExpressionNode(location)
         , ThrowableExpressionData(divot, divotStart, divotEnd)
-        , m_type(type)
         , m_emitter(emitter)
         , m_ident(ident)
         , m_args(args)
+        , m_type(type)
     {
     }
 
-    inline CallFunctionCallDotNode::CallFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+    inline CallFunctionCallDotNode::CallFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, size_t distanceToInnermostCallOrApply)
         : FunctionCallDotNode(location, base, ident, args, divot, divotStart, divotEnd)
+        , m_distanceToInnermostCallOrApply(distanceToInnermostCallOrApply)
     {
     }
 
-    inline ApplyFunctionCallDotNode::ApplyFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+    inline ApplyFunctionCallDotNode::ApplyFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, size_t distanceToInnermostCallOrApply)
         : FunctionCallDotNode(location, base, ident, args, divot, divotStart, divotEnd)
+        , m_distanceToInnermostCallOrApply(distanceToInnermostCallOrApply)
     {
     }
 
@@ -468,8 +513,7 @@ namespace JSC {
     }
 
     inline BitwiseNotNode::BitwiseNotNode(const JSTokenLocation& location, ExpressionNode* expr)
-        : ExpressionNode(location, ResultType::forBitOp())
-        , m_expr(expr)
+        : UnaryOpNode(location, ResultType::forBitOp(), expr, op_bitnot)
     {
     }
 
@@ -480,19 +524,24 @@ namespace JSC {
 
     inline BinaryOpNode::BinaryOpNode(const JSTokenLocation& location, ExpressionNode* expr1, ExpressionNode* expr2, OpcodeID opcodeID, bool rightHasAssignments)
         : ExpressionNode(location)
+        , m_rightHasAssignments(rightHasAssignments)
+        , m_opcodeID(opcodeID)
         , m_expr1(expr1)
         , m_expr2(expr2)
-        , m_opcodeID(opcodeID)
-        , m_rightHasAssignments(rightHasAssignments)
     {
     }
 
     inline BinaryOpNode::BinaryOpNode(const JSTokenLocation& location, ResultType type, ExpressionNode* expr1, ExpressionNode* expr2, OpcodeID opcodeID, bool rightHasAssignments)
         : ExpressionNode(location, type)
+        , m_rightHasAssignments(rightHasAssignments)
+        , m_opcodeID(opcodeID)
         , m_expr1(expr1)
         , m_expr2(expr2)
-        , m_opcodeID(opcodeID)
-        , m_rightHasAssignments(rightHasAssignments)
+    {
+    }
+
+    inline PowNode::PowNode(const JSTokenLocation& location, ExpressionNode* expr1, ExpressionNode* expr2, bool rightHasAssignments)
+        : BinaryOpNode(location, ResultType::numberType(), expr1, expr2, op_pow, rightHasAssignments)
     {
     }
 
@@ -573,7 +622,7 @@ namespace JSC {
     }
 
     inline InNode::InNode(const JSTokenLocation& location, ExpressionNode* expr1, ExpressionNode* expr2, bool rightHasAssignments)
-        : ThrowableBinaryOpNode(location, expr1, expr2, op_in, rightHasAssignments)
+        : ThrowableBinaryOpNode(location, expr1, expr2, op_in_by_val, rightHasAssignments)
     {
     }
 
@@ -614,9 +663,9 @@ namespace JSC {
 
     inline LogicalOpNode::LogicalOpNode(const JSTokenLocation& location, ExpressionNode* expr1, ExpressionNode* expr2, LogicalOperator oper)
         : ExpressionNode(location, ResultType::forLogicalOp(expr1->resultDescriptor(), expr2->resultDescriptor()))
+        , m_operator(oper)
         , m_expr1(expr1)
         , m_expr2(expr2)
-        , m_operator(oper)
     {
     }
 
@@ -700,13 +749,10 @@ namespace JSC {
     inline CommaNode::CommaNode(const JSTokenLocation& location, ExpressionNode* expr)
         : ExpressionNode(location)
         , m_expr(expr)
-        , m_next(nullptr)
     {
     }
 
     inline SourceElements::SourceElements()
-        : m_head(nullptr)
-        , m_tail(nullptr)
     {
     }
 
@@ -890,34 +936,50 @@ namespace JSC {
     }
 
     
-    inline BaseFuncExprNode::BaseFuncExprNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* m_metadata, const SourceCode& source)
+    inline BaseFuncExprNode::BaseFuncExprNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* metadata, const SourceCode& source, FunctionMode functionMode)
         : ExpressionNode(location)
-        , m_metadata(m_metadata)
+        , m_metadata(metadata)
     {
-        m_metadata->finishParsing(source, ident, FunctionExpression);
+        m_metadata->finishParsing(source, ident, functionMode);
     }
 
-    inline FuncExprNode::FuncExprNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* m_metadata, const SourceCode& source)
-        : BaseFuncExprNode(location, ident, m_metadata, source)
+    inline FuncExprNode::FuncExprNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* metadata, const SourceCode& source)
+        : BaseFuncExprNode(location, ident, metadata, source, FunctionMode::FunctionExpression)
     {
     }
 
-    inline FuncDeclNode::FuncDeclNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* m_metadata, const SourceCode& source)
+    inline FuncExprNode::FuncExprNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* metadata, const SourceCode& source, FunctionMode functionMode)
+        : BaseFuncExprNode(location, ident, metadata, source, functionMode)
+    {
+    }
+    
+    inline FuncDeclNode::FuncDeclNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* metadata, const SourceCode& source)
         : StatementNode(location)
-        , m_metadata(m_metadata)
+        , m_metadata(metadata)
     {
-        m_metadata->finishParsing(source, ident, FunctionDeclaration);
+        m_metadata->finishParsing(source, ident, FunctionMode::FunctionDeclaration);
     }
 
-    inline ArrowFuncExprNode::ArrowFuncExprNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* m_metadata, const SourceCode& source)
-        : BaseFuncExprNode(location, ident, m_metadata, source)
+    inline ArrowFuncExprNode::ArrowFuncExprNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* metadata, const SourceCode& source)
+        : BaseFuncExprNode(location, ident, metadata, source, FunctionMode::FunctionExpression)
     {
     }
 
+    inline MethodDefinitionNode::MethodDefinitionNode(const JSTokenLocation& location, const Identifier& ident, FunctionMetadataNode* metadata, const SourceCode& source)
+        : FuncExprNode(location, ident, metadata, source, FunctionMode::MethodDefinition)
+    {
+    }
+    
     inline YieldExprNode::YieldExprNode(const JSTokenLocation& location, ExpressionNode* argument, bool delegate)
         : ExpressionNode(location)
         , m_argument(argument)
         , m_delegate(delegate)
+    {
+    }
+
+    inline AwaitExprNode::AwaitExprNode(const JSTokenLocation& location, ExpressionNode* argument)
+        : ExpressionNode(location)
+        , m_argument(argument)
     {
     }
 
@@ -927,14 +989,15 @@ namespace JSC {
     {
     }
 
-    inline ClassExprNode::ClassExprNode(const JSTokenLocation& location, const Identifier& name, VariableEnvironment& classEnvironment, ExpressionNode* constructorExpression, ExpressionNode* classHeritage, PropertyListNode* instanceMethods, PropertyListNode* staticMethods)
+    inline ClassExprNode::ClassExprNode(const JSTokenLocation& location, const Identifier& name, const SourceCode& classSource, VariableEnvironment& classEnvironment, ExpressionNode* constructorExpression, ExpressionNode* classHeritage, PropertyListNode* classElements)
         : ExpressionNode(location)
         , VariableEnvironmentNode(classEnvironment)
+        , m_classSource(classSource)
         , m_name(name)
+        , m_ecmaName(&name)
         , m_constructorExpression(constructorExpression)
         , m_classHeritage(classHeritage)
-        , m_instanceMethods(instanceMethods)
-        , m_staticMethods(staticMethods)
+        , m_classElements(classElements)
     {
     }
 
@@ -946,13 +1009,11 @@ namespace JSC {
 
     inline ClauseListNode::ClauseListNode(CaseClauseNode* clause)
         : m_clause(clause)
-        , m_next(0)
     {
     }
 
     inline ClauseListNode::ClauseListNode(ClauseListNode* clauseList, CaseClauseNode* clause)
         : m_clause(clause)
-        , m_next(0)
     {
         clauseList->m_next = this;
     }
@@ -964,17 +1025,17 @@ namespace JSC {
     {
     }
 
-    inline SwitchNode::SwitchNode(const JSTokenLocation& location, ExpressionNode* expr, CaseBlockNode* block, VariableEnvironment& lexicalVariables)
+    inline SwitchNode::SwitchNode(const JSTokenLocation& location, ExpressionNode* expr, CaseBlockNode* block, VariableEnvironment& lexicalVariables, FunctionStack&& functionStack)
         : StatementNode(location)
-        , VariableEnvironmentNode(lexicalVariables)
+        , VariableEnvironmentNode(lexicalVariables, WTFMove(functionStack))
         , m_expr(expr)
         , m_block(block)
     {
     }
 
-    inline BlockNode::BlockNode(const JSTokenLocation& location, SourceElements* statements, VariableEnvironment& lexicalVariables)
+    inline BlockNode::BlockNode(const JSTokenLocation& location, SourceElements* statements, VariableEnvironment& lexicalVariables, FunctionStack&& functionStack)
         : StatementNode(location)
-        , VariableEnvironmentNode(lexicalVariables)
+        , VariableEnvironmentNode(lexicalVariables, WTFMove(functionStack))
         , m_statements(statements)
     {
     }
@@ -994,8 +1055,9 @@ namespace JSC {
     {
     }
     
-    inline ForOfNode::ForOfNode(const JSTokenLocation& location, ExpressionNode* lexpr, ExpressionNode* expr, StatementNode* statement, VariableEnvironment& lexicalVariables)
+    inline ForOfNode::ForOfNode(bool isForAwait, const JSTokenLocation& location, ExpressionNode* lexpr, ExpressionNode* expr, StatementNode* statement, VariableEnvironment& lexicalVariables)
         : EnumerationNode(location, lexpr, expr, statement, lexicalVariables)
+        , m_isForAwait(isForAwait)
     {
     }
     
@@ -1030,13 +1092,12 @@ namespace JSC {
     {
     }
 
-    inline RestParameterNode::RestParameterNode(const Identifier& name, unsigned numParametersToSkip, const JSTextPosition& start, const JSTextPosition& end)
+    inline RestParameterNode::RestParameterNode(DestructuringPatternNode* pattern, unsigned numParametersToSkip)
         : DestructuringPatternNode()
-        , m_name(name)
+        , m_pattern(pattern)
         , m_numParametersToSkip(numParametersToSkip)
-        , m_divotStart(start)
-        , m_divotEnd(end)
     {
+        ASSERT(!pattern->isRestParameter());
     }
 
     inline DestructuringAssignmentNode::DestructuringAssignmentNode(const JSTokenLocation& location, DestructuringPatternNode* bindings, ExpressionNode* initializer)
@@ -1047,5 +1108,3 @@ namespace JSC {
     }
     
 } // namespace JSC
-
-#endif // NodeConstructors_h

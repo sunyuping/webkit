@@ -26,6 +26,7 @@
 #include "config.h"
 #include "DragImage.h"
 
+#include "Element.h"
 #include "FloatRoundedRect.h"
 #include "FontCascade.h"
 #include "FontDescription.h"
@@ -33,11 +34,12 @@
 #include "GraphicsContext.h"
 #include "HWndDC.h"
 #include "Image.h"
-#include "URL.h"
 #include "StringTruncator.h"
+#include "TextIndicator.h"
 #include "TextRun.h"
 #include "WebCoreTextRenderer.h"
 #include <wtf/RetainPtr.h>
+#include <wtf/URL.h>
 #include <wtf/win/GDIObject.h>
 
 #include <windows.h>
@@ -70,10 +72,9 @@ DragImageRef dissolveDragImageToFraction(DragImageRef image, float)
         
 DragImageRef createDragImageIconForCachedImageFilename(const String& filename)
 {
-    SHFILEINFO shfi = {0};
-    String fname = filename;
-    if (FAILED(SHGetFileInfo(static_cast<LPCWSTR>(fname.charactersWithNullTermination().data()), FILE_ATTRIBUTE_NORMAL,
-        &shfi, sizeof(shfi), SHGFI_ICON | SHGFI_USEFILEATTRIBUTES)))
+    SHFILEINFO shfi { };
+    auto fname = filename.wideCharacters();
+    if (FAILED(SHGetFileInfo(fname.data(), FILE_ATTRIBUTE_NORMAL, &shfi, sizeof(shfi), SHGFI_ICON | SHGFI_USEFILEATTRIBUTES)))
         return 0;
 
     ICONINFO iconInfo;
@@ -94,7 +95,6 @@ const float DragLabelBorderY = 2;
 const float DragLabelRadius = 5;
 const float LabelBorderYOffset = 2;
 
-const float MinDragLabelWidthBeforeClip = 120;
 const float MaxDragLabelWidth = 200;
 const float MaxDragLabelStringWidth = (MaxDragLabelWidth - 2 * DragLabelBorderX);
 
@@ -109,17 +109,17 @@ static FontCascade dragLabelFont(int size, bool bold, FontRenderingMode renderin
     SystemParametersInfo(SPI_GETNONCLIENTMETRICS, metrics.cbSize, &metrics, 0);
 
     FontCascadeDescription description;
-    description.setWeight(bold ? FontWeightBold : FontWeightNormal);
+    description.setWeight(bold ? boldWeightValue() : normalWeightValue());
     description.setOneFamily(metrics.lfSmCaptionFont.lfFaceName);
     description.setSpecifiedSize((float)size);
     description.setComputedSize((float)size);
     description.setRenderingMode(renderingMode);
-    result = FontCascade(description, 0, 0);
+    result = FontCascade(WTFMove(description), 0, 0);
     result.update(0);
     return result;
 }
 
-DragImageRef createDragImageForLink(URL& url, const String& inLabel, FontRenderingMode fontRenderingMode)
+DragImageRef createDragImageForLink(Element&, URL& url, const String& inLabel, TextIndicatorData&, FontRenderingMode fontRenderingMode, float)
 {
     // This is more or less an exact match for the Mac OS X code.
 

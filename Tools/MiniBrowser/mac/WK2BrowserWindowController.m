@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,21 +25,29 @@
 
 #import "WK2BrowserWindowController.h"
 
-#if WK_API_ENABLED
-
 #import "AppDelegate.h"
+#import "AppKitCompatibilityDeclarations.h"
 #import "SettingsController.h"
 #import <WebKit/WKFrameInfo.h>
+#import <WebKit/WKNavigationActionPrivate.h>
 #import <WebKit/WKNavigationDelegate.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKUIDelegate.h>
+#import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/WebNSURLExtras.h>
+#import <WebKit/_WKIconLoadingDelegate.h>
+#import <WebKit/_WKInspector.h>
+#import <WebKit/_WKLinkIconParameters.h>
+#import <WebKit/_WKUserInitiatedAction.h>
 
 static void* keyValueObservingContext = &keyValueObservingContext;
+static const int testHeaderBannerHeight = 42;
+static const int testFooterBannerHeight = 58;
 
-@interface WK2BrowserWindowController () <WKNavigationDelegate, WKUIDelegate>
+@interface WK2BrowserWindowController () <NSTextFinderBarContainer, WKNavigationDelegate, WKUIDelegate, _WKIconLoadingDelegate>
 @end
 
 @implementation WK2BrowserWindowController {
@@ -49,6 +57,10 @@ static void* keyValueObservingContext = &keyValueObservingContext;
     BOOL _isPrivateBrowsingWindow;
 
     BOOL _useShrinkToFit;
+
+    NSTextFinder *_textFinder;
+    NSView *_textFindBarView;
+    BOOL _findBarVisible;
 }
 
 - (void)awakeFromNib
@@ -58,6 +70,7 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 
     _webView.allowsMagnification = YES;
     _webView.allowsBackForwardNavigationGestures = YES;
+    _webView._editable = self.isEditable;
 
     [_webView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [containerView addSubview:_webView];
@@ -70,6 +83,11 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 
     _webView.navigationDelegate = self;
     _webView.UIDelegate = self;
+
+    // This setting installs the new WK2 Icon Loading Delegate and tests that mechanism by
+    // telling WebKit to load every icon referenced by the page.
+    if ([[SettingsController shared] loadsAllSiteIcons])
+        _webView._iconLoadingDelegate = self;
     
     _webView._observedRenderingProgressEvents = _WKRenderingProgressEventFirstLayout
         | _WKRenderingProgressEventFirstVisuallyNonEmptyLayout
@@ -78,6 +96,12 @@ static void* keyValueObservingContext = &keyValueObservingContext;
         | _WKRenderingProgressEventFirstPaintAfterSuppressedIncrementalRendering;
 
     _zoomTextOnly = NO;
+
+    _textFinder = [[NSTextFinder alloc] init];
+    _textFinder.incrementalSearchingEnabled = YES;
+    _textFinder.incrementalSearchingShouldDimContentView = YES;
+    _textFinder.client = _webView;
+    _textFinder.findBarContainer = self;
 }
 
 - (instancetype)initWithConfiguration:(WKWebViewConfiguration *)configuration
@@ -99,6 +123,8 @@ static void* keyValueObservingContext = &keyValueObservingContext;
     [progressIndicator unbind:NSHiddenBinding];
     [progressIndicator unbind:NSValueBinding];
 
+    [_textFinder release];
+
     [_webView release];
     [_configuration release];
 
@@ -107,30 +133,18 @@ static void* keyValueObservingContext = &keyValueObservingContext;
 
 - (IBAction)fetch:(id)sender
 {
-    [urlText setStringValue:[self addProtocolIfNecessary:[urlText stringValue]]];
-
-    [_webView loadRequest:[NSURLRequest requestWithURL:[NSURL _web_URLWithUserTypedString:[urlText stringValue]]]];
+    [urlText setStringValue:[self addProtocolIfNecessary:urlText.stringValue]];
+    NSURL *url = [NSURL _webkit_URLWithUserTypedString:urlText.stringValue];
+    [_webView loadRequest:[NSURLRequest requestWithURL:url]];
 }
 
-- (IBAction)showHideWebView:(id)sender
+- (IBAction)setPageScale:(id)sender
 {
-    BOOL hidden = ![_webView isHidden];
-    
-    [_webView setHidden:hidden];
+    CGFloat scale = [self pageScaleForMenuItemTag:[sender tag]];
+    [_webView _setPageScale:scale withOrigin:CGPointZero];
 }
 
-- (IBAction)removeReinsertWebView:(id)sender
-{
-    if ([_webView window]) {
-        [_webView retain];
-        [_webView removeFromSuperview]; 
-    } else {
-        [containerView addSubview:_webView];
-        [_webView release];
-    }
-}
-
-static CGFloat viewScaleForMenuItemTag(NSInteger tag)
+- (CGFloat)viewScaleForMenuItemTag:(NSInteger)tag
 {
     if (tag == 1)
         return 1;
@@ -144,9 +158,9 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
     return 1;
 }
 
-- (IBAction)setScale:(id)sender
+- (IBAction)setViewScale:(id)sender
 {
-    CGFloat scale = viewScaleForMenuItemTag([sender tag]);
+    CGFloat scale = [self viewScaleForMenuItemTag:[sender tag]];
     CGFloat oldScale = [_webView _viewScale];
 
     if (scale == oldScale)
@@ -161,9 +175,15 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
     [_webView _setViewScale:scale];
 }
 
+static BOOL areEssentiallyEqual(double a, double b)
+{
+    double tolerance = 0.001;
+    return (fabs(a - b) <= tolerance);
+}
+
 - (BOOL)validateMenuItem:(NSMenuItem *)menuItem
 {
-    SEL action = [menuItem action];
+    SEL action = menuItem.action;
 
     if (action == @selector(zoomIn:))
         return [self canZoomIn];
@@ -174,7 +194,6 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
     
     // Disabled until missing WK2 functionality is exposed via API/SPI.
     if (action == @selector(dumpSourceToConsole:)
-        || action == @selector(find:)
         || action == @selector(forceRepaint:))
         return NO;
     
@@ -183,10 +202,21 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
     else if (action == @selector(removeReinsertWebView:))
         [menuItem setTitle:[_webView window] ? @"Remove Web View" : @"Insert Web View"];
     else if (action == @selector(toggleZoomMode:))
-        [menuItem setState:_zoomTextOnly ? NSOnState : NSOffState];
+        [menuItem setState:_zoomTextOnly ? NSControlStateValueOn : NSControlStateValueOff];
+    else if (action == @selector(toggleEditable:))
+        [menuItem setState:self.isEditable ? NSControlStateValueOn : NSControlStateValueOff];
+    else if (action == @selector(showHideWebInspector:))
+        [menuItem setTitle:_webView._inspector.isVisible ? @"Close Web Inspector" : @"Show Web Inspector"];
+    else if (action == @selector(toggleAlwaysShowsHorizontalScroller:))
+        menuItem.state = _webView._alwaysShowsHorizontalScroller ? NSControlStateValueOn : NSControlStateValueOff;
+    else if (action == @selector(toggleAlwaysShowsVerticalScroller:))
+        menuItem.state = _webView._alwaysShowsVerticalScroller ? NSControlStateValueOn : NSControlStateValueOff;
 
-    if (action == @selector(setScale:))
-        [menuItem setState:[_webView _viewScale] == viewScaleForMenuItemTag([menuItem tag])];
+    if (action == @selector(setPageScale:))
+        [menuItem setState:areEssentiallyEqual([_webView _pageScale], [self pageScaleForMenuItemTag:[menuItem tag]])];
+
+    if (action == @selector(setViewScale:))
+        [menuItem setState:areEssentiallyEqual([_webView _viewScale], [self viewScaleForMenuItemTag:[menuItem tag]])];
 
     return YES;
 }
@@ -254,9 +284,39 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
 {
 }
 
+- (IBAction)showHideWebInspector:(id)sender
+{
+    _WKInspector *inspector = _webView._inspector;
+    if (inspector.isVisible)
+        [inspector hide];
+    else
+        [inspector show];
+}
+
+- (IBAction)toggleAlwaysShowsHorizontalScroller:(id)sender
+{
+    _webView._alwaysShowsHorizontalScroller = !_webView._alwaysShowsHorizontalScroller;
+}
+
+- (IBAction)toggleAlwaysShowsVerticalScroller:(id)sender
+{
+    _webView._alwaysShowsVerticalScroller = !_webView._alwaysShowsVerticalScroller;
+}
+
 - (NSURL *)currentURL
 {
     return _webView.URL;
+}
+
+- (NSView *)mainContentView
+{
+    return _webView;
+}
+
+- (void)setEditable:(BOOL)editable
+{
+    [super setEditable:editable];
+    _webView._editable = editable;
 }
 
 - (BOOL)validateUserInterfaceItem:(id <NSValidatedUserInterfaceItem>)item
@@ -283,10 +343,6 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
 {
     [(BrowserAppDelegate *)[[NSApplication sharedApplication] delegate] browserWindowWillClose:self.window];
     [self autorelease];
-}
-
-- (void)applicationTerminating
-{
 }
 
 #define DefaultMinimumZoomFactor (.5)
@@ -337,13 +393,23 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
     SettingsController *settings = [SettingsController shared];
     WKPreferences *preferences = _webView.configuration.preferences;
 
+    _webView._useSystemAppearance = settings.useSystemAppearance;
+
     preferences._tiledScrollingIndicatorVisible = settings.tiledScrollingIndicatorVisible;
     preferences._compositingBordersVisible = settings.layerBordersVisible;
     preferences._compositingRepaintCountersVisible = settings.layerBordersVisible;
+    preferences._simpleLineLayoutEnabled = settings.simpleLineLayoutEnabled;
     preferences._simpleLineLayoutDebugBordersEnabled = settings.simpleLineLayoutDebugBordersEnabled;
     preferences._acceleratedDrawingEnabled = settings.acceleratedDrawingEnabled;
     preferences._resourceUsageOverlayVisible = settings.resourceUsageOverlayVisible;
     preferences._displayListDrawingEnabled = settings.displayListDrawingEnabled;
+    preferences._subpixelAntialiasedLayerTextEnabled = settings.subpixelAntialiasedLayerTextEnabled;
+    preferences._largeImageAsyncDecodingEnabled = settings.largeImageAsyncDecodingEnabled;
+    preferences._animatedImageAsyncDecodingEnabled = settings.animatedImageAsyncDecodingEnabled;
+    preferences._colorFilterEnabled = settings.appleColorFilterEnabled;
+    preferences._punchOutWhiteBackgroundsInDarkMode = settings.punchOutWhiteBackgroundsInDarkMode;
+
+    _webView.configuration.websiteDataStore._resourceLoadStatisticsEnabled = settings.resourceLoadStatisticsEnabled;
 
     BOOL useTransparentWindows = settings.useTransparentWindows;
     if (useTransparentWindows != !_webView._drawsBackground) {
@@ -373,14 +439,19 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
         visibleOverlayRegions |= _WKWheelEventHandlerRegion;
     
     preferences._visibleDebugOverlayRegions = visibleOverlayRegions;
+
+    [_webView _setHeaderBannerHeight:[settings isSpaceReservedForBanners] ? testHeaderBannerHeight : 0];
+    [_webView _setFooterBannerHeight:[settings isSpaceReservedForBanners] ? testFooterBannerHeight : 0];
 }
 
 - (void)updateTitle:(NSString *)title
 {
-    if (!title)
-        title = _webView.URL.lastPathComponent;
-    
-    self.window.title = [NSString stringWithFormat:@"%@%@ [WK2 %d]", _isPrivateBrowsingWindow ? @"🙈 " : @"", title, _webView._webProcessIdentifier];
+    if (!title) {
+        NSURL *url = _webView.URL;
+        title = url.lastPathComponent ?: url._web_userVisibleString;
+    }
+
+    self.window.title = [NSString stringWithFormat:@"%@%@ [WK2 %d]%@", _isPrivateBrowsingWindow ? @"🙈 " : @"", title, _webView._webProcessIdentifier, _webView._editable ? @" [Editable]" : @""];
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
@@ -392,6 +463,15 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
         [self updateTitle:_webView.title];
     else if ([keyPath isEqualToString:@"URL"])
         [self updateTextFieldFromURL:_webView.URL];
+}
+
+- (nullable WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures
+{
+    WK2BrowserWindowController *controller = [[WK2BrowserWindowController alloc] initWithConfiguration:configuration];
+    [controller awakeFromNib];
+    [controller.window makeKeyAndOrderFront:self];
+
+    return controller->_webView;
 }
 
 - (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler
@@ -445,6 +525,45 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
     }];
 }
 
+#if __has_feature(objc_generics)
+- (void)webView:(WKWebView *)webView runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSArray<NSURL *> * URLs))completionHandler
+#else
+- (void)webView:(WKWebView *)webView runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSArray *URLs))completionHandler
+#endif
+{
+    NSOpenPanel *openPanel = [NSOpenPanel openPanel];
+
+    openPanel.allowsMultipleSelection = parameters.allowsMultipleSelection;
+
+    [openPanel beginSheetModalForWindow:webView.window completionHandler:^(NSInteger result) {
+        if (result == NSModalResponseOK)
+            completionHandler(openPanel.URLs);
+        else
+            completionHandler(nil);
+    }];
+}
+
+- (void)_webView:(WebView *)sender runBeforeUnloadConfirmPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(BOOL result))completionHandler
+{
+    NSAlert *alert = [[NSAlert alloc] init];
+
+    alert.messageText = [NSString stringWithFormat:@"JavaScript before unload dialog from %@.", [frame.request.URL absoluteString]];
+    alert.informativeText = message;
+
+    [alert addButtonWithTitle:@"Leave Page"];
+    [alert addButtonWithTitle:@"Stay On Page"];
+
+    [alert beginSheetModalForWindow:self.window completionHandler:^void (NSModalResponse response) {
+        completionHandler(response == NSAlertFirstButtonReturn);
+        [alert release];
+    }];
+}
+
+- (WKDragDestinationAction)_webView:(WKWebView *)webView dragDestinationActionMaskForDraggingInfo:(id)draggingInfo
+{
+    return WKDragDestinationActionAny;
+}
+
 - (void)updateTextFieldFromURL:(NSURL *)URL
 {
     if (!URL)
@@ -463,13 +582,9 @@ static CGFloat viewScaleForMenuItemTag(NSInteger tag)
     [self fetch:nil];
 }
 
-- (IBAction)performFindPanelAction:(id)sender
+- (void)loadHTMLString:(NSString *)HTMLString
 {
-    [findPanelWindow makeKeyAndOrderFront:sender];
-}
-
-- (IBAction)find:(id)sender
-{
+    [_webView loadHTMLString:HTMLString baseURL:nil];
 }
 
 static NSSet *dataTypes()
@@ -479,7 +594,7 @@ static NSSet *dataTypes()
 
 - (IBAction)fetchWebsiteData:(id)sender
 {
-    [_configuration.websiteDataStore fetchDataRecordsOfTypes:dataTypes() completionHandler:^(NSArray *websiteDataRecords) {
+    [_configuration.websiteDataStore _fetchDataRecordsOfTypes:dataTypes() withOptions:_WKWebsiteDataStoreFetchOptionComputeSizes completionHandler:^(NSArray *websiteDataRecords) {
         NSLog(@"did fetch website data %@.", websiteDataRecords);
     }];
 }
@@ -504,10 +619,27 @@ static NSSet *dataTypes()
 
 - (IBAction)printWebView:(id)sender
 {
-    [[_webView _printOperationWithPrintInfo:[NSPrintInfo sharedPrintInfo] forFrame:nil] runOperationModalForWindow:self.window delegate:nil didRunSelector:nil contextInfo:nil];
+    [[_webView _printOperationWithPrintInfo:[NSPrintInfo sharedPrintInfo]] runOperationModalForWindow:self.window delegate:nil didRunSelector:nil contextInfo:nil];
 }
 
 #pragma mark WKNavigationDelegate
+
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler
+{
+    LOG(@"decidePolicyForNavigationAction");
+
+    if (navigationAction._canHandleRequest) {
+        decisionHandler(WKNavigationActionPolicyAllow);
+        return;
+    }
+
+    if (navigationAction._userInitiatedAction && !navigationAction._userInitiatedAction.isConsumed) {
+        [navigationAction._userInitiatedAction consume];
+        [[NSWorkspace sharedWorkspace] openURL:navigationAction.request.URL];
+    }
+
+    decisionHandler(WKNavigationActionPolicyCancel);
+}
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationResponse:(WKNavigationResponse *)navigationResponse decisionHandler:(void (^)(WKNavigationResponsePolicy))decisionHandler
 {
@@ -536,9 +668,40 @@ static NSSet *dataTypes()
     [self updateTitle:nil];
 }
 
-- (void)webView:(WKWebView *)webView didFinishLoadingNavigation:(WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
-    LOG(@"didFinishLoadingNavigation: %@", navigation);
+    LOG(@"didFinishNavigation: %@", navigation);
+}
+
+- (void)webView:(WKWebView *)webView didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *__nullable credential))completionHandler
+{
+    LOG(@"didReceiveAuthenticationChallenge: %@", challenge);
+    if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodHTTPBasic]) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        NSView *container = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 48)] autorelease];
+        NSTextField *userInput = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 24, 200, 24)] autorelease];
+        NSTextField *passwordInput = [[[NSSecureTextField alloc] initWithFrame:NSMakeRect(0, 0, 200, 24)] autorelease];
+        
+        [alert setMessageText:[NSString stringWithFormat:@"Log in to %@:%lu.", challenge.protectionSpace.host, challenge.protectionSpace.port]];
+        [alert addButtonWithTitle:@"Log in"];
+        [alert addButtonWithTitle:@"Cancel"];
+        [container addSubview:userInput];
+        [container addSubview:passwordInput];
+        [alert setAccessoryView:container];
+        [userInput setNextKeyView:passwordInput];
+        [alert.window setInitialFirstResponder:userInput];
+        
+        [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+            [userInput validateEditing];
+            if (response == NSAlertFirstButtonReturn)
+                completionHandler(NSURLSessionAuthChallengeUseCredential, [[[NSURLCredential alloc] initWithUser:[userInput stringValue] password:[passwordInput stringValue] persistence:NSURLCredentialPersistenceForSession] autorelease]);
+            else
+                completionHandler(NSURLSessionAuthChallengeRejectProtectionSpace, nil);
+            [alert release];
+        }];
+        return;
+    }
+    completionHandler(NSURLSessionAuthChallengeRejectProtectionSpace, nil);
 }
 
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error
@@ -546,7 +709,7 @@ static NSSet *dataTypes()
     LOG(@"didFailNavigation: %@, error %@", navigation, error);
 }
 
-- (void)_webViewWebProcessDidCrash:(WKWebView *)webView
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView
 {
     NSLog(@"WebContent process crashed; reloading");
     [self reload:nil];
@@ -570,6 +733,63 @@ static NSSet *dataTypes()
         LOG(@"renderingProgressDidChange: %@", @"first paint after suppressed incremental rendering");
 }
 
-@end
+- (void)webView:(WKWebView *)webView shouldLoadIconWithParameters:(_WKLinkIconParameters *)parameters completionHandler:(void (^)(void (^)(NSData*)))completionHandler
+{
+    completionHandler(^void (NSData *data) {
+        LOG(@"Icon URL %@ received icon data of length %u", parameters.url, (unsigned)data.length);
+    });
+}
 
-#endif // WK_API_ENABLED
+#pragma mark Find in Page
+
+- (IBAction)performTextFinderAction:(id)sender
+{
+    [_textFinder performAction:[sender tag]];
+}
+
+- (NSView *)findBarView
+{
+    return _textFindBarView;
+}
+
+- (void)setFindBarView:(NSView *)findBarView
+{
+    _textFindBarView = findBarView;
+    _findBarVisible = YES;
+    [_textFindBarView setFrame:NSMakeRect(0, 0, containerView.bounds.size.width, _textFindBarView.frame.size.height)];
+}
+
+- (BOOL)isFindBarVisible
+{
+    return _findBarVisible;
+}
+
+- (void)setFindBarVisible:(BOOL)findBarVisible
+{
+    _findBarVisible = findBarVisible;
+    if (findBarVisible)
+        [containerView addSubview:_textFindBarView];
+    else
+        [_textFindBarView removeFromSuperview];
+}
+
+- (NSView *)contentView
+{
+    return _webView;
+}
+
+- (void)findBarViewDidChangeHeight
+{
+}
+
+- (void)_webView:(WKWebView *)webView requestMediaCaptureAuthorization: (_WKCaptureDevices)devices decisionHandler:(void (^)(BOOL authorized))decisionHandler
+{
+    decisionHandler(true);
+}
+
+- (void)_webView:(WKWebView *)webView includeSensitiveMediaDeviceDetails:(void (^)(BOOL includeSensitiveDetails))decisionHandler
+{
+    decisionHandler(false);
+}
+
+@end

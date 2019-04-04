@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,54 +23,47 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef HTMLSourceElement_h
-#define HTMLSourceElement_h
+#pragma once
 
 #include "HTMLElement.h"
-#include "MediaList.h"
 #include "Timer.h"
 
 namespace WebCore {
 
-class HTMLSourceElement final : public HTMLElement, public ActiveDOMObject {
+class MediaQuerySet;
+
+class HTMLSourceElement final : public HTMLElement, private ActiveDOMObject {
+    WTF_MAKE_ISO_ALLOCATED(HTMLSourceElement);
 public:
+    static Ref<HTMLSourceElement> create(Document&);
     static Ref<HTMLSourceElement> create(const QualifiedName&, Document&);
 
-    String media() const;
-    String type() const;
-    void setSrc(const String&);    
-    void setMedia(const String&);
-    void setType(const String&);
-    
     void scheduleErrorEvent();
     void cancelPendingErrorEvent();
 
-    MediaQuerySet* mediaQuerySet() const { return m_mediaQuerySet.get(); }
+    const MediaQuerySet* parsedMediaAttribute(Document&) const;
 
 private:
     HTMLSourceElement(const QualifiedName&, Document&);
     
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
-    virtual void removedFrom(ContainerNode&) override;
-    virtual bool isURLAttribute(const Attribute&) const override;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    bool isURLAttribute(const Attribute&) const final;
 
     // ActiveDOMObject.
-    const char* activeDOMObjectName() const override;
-    bool canSuspendForDocumentSuspension() const override;
-    void suspend(ReasonForSuspension) override;
-    void resume() override;
-    void stop() override;
+    const char* activeDOMObjectName() const final;
+    bool canSuspendForDocumentSuspension() const final;
+    void suspend(ReasonForSuspension) final;
+    void resume() final;
+    void stop() final;
 
-    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
 
     void errorEventTimerFired();
 
     Timer m_errorEventTimer;
     bool m_shouldRescheduleErrorEventOnResume { false };
-    RefPtr<MediaQuerySet> m_mediaQuerySet;
+    mutable Optional<RefPtr<const MediaQuerySet>> m_cachedParsedMediaAttribute;
 };
 
-} //namespace
-
-#endif
-
+} // namespace WebCore

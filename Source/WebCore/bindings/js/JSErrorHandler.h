@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,37 +29,29 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSErrorHandler_h
-#define JSErrorHandler_h
+#pragma once
 
 #include "JSEventListener.h"
 
 namespace WebCore {
 
-class JSErrorHandler : public JSEventListener {
+class JSErrorHandler final : public JSEventListener {
 public:
-    static Ref<JSErrorHandler> create(JSC::JSObject* listener, JSC::JSObject* wrapper, bool isAttribute, DOMWrapperWorld& world)
-    {
-        return adoptRef(*new JSErrorHandler(listener, wrapper, isAttribute, world));
-    }
-
+    static Ref<JSErrorHandler> create(JSC::JSObject& listener, JSC::JSObject& wrapper, bool isAttribute, DOMWrapperWorld&);
     virtual ~JSErrorHandler();
 
 private:
-    JSErrorHandler(JSC::JSObject* function, JSC::JSObject* wrapper, bool isAttribute, DOMWrapperWorld&);
-    virtual void handleEvent(ScriptExecutionContext*, Event*);
+    JSErrorHandler(JSC::JSObject& listener, JSC::JSObject& wrapper, bool isAttribute, DOMWrapperWorld&);
+    void handleEvent(ScriptExecutionContext&, Event&) final;
 };
 
-// Creates a JS EventListener for "onerror" event handler in worker context. It has custom implementation because
-// unlike other event listeners it accepts three parameters.
-inline RefPtr<JSErrorHandler> createJSErrorHandler(JSC::ExecState* exec, JSC::JSValue listener, JSC::JSObject* wrapper)
+// Creates a listener for "onerror" event handler.
+// It has custom implementation because, unlike other event listeners, it accepts three parameters.
+inline RefPtr<JSErrorHandler> createJSErrorHandler(JSC::ExecState& state, JSC::JSValue listener, JSC::JSObject& wrapper)
 {
     if (!listener.isObject())
         return nullptr;
-
-    return JSErrorHandler::create(asObject(listener), wrapper, true, currentWorld(exec));
+    return JSErrorHandler::create(*asObject(listener), wrapper, true, currentWorld(state));
 }
 
 } // namespace WebCore
-
-#endif // JSErrorHandler_h

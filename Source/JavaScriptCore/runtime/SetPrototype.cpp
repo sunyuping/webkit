@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,28 +26,24 @@
 #include "config.h"
 #include "SetPrototype.h"
 
-#include "CachedCall.h"
+#include "BuiltinNames.h"
 #include "Error.h"
 #include "ExceptionHelpers.h"
-#include "GetterSetter.h"
 #include "IteratorOperations.h"
-#include "JSCJSValueInlines.h"
-#include "JSFunctionInlines.h"
+#include "JSCInlines.h"
 #include "JSSet.h"
-#include "JSSetIterator.h"
 #include "Lookup.h"
-#include "MapDataInlines.h"
-#include "StructureInlines.h"
 
 #include "SetPrototype.lut.h"
 
 namespace JSC {
 
-const ClassInfo SetPrototype::s_info = { "Set", &Base::s_info, &setPrototypeTable, CREATE_METHOD_TABLE(SetPrototype) };
+const ClassInfo SetPrototype::s_info = { "Set", &Base::s_info, &setPrototypeTable, nullptr, CREATE_METHOD_TABLE(SetPrototype) };
 
 /* Source for SetIteratorPrototype.lut.h
 @begin setPrototypeTable
   forEach   JSBuiltin  DontEnum|Function 0
+  entries   JSBuiltin  DontEnum|Function 0
 @end
 */
 
@@ -55,8 +51,6 @@ static EncodedJSValue JSC_HOST_CALL setProtoFuncAdd(ExecState*);
 static EncodedJSValue JSC_HOST_CALL setProtoFuncClear(ExecState*);
 static EncodedJSValue JSC_HOST_CALL setProtoFuncDelete(ExecState*);
 static EncodedJSValue JSC_HOST_CALL setProtoFuncHas(ExecState*);
-static EncodedJSValue JSC_HOST_CALL setProtoFuncValues(ExecState*);
-static EncodedJSValue JSC_HOST_CALL setProtoFuncEntries(ExecState*);
 
 
 static EncodedJSValue JSC_HOST_CALL setProtoFuncSize(ExecState*);
@@ -64,45 +58,39 @@ static EncodedJSValue JSC_HOST_CALL setProtoFuncSize(ExecState*);
 void SetPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(info()));
-    vm.prototypeMap.addPrototype(this);
+    ASSERT(inherits(vm, info()));
+    didBecomePrototype();
 
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->add, setProtoFuncAdd, DontEnum, 1);
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->clear, setProtoFuncClear, DontEnum, 0);
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->deleteKeyword, setProtoFuncDelete, DontEnum, 1);
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->has, setProtoFuncHas, DontEnum, 1);
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->entries, setProtoFuncEntries, DontEnum, 0);
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->add, setProtoFuncAdd, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, JSSetAddIntrinsic);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->clear, setProtoFuncClear, static_cast<unsigned>(PropertyAttribute::DontEnum), 0);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->deleteKeyword, setProtoFuncDelete, static_cast<unsigned>(PropertyAttribute::DontEnum), 1);
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->has, setProtoFuncHas, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, JSSetHasIntrinsic);
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().hasPrivateName(), setProtoFuncHas, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, JSSetHasIntrinsic);
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->builtinNames().addPrivateName(), setProtoFuncAdd, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, JSSetAddIntrinsic);
 
-    JSFunction* values = JSFunction::create(vm, globalObject, 0, vm.propertyNames->values.string(), setProtoFuncValues);
-    putDirectWithoutTransition(vm, vm.propertyNames->values, values, DontEnum);
-    putDirectWithoutTransition(vm, vm.propertyNames->keys, values, DontEnum);
-    putDirectWithoutTransition(vm, vm.propertyNames->iteratorSymbol, values, DontEnum);
-    putDirectWithoutTransition(vm, vm.propertyNames->toStringTagSymbol, jsString(&vm, "Set"), DontEnum | ReadOnly);
+    JSFunction* values = JSFunction::create(vm, setPrototypeValuesCodeGenerator(vm), globalObject);
+    putDirectWithoutTransition(vm, vm.propertyNames->builtinNames().valuesPublicName(), values, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    putDirectWithoutTransition(vm, vm.propertyNames->builtinNames().keysPublicName(), values, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    putDirectWithoutTransition(vm, vm.propertyNames->iteratorSymbol, values, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    putDirectWithoutTransition(vm, vm.propertyNames->toStringTagSymbol, jsString(&vm, "Set"), PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
 
-    GetterSetter* accessor = GetterSetter::create(vm, globalObject);
-    JSFunction* function = JSFunction::create(vm, globalObject, 0, vm.propertyNames->size.string(), setProtoFuncSize);
-    accessor->setGetter(vm, globalObject, function);
-    putDirectNonIndexAccessor(vm, vm.propertyNames->size, accessor, DontEnum | Accessor);
+    JSC_NATIVE_GETTER_WITHOUT_TRANSITION(vm.propertyNames->size, setProtoFuncSize, PropertyAttribute::DontEnum | PropertyAttribute::Accessor);
 }
-
-bool SetPrototype::getOwnPropertySlot(JSObject* object, ExecState* exec, PropertyName propertyName, PropertySlot& slot)
-{
-    return getStaticFunctionSlot<Base>(exec, setPrototypeTable, jsCast<SetPrototype*>(object), propertyName, slot);
-}
-
 
 ALWAYS_INLINE static JSSet* getSet(CallFrame* callFrame, JSValue thisValue)
 {
-    if (!thisValue.isObject()) {
-        throwVMError(callFrame, createNotAnObjectError(callFrame, thisValue));
+    VM& vm = callFrame->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (UNLIKELY(!thisValue.isCell())) {
+        throwVMError(callFrame, scope, createNotAnObjectError(callFrame, thisValue));
         return nullptr;
     }
-    JSSet* set = jsDynamicCast<JSSet*>(thisValue);
-    if (!set) {
-        throwTypeError(callFrame, ASCIILiteral("Set operation called on non-Set object"));
-        return nullptr;
-    }
-    return set;
+    auto* set = jsDynamicCast<JSSet*>(vm, thisValue.asCell());
+    if (LIKELY(set))
+        return set;
+    throwTypeError(callFrame, scope, "Set operation called on non-Set object"_s);
+    return nullptr;
 }
 
 EncodedJSValue JSC_HOST_CALL setProtoFuncAdd(CallFrame* callFrame)
@@ -145,49 +133,7 @@ EncodedJSValue JSC_HOST_CALL setProtoFuncSize(CallFrame* callFrame)
     JSSet* set = getSet(callFrame, callFrame->thisValue());
     if (!set)
         return JSValue::encode(jsUndefined());
-    return JSValue::encode(jsNumber(set->size(callFrame)));
-}
-    
-EncodedJSValue JSC_HOST_CALL setProtoFuncValues(CallFrame* callFrame)
-{
-    JSSet* thisObj = jsDynamicCast<JSSet*>(callFrame->thisValue());
-    if (!thisObj)
-        return JSValue::encode(throwTypeError(callFrame, ASCIILiteral("Cannot create a Set value iterator for a non-Set object.")));
-    return JSValue::encode(JSSetIterator::create(callFrame->vm(), callFrame->callee()->globalObject()->setIteratorStructure(), thisObj, SetIterateValue));
-}
-
-EncodedJSValue JSC_HOST_CALL setProtoFuncEntries(CallFrame* callFrame)
-{
-    JSSet* thisObj = jsDynamicCast<JSSet*>(callFrame->thisValue());
-    if (!thisObj)
-        return JSValue::encode(throwTypeError(callFrame, ASCIILiteral("Cannot create a Set entry iterator for a non-Set object.")));
-    return JSValue::encode(JSSetIterator::create(callFrame->vm(), callFrame->callee()->globalObject()->setIteratorStructure(), thisObj, SetIterateKeyValue));
-}
-
-EncodedJSValue JSC_HOST_CALL privateFuncIsSet(ExecState* exec)
-{
-    return JSValue::encode(jsBoolean(jsDynamicCast<JSSet*>(exec->uncheckedArgument(0))));
-}
-
-EncodedJSValue JSC_HOST_CALL privateFuncSetIterator(ExecState* exec)
-{
-    ASSERT(jsDynamicCast<JSSet*>(exec->uncheckedArgument(0)));
-    JSSet* set = jsCast<JSSet*>(exec->uncheckedArgument(0));
-    return JSValue::encode(JSSetIterator::create(exec->vm(), exec->callee()->globalObject()->setIteratorStructure(), set, SetIterateKey));
-}
-
-EncodedJSValue JSC_HOST_CALL privateFuncSetIteratorNext(ExecState* exec)
-{
-    ASSERT(jsDynamicCast<JSSetIterator*>(exec->thisValue()));
-    JSSetIterator* iterator = jsCast<JSSetIterator*>(exec->thisValue());
-    JSValue result;
-    if (iterator->next(exec, result)) {
-        JSArray* resultArray = jsCast<JSArray*>(exec->uncheckedArgument(0));
-        resultArray->putDirectIndex(exec, 0, result);
-        return JSValue::encode(jsBoolean(false));
-    }
-    iterator->finish();
-    return JSValue::encode(jsBoolean(true));
+    return JSValue::encode(jsNumber(set->size()));
 }
 
 }

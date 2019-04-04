@@ -29,7 +29,7 @@
 #if ENABLE(ASYNC_SCROLLING) || USE(COORDINATED_GRAPHICS)
 
 #include "ScrollingStateTree.h"
-#include "TextStream.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -39,45 +39,27 @@ Ref<ScrollingStateOverflowScrollingNode> ScrollingStateOverflowScrollingNode::cr
 }
 
 ScrollingStateOverflowScrollingNode::ScrollingStateOverflowScrollingNode(ScrollingStateTree& stateTree, ScrollingNodeID nodeID)
-    : ScrollingStateScrollingNode(stateTree, OverflowScrollingNode, nodeID)
+    : ScrollingStateScrollingNode(stateTree, ScrollingNodeType::Overflow, nodeID)
 {
 }
 
 ScrollingStateOverflowScrollingNode::ScrollingStateOverflowScrollingNode(const ScrollingStateOverflowScrollingNode& stateNode, ScrollingStateTree& adoptiveTree)
     : ScrollingStateScrollingNode(stateNode, adoptiveTree)
 {
-    if (hasChangedProperty(ScrolledContentsLayer))
-        setScrolledContentsLayer(stateNode.scrolledContentsLayer().toRepresentation(adoptiveTree.preferredLayerRepresentation()));
 }
 
-ScrollingStateOverflowScrollingNode::~ScrollingStateOverflowScrollingNode()
-{
-}
+ScrollingStateOverflowScrollingNode::~ScrollingStateOverflowScrollingNode() = default;
 
 Ref<ScrollingStateNode> ScrollingStateOverflowScrollingNode::clone(ScrollingStateTree& adoptiveTree)
 {
     return adoptRef(*new ScrollingStateOverflowScrollingNode(*this, adoptiveTree));
 }
     
-void ScrollingStateOverflowScrollingNode::setScrolledContentsLayer(const LayerRepresentation& layerRepresentation)
+void ScrollingStateOverflowScrollingNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
 {
-    if (layerRepresentation == m_scrolledContentsLayer)
-        return;
+    ts << "Overflow scrolling node";
     
-    m_scrolledContentsLayer = layerRepresentation;
-    setPropertyChanged(ScrolledContentsLayer);
-}
-
-void ScrollingStateOverflowScrollingNode::dumpProperties(TextStream& ts, int indent) const
-{
-    ts << "(" << "Overflow scrolling node" << "\n";
-    
-    ScrollingStateScrollingNode::dumpProperties(ts, indent);
-    
-    if (m_scrolledContentsLayer.layerID()) {
-        writeIndent(ts, indent + 1);
-        ts << "(scrolled contents layer " << m_scrolledContentsLayer.layerID() << ")\n";
-    }
+    ScrollingStateScrollingNode::dumpProperties(ts, behavior);
 }
 
 } // namespace WebCore

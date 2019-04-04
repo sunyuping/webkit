@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,94 +33,43 @@
 
 namespace JSC { namespace FTL {
 
-LazySlowPath::LazySlowPath(
-#if FTL_USES_B3
-    CodeLocationJump patchableJump, CodeLocationLabel done,
-#else // FTL_USES_B3
-    CodeLocationLabel patchpoint,
-#endif // FTL_USES_B3
-    CodeLocationLabel exceptionTarget,
-    const RegisterSet& usedRegisters, CallSiteIndex callSiteIndex, RefPtr<Generator> generator
-#if !FTL_USES_B3
-    , GPRReg newZeroReg, ScratchRegisterAllocator scratchRegisterAllocator
-#endif // !FTL_USES_B3
-    )
-#if FTL_USES_B3
-    : m_patchableJump(patchableJump)
-    , m_done(done)
-#else // FTL_USES_B3
-    : m_patchpoint(patchpoint)
-#endif // FTL_USES_B3
-    , m_exceptionTarget(exceptionTarget)
-    , m_usedRegisters(usedRegisters)
-    , m_callSiteIndex(callSiteIndex)
-    , m_generator(generator)
-#if !FTL_USES_B3
-    , m_newZeroValueRegister(newZeroReg)
-    , m_scratchRegisterAllocator(scratchRegisterAllocator)
-#endif // !FTL_USES_B3
+LazySlowPath::~LazySlowPath()
 {
 }
 
-LazySlowPath::~LazySlowPath()
+void LazySlowPath::initialize(
+    CodeLocationJump<JSInternalPtrTag> patchableJump, CodeLocationLabel<JSInternalPtrTag> done,
+    CodeLocationLabel<ExceptionHandlerPtrTag> exceptionTarget,
+    const RegisterSet& usedRegisters, CallSiteIndex callSiteIndex, RefPtr<Generator> generator
+    )
 {
+    m_patchableJump = patchableJump;
+    m_done = done;
+    m_exceptionTarget = exceptionTarget;
+    m_usedRegisters = usedRegisters;
+    m_callSiteIndex = callSiteIndex;
+    m_generator = generator;
 }
 
 void LazySlowPath::generate(CodeBlock* codeBlock)
 {
     RELEASE_ASSERT(!m_stub);
 
-    VM& vm = *codeBlock->vm();
-
-    CCallHelpers jit(&vm, codeBlock);
+    CCallHelpers jit(codeBlock);
     GenerationParams params;
     CCallHelpers::JumpList exceptionJumps;
     params.exceptionJumps = m_exceptionTarget ? &exceptionJumps : nullptr;
     params.lazySlowPath = this;
 
-#if !FTL_USES_B3
-    ScratchRegisterAllocator::PreservedState preservedState =
-        m_scratchRegisterAllocator.preserveReusedRegistersByPushing(jit, ScratchRegisterAllocator::ExtraStackSpace::NoExtraSpace);
-    // This is needed because LLVM may create a stackmap location that is the register SP.
-    // But on arm64, SP is also the same register number as ZR, so LLVM is telling us that it has
-    // proven something is zero. Our MASM isn't universally compatible with arm64's context dependent
-    // notion of SP meaning ZR. We just make things easier by ensuring we do the necessary move of zero
-    // into a non-SP register.
-    if (m_newZeroValueRegister != InvalidGPRReg)
-        jit.move(CCallHelpers::TrustedImm32(0), m_newZeroValueRegister);
-#endif // !FTL_USES_B3
-
     m_generator->run(jit, params);
 
-#if !FTL_USES_B3
-    CCallHelpers::Label doneLabel;
-    CCallHelpers::Jump jumpToEndOfPatchpoint;
-    if (preservedState.numberOfBytesPreserved) {
-        doneLabel = jit.label();
-        m_scratchRegisterAllocator.restoreReusedRegistersByPopping(jit, preservedState);
-        jumpToEndOfPatchpoint = jit.jump();
-    }
-#endif // !FTL_USES_B3
-
-    LinkBuffer linkBuffer(vm, jit, codeBlock, JITCompilationMustSucceed);
-#if FTL_USES_B3
+    LinkBuffer linkBuffer(jit, codeBlock, JITCompilationMustSucceed);
     linkBuffer.link(params.doneJumps, m_done);
-#else // FTL_USES_B3
-    if (preservedState.numberOfBytesPreserved) {
-        linkBuffer.link(params.doneJumps, linkBuffer.locationOf(doneLabel));
-        linkBuffer.link(jumpToEndOfPatchpoint, m_patchpoint.labelAtOffset(MacroAssembler::maxJumpReplacementSize()));
-    } else
-        linkBuffer.link(params.doneJumps, m_patchpoint.labelAtOffset(MacroAssembler::maxJumpReplacementSize()));
-#endif // FTL_USES_B3
     if (m_exceptionTarget)
         linkBuffer.link(exceptionJumps, m_exceptionTarget);
-    m_stub = FINALIZE_CODE_FOR(codeBlock, linkBuffer, ("Lazy slow path call stub"));
+    m_stub = FINALIZE_CODE_FOR(codeBlock, linkBuffer, JITStubRoutinePtrTag, "Lazy slow path call stub");
 
-#if FTL_USES_B3
-    MacroAssembler::repatchJump(m_patchableJump, CodeLocationLabel(m_stub.code()));
-#else // FTL_USES_B3
-    MacroAssembler::replaceWithJump(m_patchpoint, CodeLocationLabel(m_stub.code()));
-#endif // FTL_USES_B3
+    MacroAssembler::repatchJump(m_patchableJump, CodeLocationLabel<JITStubRoutinePtrTag>(m_stub.code()));
 }
 
 } } // namespace JSC::FTL

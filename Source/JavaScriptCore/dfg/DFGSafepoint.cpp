@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,7 +47,8 @@ bool Safepoint::Result::didGetCancelled()
 }
 
 Safepoint::Safepoint(Plan& plan, Result& result)
-    : m_plan(plan)
+    : m_vm(plan.vm())
+    , m_plan(plan)
     , m_didCallBegin(false)
     , m_result(result)
 {
@@ -59,7 +60,7 @@ Safepoint::Safepoint(Plan& plan, Result& result)
 Safepoint::~Safepoint()
 {
     RELEASE_ASSERT(m_didCallBegin);
-    if (ThreadData* data = m_plan.threadData) {
+    if (ThreadData* data = m_plan.threadData()) {
         RELEASE_ASSERT(data->m_safepoint == this);
         data->m_rightToRun.lock();
         data->m_safepoint = nullptr;
@@ -76,10 +77,10 @@ void Safepoint::begin()
 {
     RELEASE_ASSERT(!m_didCallBegin);
     m_didCallBegin = true;
-    if (ThreadData* data = m_plan.threadData) {
+    if (ThreadData* data = m_plan.threadData()) {
         RELEASE_ASSERT(!data->m_safepoint);
         data->m_safepoint = this;
-        data->m_rightToRun.unlock();
+        data->m_rightToRun.unlockFairly();
     }
 }
 
@@ -114,11 +115,12 @@ void Safepoint::cancel()
     
     m_plan.cancel();
     m_result.m_didGetCancelled = true;
+    m_vm = nullptr;
 }
 
-VM& Safepoint::vm() const
+VM* Safepoint::vm() const
 {
-    return m_plan.vm;
+    return m_vm;
 }
 
 } } // namespace JSC::DFG

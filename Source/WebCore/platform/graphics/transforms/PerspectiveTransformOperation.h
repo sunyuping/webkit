@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef PerspectiveTransformOperation_h
-#define PerspectiveTransformOperation_h
+#pragma once
 
 #include "Length.h"
 #include "LengthFunctions.h"
@@ -40,7 +39,7 @@ public:
         return adoptRef(*new PerspectiveTransformOperation(p));
     }
 
-    virtual Ref<TransformOperation> clone() const override
+    Ref<TransformOperation> clone() const override
     {
         return adoptRef(*new PerspectiveTransformOperation(m_p));
     }
@@ -48,24 +47,25 @@ public:
     Length perspective() const { return m_p; }
     
 private:
-    virtual bool isIdentity() const override { return !floatValueForLength(m_p, 1); }
-    virtual bool isAffectedByTransformOrigin() const override { return !isIdentity(); }
+    bool isIdentity() const override { return !floatValueForLength(m_p, 1); }
+    bool isAffectedByTransformOrigin() const override { return !isIdentity(); }
+    bool isRepresentableIn2D() const final { return false; }
 
-    virtual OperationType type() const override { return PERSPECTIVE; }
-    virtual bool isSameType(const TransformOperation& o) const override { return o.type() == PERSPECTIVE; }
+    bool operator==(const TransformOperation&) const override;
 
-    virtual bool operator==(const TransformOperation&) const override;
-
-    virtual bool apply(TransformationMatrix& transform, const FloatSize&) const override
+    bool apply(TransformationMatrix& transform, const FloatSize&) const override
     {
         transform.applyPerspective(floatValueForLength(m_p, 1));
         return false;
     }
 
-    virtual Ref<TransformOperation> blend(const TransformOperation* from, double progress, bool blendToIdentity = false) override;
+    Ref<TransformOperation> blend(const TransformOperation* from, double progress, bool blendToIdentity = false) override;
+
+    void dump(WTF::TextStream&) const final;
 
     PerspectiveTransformOperation(const Length& p)
-        : m_p(p)
+        : TransformOperation(PERSPECTIVE)
+        , m_p(p)
     {
         ASSERT(p.isFixed());
     }
@@ -76,5 +76,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(WebCore::PerspectiveTransformOperation, type() == WebCore::TransformOperation::PERSPECTIVE)
-
-#endif // PerspectiveTransformOperation_h

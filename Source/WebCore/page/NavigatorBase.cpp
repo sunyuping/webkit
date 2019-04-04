@@ -27,8 +27,12 @@
 #include "config.h"
 #include "NavigatorBase.h"
 
-#include "NetworkStateNotifier.h"
+#include "Document.h"
+#include "ServiceWorkerContainer.h"
+#include <mutex>
+#include <wtf/Language.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/NumberOfCores.h>
 #include <wtf/text/WTFString.h>
 
 #if OS(LINUX)
@@ -36,49 +40,57 @@
 #include <wtf/StdLibExtras.h>
 #endif
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #include "Device.h"
 #endif
 
 #ifndef WEBCORE_NAVIGATOR_PLATFORM
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #define WEBCORE_NAVIGATOR_PLATFORM deviceName()
 #elif OS(MAC_OS_X) && (CPU(PPC) || CPU(PPC64))
-#define WEBCORE_NAVIGATOR_PLATFORM "MacPPC"
+#define WEBCORE_NAVIGATOR_PLATFORM "MacPPC"_s
 #elif OS(MAC_OS_X) && (CPU(X86) || CPU(X86_64))
-#define WEBCORE_NAVIGATOR_PLATFORM "MacIntel"
+#define WEBCORE_NAVIGATOR_PLATFORM "MacIntel"_s
 #elif OS(WINDOWS)
-#define WEBCORE_NAVIGATOR_PLATFORM "Win32"
+#define WEBCORE_NAVIGATOR_PLATFORM "Win32"_s
 #else
-#define WEBCORE_NAVIGATOR_PLATFORM ""
+#define WEBCORE_NAVIGATOR_PLATFORM emptyString()
 #endif
 #endif // ifndef WEBCORE_NAVIGATOR_PLATFORM
 
 #ifndef WEBCORE_NAVIGATOR_PRODUCT
-#define WEBCORE_NAVIGATOR_PRODUCT "Gecko"
+#define WEBCORE_NAVIGATOR_PRODUCT "Gecko"_s
 #endif // ifndef WEBCORE_NAVIGATOR_PRODUCT
 
 #ifndef WEBCORE_NAVIGATOR_PRODUCT_SUB
-#define WEBCORE_NAVIGATOR_PRODUCT_SUB "20030107"
+#define WEBCORE_NAVIGATOR_PRODUCT_SUB "20030107"_s
 #endif // ifndef WEBCORE_NAVIGATOR_PRODUCT_SUB
 
 #ifndef WEBCORE_NAVIGATOR_VENDOR
-#define WEBCORE_NAVIGATOR_VENDOR "Apple Computer, Inc."
+#define WEBCORE_NAVIGATOR_VENDOR "Apple Computer, Inc."_s
 #endif // ifndef WEBCORE_NAVIGATOR_VENDOR
 
 #ifndef WEBCORE_NAVIGATOR_VENDOR_SUB
-#define WEBCORE_NAVIGATOR_VENDOR_SUB ""
+#define WEBCORE_NAVIGATOR_VENDOR_SUB emptyString()
 #endif // ifndef WEBCORE_NAVIGATOR_VENDOR_SUB
 
 namespace WebCore {
 
-NavigatorBase::~NavigatorBase()
+NavigatorBase::NavigatorBase(ScriptExecutionContext* context)
+#if ENABLE(SERVICE_WORKER)
+    : m_serviceWorkerContainer(makeUniqueRef<ServiceWorkerContainer>(context, *this))
+#endif
 {
+#if !ENABLE(SERVICE_WORKER)
+    UNUSED_PARAM(context);
+#endif
 }
 
-String NavigatorBase::appName() const
+NavigatorBase::~NavigatorBase() = default;
+
+String NavigatorBase::appName()
 {
-    return "Netscape";
+    return "Netscape"_s;
 }
 
 String NavigatorBase::appVersion() const
@@ -88,47 +100,68 @@ String NavigatorBase::appVersion() const
     return agent.substring(agent.find('/') + 1);
 }
 
-String NavigatorBase::platform() const
+const String& NavigatorBase::platform() const
 {
+    static NeverDestroyed<String> defaultPlatform = WEBCORE_NAVIGATOR_PLATFORM;
 #if OS(LINUX)
     if (!String(WEBCORE_NAVIGATOR_PLATFORM).isEmpty())
-        return WEBCORE_NAVIGATOR_PLATFORM;
+        return defaultPlatform;
     struct utsname osname;
-    static NeverDestroyed<String> platformName(uname(&osname) >= 0 ? String(osname.sysname) + String(" ") + String(osname.machine) : emptyString());
+    static NeverDestroyed<String> platformName(uname(&osname) >= 0 ? String(osname.sysname) + " "_str + String(osname.machine) : emptyString());
     return platformName;
 #else
-    return WEBCORE_NAVIGATOR_PLATFORM;
+    return defaultPlatform;
 #endif
 }
 
-String NavigatorBase::appCodeName() const
+String NavigatorBase::appCodeName()
 {
-    return "Mozilla";
+    return "Mozilla"_s;
 }
 
-String NavigatorBase::product() const
+String NavigatorBase::product()
 {
     return WEBCORE_NAVIGATOR_PRODUCT;
 }
 
-String NavigatorBase::productSub() const
+String NavigatorBase::productSub()
 {
     return WEBCORE_NAVIGATOR_PRODUCT_SUB;
 }
 
-String NavigatorBase::vendor() const
+String NavigatorBase::vendor()
 {
     return WEBCORE_NAVIGATOR_VENDOR;
 }
 
-String NavigatorBase::vendorSub() const
+String NavigatorBase::vendorSub()
 {
     return WEBCORE_NAVIGATOR_VENDOR_SUB;
 }
 
-bool NavigatorBase::onLine() const
+String NavigatorBase::language()
 {
-    return networkStateNotifier().onLine();
+    return defaultLanguage();
 }
+
+Vector<String> NavigatorBase::languages()
+{
+    // We intentionally expose only the primary language for privacy reasons.
+    return { defaultLanguage() };
+}
+
+#if ENABLE(SERVICE_WORKER)
+ServiceWorkerContainer& NavigatorBase::serviceWorker()
+{
+    return m_serviceWorkerContainer;
+}
+
+ExceptionOr<ServiceWorkerContainer&> NavigatorBase::serviceWorker(ScriptExecutionContext& context)
+{
+    if (is<Document>(context) && downcast<Document>(context).isSandboxed(SandboxOrigin))
+        return Exception { SecurityError, "Service Worker is disabled because the context is sandboxed and lacks the 'allow-same-origin' flag" };
+    return m_serviceWorkerContainer.get();
+}
+#endif
 
 } // namespace WebCore

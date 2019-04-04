@@ -12,21 +12,35 @@
 
 #include "common/utilities.h"
 #include "libANGLE/FramebufferAttachment.h"
+#include "libANGLE/Image.h"
 #include "libANGLE/Texture.h"
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/d3d/RenderTargetD3D.h"
 
 namespace gl
 {
-
 Renderbuffer::Renderbuffer(rx::RenderbufferImpl *impl, GLuint id)
-  : FramebufferAttachmentObject(id),
-    mRenderbuffer(impl),
-    mWidth(0),
-    mHeight(0),
-    mInternalFormat(GL_RGBA4),
-    mSamples(0)
+    : egl::ImageSibling(id),
+      mRenderbuffer(impl),
+      mLabel(),
+      mWidth(0),
+      mHeight(0),
+      mFormat(GL_RGBA4),
+      mSamples(0),
+      mInitState(InitState::MayNeedInit)
 {
+}
+
+Error Renderbuffer::onDestroy(const Context *context)
+{
+    ANGLE_TRY(orphanImages(context));
+
+    if (mRenderbuffer)
+    {
+        ANGLE_TRY(mRenderbuffer->onDestroy(context));
+    }
+
+    return NoError();
 }
 
 Renderbuffer::~Renderbuffer()
@@ -34,46 +48,80 @@ Renderbuffer::~Renderbuffer()
     SafeDelete(mRenderbuffer);
 }
 
-Error Renderbuffer::setStorage(GLenum internalformat, size_t width, size_t height)
+void Renderbuffer::setLabel(const std::string &label)
 {
-    Error error = mRenderbuffer->setStorage(internalformat, width, height);
-    if (error.isError())
-    {
-        return error;
-    }
+    mLabel = label;
+}
 
-    mWidth = static_cast<GLsizei>(width);
-    mHeight = static_cast<GLsizei>(height);
-    mInternalFormat = internalformat;
+const std::string &Renderbuffer::getLabel() const
+{
+    return mLabel;
+}
+
+Error Renderbuffer::setStorage(const Context *context,
+                               GLenum internalformat,
+                               size_t width,
+                               size_t height)
+{
+    ANGLE_TRY(orphanImages(context));
+
+    ANGLE_TRY(mRenderbuffer->setStorage(context, internalformat, width, height));
+
+    mWidth          = static_cast<GLsizei>(width);
+    mHeight         = static_cast<GLsizei>(height);
+    mFormat         = Format(internalformat);
     mSamples = 0;
 
-    return Error(GL_NO_ERROR);
+    mInitState = InitState::MayNeedInit;
+    mDirtyChannel.signal(mInitState);
+
+    return NoError();
 }
 
-Error Renderbuffer::setStorageMultisample(size_t samples, GLenum internalformat, size_t width, size_t height)
+Error Renderbuffer::setStorageMultisample(const Context *context,
+                                          size_t samples,
+                                          GLenum internalformat,
+                                          size_t width,
+                                          size_t height)
 {
-    Error error = mRenderbuffer->setStorageMultisample(samples, internalformat, width, height);
-    if (error.isError())
-    {
-        return error;
-    }
+    ANGLE_TRY(orphanImages(context));
 
-    mWidth = static_cast<GLsizei>(width);
-    mHeight = static_cast<GLsizei>(height);
-    mInternalFormat = internalformat;
-    mSamples = static_cast<GLsizei>(samples);
+    ANGLE_TRY(
+        mRenderbuffer->setStorageMultisample(context, samples, internalformat, width, height));
 
-    return Error(GL_NO_ERROR);
+    mWidth          = static_cast<GLsizei>(width);
+    mHeight         = static_cast<GLsizei>(height);
+    mFormat         = Format(internalformat);
+    mSamples        = static_cast<GLsizei>(samples);
+
+    mInitState = InitState::MayNeedInit;
+    mDirtyChannel.signal(mInitState);
+
+    return NoError();
 }
 
-rx::RenderbufferImpl *Renderbuffer::getImplementation()
+Error Renderbuffer::setStorageEGLImageTarget(const Context *context, egl::Image *image)
+{
+    ANGLE_TRY(orphanImages(context));
+
+    ANGLE_TRY(mRenderbuffer->setStorageEGLImageTarget(context, image));
+
+    setTargetImage(context, image);
+
+    mWidth          = static_cast<GLsizei>(image->getWidth());
+    mHeight         = static_cast<GLsizei>(image->getHeight());
+    mFormat         = Format(image->getFormat());
+    mSamples        = 0;
+
+    mInitState = image->sourceInitState();
+    mDirtyChannel.signal(mInitState);
+
+    return NoError();
+}
+
+rx::RenderbufferImpl *Renderbuffer::getImplementation() const
 {
     ASSERT(mRenderbuffer);
-    return mRenderbuffer;
-}
-
-const rx::RenderbufferImpl *Renderbuffer::getImplementation() const
-{
     return mRenderbuffer;
 }
 
@@ -87,9 +135,9 @@ GLsizei Renderbuffer::getHeight() const
     return mHeight;
 }
 
-GLenum Renderbuffer::getInternalFormat() const
+const Format &Renderbuffer::getFormat() const
 {
-    return mInternalFormat;
+    return mFormat;
 }
 
 GLsizei Renderbuffer::getSamples() const
@@ -99,32 +147,89 @@ GLsizei Renderbuffer::getSamples() const
 
 GLuint Renderbuffer::getRedSize() const
 {
-    return GetInternalFormatInfo(mInternalFormat).redBits;
+    return mFormat.info->redBits;
 }
 
 GLuint Renderbuffer::getGreenSize() const
 {
-    return GetInternalFormatInfo(mInternalFormat).greenBits;
+    return mFormat.info->greenBits;
 }
 
 GLuint Renderbuffer::getBlueSize() const
 {
-    return GetInternalFormatInfo(mInternalFormat).blueBits;
+    return mFormat.info->blueBits;
 }
 
 GLuint Renderbuffer::getAlphaSize() const
 {
-    return GetInternalFormatInfo(mInternalFormat).alphaBits;
+    return mFormat.info->alphaBits;
 }
 
 GLuint Renderbuffer::getDepthSize() const
 {
-    return GetInternalFormatInfo(mInternalFormat).depthBits;
+    return mFormat.info->depthBits;
 }
 
 GLuint Renderbuffer::getStencilSize() const
 {
-    return GetInternalFormatInfo(mInternalFormat).stencilBits;
+    return mFormat.info->stencilBits;
 }
 
+void Renderbuffer::onAttach(const Context *context)
+{
+    addRef();
 }
+
+void Renderbuffer::onDetach(const Context *context)
+{
+    release(context);
+}
+
+GLuint Renderbuffer::getId() const
+{
+    return id();
+}
+
+Extents Renderbuffer::getAttachmentSize(const gl::ImageIndex & /*imageIndex*/) const
+{
+    return Extents(mWidth, mHeight, 1);
+}
+
+const Format &Renderbuffer::getAttachmentFormat(GLenum /*binding*/,
+                                                const ImageIndex & /*imageIndex*/) const
+{
+    return getFormat();
+}
+GLsizei Renderbuffer::getAttachmentSamples(const ImageIndex & /*imageIndex*/) const
+{
+    return getSamples();
+}
+
+InitState Renderbuffer::initState(const gl::ImageIndex & /*imageIndex*/) const
+{
+    if (isEGLImageTarget())
+    {
+        return sourceEGLImageInitState();
+    }
+
+    return mInitState;
+}
+
+void Renderbuffer::setInitState(const gl::ImageIndex & /*imageIndex*/, InitState initState)
+{
+    if (isEGLImageTarget())
+    {
+        setSourceEGLImageInitState(initState);
+    }
+    else
+    {
+        mInitState = initState;
+    }
+}
+
+rx::FramebufferAttachmentObjectImpl *Renderbuffer::getAttachmentImpl() const
+{
+    return mRenderbuffer;
+}
+
+}  // namespace gl

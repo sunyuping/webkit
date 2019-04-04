@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,12 +37,12 @@
 
 namespace JSC {
 
-void disassemble(const MacroAssemblerCodePtr& codePtr, size_t size, const char* prefix, PrintStream& out, InstructionSubsetHint subsetHint)
+void disassemble(const MacroAssemblerCodePtr<DisassemblyPtrTag>& codePtr, size_t size, const char* prefix, PrintStream& out)
 {
-    if (tryToDisassemble(codePtr, size, prefix, out, subsetHint))
+    if (tryToDisassemble(codePtr, size, prefix, out))
         return;
     
-    out.printf("%sdisassembly not available for range %p...%p\n", prefix, codePtr.executableAddress(), static_cast<char*>(codePtr.executableAddress()) + size);
+    out.printf("%sdisassembly not available for range %p...%p\n", prefix, codePtr.untaggedExecutableAddress(), codePtr.untaggedExecutableAddress<char*>() + size);
 }
 
 namespace {
@@ -64,17 +64,16 @@ public:
     }
     
     char* header { nullptr };
-    MacroAssemblerCodeRef codeRef;
+    MacroAssemblerCodeRef<DisassemblyPtrTag> codeRef;
     size_t size { 0 };
     const char* prefix { nullptr };
-    InstructionSubsetHint subsetHint { MacroAssemblerSubset };
 };
 
 class AsynchronousDisassembler {
 public:
     AsynchronousDisassembler()
     {
-        createThread("Asynchronous Disassembler", [&] () { run(); });
+        Thread::create("Asynchronous Disassembler", [&] () { run(); });
     }
     
     void enqueue(std::unique_ptr<DisassemblyTask> task)
@@ -107,9 +106,7 @@ private:
             }
 
             dataLog(task->header);
-            disassemble(
-                task->codeRef.code(), task->size, task->prefix, WTF::dataFile(),
-                task->subsetHint);
+            disassemble(task->codeRef.code(), task->size, task->prefix, WTF::dataFile());
         }
     }
     
@@ -131,15 +128,13 @@ AsynchronousDisassembler& asynchronousDisassembler()
 } // anonymous namespace
 
 void disassembleAsynchronously(
-    const CString& header, const MacroAssemblerCodeRef& codeRef, size_t size, const char* prefix,
-    InstructionSubsetHint subsetHint)
+    const CString& header, const MacroAssemblerCodeRef<DisassemblyPtrTag>& codeRef, size_t size, const char* prefix)
 {
     std::unique_ptr<DisassemblyTask> task = std::make_unique<DisassemblyTask>();
     task->header = strdup(header.data()); // Yuck! We need this because CString does racy refcounting.
     task->codeRef = codeRef;
     task->size = size;
     task->prefix = prefix;
-    task->subsetHint = subsetHint;
     
     asynchronousDisassembler().enqueue(WTFMove(task));
 }

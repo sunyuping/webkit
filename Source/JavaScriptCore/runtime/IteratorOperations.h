@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2016 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,24 +24,83 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IteratorOperations_h
-#define IteratorOperations_h
+#pragma once
 
 #include "JSCJSValue.h"
 #include "JSObject.h"
+#include "ThrowScope.h"
 
 namespace JSC {
 
-JSValue iteratorNext(ExecState*, JSValue iterator, JSValue);
-JSValue iteratorNext(ExecState*, JSValue iterator);
-JSValue iteratorValue(ExecState*, JSValue iterator);
-bool iteratorComplete(ExecState*, JSValue iterator);
-JSValue iteratorStep(ExecState*, JSValue iterator);
-void iteratorClose(ExecState*, JSValue iterator);
+struct IterationRecord {
+    JSValue iterator;
+    JSValue nextMethod;
+};
+
+JSValue iteratorNext(ExecState*, IterationRecord, JSValue argument = JSValue());
+JS_EXPORT_PRIVATE JSValue iteratorValue(ExecState*, JSValue iterResult);
+bool iteratorComplete(ExecState*, JSValue iterResult);
+JS_EXPORT_PRIVATE JSValue iteratorStep(ExecState*, IterationRecord);
+JS_EXPORT_PRIVATE void iteratorClose(ExecState*, IterationRecord);
 JS_EXPORT_PRIVATE JSObject* createIteratorResultObject(ExecState*, JSValue, bool done);
 
 Structure* createIteratorResultObjectStructure(VM&, JSGlobalObject&);
 
+JS_EXPORT_PRIVATE JSValue iteratorMethod(ExecState&, JSObject*);
+JS_EXPORT_PRIVATE IterationRecord iteratorForIterable(ExecState&, JSObject*, JSValue iteratorMethod);
+JS_EXPORT_PRIVATE IterationRecord iteratorForIterable(ExecState*, JSValue iterable);
+
+JS_EXPORT_PRIVATE JSValue iteratorMethod(ExecState&, JSObject*);
+JS_EXPORT_PRIVATE bool hasIteratorMethod(ExecState&, JSValue);
+
+template<typename CallBackType>
+void forEachInIterable(ExecState* exec, JSValue iterable, const CallBackType& callback)
+{
+    auto& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    IterationRecord iterationRecord = iteratorForIterable(exec, iterable);
+    RETURN_IF_EXCEPTION(scope, void());
+    while (true) {
+        JSValue next = iteratorStep(exec, iterationRecord);
+        if (UNLIKELY(scope.exception()) || next.isFalse())
+            return;
+
+        JSValue nextValue = iteratorValue(exec, next);
+        RETURN_IF_EXCEPTION(scope, void());
+
+        callback(vm, exec, nextValue);
+        if (UNLIKELY(scope.exception())) {
+            scope.release();
+            iteratorClose(exec, iterationRecord);
+            return;
+        }
+    }
 }
 
-#endif // !defined(IteratorOperations_h)
+template<typename CallBackType>
+void forEachInIterable(ExecState& state, JSObject* iterable, JSValue iteratorMethod, const CallBackType& callback)
+{
+    auto& vm = state.vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto iterationRecord = iteratorForIterable(state, iterable, iteratorMethod);
+    RETURN_IF_EXCEPTION(scope, void());
+    while (true) {
+        JSValue next = iteratorStep(&state, iterationRecord);
+        if (UNLIKELY(scope.exception()) || next.isFalse())
+            return;
+
+        JSValue nextValue = iteratorValue(&state, next);
+        RETURN_IF_EXCEPTION(scope, void());
+
+        callback(vm, state, nextValue);
+        if (UNLIKELY(scope.exception())) {
+            scope.release();
+            iteratorClose(&state, iterationRecord);
+            return;
+        }
+    }
+}
+
+} // namespace JSC

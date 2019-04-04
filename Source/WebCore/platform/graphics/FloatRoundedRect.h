@@ -37,6 +37,7 @@
 namespace WebCore {
 
 class FloatRoundedRect {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     class Radii {
     public:
@@ -131,6 +132,8 @@ public:
     bool isRenderable() const;
     bool xInterceptsAtY(float y, float& minXIntercept, float& maxXIntercept) const;
 
+    bool intersectionIsRectangular(const FloatRect&) const;
+
 private:
     FloatRect m_rect;
     Radii m_radii;
@@ -188,7 +191,7 @@ inline float calcBorderRadiiConstraintScaleFor(const FloatRect& rect, const Floa
     return factor;
 }
 
-WEBCORE_EXPORT TextStream& operator<<(TextStream&, const FloatRoundedRect&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FloatRoundedRect&);
 
 } // namespace WebCore
 

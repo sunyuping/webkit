@@ -53,7 +53,8 @@ public:
         for (BasicBlock* block : m_graph.blocksInPreOrder())
             fixupBlock(block);
         
-        cleanVariables(m_graph.m_arguments);
+        for (auto& argumentsVector : m_graph.m_rootToArguments.values())
+            cleanVariables(argumentsVector);
 
         // Just do a basic Phantom/Check clean-up.
         for (BlockIndex blockIndex = m_graph.numBlocks(); blockIndex--;) {
@@ -70,6 +71,15 @@ public:
                     if (node->children.isEmpty())
                         continue;
                     break;
+                case CheckVarargs: {
+                    bool isEmpty = true;
+                    m_graph.doToChildren(node, [&] (Edge edge) {
+                        isEmpty &= !edge;
+                    });
+                    if (isEmpty)
+                        continue;
+                    break;
+                }
                 default:
                     break;
                 }
@@ -93,7 +103,7 @@ private:
             for (unsigned phiIndex = 0; phiIndex < block->phis.size(); ++phiIndex) {
                 Node* phi = block->phis[phiIndex];
                 if (!phi->shouldGenerate()) {
-                    m_graph.m_allocator.free(phi);
+                    m_graph.deleteNode(phi);
                     block->phis[phiIndex--] = block->phis.last();
                     block->phis.removeLast();
                 }
@@ -125,7 +135,7 @@ private:
                 continue;
             }
             
-            node->remove();
+            node->remove(m_graph);
             node->setRefCount(1);
         }
 
@@ -150,7 +160,6 @@ private:
 
 bool performDCE(Graph& graph)
 {
-    SamplingRegion samplingRegion("DFG DCE Phase");
     return runPhase<DCEPhase>(graph);
 }
 

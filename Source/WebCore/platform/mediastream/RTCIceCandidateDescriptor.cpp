@@ -30,15 +30,15 @@
 
 #include "config.h"
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(WEB_RTC)
 
 #include "RTCIceCandidateDescriptor.h"
 
 namespace WebCore {
 
-PassRefPtr<RTCIceCandidateDescriptor> RTCIceCandidateDescriptor::create(const String& candidate, const String& sdpMid, unsigned short sdpMLineIndex)
+Ref<RTCIceCandidateDescriptor> RTCIceCandidateDescriptor::create(const String& candidate, const String& sdpMid, unsigned short sdpMLineIndex)
 {
-    return adoptRef(new RTCIceCandidateDescriptor(candidate, sdpMid, sdpMLineIndex));
+    return adoptRef(*new RTCIceCandidateDescriptor(candidate, sdpMid, sdpMLineIndex));
 }
 
 RTCIceCandidateDescriptor::RTCIceCandidateDescriptor(const String& candidate, const String& sdpMid, unsigned short sdpMLineIndex)
@@ -48,10 +48,8 @@ RTCIceCandidateDescriptor::RTCIceCandidateDescriptor(const String& candidate, co
 {
 }
 
-RTCIceCandidateDescriptor::~RTCIceCandidateDescriptor()
-{
-}
+RTCIceCandidateDescriptor::~RTCIceCandidateDescriptor() = default;
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(WEB_RTC)

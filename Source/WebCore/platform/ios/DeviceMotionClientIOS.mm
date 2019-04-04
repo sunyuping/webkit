@@ -29,7 +29,7 @@
 
 #import "WebCoreMotionManager.h"
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
 
 namespace WebCore {
 
@@ -77,14 +77,12 @@ void DeviceMotionClientIOS::deviceMotionControllerDestroyed()
     [m_motionManager removeMotionClient:this];
 }
 
-void DeviceMotionClientIOS::motionChanged(double xAcceleration, double yAcceleration, double zAcceleration,
-                                             double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity,
-                                             double xRotationRate, double yRotationRate, double zRotationRate)
+void DeviceMotionClientIOS::motionChanged(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, double xRotationRate, double yRotationRate, double zRotationRate)
 {
     if (!m_updating)
         return;
 
-#if PLATFORM(IOS_SIMULATOR)
+#if PLATFORM(IOS_FAMILY_SIMULATOR)
     UNUSED_PARAM(xAcceleration);
     UNUSED_PARAM(yAcceleration);
     UNUSED_PARAM(zAcceleration);
@@ -95,35 +93,24 @@ void DeviceMotionClientIOS::motionChanged(double xAcceleration, double yAccelera
     UNUSED_PARAM(yRotationRate);
     UNUSED_PARAM(zRotationRate);
 
-    RefPtr<DeviceMotionData::Acceleration> accelerationIncludingGravity = DeviceMotionData::Acceleration::create(false, 0,
-                                                                                                                 false, 0,
-                                                                                                                 false, 0);
-    RefPtr<DeviceMotionData::Acceleration> acceleration = DeviceMotionData::Acceleration::create(false, 0,
-                                                                                                 false, 0,
-                                                                                                 false, 0);
-    RefPtr<DeviceMotionData::RotationRate> rotationRate = DeviceMotionData::RotationRate::create(false, 0,
-                                                                                                 false, 0,
-                                                                                                 false, 0);
+    auto accelerationIncludingGravity = DeviceMotionData::Acceleration::create();
+    auto acceleration = DeviceMotionData::Acceleration::create();
+    auto rotationRate = DeviceMotionData::RotationRate::create();
 #else
-    RefPtr<DeviceMotionData::Acceleration> accelerationIncludingGravity = DeviceMotionData::Acceleration::create(true, xAccelerationIncludingGravity,
-                                                                                                                 true, yAccelerationIncludingGravity,
-                                                                                                                 true, zAccelerationIncludingGravity);
-    RefPtr<DeviceMotionData::Acceleration> acceleration = 0;
-    RefPtr<DeviceMotionData::RotationRate> rotationRate = 0;
-    if ([m_motionManager gyroAvailable]) {
-        acceleration = DeviceMotionData::Acceleration::create(true, xAcceleration,
-                                                              true, yAcceleration,
-                                                              true, zAcceleration);
-        rotationRate = DeviceMotionData::RotationRate::create(true, xRotationRate,
-                                                              true, yRotationRate,
-                                                              true, zRotationRate);
-    }
-#endif // PLATFORM(IOS_SIMULATOR)
+    auto accelerationIncludingGravity = DeviceMotionData::Acceleration::create(xAccelerationIncludingGravity, yAccelerationIncludingGravity, zAccelerationIncludingGravity);
 
-    m_currentDeviceMotionData = DeviceMotionData::create(WTFMove(acceleration), WTFMove(accelerationIncludingGravity), WTFMove(rotationRate), true, kMotionUpdateInterval);
+    RefPtr<DeviceMotionData::Acceleration> acceleration;
+    RefPtr<DeviceMotionData::RotationRate> rotationRate;
+    if ([m_motionManager gyroAvailable]) {
+        acceleration = DeviceMotionData::Acceleration::create(xAcceleration, yAcceleration, zAcceleration);
+        rotationRate = DeviceMotionData::RotationRate::create(xRotationRate, yRotationRate, zRotationRate);
+    }
+#endif // PLATFORM(IOS_FAMILY_SIMULATOR)
+
+    m_currentDeviceMotionData = DeviceMotionData::create(WTFMove(acceleration), WTFMove(accelerationIncludingGravity), WTFMove(rotationRate), kMotionUpdateInterval);
     m_controller->didChangeDeviceMotion(m_currentDeviceMotionData.get());
 }
 
 } // namespace WebCore
 
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)

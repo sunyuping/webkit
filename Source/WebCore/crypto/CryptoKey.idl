@@ -24,31 +24,21 @@
  */
 
 enum KeyType {
-    "secret",
     "public",
-    "private"
+    "private",
+    "secret"
 };
 
-enum KeyUsage {
-    "encrypt",
-    "decrypt",
-    "sign",
-    "verify",
-    "deriveKey",
-    "deriveBits",
-    "wrapKey",
-    "unwrapKey"
-};
+typedef (CryptoKeyAlgorithm or CryptoAesKeyAlgorithm or CryptoEcKeyAlgorithm or CryptoHmacKeyAlgorithm or CryptoRsaHashedKeyAlgorithm or CryptoRsaKeyAlgorithm) KeyAlgorithm;
 
 [
-    Conditional=SUBTLE_CRYPTO,
+    Conditional=WEB_CRYPTO,
+    Exposed=(Window,Worker),
     GenerateIsReachable=Impl,
-    InterfaceName=Key,
-    NoInterfaceObject,
     SkipVTableValidation
 ] interface CryptoKey {
     readonly attribute KeyType type;
     readonly attribute boolean extractable;
-    [Custom] readonly attribute Algorithm algorithm;
-    readonly attribute KeyUsage[] usages;
+    [CachedAttribute] readonly attribute KeyAlgorithm algorithm;
+    [CachedAttribute] readonly attribute sequence<CryptoKeyUsage> usages;
 };

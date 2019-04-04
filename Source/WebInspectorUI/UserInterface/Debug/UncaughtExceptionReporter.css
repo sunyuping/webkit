@@ -31,14 +31,16 @@
     bottom: 0;
     z-index: var(--z-index-uncaught-exception-sheet);
     background-color: hsl(0, 0%, 96%);
+    overflow: scroll;
 }
 
 .uncaught-exception-sheet {
-    padding: 50px 55px 50px 65px;
-    font-family: '-webkit-system-font';
-    font-size: 11pt;
-    overflow-y: auto;
     min-width: 400px;
+    -webkit-margin-start: 65px;
+    -webkit-margin-end: 55px;
+    padding: 50px 0;
+    font-family: -webkit-system-font, sans-serif;
+    font-size: 11pt;
     color: hsl(0, 0%, 40%);
 }
 
@@ -68,19 +70,33 @@
 }
 
 .uncaught-exception-sheet h1 > img {
-    height: 35px;
     position: relative;
-    margin-left: -50px;
+    height: 35px;
     margin-top: -5px;
+    -webkit-margin-start: -50px;
+}
+
+body[dir=ltr] .uncaught-exception-sheet h1 > img {
     float: left;
 }
 
+body[dir=rtl] .uncaught-exception-sheet h1 > img {
+    float: right;
+}
+
 .uncaught-exception-sheet h2 > img {
-    height: 25px;
     position: relative;
-    margin-left: -45px;
-    margin-top: 0px;
+    height: 25px;
+    margin-top: 0;
+    -webkit-margin-start: -45px;
+}
+
+body[dir=ltr] .uncaught-exception-sheet h2 > img {
     float: left;
+}
+
+body[dir=rtl] .uncaught-exception-sheet h2 > img {
+    float: right;
 }
 
 .uncaught-exception-sheet dl {
@@ -93,21 +109,24 @@
 }
 
 .uncaught-exception-sheet dd {
-    margin: 10px 0 20px 10px;
+    margin: 10px 0 20px;
+    -webkit-margin-start: 10px;
     font-size: 13px;
     line-height: 18px;
 }
 
 .uncaught-exception-sheet ul {
+    margin: 0;
+    -webkit-margin-start: 2px;
+    padding: 0;
     font-family: Menlo, monospace;
     font-size: 12px;
     line-height: 18px;
-    margin: 0 0 0 2px;
-    padding: 0;
 }
 
 .uncaught-exception-sheet li {
     margin-bottom: 20px;
     word-break: break-word;
     -webkit-user-select: text;
+    white-space: pre;
 }

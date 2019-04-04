@@ -31,66 +31,73 @@
 
 namespace JSC {
 
-static EncodedJSValue JSC_HOST_CALL numberConstructorFuncIsFinite(ExecState*);
 static EncodedJSValue JSC_HOST_CALL numberConstructorFuncIsInteger(ExecState*);
-static EncodedJSValue JSC_HOST_CALL numberConstructorFuncIsNaN(ExecState*);
 static EncodedJSValue JSC_HOST_CALL numberConstructorFuncIsSafeInteger(ExecState*);
 
 } // namespace JSC
+
+#include "NumberConstructor.lut.h"
 
 namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(NumberConstructor);
 
-const ClassInfo NumberConstructor::s_info = { "Function", &InternalFunction::s_info, 0, CREATE_METHOD_TABLE(NumberConstructor) };
+const ClassInfo NumberConstructor::s_info = { "Function", &InternalFunction::s_info, &numberConstructorTable, nullptr, CREATE_METHOD_TABLE(NumberConstructor) };
+
+/* Source for NumberConstructor.lut.h
+@begin numberConstructorTable
+  isFinite       JSBuiltin                           DontEnum|Function 1
+  isNaN          JSBuiltin                           DontEnum|Function 1
+  isSafeInteger  numberConstructorFuncIsSafeInteger  DontEnum|Function 1
+@end
+*/
+
+static EncodedJSValue JSC_HOST_CALL callNumberConstructor(ExecState*);
+static EncodedJSValue JSC_HOST_CALL constructNumberConstructor(ExecState*);
 
 NumberConstructor::NumberConstructor(VM& vm, Structure* structure)
-    : InternalFunction(vm, structure)
+    : InternalFunction(vm, structure, callNumberConstructor, constructNumberConstructor)
 {
 }
 
 void NumberConstructor::finishCreation(VM& vm, NumberPrototype* numberPrototype)
 {
-    Base::finishCreation(vm, NumberPrototype::info()->className);
-    ASSERT(inherits(info()));
+    Base::finishCreation(vm, vm.propertyNames->Number.string(), NameVisibility::Visible, NameAdditionMode::WithoutStructureTransition);
+    ASSERT(inherits(vm, info()));
 
-    // Number.Prototype
-    putDirectWithoutTransition(vm, vm.propertyNames->prototype, numberPrototype, DontEnum | DontDelete | ReadOnly);
+    JSGlobalObject* globalObject = numberPrototype->globalObject(vm);
 
-    // no. of arguments for constructor
-    putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(1), ReadOnly | DontEnum | DontDelete);
+    putDirectWithoutTransition(vm, vm.propertyNames->prototype, numberPrototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(1), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
 
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "EPSILON"), jsDoubleNumber(std::numeric_limits<double>::epsilon()), DontDelete | DontEnum | ReadOnly);
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "MAX_VALUE"), jsDoubleNumber(1.7976931348623157E+308), DontDelete | DontEnum | ReadOnly);
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "MIN_VALUE"), jsDoubleNumber(5E-324), DontDelete | DontEnum | ReadOnly);
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "MAX_SAFE_INTEGER"), jsDoubleNumber(9007199254740991.0), DontDelete | DontEnum | ReadOnly);
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "MIN_SAFE_INTEGER"), jsDoubleNumber(-9007199254740991.0), DontDelete | DontEnum | ReadOnly);
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "NEGATIVE_INFINITY"), jsDoubleNumber(-std::numeric_limits<double>::infinity()), DontDelete | DontEnum | ReadOnly);
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "POSITIVE_INFINITY"), jsDoubleNumber(std::numeric_limits<double>::infinity()), DontDelete | DontEnum | ReadOnly);
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "NaN"), jsNaN(), DontDelete | DontEnum | ReadOnly);
+    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "EPSILON"), jsDoubleNumber(std::numeric_limits<double>::epsilon()), PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "MAX_VALUE"), jsDoubleNumber(1.7976931348623157E+308), PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "MIN_VALUE"), jsDoubleNumber(5E-324), PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "MAX_SAFE_INTEGER"), jsDoubleNumber(maxSafeInteger()), PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "MIN_SAFE_INTEGER"), jsDoubleNumber(minSafeInteger()), PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "NEGATIVE_INFINITY"), jsDoubleNumber(-std::numeric_limits<double>::infinity()), PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "POSITIVE_INFINITY"), jsDoubleNumber(std::numeric_limits<double>::infinity()), PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
+    putDirectWithoutTransition(vm, vm.propertyNames->NaN, jsNaN(), PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly);
 
-    putDirectNativeFunctionWithoutTransition(vm, numberPrototype->globalObject(), Identifier::fromString(&vm, "isFinite"), 1, numberConstructorFuncIsFinite, NoIntrinsic, DontEnum);
-    putDirectNativeFunctionWithoutTransition(vm, numberPrototype->globalObject(), Identifier::fromString(&vm, "isInteger"), 1, numberConstructorFuncIsInteger, NoIntrinsic, DontEnum);
-    putDirectNativeFunctionWithoutTransition(vm, numberPrototype->globalObject(), Identifier::fromString(&vm, "isNaN"), 1, numberConstructorFuncIsNaN, NoIntrinsic, DontEnum);
-    putDirectNativeFunctionWithoutTransition(vm, numberPrototype->globalObject(), Identifier::fromString(&vm, "isSafeInteger"), 1, numberConstructorFuncIsSafeInteger, NoIntrinsic, DontEnum);
-    putDirectNativeFunctionWithoutTransition(vm, numberPrototype->globalObject(), Identifier::fromString(&vm, "parseFloat"), 1, globalFuncParseFloat, NoIntrinsic, DontEnum);
-    putDirectWithoutTransition(vm, Identifier::fromString(&vm, "parseInt"), numberPrototype->globalObject()->parseIntFunction(), DontEnum);
+    putDirectWithoutTransition(vm, vm.propertyNames->parseInt, numberPrototype->globalObject(vm)->parseIntFunction(), static_cast<unsigned>(PropertyAttribute::DontEnum));
+    putDirectWithoutTransition(vm, vm.propertyNames->parseFloat, numberPrototype->globalObject(vm)->parseFloatFunction(), static_cast<unsigned>(PropertyAttribute::DontEnum));
+
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(Identifier::fromString(&vm, "isInteger"), numberConstructorFuncIsInteger, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, NumberIsIntegerIntrinsic);
 }
 
 // ECMA 15.7.1
-static EncodedJSValue JSC_HOST_CALL constructWithNumberConstructor(ExecState* exec)
+static EncodedJSValue JSC_HOST_CALL constructNumberConstructor(ExecState* exec)
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
     double n = exec->argumentCount() ? exec->uncheckedArgument(0).toNumber(exec) : 0;
-    NumberObject* object = NumberObject::create(exec->vm(), InternalFunction::createSubclassStructure(exec, exec->newTarget(), asInternalFunction(exec->callee())->globalObject()->numberObjectStructure()));
+    RETURN_IF_EXCEPTION(scope, encodedJSValue());
+    Structure* structure = InternalFunction::createSubclassStructure(exec, exec->newTarget(), exec->lexicalGlobalObject()->numberObjectStructure());
+    RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
-    object->setInternalValue(exec->vm(), jsNumber(n));
+    NumberObject* object = NumberObject::create(vm, structure);
+    object->setInternalValue(vm, jsNumber(n));
     return JSValue::encode(object);
-}
-
-ConstructType NumberConstructor::getConstructData(JSCell*, ConstructData& constructData)
-{
-    constructData.native.function = constructWithNumberConstructor;
-    return ConstructTypeHost;
 }
 
 // ECMA 15.7.2
@@ -99,40 +106,10 @@ static EncodedJSValue JSC_HOST_CALL callNumberConstructor(ExecState* exec)
     return JSValue::encode(jsNumber(!exec->argumentCount() ? 0 : exec->uncheckedArgument(0).toNumber(exec)));
 }
 
-CallType NumberConstructor::getCallData(JSCell*, CallData& callData)
-{
-    callData.native.function = callNumberConstructor;
-    return CallTypeHost;
-}
-
-// ECMA-262 20.1.2.2
-static EncodedJSValue JSC_HOST_CALL numberConstructorFuncIsFinite(ExecState* exec)
-{
-    JSValue argument = exec->argument(0);
-    return JSValue::encode(jsBoolean(argument.isNumber() && (argument.isInt32() || std::isfinite(argument.asDouble()))));
-}
-
 // ECMA-262 20.1.2.3
 static EncodedJSValue JSC_HOST_CALL numberConstructorFuncIsInteger(ExecState* exec)
 {
-    JSValue argument = exec->argument(0);
-    bool isInteger;
-    if (argument.isInt32())
-        isInteger = true;
-    else if (!argument.isDouble())
-        isInteger = false;
-    else {
-        double number = argument.asDouble();
-        isInteger = std::isfinite(number) && trunc(number) == number;
-    }
-    return JSValue::encode(jsBoolean(isInteger));
-}
-
-// ECMA-262 20.1.2.4
-static EncodedJSValue JSC_HOST_CALL numberConstructorFuncIsNaN(ExecState* exec)
-{
-    JSValue argument = exec->argument(0);
-    return JSValue::encode(jsBoolean(argument.isDouble() && std::isnan(argument.asDouble())));
+    return JSValue::encode(jsBoolean(NumberConstructor::isIntegerImpl(exec->argument(0))));
 }
 
 // ECMA-262 20.1.2.5
@@ -146,7 +123,7 @@ static EncodedJSValue JSC_HOST_CALL numberConstructorFuncIsSafeInteger(ExecState
         isInteger = false;
     else {
         double number = argument.asDouble();
-        isInteger = trunc(number) == number && std::abs(number) <= 9007199254740991.0;
+        isInteger = trunc(number) == number && std::abs(number) <= maxSafeInteger();
     }
     return JSValue::encode(jsBoolean(isInteger));
 }

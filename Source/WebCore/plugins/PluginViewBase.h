@@ -22,8 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PluginViewBase_h
-#define PluginViewBase_h
+#pragma once
 
 #include "AudioHardwareListener.h"
 #include "BridgeJSC.h"
@@ -31,6 +30,10 @@
 #include "ScrollTypes.h"
 #include "Widget.h"
 #include <wtf/text/WTFString.h>
+
+#if PLATFORM(COCOA)
+typedef struct objc_object* id;
+#endif
 
 namespace JSC {
     class ExecState;
@@ -47,7 +50,7 @@ class Scrollbar;
 class PluginViewBase : public Widget {
 public:
     virtual PlatformLayer* platformLayer() const { return 0; }
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     virtual bool willProvidePluginLayer() const { return false; }
     virtual void attachPluginLayer() { }
     virtual void detachPluginLayer() { }
@@ -73,7 +76,7 @@ public:
 
     virtual bool shouldAllowNavigationFromDrags() const { return false; }
 
-    virtual bool isPluginViewBase() const { return true; }
+    bool isPluginViewBase() const override { return true; }
     virtual bool shouldNotAddLayer() const { return false; }
 
     virtual AudioHardwareActivityType audioHardwareActivity() const { return AudioHardwareActivityType::Unknown; }
@@ -81,7 +84,13 @@ public:
     virtual void setJavaScriptPaused(bool) { }
 
     virtual RefPtr<JSC::Bindings::Instance> bindingInstance() { return nullptr; }
+    
+    virtual void willDetachRenderer() { }
 
+#if PLATFORM(COCOA)
+    virtual id accessibilityAssociatedPluginParentForElement(Element*) const { return nullptr; }
+#endif
+    
 protected:
     explicit PluginViewBase(PlatformWidget widget = 0) : Widget(widget) { }
 };
@@ -89,5 +98,3 @@ protected:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_WIDGET(PluginViewBase, isPluginViewBase())
-
-#endif // PluginViewBase_h

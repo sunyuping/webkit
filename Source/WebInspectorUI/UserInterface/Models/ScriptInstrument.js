@@ -23,16 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ScriptInstrument = class ScriptInstrument extends WebInspector.Instrument
+WI.ScriptInstrument = class ScriptInstrument extends WI.Instrument
 {
     // Protected
 
     get timelineRecordType()
     {
-        return WebInspector.TimelineRecord.Type.Script;
+        return WI.TimelineRecord.Type.Script;
     }
 
-    startInstrumentation()
+    startInstrumentation(initiatedByBackend)
     {
         // COMPATIBILITY (iOS 9): Legacy backends did not have ScriptProfilerAgent. They use TimelineAgent.
         if (!window.ScriptProfilerAgent) {
@@ -43,10 +43,11 @@ WebInspector.ScriptInstrument = class ScriptInstrument extends WebInspector.Inst
         // FIXME: Make this some UI visible option.
         const includeSamples = true;
 
-        ScriptProfilerAgent.startTracking(includeSamples);
+        if (!initiatedByBackend)
+            ScriptProfilerAgent.startTracking(includeSamples);
     }
 
-    stopInstrumentation()
+    stopInstrumentation(initiatedByBackend)
     {
         // COMPATIBILITY (iOS 9): Legacy backends did not have ScriptProfilerAgent. They use TimelineAgent.
         if (!window.ScriptProfilerAgent) {
@@ -54,7 +55,7 @@ WebInspector.ScriptInstrument = class ScriptInstrument extends WebInspector.Inst
             return;
         }
 
-        ScriptProfilerAgent.stopTracking();
+        if (!initiatedByBackend)
+            ScriptProfilerAgent.stopTracking();
     }
-
 };

@@ -7,7 +7,6 @@
   }
 
   if (window.layoutTestController) {
-    layoutTestController.overridePreference("WebKitWebGLEnabled", "1");
     layoutTestController.dumpAsText();
     layoutTestController.waitUntilDone();
 
@@ -40,11 +39,11 @@
 
     notifyFinished: function(url) {
       var iframe = document.getElementById("iframe");
-      iframe.innerHTML = "";
       if (numFailures > 0) {
         log("FAIL", "red");
       } else {
         log("PASS", "green");
+        iframe.innerHTML = "";
       }
 
       if (window.layoutTestController) {

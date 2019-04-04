@@ -20,26 +20,28 @@
  * Boston, MA 02110-1301, USA.
  */
 
-interface SVGMatrix {
+// FIXME: This should be removed and made an alias to DOMRect.
+[
+    SkipVTableValidation
+] interface SVGMatrix {
     // FIXME: these attributes should all be floats but since we implement
     // AffineTransform with doubles setting these as doubles makes more sense.
-    [StrictTypeChecking] attribute unrestricted double a;
-    [StrictTypeChecking] attribute unrestricted double b;
-    [StrictTypeChecking] attribute unrestricted double c;
-    [StrictTypeChecking] attribute unrestricted double d;
-    [StrictTypeChecking] attribute unrestricted double e;
-    [StrictTypeChecking] attribute unrestricted double f;
+    attribute unrestricted double a;
+    attribute unrestricted double b;
+    attribute unrestricted double c;
+    attribute unrestricted double d;
+    attribute unrestricted double e;
+    attribute unrestricted double f;
 
-    [StrictTypeChecking] SVGMatrix multiply(SVGMatrix secondMatrix);
-    [RaisesException] SVGMatrix inverse();
-    [Immutable, StrictTypeChecking] SVGMatrix translate(unrestricted float x, unrestricted float y);
-    [Immutable, StrictTypeChecking] SVGMatrix scale(unrestricted float scaleFactor);
-    [Immutable, StrictTypeChecking] SVGMatrix scaleNonUniform(unrestricted float scaleFactorX, unrestricted float scaleFactorY);
-    [Immutable, StrictTypeChecking] SVGMatrix rotate(unrestricted float angle);
-    [StrictTypeChecking, RaisesException] SVGMatrix rotateFromVector(unrestricted float x, unrestricted float y);
-    [Immutable] SVGMatrix flipX();
-    [Immutable] SVGMatrix flipY();
-    [Immutable, StrictTypeChecking] SVGMatrix skewX(unrestricted float angle);
-    [Immutable, StrictTypeChecking] SVGMatrix skewY(unrestricted float angle);
+    [NewObject] SVGMatrix multiply(SVGMatrix secondMatrix);
+    [MayThrowException, NewObject] SVGMatrix inverse();
+    [NewObject] SVGMatrix translate(unrestricted float x, unrestricted float y);
+    [NewObject] SVGMatrix scale(unrestricted float scaleFactor);
+    [NewObject] SVGMatrix scaleNonUniform(unrestricted float scaleFactorX, unrestricted float scaleFactorY);
+    [NewObject] SVGMatrix rotate(unrestricted float angle);
+    [MayThrowException, NewObject] SVGMatrix rotateFromVector(unrestricted float x, unrestricted float y);
+    [NewObject] SVGMatrix flipX();
+    [NewObject] SVGMatrix flipY();
+    [NewObject] SVGMatrix skewX(unrestricted float angle);
+    [NewObject] SVGMatrix skewY(unrestricted float angle);
 };
-

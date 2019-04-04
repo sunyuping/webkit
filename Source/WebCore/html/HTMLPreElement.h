@@ -20,24 +20,22 @@
  *
  */
 
-#ifndef HTMLPreElement_h
-#define HTMLPreElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLPreElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLPreElement);
 public:
     static Ref<HTMLPreElement> create(const QualifiedName&, Document&);
 
 private:
     HTMLPreElement(const QualifiedName&, Document&);
 
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
+    bool isPresentationAttribute(const QualifiedName&) const final;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
 };
 
 } // namespace WebCore
-
-#endif // HTMLPreElement_h

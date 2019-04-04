@@ -27,10 +27,10 @@
  */
 
 [
-    NoInterfaceObject,
-    ImplementationLacksVTable
+    ImplementationLacksVTable,
+    EnabledAtRuntime=WebSQL,
 ] interface SQLResultSet {
     readonly attribute SQLResultSetRowList rows;
-    [GetterRaisesException] readonly attribute long insertId;
+    readonly attribute long long insertId;
     readonly attribute long rowsAffected;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,26 +23,79 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RuntimeApplicationChecks_h
-#define RuntimeApplicationChecks_h
+#pragma once
+
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
-WEBCORE_EXPORT bool applicationIsAOLInstantMessenger();
-WEBCORE_EXPORT bool applicationIsAdobeInstaller();
-WEBCORE_EXPORT bool applicationIsAperture();
-WEBCORE_EXPORT bool applicationIsAppleMail();
-WEBCORE_EXPORT bool applicationIsIBooks();
-WEBCORE_EXPORT bool applicationIsITunes();
-WEBCORE_EXPORT bool applicationIsMicrosoftMessenger();
-WEBCORE_EXPORT bool applicationIsMicrosoftMyDay();
-WEBCORE_EXPORT bool applicationIsMicrosoftOutlook();
-bool applicationIsQuickenEssentials();
-WEBCORE_EXPORT bool applicationIsSafari();
-bool applicationIsSolidStateNetworksDownloader();
-WEBCORE_EXPORT bool applicationIsVersions();
-WEBCORE_EXPORT bool applicationIsHRBlock();
+WEBCORE_EXPORT void setPresentingApplicationPID(int);
+WEBCORE_EXPORT int presentingApplicationPID();
+
+#if PLATFORM(WIN)
+inline bool isInWebProcess() { return false; }
+#elif !PLATFORM(COCOA)
+inline bool isInWebProcess() { return true; }
+#endif
+
+#if PLATFORM(COCOA)
+
+bool isInWebProcess();
+
+WEBCORE_EXPORT void setApplicationSDKVersion(uint32_t);
+uint32_t applicationSDKVersion();
+
+WEBCORE_EXPORT void setApplicationBundleIdentifier(const String&);
+String applicationBundleIdentifier();
+
+#if PLATFORM(MAC)
+
+namespace MacApplication {
+
+WEBCORE_EXPORT bool isAOLInstantMessenger();
+WEBCORE_EXPORT bool isAdobeInstaller();
+WEBCORE_EXPORT bool isAperture();
+WEBCORE_EXPORT bool isAppleMail();
+WEBCORE_EXPORT bool isIBooks();
+WEBCORE_EXPORT bool isITunes();
+WEBCORE_EXPORT bool isMicrosoftMessenger();
+WEBCORE_EXPORT bool isMicrosoftMyDay();
+WEBCORE_EXPORT bool isMicrosoftOutlook();
+bool isQuickenEssentials();
+WEBCORE_EXPORT bool isSafari();
+bool isSolidStateNetworksDownloader();
+WEBCORE_EXPORT bool isVersions();
+WEBCORE_EXPORT bool isHRBlock();
+WEBCORE_EXPORT bool isIAdProducer();
+
+} // MacApplication
+
+#endif // PLATFORM(MAC)
+
+#if PLATFORM(IOS_FAMILY)
+
+namespace IOSApplication {
+
+WEBCORE_EXPORT bool isMobileMail();
+WEBCORE_EXPORT bool isMobileSafari();
+WEBCORE_EXPORT bool isWebBookmarksD();
+WEBCORE_EXPORT bool isDumpRenderTree();
+bool isMobileStore();
+bool isSpringBoard();
+WEBCORE_EXPORT bool isWebApp();
+WEBCORE_EXPORT bool isWebProcess();
+WEBCORE_EXPORT bool isIBooks();
+bool isIBooksStorytime();
+WEBCORE_EXPORT bool isTheSecretSocietyHiddenMystery();
+WEBCORE_EXPORT bool isCardiogram();
+WEBCORE_EXPORT bool isNike();
+bool isMoviStarPlus();
+WEBCORE_EXPORT bool isFirefox();
+
+} // IOSApplication
+
+#endif // PLATFORM(IOS_FAMILY)
+
+#endif // PLATFORM(COCOA)
 
 } // namespace WebCore
-
-#endif // RuntimeApplicationChecks_h

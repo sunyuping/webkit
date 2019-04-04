@@ -23,31 +23,34 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef InlineTextBoxStyle_h
-#define InlineTextBoxStyle_h
+#pragma once
 
 #include "FontCascade.h"
-#include "RenderStyle.h"
+#include "RenderStyleConstants.h"
 
 namespace WebCore {
     
 class InlineTextBox;
-
-inline float textDecorationStrokeThickness(float fontSize)
-{
-    const float textDecorationBaseFontSize = 16;
-    return fontSize / textDecorationBaseFontSize;
-}
+class RenderStyle;
 
 inline float wavyOffsetFromDecoration()
 {
-    return 2;
+    return 1;
 }
 
+struct WavyStrokeParameters {
+    // Distance between decoration's axis and Bezier curve's control points.
+    // The height of the curve is based on this distance. Increases the curve's height
+    // as fontSize increases to make the curve look better.
+    float controlPointDistance { 0 };
+
+    // Increment used to form the diamond shape between start point (p1), control
+    // points and end point (p2) along the axis of the decoration. The curve gets
+    // wider as font size increases.
+    float step { 0 };
+};
+WavyStrokeParameters getWavyStrokeParameters(float fontSize);
 GlyphOverflow visualOverflowForDecorations(const RenderStyle& lineStyle, const InlineTextBox*);
-void getWavyStrokeParameters(float strokeThickness, float& controlPointDistance, float& step);
-int computeUnderlineOffset(TextUnderlinePosition, const FontMetrics&, const InlineTextBox*, int textDecorationThickness);
+float computeUnderlineOffset(TextUnderlinePosition, TextUnderlineOffset, const FontMetrics&, const InlineTextBox*, float textDecorationThickness);
     
-}
-
-#endif
+} // namespace WebCore

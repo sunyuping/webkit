@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2019 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -20,91 +20,121 @@
  *
  */
 
-#ifndef ClassInfo_h
-#define ClassInfo_h
+#pragma once
 
 #include "CallFrame.h"
 #include "ConstructData.h"
-#include "CopyToken.h"
-#include "JSCell.h"
+#include "JSCast.h"
+
+#if CPU(ARM64E)
+#include <ptrauth.h>
+#endif
+
+namespace WTF {
+class PrintStream;
+};
 
 namespace JSC {
 
+class HeapSnapshotBuilder;
 class JSArrayBufferView;
+class Snippet;
 struct HashTable;
 
+#if CPU(ARM64E)
+#define WTF_METHOD_TABLE_ENTRY(method) \
+    __ptrauth(ptrauth_key_process_independent_code, true, ptrauth_string_discriminator("MethodTable." #method)) method
+#else
+#define WTF_METHOD_TABLE_ENTRY(method) method
+#endif
+
 struct MethodTable {
-    typedef void (*DestroyFunctionPtr)(JSCell*);
-    DestroyFunctionPtr destroy;
+    using DestroyFunctionPtr = void (*)(JSCell*);
+    DestroyFunctionPtr WTF_METHOD_TABLE_ENTRY(destroy);
 
-    typedef void (*VisitChildrenFunctionPtr)(JSCell*, SlotVisitor&);
-    VisitChildrenFunctionPtr visitChildren;
+    using VisitChildrenFunctionPtr = void (*)(JSCell*, SlotVisitor&);
+    VisitChildrenFunctionPtr WTF_METHOD_TABLE_ENTRY(visitChildren);
 
-    typedef void (*CopyBackingStoreFunctionPtr)(JSCell*, CopyVisitor&, CopyToken);
-    CopyBackingStoreFunctionPtr copyBackingStore;
+    using GetCallDataFunctionPtr = CallType (*)(JSCell*, CallData&);
+    GetCallDataFunctionPtr WTF_METHOD_TABLE_ENTRY(getCallData);
 
-    typedef CallType (*GetCallDataFunctionPtr)(JSCell*, CallData&);
-    GetCallDataFunctionPtr getCallData;
+    using GetConstructDataFunctionPtr = ConstructType (*)(JSCell*, ConstructData&);
+    GetConstructDataFunctionPtr WTF_METHOD_TABLE_ENTRY(getConstructData);
 
-    typedef ConstructType (*GetConstructDataFunctionPtr)(JSCell*, ConstructData&);
-    GetConstructDataFunctionPtr getConstructData;
+    using PutFunctionPtr = bool (*)(JSCell*, ExecState*, PropertyName propertyName, JSValue, PutPropertySlot&);
+    PutFunctionPtr WTF_METHOD_TABLE_ENTRY(put);
 
-    typedef void (*PutFunctionPtr)(JSCell*, ExecState*, PropertyName propertyName, JSValue, PutPropertySlot&);
-    PutFunctionPtr put;
+    using PutByIndexFunctionPtr = bool (*)(JSCell*, ExecState*, unsigned propertyName, JSValue, bool shouldThrow);
+    PutByIndexFunctionPtr WTF_METHOD_TABLE_ENTRY(putByIndex);
 
-    typedef void (*PutByIndexFunctionPtr)(JSCell*, ExecState*, unsigned propertyName, JSValue, bool shouldThrow);
-    PutByIndexFunctionPtr putByIndex;
+    using DeletePropertyFunctionPtr = bool (*)(JSCell*, ExecState*, PropertyName);
+    DeletePropertyFunctionPtr WTF_METHOD_TABLE_ENTRY(deleteProperty);
 
-    typedef bool (*DeletePropertyFunctionPtr)(JSCell*, ExecState*, PropertyName);
-    DeletePropertyFunctionPtr deleteProperty;
+    using DeletePropertyByIndexFunctionPtr = bool (*)(JSCell*, ExecState*, unsigned);
+    DeletePropertyByIndexFunctionPtr WTF_METHOD_TABLE_ENTRY(deletePropertyByIndex);
 
-    typedef bool (*DeletePropertyByIndexFunctionPtr)(JSCell*, ExecState*, unsigned);
-    DeletePropertyByIndexFunctionPtr deletePropertyByIndex;
+    using GetOwnPropertySlotFunctionPtr = bool (*)(JSObject*, ExecState*, PropertyName, PropertySlot&);
+    GetOwnPropertySlotFunctionPtr WTF_METHOD_TABLE_ENTRY(getOwnPropertySlot);
 
-    typedef bool (*GetOwnPropertySlotFunctionPtr)(JSObject*, ExecState*, PropertyName, PropertySlot&);
-    GetOwnPropertySlotFunctionPtr getOwnPropertySlot;
+    using GetOwnPropertySlotByIndexFunctionPtr = bool (*)(JSObject*, ExecState*, unsigned, PropertySlot&);
+    GetOwnPropertySlotByIndexFunctionPtr WTF_METHOD_TABLE_ENTRY(getOwnPropertySlotByIndex);
 
-    typedef bool (*GetOwnPropertySlotByIndexFunctionPtr)(JSObject*, ExecState*, unsigned, PropertySlot&);
-    GetOwnPropertySlotByIndexFunctionPtr getOwnPropertySlotByIndex;
+    using ToThisFunctionPtr = JSValue (*)(JSCell*, ExecState*, ECMAMode);
+    ToThisFunctionPtr WTF_METHOD_TABLE_ENTRY(toThis);
 
-    typedef JSValue (*ToThisFunctionPtr)(JSCell*, ExecState*, ECMAMode);
-    ToThisFunctionPtr toThis;
+    using DefaultValueFunctionPtr = JSValue (*)(const JSObject*, ExecState*, PreferredPrimitiveType);
+    DefaultValueFunctionPtr WTF_METHOD_TABLE_ENTRY(defaultValue);
 
-    typedef JSValue (*DefaultValueFunctionPtr)(const JSObject*, ExecState*, PreferredPrimitiveType);
-    DefaultValueFunctionPtr defaultValue;
+    using GetOwnPropertyNamesFunctionPtr = void (*)(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
+    GetOwnPropertyNamesFunctionPtr WTF_METHOD_TABLE_ENTRY(getOwnPropertyNames);
 
-    typedef void (*GetOwnPropertyNamesFunctionPtr)(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
-    GetOwnPropertyNamesFunctionPtr getOwnPropertyNames;
+    using GetOwnNonIndexPropertyNamesFunctionPtr = void (*)(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
+    GetOwnNonIndexPropertyNamesFunctionPtr WTF_METHOD_TABLE_ENTRY(getOwnNonIndexPropertyNames);
 
-    typedef void (*GetOwnNonIndexPropertyNamesFunctionPtr)(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
-    GetOwnNonIndexPropertyNamesFunctionPtr getOwnNonIndexPropertyNames;
+    using GetPropertyNamesFunctionPtr = void (*)(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
+    GetPropertyNamesFunctionPtr WTF_METHOD_TABLE_ENTRY(getPropertyNames);
 
-    typedef void (*GetPropertyNamesFunctionPtr)(JSObject*, ExecState*, PropertyNameArray&, EnumerationMode);
-    GetPropertyNamesFunctionPtr getPropertyNames;
+    using GetEnumerableLengthFunctionPtr = uint32_t (*)(ExecState*, JSObject*);
+    GetEnumerableLengthFunctionPtr WTF_METHOD_TABLE_ENTRY(getEnumerableLength);
 
-    typedef uint32_t (*GetEnumerableLengthFunctionPtr)(ExecState*, JSObject*);
-    GetEnumerableLengthFunctionPtr getEnumerableLength;
+    GetPropertyNamesFunctionPtr WTF_METHOD_TABLE_ENTRY(getStructurePropertyNames);
+    GetPropertyNamesFunctionPtr WTF_METHOD_TABLE_ENTRY(getGenericPropertyNames);
 
-    GetPropertyNamesFunctionPtr getStructurePropertyNames;
-    GetPropertyNamesFunctionPtr getGenericPropertyNames;
+    using ClassNameFunctionPtr = String (*)(const JSObject*, VM&);
+    ClassNameFunctionPtr WTF_METHOD_TABLE_ENTRY(className);
 
-    typedef String (*ClassNameFunctionPtr)(const JSObject*);
-    ClassNameFunctionPtr className;
+    using ToStringNameFunctionPtr = String (*)(const JSObject*, ExecState*);
+    ToStringNameFunctionPtr WTF_METHOD_TABLE_ENTRY(toStringName);
 
-    typedef bool (*CustomHasInstanceFunctionPtr)(JSObject*, ExecState*, JSValue);
-    CustomHasInstanceFunctionPtr customHasInstance;
+    using CustomHasInstanceFunctionPtr = bool (*)(JSObject*, ExecState*, JSValue);
+    CustomHasInstanceFunctionPtr WTF_METHOD_TABLE_ENTRY(customHasInstance);
 
-    typedef bool (*DefineOwnPropertyFunctionPtr)(JSObject*, ExecState*, PropertyName, const PropertyDescriptor&, bool);
-    DefineOwnPropertyFunctionPtr defineOwnProperty;
+    using DefineOwnPropertyFunctionPtr = bool (*)(JSObject*, ExecState*, PropertyName, const PropertyDescriptor&, bool);
+    DefineOwnPropertyFunctionPtr WTF_METHOD_TABLE_ENTRY(defineOwnProperty);
 
-    typedef ArrayBuffer* (*SlowDownAndWasteMemory)(JSArrayBufferView*);
-    SlowDownAndWasteMemory slowDownAndWasteMemory;
-    
-    typedef PassRefPtr<ArrayBufferView> (*GetTypedArrayImpl)(JSArrayBufferView*);
-    GetTypedArrayImpl getTypedArrayImpl;
+    using PreventExtensionsFunctionPtr = bool (*)(JSObject*, ExecState*);
+    PreventExtensionsFunctionPtr WTF_METHOD_TABLE_ENTRY(preventExtensions);
 
-    typedef void (*DumpToStreamFunctionPtr)(const JSCell*, PrintStream&);
-    DumpToStreamFunctionPtr dumpToStream;
+    using IsExtensibleFunctionPtr = bool (*)(JSObject*, ExecState*);
+    IsExtensibleFunctionPtr WTF_METHOD_TABLE_ENTRY(isExtensible);
+
+    using SetPrototypeFunctionPtr = bool (*)(JSObject*, ExecState*, JSValue, bool shouldThrowIfCantSet);
+    SetPrototypeFunctionPtr WTF_METHOD_TABLE_ENTRY(setPrototype);
+
+    using GetPrototypeFunctionPtr = JSValue (*)(JSObject*, ExecState*);
+    GetPrototypeFunctionPtr WTF_METHOD_TABLE_ENTRY(getPrototype);
+
+    using DumpToStreamFunctionPtr = void (*)(const JSCell*, PrintStream&);
+    DumpToStreamFunctionPtr WTF_METHOD_TABLE_ENTRY(dumpToStream);
+
+    using HeapSnapshotFunctionPtr = void (*)(JSCell*, HeapSnapshotBuilder&);
+    HeapSnapshotFunctionPtr WTF_METHOD_TABLE_ENTRY(heapSnapshot);
+
+    using EstimatedSizeFunctionPtr = size_t (*)(JSCell*, VM&);
+    EstimatedSizeFunctionPtr WTF_METHOD_TABLE_ENTRY(estimatedSize);
+
+    using VisitOutputConstraintsPtr = void (*)(JSCell*, SlotVisitor&);
+    VisitOutputConstraintsPtr WTF_METHOD_TABLE_ENTRY(visitOutputConstraints);
 };
 
 #define CREATE_MEMBER_CHECKER(member) \
@@ -129,7 +159,6 @@ struct MethodTable {
 #define CREATE_METHOD_TABLE(ClassName) { \
         &ClassName::destroy, \
         &ClassName::visitChildren, \
-        &ClassName::copyBackingStore, \
         &ClassName::getCallData, \
         &ClassName::getConstructData, \
         &ClassName::put, \
@@ -147,11 +176,17 @@ struct MethodTable {
         &ClassName::getStructurePropertyNames, \
         &ClassName::getGenericPropertyNames, \
         &ClassName::className, \
+        &ClassName::toStringName, \
         &ClassName::customHasInstance, \
         &ClassName::defineOwnProperty, \
-        &ClassName::slowDownAndWasteMemory, \
-        &ClassName::getTypedArrayImpl, \
-        &ClassName::dumpToStream \
+        &ClassName::preventExtensions, \
+        &ClassName::isExtensible, \
+        &ClassName::setPrototype, \
+        &ClassName::getPrototype, \
+        &ClassName::dumpToStream, \
+        &ClassName::heapSnapshot, \
+        &ClassName::estimatedSize, \
+        &ClassName::visitOutputConstraints, \
     }, \
     ClassName::TypedArrayStorageType
 
@@ -163,6 +198,11 @@ struct ClassInfo {
     // nullptrif there is none.
     const ClassInfo* parentClass;
 
+    static ptrdiff_t offsetOfParentClass()
+    {
+        return OBJECT_OFFSETOF(ClassInfo, parentClass);
+    }
+
     bool isSubClassOf(const ClassInfo* other) const
     {
         for (const ClassInfo* ci = this; ci; ci = ci->parentClass) {
@@ -172,18 +212,14 @@ struct ClassInfo {
         return false;
     }
 
-    bool hasStaticProperties() const
-    {
-        for (const ClassInfo* ci = this; ci; ci = ci->parentClass) {
-            if (ci->staticPropHashTable)
-                return true;
-        }
-        return false;
-    }
+    JS_EXPORT_PRIVATE void dump(PrintStream&) const;
 
     JS_EXPORT_PRIVATE bool hasStaticSetterOrReadonlyProperties() const;
 
     const HashTable* staticPropHashTable;
+
+    using CheckSubClassSnippetFunctionPtr = Ref<Snippet> (*)(void);
+    CheckSubClassSnippetFunctionPtr checkSubClassSnippet;
 
     MethodTable methodTable;
 
@@ -191,5 +227,3 @@ struct ClassInfo {
 };
 
 } // namespace JSC
-
-#endif // ClassInfo_h

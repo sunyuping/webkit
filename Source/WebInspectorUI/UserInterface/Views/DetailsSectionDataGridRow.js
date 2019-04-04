@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.DetailsSectionDataGridRow = class DetailsSectionDataGridRow extends WebInspector.DetailsSectionRow
+WI.DetailsSectionDataGridRow = class DetailsSectionDataGridRow extends WI.DetailsSectionRow
 {
     constructor(dataGrid, emptyMessage)
     {
@@ -49,11 +49,21 @@ WebInspector.DetailsSectionDataGridRow = class DetailsSectionDataGridRow extends
         this._dataGrid = dataGrid || null;
 
         if (dataGrid) {
-            dataGrid.element.classList.add("inline");
+            dataGrid.inline = true;
+            dataGrid.variableHeightRows = true;
 
             this.hideEmptyMessage();
             this.element.appendChild(dataGrid.element);
+
+            dataGrid.updateLayoutIfNeeded();
         } else
             this.showEmptyMessage();
+    }
+
+    sizeDidChange()
+    {
+        // FIXME: <https://webkit.org/b/152269> Web Inspector: Convert DetailsSection classes to use View
+        if (this._dataGrid)
+            this._dataGrid.sizeDidChange();
     }
 };

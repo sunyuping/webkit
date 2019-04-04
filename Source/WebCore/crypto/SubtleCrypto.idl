@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,20 +23,25 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+enum KeyFormat { "raw", "spki", "pkcs8", "jwk" };
+
+typedef (object or DOMString) AlgorithmIdentifier;
+
 [
-    Conditional=SUBTLE_CRYPTO,
-    InterfaceName=WebKitSubtleCrypto,
-    GenerateIsReachable=ImplDocument,
-    NoInterfaceObject,
+    Conditional=WEB_CRYPTO,
+    Exposed=(Window,Worker),
+    GenerateIsReachable=ImplScriptExecutionContext,
 ] interface SubtleCrypto {
-    [Custom] Promise encrypt(AlgorithmIdentifier algorithm, Key key, sequence<CryptoOperationData> data);
-    [Custom] Promise decrypt(AlgorithmIdentifier algorithm, Key key, sequence<CryptoOperationData> data);
-    [Custom] Promise sign(AlgorithmIdentifier algorithm, Key key, sequence<CryptoOperationData> data);
-    [Custom] Promise verify(AlgorithmIdentifier algorithm, Key key, CryptoOperationData signature, sequence<CryptoOperationData> data);
-    [Custom] Promise digest(AlgorithmIdentifier algorithm, sequence<CryptoOperationData> data);
-    [Custom] Promise generateKey(AlgorithmIdentifier algorithm, optional boolean extractable, optional sequence<KeyUsage> keyUsages);
-    [Custom] Promise importKey(KeyFormat format, CryptoOperationData keyData, AlgorithmIdentifier? algorithm, optional boolean extractable, optional sequence<KeyUsage> keyUsages);
-    [Custom] Promise exportKey(KeyFormat format, Key key);
-    [Custom] Promise wrapKey(KeyFormat format, Key key, Key wrappingKey, AlgorithmIdentifier wrapAlgorithm);
-    [Custom] Promise unwrapKey(KeyFormat format, CryptoOperationData wrappedKey, Key unwrappingKey, AlgorithmIdentifier unwrapAlgorithm, AlgorithmIdentifier? unwrappedKeyAlgorithm, optional boolean extractable, optional sequence<KeyUsage> keyUsages);
+    [CallWith=ExecState] Promise<any> encrypt(AlgorithmIdentifier algorithm, CryptoKey key, BufferSource data);
+    [CallWith=ExecState] Promise<any> decrypt(AlgorithmIdentifier algorithm, CryptoKey key, BufferSource data);
+    [CallWith=ExecState] Promise<any> sign(AlgorithmIdentifier algorithm, CryptoKey key, BufferSource data);
+    [CallWith=ExecState] Promise<any> verify(AlgorithmIdentifier algorithm, CryptoKey key, BufferSource signature, BufferSource data);
+    [CallWith=ExecState] Promise<any> digest(AlgorithmIdentifier algorithm, BufferSource data);
+    [CallWith=ExecState] Promise<any> generateKey(AlgorithmIdentifier algorithm, boolean extractable, sequence<CryptoKeyUsage> keyUsages);
+    [CallWith=ExecState] Promise<any> deriveKey(AlgorithmIdentifier algorithm, CryptoKey baseKey, AlgorithmIdentifier derivedKeyType, boolean extractable, sequence<CryptoKeyUsage> keyUsages);
+    [CallWith=ExecState] Promise<ArrayBuffer> deriveBits(AlgorithmIdentifier algorithm, CryptoKey baseKey, unsigned long length);
+    [CallWith=ExecState] Promise<CryptoKey> importKey(KeyFormat format, (BufferSource or JsonWebKey) keyData, AlgorithmIdentifier algorithm, boolean extractable, sequence<CryptoKeyUsage> keyUsages);
+    Promise<any> exportKey(KeyFormat format, CryptoKey key);
+    [CallWith=ExecState] Promise<any> wrapKey(KeyFormat format, CryptoKey key, CryptoKey wrappingKey, AlgorithmIdentifier wrapAlgorithm);
+    [CallWith=ExecState] Promise<CryptoKey> unwrapKey(KeyFormat format, BufferSource wrappedKey, CryptoKey unwrappingKey, AlgorithmIdentifier unwrapAlgorithm, AlgorithmIdentifier unwrappedKeyAlgorithm, boolean extractable, sequence<CryptoKeyUsage> keyUsages);
 };

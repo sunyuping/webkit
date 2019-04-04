@@ -26,61 +26,46 @@
 #import "config.h"
 #import "CDMSessionAVContentKeySession.h"
 
-#if ENABLE(ENCRYPTED_MEDIA_V2) && ENABLE(MEDIA_SOURCE)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
-#import "CDM.h"
 #import "CDMPrivateMediaSourceAVFObjC.h"
-#import "ExceptionCode.h"
-#import "FileSystem.h"
+#import "LegacyCDM.h"
 #import "Logging.h"
 #import "MediaPlayer.h"
-#import "SoftLinking.h"
 #import "SourceBufferPrivateAVFObjC.h"
-#import "UUID.h"
 #import "WebCoreNSErrorExtras.h"
 #import <AVFoundation/AVError.h>
 #import <CoreMedia/CMBase.h>
+#import <JavaScriptCore/TypedArrayInlines.h>
 #import <objc/objc-runtime.h>
-#import <runtime/TypedArrayInlines.h>
-#import <wtf/NeverDestroyed.h>
+#import <pal/spi/mac/AVFoundationSPI.h>
+#import <wtf/FileSystem.h>
+#import <wtf/SoftLinking.h>
 
 SOFT_LINK_FRAMEWORK_OPTIONAL(AVFoundation)
 SOFT_LINK_CLASS(AVFoundation, AVStreamDataParser);
 SOFT_LINK_CLASS_OPTIONAL(AVFoundation, AVContentKeySession);
+SOFT_LINK_CLASS_OPTIONAL(AVFoundation, AVContentKeyResponse);
 SOFT_LINK_CONSTANT_MAY_FAIL(AVFoundation, AVContentKeyRequestProtocolVersionsKey, NSString *)
+SOFT_LINK_CONSTANT_MAY_FAIL(AVFoundation, AVContentKeySystemFairPlayStreaming, NSString *)
 
-@interface AVContentKeySession : NSObject
+typedef NSString *AVContentKeySystem;
+
+@interface AVContentKeySession (WebCorePrivate)
 - (instancetype)initWithStorageDirectoryAtURL:(NSURL *)storageURL;
 @property (assign) id delegate;
 - (void)addStreamDataParser:(AVStreamDataParser *)streamDataParser;
 - (void)removeStreamDataParser:(AVStreamDataParser *)streamDataParser;
-@property (readonly) NSArray *streamDataParsers;
-- (void)expire;
-@property (readonly) NSData *contentProtectionSessionIdentifier;
 - (void)processContentKeyRequestInitializationData:(NSData *)initializationData options:(NSDictionary *)options;
-+ (NSArray *)pendingExpiredSessionReportsWithAppIdentifier:(NSData *)appIdentifier storageDirectoryAtURL:(NSURL *)storageURL;
-+ (void)removePendingExpiredSessionReports:(NSArray *)expiredSessionReports withAppIdentifier:(NSData *)appIdentifier storageDirectoryAtURL:(NSURL *)storageURL;
 @end
 
-typedef NS_ENUM(NSInteger, AVContentKeyRequestStatus) {
-    AVContentKeySessionStatusNoKey,
-    AVContentKeySessionStatusRequestingKey,
-    AVContentKeySessionStatusKeyPresent,
-    AVContentKeySessionStatusExpired,
-    AVContentKeySessionStatusFailed
-};
-
-@interface AVContentKeyRequest : NSObject
-@property (readonly) AVContentKeyRequestStatus status;
-@property (readonly) NSError *error;
-@property (readonly) NSData *initializationData;
+@interface AVContentKeyRequest (WebCorePrivate)
 - (NSData *)contentKeyRequestDataForApp:(NSData *)appIdentifier contentIdentifier:(NSData *)contentIdentifier options:(NSDictionary *)options error:(NSError **)outError;
 - (void)processContentKeyResponseData:(NSData *)contentKeyResponseData;
-- (void)processContentKeyResponseError:(NSError *)error;
 - (void)renewExpiringContentKeyResponseData;
 @end
 
-@interface WebCDMSessionAVContentKeySessionDelegate : NSObject {
+@interface WebCDMSessionAVContentKeySessionDelegate : NSObject<AVContentKeySessionDelegate> {
     WebCore::CDMSessionAVContentKeySession *m_parent;
 }
 - (void)invalidate;
@@ -123,10 +108,11 @@ static const NSString *PlaybackSessionIdKey = @"PlaybackSessionID";
 
 namespace WebCore {
 
-CDMSessionAVContentKeySession::CDMSessionAVContentKeySession(const Vector<int>& protocolVersions, CDMPrivateMediaSourceAVFObjC& cdm, CDMSessionClient* client)
+CDMSessionAVContentKeySession::CDMSessionAVContentKeySession(Vector<int>&& protocolVersions, int cdmVersion, CDMPrivateMediaSourceAVFObjC& cdm, LegacyCDMSessionClient* client)
     : CDMSessionMediaSourceAVFObjC(cdm, client)
     , m_contentKeySessionDelegate(adoptNS([[WebCDMSessionAVContentKeySessionDelegate alloc] initWithParent:this]))
-    , m_protocolVersions(protocolVersions)
+    , m_protocolVersions(WTFMove(protocolVersions))
+    , m_cdmVersion(cdmVersion)
     , m_mode(Normal)
 {
 }
@@ -155,27 +141,23 @@ RefPtr<Uint8Array> CDMSessionAVContentKeySession::generateKeyRequest(const Strin
     errorCode = MediaPlayer::NoError;
     systemCode = 0;
 
-    m_initData = initData;
-
     if (equalLettersIgnoringASCIICase(mimeType, "keyrelease")) {
         m_mode = KeyRelease;
+        m_certificate = initData;
         return generateKeyReleaseMessage(errorCode, systemCode);
     }
 
-    if (!m_certificate) {
-        String certificateString(ASCIILiteral("certificate"));
-        RefPtr<Uint8Array> array = Uint8Array::create(certificateString.length());
-        for (unsigned i = 0, length = certificateString.length(); i < length; ++i)
-            array->set(i, certificateString[i]);
-        return array;
-    }
+    if (m_cdmVersion == 2)
+        m_identifier = initData;
+    else
+        m_initData = initData;
 
-    if (!m_keyRequest) {
-        NSData* nsInitData = [NSData dataWithBytes:m_initData->data() length:m_initData->length()];
-        [contentKeySession() processContentKeyRequestInitializationData:nsInitData options:nil];
-    }
-
-    return nullptr;
+    ASSERT(!m_certificate);
+    String certificateString("certificate"_s);
+    auto array = Uint8Array::create(certificateString.length());
+    for (unsigned i = 0, length = certificateString.length(); i < length; ++i)
+        array->set(i, certificateString[i]);
+    return WTFMove(array);
 }
 
 void CDMSessionAVContentKeySession::releaseKeys()
@@ -194,8 +176,12 @@ void CDMSessionAVContentKeySession::releaseKeys()
         if (![getAVContentKeySessionClass() respondsToSelector:@selector(pendingExpiredSessionReportsWithAppIdentifier:storageDirectoryAtURL:)])
             return;
 
+        auto storagePath = this->storagePath();
+        if (storagePath.isEmpty())
+            return;
+
         RetainPtr<NSData> certificateData = adoptNS([[NSData alloc] initWithBytes:m_certificate->data() length:m_certificate->length()]);
-        NSArray* expiredSessions = [getAVContentKeySessionClass() pendingExpiredSessionReportsWithAppIdentifier:certificateData.get() storageDirectoryAtURL:[NSURL fileURLWithPath:storagePath()]];
+        NSArray* expiredSessions = [getAVContentKeySessionClass() pendingExpiredSessionReportsWithAppIdentifier:certificateData.get() storageDirectoryAtURL:[NSURL fileURLWithPath:storagePath]];
         for (NSData* expiredSessionData in expiredSessions) {
             NSDictionary *expiredSession = [NSPropertyListSerialization propertyListWithData:expiredSessionData options:kCFPropertyListImmutable format:nullptr error:nullptr];
             NSString *playbackSessionIdValue = (NSString *)[expiredSession objectForKey:PlaybackSessionIdKey];
@@ -205,7 +191,7 @@ void CDMSessionAVContentKeySession::releaseKeys()
             if (m_sessionId == String(playbackSessionIdValue)) {
                 LOG(Media, "CDMSessionAVContentKeySession::releaseKeys(%p) - found session, sending expiration message");
                 m_expiredSession = expiredSessionData;
-                m_client->sendMessage(Uint8Array::create(static_cast<const uint8_t*>([m_expiredSession bytes]), [m_expiredSession length]).get(), emptyString());
+                m_client->sendMessage(Uint8Array::create(static_cast<const uint8_t*>([m_expiredSession bytes]), [m_expiredSession length]).ptr(), emptyString());
                 break;
             }
         }
@@ -232,17 +218,11 @@ bool CDMSessionAVContentKeySession::update(Uint8Array* key, RefPtr<Uint8Array>& 
 {
     UNUSED_PARAM(nextMessage);
 
-    bool shouldGenerateKeyRequest = !m_certificate || isEqual(key, "renew");
-    if (!m_certificate) {
-        LOG(Media, "CDMSessionAVContentKeySession::update(%p) - certificate data", this);
-
-        m_certificate = key;
-    }
-
     if (isEqual(key, "acknowledged")) {
         LOG(Media, "CDMSessionAVContentKeySession::update(%p) - acknowleding secure stop message", this);
 
-        if (!m_expiredSession) {
+        String storagePath = this->storagePath();
+        if (!m_expiredSession || storagePath.isEmpty()) {
             errorCode = MediaPlayer::InvalidPlayerState;
             return false;
         }
@@ -250,17 +230,53 @@ bool CDMSessionAVContentKeySession::update(Uint8Array* key, RefPtr<Uint8Array>& 
         RetainPtr<NSData> certificateData = adoptNS([[NSData alloc] initWithBytes:m_certificate->data() length:m_certificate->length()]);
 
         if ([getAVContentKeySessionClass() respondsToSelector:@selector(removePendingExpiredSessionReports:withAppIdentifier:storageDirectoryAtURL:)])
-            [getAVContentKeySessionClass() removePendingExpiredSessionReports:@[m_expiredSession.get()] withAppIdentifier:certificateData.get() storageDirectoryAtURL:[NSURL fileURLWithPath:storagePath()]];
+            [getAVContentKeySessionClass() removePendingExpiredSessionReports:@[m_expiredSession.get()] withAppIdentifier:certificateData.get() storageDirectoryAtURL:[NSURL fileURLWithPath:storagePath]];
         m_expiredSession = nullptr;
         return true;
     }
 
+    if (m_stopped) {
+        errorCode = MediaPlayer::InvalidPlayerState;
+        return false;
+    }
+
+    bool shouldGenerateKeyRequest = !m_certificate || isEqual(key, "renew");
+    if (!m_certificate) {
+        LOG(Media, "CDMSessionAVContentKeySession::update(%p) - certificate data", this);
+
+        m_certificate = key;
+    }
+
     if (m_mode == KeyRelease)
         return false;
+    
+    if (m_cdmVersion == 2) {
+        // In the com.apple.fps.2_0 communication protocol, the client must first attach the
+        // session to the protected SourceBuffer in order to get access to the initialization
+        // data.
+        RefPtr<SourceBufferPrivateAVFObjC> protectedSourceBuffer;
+        for (auto& sourceBuffer : m_sourceBuffers) {
+            if (sourceBuffer->protectedTrackID() != -1) {
+                protectedSourceBuffer = sourceBuffer;
+                break;
+            }
+        }
+
+        if (!protectedSourceBuffer) {
+            errorCode = MediaPlayer::InvalidPlayerState;
+            return false;
+        }
+        
+        m_initData = protectedSourceBuffer->initData();
+    }
 
     if (!m_keyRequest) {
-        NSData* nsInitData = [NSData dataWithBytes:m_initData->data() length:m_initData->length()];
-        [contentKeySession() processContentKeyRequestInitializationData:nsInitData options:nil];
+        NSData* nsInitData = m_initData ? [NSData dataWithBytes:m_initData->data() length:m_initData->length()] : nil;
+        NSData* nsIdentifier = m_identifier ? [NSData dataWithBytes:m_identifier->data() length:m_identifier->length()] : nil;
+        if ([contentKeySession() respondsToSelector:@selector(processContentKeyRequestWithIdentifier:initializationData:options:)])
+            [contentKeySession() processContentKeyRequestWithIdentifier:nsIdentifier initializationData:nsInitData options:nil];
+        else
+            [contentKeySession() processContentKeyRequestInitializationData:nsInitData options:nil];
     }
 
     if (shouldGenerateKeyRequest) {
@@ -282,14 +298,16 @@ bool CDMSessionAVContentKeySession::update(Uint8Array* key, RefPtr<Uint8Array>& 
         errorCode = MediaPlayer::NoError;
         systemCode = 0;
         NSError* error = nil;
-        NSData* requestData = [m_keyRequest contentKeyRequestDataForApp:certificateData.get() contentIdentifier:nil options:options.get() error:&error];
+        NSData* nsIdentifier = m_identifier ? [NSData dataWithBytes:m_identifier->data() length:m_identifier->length()] : m_keyRequest.get().identifier;
+
+        NSData* requestData = [m_keyRequest contentKeyRequestDataForApp:certificateData.get() contentIdentifier:nsIdentifier options:options.get() error:&error];
         if (error) {
-            errorCode = MediaPlayerClient::DomainError;
+            errorCode = LegacyCDM::DomainError;
             systemCode = mediaKeyErrorSystemCode(error);
             return false;
         }
 
-        nextMessage = Uint8Array::create(static_cast<const uint8_t*>([requestData bytes]), [requestData length]);
+        nextMessage = Uint8Array::tryCreate(static_cast<const uint8_t*>([requestData bytes]), [requestData length]);
         return false;
     }
 
@@ -297,34 +315,44 @@ bool CDMSessionAVContentKeySession::update(Uint8Array* key, RefPtr<Uint8Array>& 
     errorCode = MediaPlayer::NoError;
     systemCode = 0;
     RetainPtr<NSData> keyData = adoptNS([[NSData alloc] initWithBytes:key->data() length:key->length()]);
-    [m_keyRequest processContentKeyResponseData:keyData.get()];
+    
+    if ([m_keyRequest respondsToSelector:@selector(processContentKeyResponse:)] && [getAVContentKeyResponseClass() respondsToSelector:@selector(contentKeyResponseWithFairPlayStreamingKeyResponseData:)])
+        [m_keyRequest processContentKeyResponse:[getAVContentKeyResponseClass() contentKeyResponseWithFairPlayStreamingKeyResponseData:keyData.get()]];
+    else
+        [m_keyRequest processContentKeyResponseData:keyData.get()];
 
     return true;
 }
 
 void CDMSessionAVContentKeySession::addParser(AVStreamDataParser* parser)
 {
-    [contentKeySession() addStreamDataParser:parser];
+    if ([contentKeySession() respondsToSelector:@selector(addContentKeyRecipient:)])
+        [contentKeySession() addContentKeyRecipient:parser];
+    else
+        [contentKeySession() addStreamDataParser:parser];
 }
 
 void CDMSessionAVContentKeySession::removeParser(AVStreamDataParser* parser)
 {
-    [contentKeySession() removeStreamDataParser:parser];
+    if ([contentKeySession() respondsToSelector:@selector(removeContentKeyRecipient:)])
+        [contentKeySession() removeContentKeyRecipient:parser];
+    else
+        [contentKeySession() removeStreamDataParser:parser];
 }
 
-PassRefPtr<Uint8Array> CDMSessionAVContentKeySession::generateKeyReleaseMessage(unsigned short& errorCode, uint32_t& systemCode)
+RefPtr<Uint8Array> CDMSessionAVContentKeySession::generateKeyReleaseMessage(unsigned short& errorCode, uint32_t& systemCode)
 {
     ASSERT(m_mode == KeyRelease);
-    m_certificate = m_initData;
     RetainPtr<NSData> certificateData = adoptNS([[NSData alloc] initWithBytes:m_certificate->data() length:m_certificate->length()]);
 
-    if (![getAVContentKeySessionClass() respondsToSelector:@selector(pendingExpiredSessionReportsWithAppIdentifier:storageDirectoryAtURL:)]) {
+    String storagePath = this->storagePath();
+    if (storagePath.isEmpty() || ![getAVContentKeySessionClass() respondsToSelector:@selector(pendingExpiredSessionReportsWithAppIdentifier:storageDirectoryAtURL:)]) {
         errorCode = MediaPlayer::KeySystemNotSupported;
         systemCode = '!mor';
         return nullptr;
     }
 
-    NSArray* expiredSessions = [getAVContentKeySessionClass() pendingExpiredSessionReportsWithAppIdentifier:certificateData.get() storageDirectoryAtURL:[NSURL fileURLWithPath:storagePath()]];
+    NSArray* expiredSessions = [getAVContentKeySessionClass() pendingExpiredSessionReportsWithAppIdentifier:certificateData.get() storageDirectoryAtURL:[NSURL fileURLWithPath:storagePath]];
     if (![expiredSessions count]) {
         LOG(Media, "CDMSessionAVContentKeySession::generateKeyReleaseMessage(%p) - no expired sessions found", this);
 
@@ -338,7 +366,7 @@ PassRefPtr<Uint8Array> CDMSessionAVContentKeySession::generateKeyReleaseMessage(
     errorCode = 0;
     systemCode = 0;
     m_expiredSession = [expiredSessions firstObject];
-    return Uint8Array::create(static_cast<const uint8_t*>([m_expiredSession bytes]), [m_expiredSession length]);
+    return Uint8Array::tryCreate(static_cast<const uint8_t*>([m_expiredSession bytes]), [m_expiredSession length]);
 }
 
 void CDMSessionAVContentKeySession::didProvideContentKeyRequest(AVContentKeyRequest *keyRequest)
@@ -348,23 +376,31 @@ void CDMSessionAVContentKeySession::didProvideContentKeyRequest(AVContentKeyRequ
 
 AVContentKeySession* CDMSessionAVContentKeySession::contentKeySession()
 {
-    if (!m_contentKeySession) {
+    if (m_contentKeySession)
+        return m_contentKeySession.get();
 
-        String storagePath = this->storagePath();
-        if (storagePath.isEmpty())
+    String storagePath = this->storagePath();
+    if (storagePath.isEmpty()) {
+        if (![getAVContentKeySessionClass() respondsToSelector:@selector(contentKeySessionWithKeySystem:)] || !canLoadAVContentKeySystemFairPlayStreaming())
             return nil;
 
-        String storageDirectory = directoryName(storagePath);
+        m_contentKeySession = [getAVContentKeySessionClass() contentKeySessionWithKeySystem:getAVContentKeySystemFairPlayStreaming()];
+    } else {
+        String storageDirectory = FileSystem::directoryName(storagePath);
 
-        if (!fileExists(storageDirectory)) {
-            if (!makeAllDirectories(storageDirectory))
+        if (!FileSystem::fileExists(storageDirectory)) {
+            if (!FileSystem::makeAllDirectories(storageDirectory))
                 return nil;
         }
 
-        m_contentKeySession = adoptNS([[getAVContentKeySessionClass() alloc] initWithStorageDirectoryAtURL:[NSURL fileURLWithPath:storagePath]]);
-        m_contentKeySession.get().delegate = m_contentKeySessionDelegate.get();
+        auto url = [NSURL fileURLWithPath:storagePath];
+        if ([getAVContentKeySessionClass() respondsToSelector:@selector(contentKeySessionWithKeySystem:storageDirectoryAtURL:)] && canLoadAVContentKeySystemFairPlayStreaming())
+            m_contentKeySession = [getAVContentKeySessionClass() contentKeySessionWithKeySystem:getAVContentKeySystemFairPlayStreaming() storageDirectoryAtURL:url];
+        else
+            m_contentKeySession = adoptNS([allocAVContentKeySessionInstance() initWithStorageDirectoryAtURL:url]);
     }
 
+    m_contentKeySession.get().delegate = m_contentKeySessionDelegate.get();
     return m_contentKeySession.get();
 }
 

@@ -23,18 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef StructureRareDataInlines_h
-#define StructureRareDataInlines_h
+#pragma once
 
+#include "JSImmutableButterfly.h"
+#include "JSPropertyNameEnumerator.h"
 #include "JSString.h"
 #include "StructureRareData.h"
 
 namespace JSC {
-
-inline Structure* StructureRareData::previousID() const
-{
-    return m_previous.get();
-}
 
 inline void StructureRareData::setPreviousID(VM& vm, Structure* structure)
 {
@@ -51,6 +47,48 @@ inline JSString* StructureRareData::objectToStringValue() const
     return m_objectToStringValue.get();
 }
 
-} // namespace JSC
+inline JSPropertyNameEnumerator* StructureRareData::cachedPropertyNameEnumerator() const
+{
+    return m_cachedPropertyNameEnumerator.get();
+}
 
-#endif // StructureRareDataInlines_h
+inline void StructureRareData::setCachedPropertyNameEnumerator(VM& vm, JSPropertyNameEnumerator* enumerator)
+{
+    m_cachedPropertyNameEnumerator.set(vm, this, enumerator);
+}
+
+inline JSImmutableButterfly* StructureRareData::cachedOwnKeys() const
+{
+    ASSERT(!isCompilationThread());
+    auto* butterfly = m_cachedOwnKeys.unvalidatedGet();
+    if (butterfly == cachedOwnKeysSentinel())
+        return nullptr;
+    return butterfly;
+}
+
+inline JSImmutableButterfly* StructureRareData::cachedOwnKeysIgnoringSentinel() const
+{
+    ASSERT(!isCompilationThread());
+    return m_cachedOwnKeys.unvalidatedGet();
+}
+
+inline JSImmutableButterfly* StructureRareData::cachedOwnKeysConcurrently() const
+{
+    auto* butterfly = m_cachedOwnKeys.unvalidatedGet();
+    if (butterfly == cachedOwnKeysSentinel())
+        return nullptr;
+    return butterfly;
+}
+
+inline void StructureRareData::setCachedOwnKeys(VM& vm, JSImmutableButterfly* butterfly)
+{
+    if (butterfly == cachedOwnKeysSentinel()) {
+        m_cachedOwnKeys.setWithoutWriteBarrier(butterfly);
+        return;
+    }
+
+    WTF::storeStoreFence();
+    m_cachedOwnKeys.set(vm, this, butterfly);
+}
+
+} // namespace JSC

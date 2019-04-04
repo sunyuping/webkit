@@ -21,14 +21,15 @@
 #include "config.h"
 #include "RegExp.h"
 
-#include <wtf/CurrentTime.h>
 #include "InitializeThreading.h"
 #include "JSCInlines.h"
 #include "JSGlobalObject.h"
+#include "YarrFlags.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wtf/Vector.h>
 #include <wtf/text/StringBuilder.h>
 
 #if !OS(WINDOWS)
@@ -48,7 +49,6 @@
 const int MaxLineLength = 100 * 1024;
 
 using namespace JSC;
-using namespace WTF;
 
 struct CommandLine {
     CommandLine()
@@ -70,23 +70,23 @@ public:
     long getElapsedMS(); // call stop() first
 
 private:
-    double m_startTime;
-    double m_stopTime;
+    MonotonicTime m_startTime;
+    MonotonicTime m_stopTime;
 };
 
 void StopWatch::start()
 {
-    m_startTime = monotonicallyIncreasingTime();
+    m_startTime = MonotonicTime::now();
 }
 
 void StopWatch::stop()
 {
-    m_stopTime = monotonicallyIncreasingTime();
+    m_stopTime = MonotonicTime::now();
 }
 
 long StopWatch::getElapsedMS()
 {
-    return static_cast<long>((m_stopTime - m_startTime) * 1000);
+    return (m_stopTime - m_startTime).millisecondsAs<long>();
 }
 
 struct RegExpTest {
@@ -112,7 +112,6 @@ public:
     static GlobalObject* create(VM& vm, Structure* structure, const Vector<String>& arguments)
     {
         GlobalObject* globalObject = new (NotNull, allocateCell<GlobalObject>(vm.heap)) GlobalObject(vm, structure, arguments);
-        vm.heap.addFinalizer(globalObject, destroy);
         return globalObject;
     }
 
@@ -133,7 +132,7 @@ protected:
     }
 };
 
-const ClassInfo GlobalObject::s_info = { "global", &JSGlobalObject::s_info, nullptr, CREATE_METHOD_TABLE(GlobalObject) };
+const ClassInfo GlobalObject::s_info = { "global", &JSGlobalObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(GlobalObject) };
 
 GlobalObject::GlobalObject(VM& vm, Structure* structure, const Vector<String>& arguments)
     : JSGlobalObject(vm, structure)
@@ -159,15 +158,6 @@ int realMain(int argc, char** argv);
 int main(int argc, char** argv)
 {
 #if OS(WINDOWS)
-#if defined(_M_X64) || defined(__x86_64__)
-    // The VS2013 runtime has a bug where it mis-detects AVX-capable processors
-    // if the feature has been disabled in firmware. This causes us to crash
-    // in some of the math functions. For now, we disable those optimizations
-    // because Microsoft is not going to fix the problem in VS2013.
-    // FIXME: http://webkit.org/b/141449: Remove this workaround when we switch to VS2015+.
-    _set_FMA3_enable(0);
-#endif
-
     // Cygwin calls ::SetErrorMode(SEM_FAILCRITICALERRORS), which we will inherit. This is bad for
     // testing/debugging, as it causes the post-mortem debugger not to be invoked. We reset the
     // error mode here to work around Cygwin's behavior. See <http://webkit.org/b/55222>.
@@ -200,7 +190,7 @@ int main(int argc, char** argv)
 static bool testOneRegExp(VM& vm, RegExp* regexp, RegExpTest* regExpTest, bool verbose, unsigned int lineNumber)
 {
     bool result = true;
-    Vector<int, 32> outVector;
+    Vector<int> outVector;
     outVector.resize(regExpTest->expectVector.size());
     int matchResult = regexp->match(vm, regExpTest->subject, regExpTest->offset, outVector);
 
@@ -325,10 +315,10 @@ static int scanString(char* buffer, int bufferLength, StringBuilder& builder, ch
     return -1;
 }
 
-static RegExp* parseRegExpLine(VM& vm, char* line, int lineLength)
+static RegExp* parseRegExpLine(VM& vm, char* line, int lineLength, const char** regexpError)
 {
     StringBuilder pattern;
-    
+
     if (line[0] != '/')
         return 0;
 
@@ -339,7 +329,19 @@ static RegExp* parseRegExpLine(VM& vm, char* line, int lineLength)
 
     ++i;
 
-    return RegExp::create(vm, pattern.toString(), regExpFlags(line + i));
+    auto flags = Yarr::parseFlags(line + i);
+    if (!flags) {
+        *regexpError = Yarr::errorMessage(Yarr::ErrorCode::InvalidRegularExpressionFlags);
+        return nullptr;
+    }
+
+    RegExp* r = RegExp::create(vm, pattern.toString(), flags.value());
+    if (!r->isValid()) {
+        *regexpError = r->errorMessage();
+        return nullptr;
+    }
+
+    return r;
 }
 
 static RegExpTest* parseTestLine(char* line, int lineLength)
@@ -421,7 +423,7 @@ static bool runFromFiles(GlobalObject* globalObject, const Vector<String>& files
     Vector<char> scriptBuffer;
     unsigned tests = 0;
     unsigned failures = 0;
-    char* lineBuffer = new char[MaxLineLength + 1];
+    Vector<char> lineBuffer(MaxLineLength + 1);
 
     VM& vm = globalObject->vm();
 
@@ -438,8 +440,9 @@ static bool runFromFiles(GlobalObject* globalObject, const Vector<String>& files
         size_t lineLength = 0;
         char* linePtr = 0;
         unsigned int lineNumber = 0;
+        const char* regexpError = nullptr;
 
-        while ((linePtr = fgets(&lineBuffer[0], MaxLineLength, testCasesFile))) {
+        while ((linePtr = fgets(lineBuffer.data(), MaxLineLength, testCasesFile))) {
             lineLength = strlen(linePtr);
             if (linePtr[lineLength - 1] == '\n') {
                 linePtr[lineLength - 1] = '\0';
@@ -451,7 +454,11 @@ static bool runFromFiles(GlobalObject* globalObject, const Vector<String>& files
                 continue;
 
             if (linePtr[0] == '/') {
-                regexp = parseRegExpLine(vm, linePtr, lineLength);
+                regexp = parseRegExpLine(vm, linePtr, lineLength, &regexpError);
+                if (!regexp) {
+                    failures++;
+                    fprintf(stderr, "Failure on line %u. '%s' %s\n", lineNumber, linePtr, regexpError);
+                }
             } else if (linePtr[0] == ' ') {
                 RegExpTest* regExpTest = parseTestLine(linePtr, lineLength);
                 
@@ -465,6 +472,14 @@ static bool runFromFiles(GlobalObject* globalObject, const Vector<String>& files
                 
                 if (regExpTest)
                     delete regExpTest;
+            } else if (linePtr[0] == '-') {
+                tests++;
+                regexp = 0; // Reset the live regexp to avoid confusing other subsequent tests
+                bool successfullyParsed = parseRegExpLine(vm, linePtr + 1, lineLength - 1, &regexpError);
+                if (successfullyParsed) {
+                    failures++;
+                    fprintf(stderr, "Failure on line %u. '%s' %s\n", lineNumber, linePtr + 1, regexpError);
+                }
             }
         }
         
@@ -476,9 +491,6 @@ static bool runFromFiles(GlobalObject* globalObject, const Vector<String>& files
     else
         printf("%u tests passed\n", tests);
 
-    delete[] lineBuffer;
-
-    vm.dumpSampleData(globalObject->globalExec());
 #if ENABLE(REGEXP_TRACING)
     vm.dumpRegExpTrace();
 #endif

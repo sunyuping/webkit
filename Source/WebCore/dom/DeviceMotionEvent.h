@@ -23,18 +23,32 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef DeviceMotionEvent_h
-#define DeviceMotionEvent_h
+#pragma once
 
+#include "DeviceOrientationOrMotionEvent.h"
 #include "Event.h"
 
 namespace WebCore {
 
 class DeviceMotionData;
 
-class DeviceMotionEvent final : public Event {
+class DeviceMotionEvent final : public Event, public DeviceOrientationOrMotionEvent {
 public:
     virtual ~DeviceMotionEvent();
+
+    // FIXME: Merge this with DeviceMotionData::Acceleration
+    struct Acceleration {
+        Optional<double> x;
+        Optional<double> y;
+        Optional<double> z;
+    };
+
+    // FIXME: Merge this with DeviceMotionData::RotationRate
+    struct RotationRate {
+        Optional<double> alpha;
+        Optional<double> beta;
+        Optional<double> gamma;
+    };
 
     static Ref<DeviceMotionEvent> create(const AtomicString& eventType, DeviceMotionData* deviceMotionData)
     {
@@ -46,19 +60,20 @@ public:
         return adoptRef(*new DeviceMotionEvent);
     }
 
-    void initDeviceMotionEvent(const AtomicString& type, bool bubbles, bool cancelable, DeviceMotionData*);
+    Optional<Acceleration> acceleration() const;
+    Optional<Acceleration> accelerationIncludingGravity() const;
+    Optional<RotationRate> rotationRate() const;
+    Optional<double> interval() const;
 
-    DeviceMotionData* deviceMotionData() const { return m_deviceMotionData.get(); }
-
-    virtual EventInterface eventInterface() const override;
+    void initDeviceMotionEvent(const AtomicString& type, bool bubbles, bool cancelable, Optional<Acceleration>&&, Optional<Acceleration>&&, Optional<RotationRate>&&, Optional<double>);
 
 private:
     DeviceMotionEvent();
     DeviceMotionEvent(const AtomicString& eventType, DeviceMotionData*);
 
+    EventInterface eventInterface() const override;
+
     RefPtr<DeviceMotionData> m_deviceMotionData;
 };
 
 } // namespace WebCore
-
-#endif // DeviceMotionEvent_h

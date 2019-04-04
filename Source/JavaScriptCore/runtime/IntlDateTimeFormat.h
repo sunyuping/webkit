@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Andy VanWagoner (thetalecrafter@gmail.com)
+ * Copyright (C) 2015 Andy VanWagoner (andy@vanwagoner.family)
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,30 +23,35 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IntlDateTimeFormat_h
-#define IntlDateTimeFormat_h
+#pragma once
 
 #if ENABLE(INTL)
 
 #include "JSDestructibleObject.h"
 #include <unicode/udat.h>
+#include <unicode/uvernum.h>
+
+#define JSC_ICU_HAS_UFIELDPOSITER (U_ICU_VERSION_MAJOR_NUM >= 55)
 
 namespace JSC {
 
 class IntlDateTimeFormatConstructor;
 class JSBoundFunction;
 
-class IntlDateTimeFormat : public JSDestructibleObject {
+class IntlDateTimeFormat final : public JSDestructibleObject {
 public:
     typedef JSDestructibleObject Base;
 
-    static IntlDateTimeFormat* create(VM&, IntlDateTimeFormatConstructor*);
+    static IntlDateTimeFormat* create(VM&, Structure*);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
 
     void initializeDateTimeFormat(ExecState&, JSValue locales, JSValue options);
     JSValue format(ExecState&, double value);
+#if JSC_ICU_HAS_UFIELDPOSITER
+    JSValue formatToParts(ExecState&, double value);
+#endif
     JSObject* resolvedOptions(ExecState&);
 
     JSBoundFunction* boundFormat() const { return m_boundFormat.get(); }
@@ -54,42 +59,44 @@ public:
 
 protected:
     IntlDateTimeFormat(VM&, Structure*);
-    ~IntlDateTimeFormat();
     void finishCreation(VM&);
     static void destroy(JSCell*);
     static void visitChildren(JSCell*, SlotVisitor&);
 
 private:
-    enum class Weekday { None, Narrow, Short, Long };
-    enum class Era { None, Narrow, Short, Long };
-    enum class Year { None, TwoDigit, Numeric };
-    enum class Month { None, TwoDigit, Numeric, Narrow, Short, Long };
-    enum class Day { None, TwoDigit, Numeric };
-    enum class Hour { None, TwoDigit, Numeric };
-    enum class Minute { None, TwoDigit, Numeric };
-    enum class Second { None, TwoDigit, Numeric };
-    enum class TimeZoneName { None, Short, Long };
+    enum class Weekday : uint8_t { None, Narrow, Short, Long };
+    enum class Era : uint8_t { None, Narrow, Short, Long };
+    enum class Year : uint8_t { None, TwoDigit, Numeric };
+    enum class Month : uint8_t { None, TwoDigit, Numeric, Narrow, Short, Long };
+    enum class Day : uint8_t { None, TwoDigit, Numeric };
+    enum class Hour : uint8_t { None, TwoDigit, Numeric };
+    enum class Minute : uint8_t { None, TwoDigit, Numeric };
+    enum class Second : uint8_t { None, TwoDigit, Numeric };
+    enum class TimeZoneName : uint8_t { None, Short, Long };
 
-    static const char* weekdayString(Weekday);
-    static const char* eraString(Era);
-    static const char* yearString(Year);
-    static const char* monthString(Month);
-    static const char* dayString(Day);
-    static const char* hourString(Hour);
-    static const char* minuteString(Minute);
-    static const char* secondString(Second);
-    static const char* timeZoneNameString(TimeZoneName);
+    struct UDateFormatDeleter {
+        void operator()(UDateFormat*) const;
+    };
 
-    bool m_initializedDateTimeFormat { false };
     void setFormatsFromPattern(const StringView&);
-    WriteBarrier<JSBoundFunction> m_boundFormat;
-    UDateFormat* m_dateFormat { nullptr };
+    static ASCIILiteral weekdayString(Weekday);
+    static ASCIILiteral eraString(Era);
+    static ASCIILiteral yearString(Year);
+    static ASCIILiteral monthString(Month);
+    static ASCIILiteral dayString(Day);
+    static ASCIILiteral hourString(Hour);
+    static ASCIILiteral minuteString(Minute);
+    static ASCIILiteral secondString(Second);
+    static ASCIILiteral timeZoneNameString(TimeZoneName);
 
-    String m_locale { ASCIILiteral("en") };
-    String m_calendar { ASCIILiteral("gregorian") };
-    String m_numberingSystem { ASCIILiteral("latn") };
-    String m_timeZone { ASCIILiteral("UTC") };
-    bool m_hour12 { true };
+    WriteBarrier<JSBoundFunction> m_boundFormat;
+    std::unique_ptr<UDateFormat, UDateFormatDeleter> m_dateFormat;
+
+    String m_locale;
+    String m_calendar;
+    String m_numberingSystem;
+    String m_timeZone;
+    String m_hourCycle;
     Weekday m_weekday { Weekday::None };
     Era m_era { Era::None };
     Year m_year { Year::None };
@@ -99,10 +106,17 @@ private:
     Minute m_minute { Minute::None };
     Second m_second { Second::None };
     TimeZoneName m_timeZoneName { TimeZoneName::None };
+    bool m_initializedDateTimeFormat { false };
+
+#if JSC_ICU_HAS_UFIELDPOSITER
+    struct UFieldPositionIteratorDeleter {
+        void operator()(UFieldPositionIterator*) const;
+    };
+
+    static ASCIILiteral partTypeString(UDateFormatField);
+#endif
 };
 
 } // namespace JSC
 
 #endif // ENABLE(INTL)
-
-#endif // IntlDateTimeFormat_h

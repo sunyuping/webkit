@@ -29,8 +29,19 @@
 
 namespace WebCore {
 
-ApplicationCacheResource::ApplicationCacheResource(const URL& url, const ResourceResponse& response, unsigned type, PassRefPtr<SharedBuffer> data, const String& path)
-    : SubstituteResource(url, response, data)
+Ref<ApplicationCacheResource> ApplicationCacheResource::create(const URL& url, const ResourceResponse& response, unsigned type, RefPtr<SharedBuffer>&& buffer, const String& path)
+{
+    ASSERT(!url.hasFragmentIdentifier());
+    if (!buffer)
+        buffer = SharedBuffer::create();
+    auto resourceResponse = response;
+    resourceResponse.setSource(ResourceResponse::Source::ApplicationCache);
+
+    return adoptRef(*new ApplicationCacheResource(URL { url }, WTFMove(resourceResponse), type, buffer.releaseNonNull(), path));
+}
+
+ApplicationCacheResource::ApplicationCacheResource(URL&& url, ResourceResponse&& response, unsigned type, Ref<SharedBuffer>&& data, const String& path)
+    : SubstituteResource(WTFMove(url), WTFMove(response), WTFMove(data))
     , m_type(type)
     , m_storageID(0)
     , m_estimatedSizeInStorage(0)
@@ -40,7 +51,7 @@ ApplicationCacheResource::ApplicationCacheResource(const URL& url, const Resourc
 
 void ApplicationCacheResource::deliver(ResourceLoader& loader)
 {
-    loader.deliverResponseAndData(response(), m_path.isEmpty() ? data()->copy() : SharedBuffer::createWithContentsOfFile(m_path));
+    loader.deliverResponseAndData(response(), m_path.isEmpty() ? data().copy() : SharedBuffer::createWithContentsOfFile(m_path));
 }
 
 void ApplicationCacheResource::addType(unsigned type) 
@@ -54,8 +65,7 @@ int64_t ApplicationCacheResource::estimatedSizeInStorage()
     if (m_estimatedSizeInStorage)
       return m_estimatedSizeInStorage;
 
-    if (data())
-        m_estimatedSizeInStorage = data()->size();
+    m_estimatedSizeInStorage = data().size();
 
     for (const auto& headerField : response().httpHeaderFields())
         m_estimatedSizeInStorage += (headerField.key.length() + headerField.value.length() + 2) * sizeof(UChar);

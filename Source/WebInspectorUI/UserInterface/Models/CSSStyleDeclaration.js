@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspector.Object
+WI.CSSStyleDeclaration = class CSSStyleDeclaration extends WI.Object
 {
     constructor(nodeStyles, ownerStyleSheet, id, type, node, inherited, text, properties, styleSheetTextRange)
     {
@@ -40,20 +40,34 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
         this._node = node || null;
         this._inherited = inherited || false;
 
+        this._initialState = null;
+        this._updatesInProgressCount = 0;
+        this._locked = false;
         this._pendingProperties = [];
         this._propertyNameMap = {};
 
-        this._initialText = text;
-        this._hasModifiedInitialText = false;
+        this._properties = [];
+        this._enabledProperties = null;
+        this._visibleProperties = null;
 
-        this.update(text, properties, styleSheetTextRange, true);
+        this.update(text, properties, styleSheetTextRange, {dontFireEvents: true});
     }
 
     // Public
 
+    get initialState() { return this._initialState; }
+
     get id()
     {
         return this._id;
+    }
+
+    get stringId()
+    {
+        if (this._id)
+            return this._id.styleSheetId + "/" + this._id.ordinal;
+        else
+            return "";
     }
 
     get ownerStyleSheet()
@@ -81,37 +95,65 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
         if (!this._id)
             return false;
 
-        if (this._type === WebInspector.CSSStyleDeclaration.Type.Rule)
+        if (this._type === WI.CSSStyleDeclaration.Type.Rule)
             return this._ownerRule && this._ownerRule.editable;
 
-        if (this._type === WebInspector.CSSStyleDeclaration.Type.Inline)
-            return !this._node.isInShadowTree();
+        if (this._type === WI.CSSStyleDeclaration.Type.Inline)
+            return !this._node.isInUserAgentShadowTree();
 
         return false;
     }
 
-    update(text, properties, styleSheetTextRange, dontFireEvents)
+    get selectorEditable()
     {
+        return this._ownerRule && this._ownerRule.editable;
+    }
+
+    get locked() { return this._locked; }
+    set locked(value) { this._locked = value; }
+
+    update(text, properties, styleSheetTextRange, options = {})
+    {
+        let dontFireEvents = options.dontFireEvents || false;
+
+        // When two consequent setText calls happen (A and B), only update when the last call (B) is finished.
+        //               Front-end:   A B
+        //                Back-end:       A B
+        // _updatesInProgressCount: 0 1 2 1 0
+        //                                  ^
+        //                                  update only happens here
+        if (this._updatesInProgressCount > 0 && !options.forceUpdate) {
+            if (WI.settings.enableStyleEditingDebugMode.value && text !== this._text)
+                console.warn("Style modified while editing:", text);
+
+            return;
+        }
+
+        // Allow updates from the backend when text matches because `properties` may contain warnings that need to be shown.
+        if (this._locked && !options.forceUpdate && text !== this._text)
+            return;
+
         text = text || "";
         properties = properties || [];
 
-        var oldProperties = this._properties || [];
-        var oldText = this._text;
+        let oldProperties = this._properties || [];
+        let oldText = this._text;
 
         this._text = text;
         this._properties = properties;
+
         this._styleSheetTextRange = styleSheetTextRange;
         this._propertyNameMap = {};
 
-        delete this._visibleProperties;
+        this._enabledProperties = null;
+        this._visibleProperties = null;
 
-        var editable = this.editable;
+        let editable = this.editable;
 
-        for (var i = 0; i < this._properties.length; ++i) {
-            var property = this._properties[i];
+        for (let property of this._properties) {
             property.ownerStyle = this;
 
-            // Store the property in a map if we arn't editable. This
+            // Store the property in a map if we aren't editable. This
             // allows for quick lookup for computed style. Editable
             // styles don't use the map since they need to account for
             // overridden properties.
@@ -123,43 +165,30 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
             }
         }
 
-        var removedProperties = [];
-        for (var i = 0; i < oldProperties.length; ++i) {
-            var oldProperty = oldProperties[i];
+        for (let oldProperty of oldProperties) {
+            if (this.enabledProperties.includes(oldProperty))
+                continue;
 
-            if (!this._properties.includes(oldProperty)) {
-                // Clear the index, since it is no longer valid.
-                oldProperty.index = NaN;
+            // Clear the index, since it is no longer valid.
+            oldProperty.index = NaN;
 
-                removedProperties.push(oldProperty);
-
-                // Keep around old properties in pending in case they
-                // are needed again during editing.
-                if (editable)
-                    this._pendingProperties.push(oldProperty);
-            }
+            // Keep around old properties in pending in case they
+            // are needed again during editing.
+            if (editable)
+                this._pendingProperties.push(oldProperty);
         }
 
         if (dontFireEvents)
             return;
 
-        var addedProperties = [];
-        for (var i = 0; i < this._properties.length; ++i) {
-            if (!oldProperties.includes(this._properties[i]))
-                addedProperties.push(this._properties[i]);
-        }
-
-        // Don't fire the event if there is text and it hasn't changed.
-        if (oldText && this._text && oldText === this._text) {
-            // We shouldn't have any added or removed properties in this case.
-            console.assert(!addedProperties.length && !removedProperties.length);
-            if (!addedProperties.length && !removedProperties.length)
-                return;
-        }
+        // Don't fire the event if text hasn't changed. However, it should still fire for Computed style declarations
+        // because it never has text.
+        if (oldText === this._text && this._type !== WI.CSSStyleDeclaration.Type.Computed)
+            return;
 
         function delayed()
         {
-            this.dispatchEventToListeners(WebInspector.CSSStyleDeclaration.Event.PropertiesChanged, {addedProperties, removedProperties});
+            this.dispatchEventToListeners(WI.CSSStyleDeclaration.Event.PropertiesChanged);
         }
 
         // Delay firing the PropertiesChanged event so DOMNodeStyles has a chance to mark overridden and associated properties.
@@ -190,26 +219,35 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
         if (this._text === trimmedText)
             return;
 
-        if (!trimmedText.length || this._type === WebInspector.CSSStyleDeclaration.Type.Inline)
+        if (!trimmedText.length || this._type === WI.CSSStyleDeclaration.Type.Inline)
             text = trimmedText;
 
-        let modified = text !== this._initialText;
-        if (modified !== this._hasModifiedInitialText) {
-            this._hasModifiedInitialText = modified;
-            this.dispatchEventToListeners(WebInspector.CSSStyleDeclaration.Event.InitialTextModified);
-        }
+        this._text = text;
+        ++this._updatesInProgressCount;
 
-        this._nodeStyles.changeStyleText(this, text);
+        let timeoutId = setTimeout(() => {
+            console.error("Timed out when setting style text:", text);
+            styleTextDidChange();
+        }, 2000);
+
+        let styleTextDidChange = () => {
+            if (!timeoutId)
+                return;
+
+            clearTimeout(timeoutId);
+            timeoutId = null;
+            this._updatesInProgressCount = Math.max(0, this._updatesInProgressCount - 1);
+        };
+
+        this._nodeStyles.changeStyleText(this, text, styleTextDidChange);
     }
 
-    resetText()
+    get enabledProperties()
     {
-        this.text = this._initialText;
-    }
+        if (!this._enabledProperties)
+            this._enabledProperties = this._properties.filter((property) => property.enabled);
 
-    get modified()
-    {
-        return this._hasModifiedInitialText;
+        return this._enabledProperties;
     }
 
     get properties()
@@ -217,14 +255,20 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
         return this._properties;
     }
 
+    set properties(properties)
+    {
+        if (properties === this._properties)
+            return;
+
+        this._properties = properties;
+        this._enabledProperties = null;
+        this._visibleProperties = null;
+    }
+
     get visibleProperties()
     {
-        if (this._visibleProperties)
-            return this._visibleProperties;
-
-        this._visibleProperties = this._properties.filter(function(property) {
-            return !!property.styleDeclarationTextRange;
-        });
+        if (!this._visibleProperties)
+            this._visibleProperties = this._properties.filter((property) => !!property.styleDeclarationTextRange);
 
         return this._visibleProperties;
     }
@@ -279,7 +323,7 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
 
         var bestMatchProperty = null;
 
-        findMatch(this._properties);
+        findMatch(this.enabledProperties);
 
         if (bestMatchProperty)
             return bestMatchProperty;
@@ -292,7 +336,7 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
         if (bestMatchProperty)
             return bestMatchProperty;
 
-        var newProperty = new WebInspector.CSSProperty(NaN, null, name);
+        var newProperty = new WI.CSSProperty(NaN, null, name);
         newProperty.ownerStyle = this;
 
         this._pendingProperties.push(newProperty);
@@ -300,46 +344,77 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
         return newProperty;
     }
 
-    generateCSSRuleString()
+    newBlankProperty(propertyIndex)
     {
-        // FIXME: <rdar://problem/10593948> Provide a way to change the tab width in the Web Inspector
-        const indentation = "    ";
-        let styleText = "";
-        let mediaList = this.mediaList;
-        let mediaQueriesCount = mediaList.length;
-        for (let i = mediaQueriesCount - 1; i >= 0; --i)
-            styleText += indentation.repeat(mediaQueriesCount - i - 1) + "@media " + mediaList[i].text + " {\n";
+        let text, name, value, priority, overridden, implicit, anonymous;
+        let enabled = true;
+        let valid = false;
+        let styleSheetTextRange = this._rangeAfterPropertyAtIndex(propertyIndex - 1);
 
-        styleText += indentation.repeat(mediaQueriesCount) + this.selectorText + " {\n";
+        this.markModified();
+        let property = new WI.CSSProperty(propertyIndex, text, name, value, priority, enabled, overridden, implicit, anonymous, valid, styleSheetTextRange);
 
-        for (let property of this._properties) {
-            if (property.anonymous)
-                continue;
+        this._properties.insertAtIndex(property, propertyIndex);
+        for (let index = propertyIndex + 1; index < this._properties.length; index++)
+            this._properties[index].index = index;
 
-            styleText += indentation.repeat(mediaQueriesCount + 1) + property.text.trim();
+        this.update(this._text, this._properties, this._styleSheetTextRange, {dontFireEvents: true, forceUpdate: true});
 
-            if (!styleText.endsWith(";"))
-                styleText += ";";
+        return property;
+    }
 
-            styleText += "\n";
+    markModified()
+    {
+        let properties = this._initialState ? this._initialState.properties : this._properties;
+
+        if (!this._initialState) {
+            this._initialState = new WI.CSSStyleDeclaration(
+                this._nodeStyles,
+                this._ownerStyleSheet,
+                this._id,
+                this._type,
+                this._node,
+                this._inherited,
+                this._text,
+                [], // Passing CSS properties here would change their ownerStyle.
+                this._styleSheetTextRange);
         }
 
-        for (let i = mediaQueriesCount; i > 0; --i)
-            styleText += indentation.repeat(i) + "}\n";
+        this._initialState.properties = properties.map((property) => { return property.initialState || property });
 
-        styleText += "}";
-
-        return styleText;
+        WI.cssManager.addModifiedStyle(this);
     }
 
-    isInspectorRule()
+    shiftPropertiesAfter(cssProperty, lineDelta, columnDelta, propertyWasRemoved)
     {
-        return this._ownerRule && this._ownerRule.type === WebInspector.CSSStyleSheet.Type.Inspector;
-    }
+        // cssProperty.index could be set to NaN by WI.CSSStyleDeclaration.prototype.update.
+        let realIndex = this._properties.indexOf(cssProperty);
+        if (realIndex === -1)
+            return;
 
-    hasProperties()
-    {
-        return !!this._properties.length;
+        let endLine = cssProperty.styleSheetTextRange.endLine;
+
+        for (let i = realIndex + 1; i < this._properties.length; i++) {
+            let property = this._properties[i];
+
+            if (property._styleSheetTextRange) {
+                if (property.styleSheetTextRange.startLine === endLine) {
+                    // Only update column data if it's on the same line.
+                    property._styleSheetTextRange = property._styleSheetTextRange.cloneAndModify(lineDelta, columnDelta, lineDelta, columnDelta);
+                } else
+                    property._styleSheetTextRange = property._styleSheetTextRange.cloneAndModify(lineDelta, 0, lineDelta, 0);
+            }
+
+            if (propertyWasRemoved && !isNaN(property._index))
+                property._index--;
+        }
+
+        if (propertyWasRemoved)
+            this._properties.splice(realIndex, 1);
+
+        // Invalidate cached properties.
+        this._enabledProperties = null;
+        this._visibleProperties = null;
     }
 
     // Protected
@@ -348,14 +423,27 @@ WebInspector.CSSStyleDeclaration = class CSSStyleDeclaration extends WebInspecto
     {
         return this._nodeStyles;
     }
+
+    // Private
+
+    _rangeAfterPropertyAtIndex(index)
+    {
+        if (index < 0)
+            return this._styleSheetTextRange.collapseToStart();
+
+        if (index >= this.visibleProperties.length)
+            return this._styleSheetTextRange.collapseToEnd();
+
+        let property = this.visibleProperties[index];
+        return property.styleSheetTextRange.collapseToEnd();
+    }
 };
 
-WebInspector.CSSStyleDeclaration.Event = {
+WI.CSSStyleDeclaration.Event = {
     PropertiesChanged: "css-style-declaration-properties-changed",
-    InitialTextModified: "css-style-declaration-initial-text-modified"
 };
 
-WebInspector.CSSStyleDeclaration.Type = {
+WI.CSSStyleDeclaration.Type = {
     Rule: "css-style-declaration-type-rule",
     Inline: "css-style-declaration-type-inline",
     Attribute: "css-style-declaration-type-attribute",

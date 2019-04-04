@@ -27,38 +27,23 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CommandLineAPIHost_h
-#define CommandLineAPIHost_h
+#pragma once
 
-#include "ScriptState.h"
-#include <inspector/PerGlobalObjectWrapperWorld.h>
+#include "InstrumentingAgents.h"
+#include <JavaScriptCore/PerGlobalObjectWrapperWorld.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
-
-namespace Deprecated {
-class ScriptValue;
-}
 
 namespace JSC {
 class JSValue;
 }
 
-namespace Inspector {
-class InspectorAgent;
-class InspectorConsoleAgent;
-class InspectorObject;
-class InspectorValue;
-}
-
 namespace WebCore {
 
 class Database;
-class InspectorDOMAgent;
-class InspectorDOMStorageAgent;
-class InspectorDatabaseAgent;
+class EventTarget;
 class JSDOMGlobalObject;
-class Node;
 class Storage;
 
 struct EventListenerInfo;
@@ -68,18 +53,9 @@ public:
     static Ref<CommandLineAPIHost> create();
     ~CommandLineAPIHost();
 
-    void init(Inspector::InspectorAgent* inspectorAgent
-        , Inspector::InspectorConsoleAgent* consoleAgent
-        , InspectorDOMAgent* domAgent
-        , InspectorDOMStorageAgent* domStorageAgent
-        , InspectorDatabaseAgent* databaseAgent
-        )
+    void init(RefPtr<InstrumentingAgents> instrumentingAgents)
     {
-        m_inspectorAgent = inspectorAgent;
-        m_consoleAgent = consoleAgent;
-        m_domAgent = domAgent;
-        m_domStorageAgent = domStorageAgent;
-        m_databaseAgent = databaseAgent;
+        m_instrumentingAgents = instrumentingAgents;
     }
 
     void disconnect();
@@ -90,17 +66,25 @@ public:
     class InspectableObject {
         WTF_MAKE_FAST_ALLOCATED;
     public:
-        virtual Deprecated::ScriptValue get(JSC::ExecState*);
-        virtual ~InspectableObject() { }
+        virtual JSC::JSValue get(JSC::ExecState&);
+        virtual ~InspectableObject() = default;
     };
     void addInspectedObject(std::unique_ptr<InspectableObject>);
-    InspectableObject* inspectedObject();
-    void inspectImpl(RefPtr<Inspector::InspectorValue>&& objectToInspect, RefPtr<Inspector::InspectorValue>&& hints);
+    JSC::JSValue inspectedObject(JSC::ExecState&);
+    void inspect(JSC::ExecState&, JSC::JSValue objectToInspect, JSC::JSValue hints);
 
-    void getEventListenersImpl(Node*, Vector<EventListenerInfo>& listenersArray);
+    struct ListenerEntry {
+        JSC::Strong<JSC::JSObject> listener;
+        bool useCapture;
+        bool passive;
+        bool once;
+    };
 
-    String databaseIdImpl(Database*);
-    String storageIdImpl(Storage*);
+    using EventListenersRecord = Vector<WTF::KeyValuePair<String, Vector<ListenerEntry>>>;
+    EventListenersRecord getEventListeners(JSC::ExecState&, EventTarget&);
+
+    String databaseId(Database&);
+    String storageId(Storage&);
 
     JSC::JSValue wrapper(JSC::ExecState*, JSDOMGlobalObject*);
     void clearAllWrappers();
@@ -108,16 +92,9 @@ public:
 private:
     CommandLineAPIHost();
 
-    Inspector::InspectorAgent* m_inspectorAgent {nullptr};
-    Inspector::InspectorConsoleAgent* m_consoleAgent {nullptr};
-    InspectorDOMAgent* m_domAgent {nullptr};
-    InspectorDOMStorageAgent* m_domStorageAgent {nullptr};
-    InspectorDatabaseAgent* m_databaseAgent {nullptr};
-
+    RefPtr<InstrumentingAgents> m_instrumentingAgents;
     std::unique_ptr<InspectableObject> m_inspectedObject; // $0
     Inspector::PerGlobalObjectWrapperWorld m_wrappers;
 };
 
 } // namespace WebCore
-
-#endif // !defined(CommandLineAPIHost_h)

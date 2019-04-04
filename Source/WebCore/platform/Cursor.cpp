@@ -26,8 +26,11 @@
 #include "config.h"
 #include "Cursor.h"
 
+#if !PLATFORM(IOS_FAMILY)
+
 #include "Image.h"
 #include "IntRect.h"
+#include "NotImplemented.h"
 #include <wtf/Assertions.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -44,10 +47,10 @@ IntPoint determineHotSpot(Image* image, const IntPoint& specifiedHotSpot)
         return specifiedHotSpot;
 
     // If hot spot is not specified externally, it can be extracted from some image formats (e.g. .cur).
-    IntPoint intrinsicHotSpot;
-    bool imageHasIntrinsicHotSpot = image->getHotSpot(intrinsicHotSpot);
-    if (imageHasIntrinsicHotSpot && imageRect.contains(intrinsicHotSpot))
-        return intrinsicHotSpot;
+    if (auto intrinsicHotSpot = image->hotSpot()) {
+        if (imageRect.contains(intrinsicHotSpot.value()))
+            return intrinsicHotSpot.value();
+    }
 
     return IntPoint();
 }
@@ -446,4 +449,14 @@ const Cursor& grabbingCursor()
     return c;
 }
 
+#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN)
+void Cursor::ensurePlatformCursor() const
+{
+    notImplemented();
+}
+#endif
+
 } // namespace WebCore
+
+#endif // !PLATFORM(IOS_FAMILY)
+

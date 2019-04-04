@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2003-2016 Apple Inc.  All rights reserved.
  * Copyright (C) 2005 Nokia.  All rights reserved.
  *               2008 Eric Seidel <eric@webkit.org>
  *
@@ -25,13 +25,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef FloatSize_h
-#define FloatSize_h
+#pragma once
 
 #include "IntPoint.h"
+#include <wtf/JSONValues.h>
 #include <wtf/MathExtras.h>
+#include <wtf/text/WTFString.h>
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 #include <CoreGraphics/CoreGraphics.h>
 #endif
 
@@ -47,14 +48,22 @@ typedef struct _NSSize NSSize;
 #endif
 #endif // PLATFORM(MAC)
 
+#if PLATFORM(WIN)
+struct D2D_SIZE_F;
+typedef D2D_SIZE_F D2D1_SIZE_F;
+#endif
+
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
 class IntSize;
-class TextStream;
 
 class FloatSize {
 public:
-    FloatSize() : m_width(0), m_height(0) { }
+    FloatSize() { }
     FloatSize(float width, float height) : m_width(width), m_height(height) { }
     WEBCORE_EXPORT FloatSize(const IntSize&);
 
@@ -78,13 +87,29 @@ public:
         m_height += height;
     }
 
-    void scale(float s) { scale(s, s); }
+    void scale(float s)
+    {
+        m_width *= s;
+        m_height *= s;
+    }
 
     void scale(float scaleX, float scaleY)
     {
         m_width *= scaleX;
         m_height *= scaleY;
     }
+
+    FloatSize scaled(float s) const
+    {
+        return { m_width * s, m_height * s };
+    }
+
+    FloatSize scaled(float scaleX, float scaleY) const
+    {
+        return { m_width * scaleX, m_height * scaleY };
+    }
+
+    WEBCORE_EXPORT FloatSize constrainedBetween(const FloatSize& min, const FloatSize& max) const;
 
     FloatSize expandedTo(const FloatSize& other) const
     {
@@ -99,9 +124,15 @@ public:
     }
 
     WEBCORE_EXPORT float diagonalLength() const;
+
     float diagonalLengthSquared() const
     {
         return m_width * m_width + m_height * m_height;
+    }
+    
+    float area() const
+    {
+        return m_width * m_height;
     }
 
     FloatSize transposedSize() const
@@ -115,13 +146,21 @@ public:
 #endif
 
 #if PLATFORM(MAC) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
-    WEBCORE_EXPORT explicit FloatSize(const NSSize &); // don't do this implicitly since it's lossy
+    WEBCORE_EXPORT explicit FloatSize(const NSSize&); // don't do this implicitly since it's lossy
     operator NSSize() const;
 #endif
 
+#if PLATFORM(WIN)
+    WEBCORE_EXPORT FloatSize(const D2D1_SIZE_F&);
+    operator D2D1_SIZE_F() const;
+#endif
+
+    String toJSONString() const;
+    Ref<JSON::Object> toJSONObject() const;
+
 private:
-    float m_width;
-    float m_height;
+    float m_width { 0 };
+    float m_height { 0 };
 };
 
 inline FloatSize& operator+=(FloatSize& a, const FloatSize& b)
@@ -161,6 +200,16 @@ inline FloatSize operator*(const FloatSize& a, float b)
 inline FloatSize operator*(float a, const FloatSize& b)
 {
     return FloatSize(a * b.width(), a * b.height());
+}
+
+inline FloatSize operator*(const FloatSize& a, const FloatSize& b)
+{
+    return FloatSize(a.width() * b.width(), a.height() * b.height());
+}
+
+inline FloatSize operator/(const FloatSize& a, const FloatSize& b)
+{
+    return FloatSize(a.width() / b.width(), a.height() / b.height());
 }
 
 inline FloatSize operator/(const FloatSize& a, float b)
@@ -208,8 +257,21 @@ inline IntPoint flooredIntPoint(const FloatSize& p)
     return IntPoint(clampToInteger(floorf(p.width())), clampToInteger(floorf(p.height())));
 }
 
-WEBCORE_EXPORT TextStream& operator<<(TextStream&, const FloatSize&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FloatSize&);
 
 } // namespace WebCore
 
-#endif // FloatSize_h
+namespace WTF {
+template<> struct DefaultHash<WebCore::FloatSize>;
+template<> struct HashTraits<WebCore::FloatSize>;
+
+template<typename Type> struct LogArgument;
+template <>
+struct LogArgument<WebCore::FloatSize> {
+    static String toString(const WebCore::FloatSize& size)
+    {
+        return size.toJSONString();
+    }
+};
+    
+} // namespace WTF

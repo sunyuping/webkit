@@ -97,6 +97,7 @@ def add_path_to_trie(path, value, trie):
         trie[directory] = {}
     add_path_to_trie(rest, value, trie[directory])
 
+
 def test_timings_trie(port, individual_test_timings):
     """Breaks a test name into chunks by directory and puts the test time as a value in the lowest part, e.g.
     foo/bar/baz.html: 1ms
@@ -113,10 +114,73 @@ def test_timings_trie(port, individual_test_timings):
     trie = {}
     for test_result in individual_test_timings:
         test = test_result.test_name
-
         add_path_to_trie(test, int(1000 * test_result.test_run_time), trie)
 
     return trie
+
+
+def _add_perf_metric_for_test(path, time, tests, depth, depth_limit):
+    """
+    Aggregate test time to result for a given test at a specified depth_limit.
+    """
+    if not "/" in path:
+        tests["tests"][path] = {
+            "metrics": {
+                "Time": {
+                    "current": [time],
+                }}}
+        return
+
+    directory, slash, rest = path.partition("/")
+    if depth == depth_limit:
+        if directory not in tests["tests"]:
+            tests["tests"][directory] = {
+                "metrics": {
+                    "Time": {
+                        "current": [time],
+                    }}}
+        else:
+            tests["tests"][directory]["metrics"]["Time"]["current"][0] += time
+        return
+    else:
+        if directory not in tests["tests"]:
+            tests["tests"][directory] = {
+                "metrics": {
+                    "Time": ["Total", "Arithmetic"],
+                },
+                "tests": {}
+            }
+        _add_perf_metric_for_test(rest, time, tests["tests"][directory], depth + 1, depth_limit)
+
+
+def perf_metrics_for_test(run_time, individual_test_timings):
+    """
+    Output two performace metrics
+    1. run time, which is how much time consumed by the layout tests script
+    2. run time of first-level and second-level of test directories
+    """
+    total_run_time = 0
+
+    for test_result in individual_test_timings:
+        total_run_time += int(1000 * test_result.test_run_time)
+
+    perf_metric = {
+        "layout_tests": {
+            "metrics": {
+                "Time": ["Total", "Arithmetic"],
+            },
+            "tests": {}
+        },
+        "layout_tests_run_time": {
+            "metrics": {
+                "Time": {"current": [run_time]},
+            }}}
+    for test_result in individual_test_timings:
+        test = test_result.test_name
+        # for now, we only send two levels of directories
+        _add_perf_metric_for_test(test, int(1000 * test_result.test_run_time), perf_metric["layout_tests"], 1, 2)
+    return perf_metric
+
 
 # FIXME: We already have a TestResult class in test_results.py
 class TestResult(object):
@@ -191,7 +255,7 @@ class JSONResultsGenerator(object):
     def __init__(self, port, builder_name, build_name, build_number,
         results_file_base_path,
         test_results_map, svn_repositories=None,
-        test_results_server=None,
+        test_results_server=[],
         test_type="",
         master_name=""):
         """Modifies the results.json file. Grabs it off the archive directory
@@ -227,7 +291,7 @@ class JSONResultsGenerator(object):
         if not self._svn_repositories:
             self._svn_repositories = {}
 
-        self._test_results_server = test_results_server
+        self._test_results_servers = test_results_server
         self._test_type = test_type
         self._master_name = master_name
 
@@ -248,12 +312,12 @@ class JSONResultsGenerator(object):
         file_path = self._filesystem.join(self._results_directory, self.TIMES_MS_FILENAME)
         write_json(self._filesystem, times, file_path)
 
-    def get_json(self):
+    def get_json(self, server_index=0):
         """Gets the results for the results.json file."""
         results_json = {}
 
         if not results_json:
-            results_json, error = self._get_archived_json_results()
+            results_json, error = self._get_archived_json_results(server_index=server_index)
             if error:
                 # If there was an error don't write a results.json
                 # file at all as it would lose all the information on the
@@ -297,7 +361,7 @@ class JSONResultsGenerator(object):
     def upload_json_files(self, json_files):
         """Uploads the given json_files to the test_results_server (if the
         test_results_server is given)."""
-        if not self._test_results_server:
+        if not self._test_results_servers:
             return
 
         if not self._master_name:
@@ -312,23 +376,23 @@ class JSONResultsGenerator(object):
         files = [(file, self._filesystem.join(self._results_directory, file))
             for file in json_files]
 
-        url = "http://%s/testfile/upload" % self._test_results_server
-        # Set uploading timeout in case appengine server is having problems.
-        # 120 seconds are more than enough to upload test results.
-        uploader = FileUploader(url, 120)
-        try:
-            response = uploader.upload_as_multipart_form_data(self._filesystem, files, attrs)
-            if response:
-                if response.code == 200:
-                    _log.info("JSON uploaded.")
+        for test_results_server in self._test_results_servers:
+            url = "http://%s/testfile/upload" % test_results_server
+            # Set uploading timeout in case appengine server is having problems.
+            # 120 seconds are more than enough to upload test results.
+            uploader = FileUploader(url, 120)
+            try:
+                response = uploader.upload_as_multipart_form_data(self._filesystem, files, attrs)
+                if response:
+                    if response.code == 200:
+                        _log.info("JSON uploaded.")
+                    else:
+                        _log.debug("JSON upload failed, %d: '%s'" % (response.code, response.read()))
                 else:
-                    _log.debug("JSON upload failed, %d: '%s'" % (response.code, response.read()))
-            else:
-                _log.error("JSON upload failed; no response returned")
-        except Exception, err:
-            _log.error("Upload failed: %s" % err)
-            return
-
+                    _log.error("JSON upload failed; no response returned")
+            except Exception as err:
+                _log.error("Upload failed: %s" % err)
+                continue
 
     def _get_test_timing(self, test_name):
         """Returns test timing data (elapsed time) in second
@@ -389,7 +453,7 @@ class JSONResultsGenerator(object):
             return scm.svn_revision(in_directory)
         return ""
 
-    def _get_archived_json_results(self):
+    def _get_archived_json_results(self, server_index=0):
         """Download JSON file that only contains test
         name list from test-results server. This is for generating incremental
         JSON so the file generated has info for tests that failed before but
@@ -402,11 +466,11 @@ class JSONResultsGenerator(object):
         old_results = None
         error = None
 
-        if not self._test_results_server:
+        if len(self._test_results_servers) <= server_index:
             return {}, None
 
         results_file_url = (self.URL_FOR_TEST_LIST_JSON %
-            (urllib2.quote(self._test_results_server),
+            (urllib2.quote(self._test_results_servers[server_index]),
              urllib2.quote(self._builder_name),
              self.RESULTS_FILENAME,
              urllib2.quote(self._test_type),
@@ -417,12 +481,12 @@ class JSONResultsGenerator(object):
             results_file = urllib2.urlopen(results_file_url)
             info = results_file.info()
             old_results = results_file.read()
-        except urllib2.HTTPError, http_error:
+        except urllib2.HTTPError as http_error:
             # A non-4xx status code means the bot is hosed for some reason
             # and we can't grab the results.json file off of it.
             if (http_error.code < 400 and http_error.code >= 500):
                 error = http_error
-        except urllib2.URLError, url_error:
+        except urllib2.URLError as url_error:
             error = url_error
 
         if old_results:

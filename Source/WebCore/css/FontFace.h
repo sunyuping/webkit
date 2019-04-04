@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2007, 2008, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,40 +23,46 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef FontFace_h
-#define FontFace_h
+#pragma once
 
 #include "CSSFontFace.h"
 #include "CSSPropertyNames.h"
-#include "DOMCoreException.h"
-#include "ExceptionCode.h"
-#include "JSDOMPromise.h"
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
-#include <wtf/text/WTFString.h>
+#include "DOMPromiseProxy.h"
+#include <wtf/Variant.h>
+#include <wtf/WeakPtr.h>
 
-namespace Deprecated {
-class ScriptValue;
+namespace JSC {
+class ArrayBuffer;
+class ArrayBufferView;
 }
 
 namespace WebCore {
 
-class CSSFontFace;
-class CSSValue;
-class Dictionary;
-
-class FontFace : public RefCounted<FontFace>, public CSSFontFaceClient {
+class FontFace final : public RefCounted<FontFace>, public CanMakeWeakPtr<FontFace>, private CSSFontFace::Client {
 public:
-    static RefPtr<FontFace> create(JSC::ExecState&, ScriptExecutionContext&, const String& family, const Deprecated::ScriptValue& source, const Dictionary& descriptors, ExceptionCode&);
+    struct Descriptors {
+        String style;
+        String weight;
+        String stretch;
+        String unicodeRange;
+        String variant;
+        String featureSettings;
+        String display;
+    };
+    
+    using Source = Variant<String, RefPtr<JSC::ArrayBuffer>, RefPtr<JSC::ArrayBufferView>>;
+    static ExceptionOr<Ref<FontFace>> create(Document&, const String& family, Source&&, const Descriptors&);
+    static Ref<FontFace> create(CSSFontFace&);
     virtual ~FontFace();
 
-    void setFamily(const String&, ExceptionCode&);
-    void setStyle(const String&, ExceptionCode&);
-    void setWeight(const String&, ExceptionCode&);
-    void setStretch(const String&, ExceptionCode&);
-    void setUnicodeRange(const String&, ExceptionCode&);
-    void setVariant(const String&, ExceptionCode&);
-    void setFeatureSettings(const String&, ExceptionCode&);
+    ExceptionOr<void> setFamily(const String&);
+    ExceptionOr<void> setStyle(const String&);
+    ExceptionOr<void> setWeight(const String&);
+    ExceptionOr<void> setStretch(const String&);
+    ExceptionOr<void> setUnicodeRange(const String&);
+    ExceptionOr<void> setVariant(const String&);
+    ExceptionOr<void> setFeatureSettings(const String&);
+    ExceptionOr<void> setDisplay(const String&);
 
     String family() const;
     String style() const;
@@ -65,29 +71,35 @@ public:
     String unicodeRange() const;
     String variant() const;
     String featureSettings() const;
-    String status() const;
+    String display() const;
 
-    typedef DOMPromise<FontFace&, DOMCoreException&> Promise;
-    Promise& promise() { return m_promise; }
+    enum class LoadStatus { Unloaded, Loading, Loaded, Error };
+    LoadStatus status() const;
 
-    void load();
+    using LoadedPromise = DOMPromiseProxyWithResolveCallback<IDLInterface<FontFace>>;
+    LoadedPromise& loaded() { return m_loadedPromise; }
+    LoadedPromise& load();
+
+    void adopt(CSSFontFace&);
 
     CSSFontFace& backing() { return m_backing; }
 
     static RefPtr<CSSValue> parseString(const String&, CSSPropertyID);
 
+    void fontStateChanged(CSSFontFace&, CSSFontFace::Status oldState, CSSFontFace::Status newState) final;
+
+    void ref() final { RefCounted::ref(); }
+    void deref() final { RefCounted::deref(); }
+
 private:
-    FontFace(JSC::ExecState&, CSSFontSelector&);
+    explicit FontFace(CSSFontSelector&);
+    explicit FontFace(CSSFontFace&);
 
-    void kick(CSSFontFace&) override;
-
-    void fulfillPromise();
-    void rejectPromise(ExceptionCode);
+    // Callback for LoadedPromise.
+    FontFace& loadedPromiseResolve();
 
     Ref<CSSFontFace> m_backing;
-    Promise m_promise;
+    LoadedPromise m_loadedPromise;
 };
 
 }
-
-#endif

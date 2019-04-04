@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,51 +23,104 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef ButterflyInlines_h
-#define ButterflyInlines_h
+#pragma once
 
 #include "ArrayStorage.h"
 #include "Butterfly.h"
-#include "CopiedSpaceInlines.h"
-#include "CopyVisitor.h"
-#include "VM.h"
+#include "JSObject.h"
 #include "Structure.h"
+#include "VM.h"
 
 namespace JSC {
 
-inline Butterfly* Butterfly::createUninitialized(VM& vm, JSCell* intendedOwner, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, size_t indexingPayloadSizeInBytes)
+template<typename T>
+const typename ContiguousData<T>::Data ContiguousData<T>::at(const JSCell* owner, size_t index) const
 {
-    void* temp;
+    ASSERT(index < m_length);
+    return Data(m_data[index], owner->indexingMode());
+}
+
+template<typename T>
+typename ContiguousData<T>::Data ContiguousData<T>::at(const JSCell* owner, size_t index)
+{
+    ASSERT(index < m_length);
+    return Data(m_data[index], owner->indexingMode());
+}
+
+ALWAYS_INLINE unsigned Butterfly::availableContiguousVectorLength(size_t propertyCapacity, unsigned vectorLength)
+{
+    size_t cellSize = totalSize(0, propertyCapacity, true, sizeof(EncodedJSValue) * vectorLength);
+    cellSize = MarkedSpace::optimalSizeFor(cellSize);
+    vectorLength = (cellSize - totalSize(0, propertyCapacity, true, 0)) / sizeof(EncodedJSValue);
+    return vectorLength;
+}
+
+ALWAYS_INLINE unsigned Butterfly::availableContiguousVectorLength(Structure* structure, unsigned vectorLength)
+{
+    return availableContiguousVectorLength(structure ? structure->outOfLineCapacity() : 0, vectorLength);
+}
+
+ALWAYS_INLINE unsigned Butterfly::optimalContiguousVectorLength(size_t propertyCapacity, unsigned vectorLength)
+{
+    if (!vectorLength)
+        vectorLength = BASE_CONTIGUOUS_VECTOR_LEN_EMPTY;
+    else
+        vectorLength = std::max(BASE_CONTIGUOUS_VECTOR_LEN, vectorLength);
+    return availableContiguousVectorLength(propertyCapacity, vectorLength);
+}
+
+ALWAYS_INLINE unsigned Butterfly::optimalContiguousVectorLength(Structure* structure, unsigned vectorLength)
+{
+    return optimalContiguousVectorLength(structure ? structure->outOfLineCapacity() : 0, vectorLength);
+}
+
+inline Butterfly* Butterfly::tryCreateUninitialized(VM& vm, JSObject*, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, size_t indexingPayloadSizeInBytes, GCDeferralContext* deferralContext)
+{
     size_t size = totalSize(preCapacity, propertyCapacity, hasIndexingHeader, indexingPayloadSizeInBytes);
-    RELEASE_ASSERT(vm.heap.tryAllocateStorage(intendedOwner, size, &temp));
-    Butterfly* result = fromBase(temp, preCapacity, propertyCapacity);
+    void* base = vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, size, deferralContext, AllocationFailureMode::ReturnNull);
+    if (UNLIKELY(!base))
+        return nullptr;
+
+    Butterfly* result = fromBase(base, preCapacity, propertyCapacity);
+
     return result;
 }
 
-inline Butterfly* Butterfly::create(VM& vm, JSCell* intendedOwner, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, const IndexingHeader& indexingHeader, size_t indexingPayloadSizeInBytes)
+inline Butterfly* Butterfly::createUninitialized(VM& vm, JSObject*, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, size_t indexingPayloadSizeInBytes)
 {
-    Butterfly* result = createUninitialized(
-        vm, intendedOwner, preCapacity, propertyCapacity, hasIndexingHeader,
-        indexingPayloadSizeInBytes);
+    size_t size = totalSize(preCapacity, propertyCapacity, hasIndexingHeader, indexingPayloadSizeInBytes);
+    void* base = vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, size, nullptr, AllocationFailureMode::Assert);
+    Butterfly* result = fromBase(base, preCapacity, propertyCapacity);
+
+    return result;
+}
+
+inline Butterfly* Butterfly::tryCreate(VM& vm, JSObject*, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, const IndexingHeader& indexingHeader, size_t indexingPayloadSizeInBytes)
+{
+    size_t size = totalSize(preCapacity, propertyCapacity, hasIndexingHeader, indexingPayloadSizeInBytes);
+    void* base = vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, size, nullptr, AllocationFailureMode::ReturnNull);
+    if (!base)
+        return nullptr;
+    Butterfly* result = fromBase(base, preCapacity, propertyCapacity);
     if (hasIndexingHeader)
         *result->indexingHeader() = indexingHeader;
+    memset(result->propertyStorage() - propertyCapacity, 0, propertyCapacity * sizeof(EncodedJSValue));
     return result;
 }
 
-inline Butterfly* Butterfly::create(VM& vm, JSCell* intendedOwner, Structure* structure)
+inline Butterfly* Butterfly::create(VM& vm, JSObject* intendedOwner, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, const IndexingHeader& indexingHeader, size_t indexingPayloadSizeInBytes)
+{
+    Butterfly* result = tryCreate(vm, intendedOwner, preCapacity, propertyCapacity, hasIndexingHeader, indexingHeader, indexingPayloadSizeInBytes);
+
+    RELEASE_ASSERT(result);
+    return result;
+}
+
+inline Butterfly* Butterfly::create(VM& vm, JSObject* intendedOwner, Structure* structure)
 {
     return create(
         vm, intendedOwner, 0, structure->outOfLineCapacity(),
         structure->hasIndexingHeader(intendedOwner), IndexingHeader(), 0);
-}
-
-inline Butterfly* Butterfly::createUninitializedDuringCollection(CopyVisitor& visitor, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, size_t indexingPayloadSizeInBytes)
-{
-    size_t size = totalSize(preCapacity, propertyCapacity, hasIndexingHeader, indexingPayloadSizeInBytes);
-    Butterfly* result = fromBase(
-        visitor.allocateNewSpace(size),
-        preCapacity, propertyCapacity);
-    return result;
 }
 
 inline void* Butterfly::base(Structure* structure)
@@ -76,7 +129,7 @@ inline void* Butterfly::base(Structure* structure)
 }
 
 inline Butterfly* Butterfly::createOrGrowPropertyStorage(
-    Butterfly* oldButterfly, VM& vm, JSCell* intendedOwner, Structure* structure, size_t oldPropertyCapacity, size_t newPropertyCapacity)
+    Butterfly* oldButterfly, VM& vm, JSObject* intendedOwner, Structure* structure, size_t oldPropertyCapacity, size_t newPropertyCapacity)
 {
     RELEASE_ASSERT(newPropertyCapacity > oldPropertyCapacity);
     if (!oldButterfly)
@@ -85,17 +138,20 @@ inline Butterfly* Butterfly::createOrGrowPropertyStorage(
     size_t preCapacity = oldButterfly->indexingHeader()->preCapacity(structure);
     size_t indexingPayloadSizeInBytes = oldButterfly->indexingHeader()->indexingPayloadSizeInBytes(structure);
     bool hasIndexingHeader = structure->hasIndexingHeader(intendedOwner);
-    Butterfly* result = createUninitialized(
-        vm, intendedOwner, preCapacity, newPropertyCapacity, hasIndexingHeader, indexingPayloadSizeInBytes);
+    Butterfly* result = createUninitialized(vm, intendedOwner, preCapacity, newPropertyCapacity, hasIndexingHeader, indexingPayloadSizeInBytes);
     memcpy(
         result->propertyStorage() - oldPropertyCapacity,
         oldButterfly->propertyStorage() - oldPropertyCapacity,
         totalSize(0, oldPropertyCapacity, hasIndexingHeader, indexingPayloadSizeInBytes));
+    memset(
+        result->propertyStorage() - newPropertyCapacity,
+        0,
+        (newPropertyCapacity - oldPropertyCapacity) * sizeof(EncodedJSValue));
     return result;
 }
 
 inline Butterfly* Butterfly::createOrGrowArrayRight(
-    Butterfly* oldButterfly, VM& vm, JSCell* intendedOwner, Structure* oldStructure,
+    Butterfly* oldButterfly, VM& vm, JSObject* intendedOwner, Structure* oldStructure,
     size_t propertyCapacity, bool hadIndexingHeader, size_t oldIndexingPayloadSizeInBytes,
     size_t newIndexingPayloadSizeInBytes)
 {
@@ -110,22 +166,25 @@ inline Butterfly* Butterfly::createOrGrowArrayRight(
 }
 
 inline Butterfly* Butterfly::growArrayRight(
-    VM& vm, JSCell* intendedOwner, Structure* oldStructure, size_t propertyCapacity,
+    VM& vm, JSObject* intendedOwner, Structure* oldStructure, size_t propertyCapacity,
     bool hadIndexingHeader, size_t oldIndexingPayloadSizeInBytes,
     size_t newIndexingPayloadSizeInBytes)
 {
     ASSERT_UNUSED(oldStructure, !indexingHeader()->preCapacity(oldStructure));
-    ASSERT_UNUSED(oldStructure, hadIndexingHeader == oldStructure->hasIndexingHeader(intendedOwner));
+    ASSERT_UNUSED(intendedOwner, hadIndexingHeader == oldStructure->hasIndexingHeader(intendedOwner));
     void* theBase = base(0, propertyCapacity);
     size_t oldSize = totalSize(0, propertyCapacity, hadIndexingHeader, oldIndexingPayloadSizeInBytes);
     size_t newSize = totalSize(0, propertyCapacity, true, newIndexingPayloadSizeInBytes);
-    if (!vm.heap.tryReallocateStorage(intendedOwner, &theBase, oldSize, newSize))
-        return 0;
-    return fromBase(theBase, 0, propertyCapacity);
+    void* newBase = vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, newSize, nullptr, AllocationFailureMode::ReturnNull);
+    if (!newBase)
+        return nullptr;
+    // FIXME: This probably shouldn't be a memcpy.
+    memcpy(newBase, theBase, oldSize);
+    return fromBase(newBase, 0, propertyCapacity);
 }
 
 inline Butterfly* Butterfly::growArrayRight(
-    VM& vm, JSCell* intendedOwner, Structure* oldStructure,
+    VM& vm, JSObject* intendedOwner, Structure* oldStructure,
     size_t newIndexingPayloadSizeInBytes)
 {
     return growArrayRight(
@@ -135,14 +194,43 @@ inline Butterfly* Butterfly::growArrayRight(
         newIndexingPayloadSizeInBytes);
 }
 
+inline Butterfly* Butterfly::reallocArrayRightIfPossible(
+    VM& vm, GCDeferralContext& deferralContext, JSObject* intendedOwner, Structure* oldStructure, size_t propertyCapacity,
+    bool hadIndexingHeader, size_t oldIndexingPayloadSizeInBytes,
+    size_t newIndexingPayloadSizeInBytes)
+{
+    ASSERT_UNUSED(oldStructure, !indexingHeader()->preCapacity(oldStructure));
+    ASSERT_UNUSED(intendedOwner, hadIndexingHeader == oldStructure->hasIndexingHeader(intendedOwner));
+
+    void* theBase = base(0, propertyCapacity);
+    size_t oldSize = totalSize(0, propertyCapacity, hadIndexingHeader, oldIndexingPayloadSizeInBytes);
+    size_t newSize = totalSize(0, propertyCapacity, true, newIndexingPayloadSizeInBytes);
+    ASSERT(newSize >= oldSize);
+
+    // We can eagerly destroy butterfly backed by LargeAllocation if (1) concurrent collector is not active and (2) the butterfly does not contain any property storage.
+    // This is because during deallocation concurrent collector can access butterfly and DFG concurrent compilers accesses properties.
+    // Objects with no properties are common in arrays, and we are focusing on very large array crafted by repeating Array#push, so... that's fine!
+    bool canRealloc = !propertyCapacity && !vm.heap.mutatorShouldBeFenced() && bitwise_cast<HeapCell*>(theBase)->isLargeAllocation();
+    if (canRealloc) {
+        void* newBase = vm.jsValueGigacageAuxiliarySpace.reallocateLargeAllocationNonVirtual(vm, bitwise_cast<HeapCell*>(theBase), newSize, &deferralContext, AllocationFailureMode::ReturnNull);
+        if (!newBase)
+            return nullptr;
+        return fromBase(newBase, 0, propertyCapacity);
+    }
+
+    void* newBase = vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, newSize, &deferralContext, AllocationFailureMode::ReturnNull);
+    if (!newBase)
+        return nullptr;
+    memcpy(newBase, theBase, oldSize);
+    return fromBase(newBase, 0, propertyCapacity);
+}
+
 inline Butterfly* Butterfly::resizeArray(
-    VM& vm, JSCell* intendedOwner, size_t propertyCapacity, bool oldHasIndexingHeader,
+    VM& vm, JSObject* intendedOwner, size_t propertyCapacity, bool oldHasIndexingHeader,
     size_t oldIndexingPayloadSizeInBytes, size_t newPreCapacity, bool newHasIndexingHeader,
     size_t newIndexingPayloadSizeInBytes)
 {
-    Butterfly* result = createUninitialized(
-        vm, intendedOwner, newPreCapacity, propertyCapacity, newHasIndexingHeader,
-        newIndexingPayloadSizeInBytes);
+    Butterfly* result = createUninitialized(vm, intendedOwner, newPreCapacity, propertyCapacity, newHasIndexingHeader, newIndexingPayloadSizeInBytes);
     // FIXME: This could be made much more efficient if we used the property size,
     // not the capacity.
     void* to = result->propertyStorage() - propertyCapacity;
@@ -155,7 +243,7 @@ inline Butterfly* Butterfly::resizeArray(
 }
 
 inline Butterfly* Butterfly::resizeArray(
-    VM& vm, JSCell* intendedOwner, Structure* structure, size_t newPreCapacity,
+    VM& vm, JSObject* intendedOwner, Structure* structure, size_t newPreCapacity,
     size_t newIndexingPayloadSizeInBytes)
 {
     bool hasIndexingHeader = structure->hasIndexingHeader(intendedOwner);
@@ -197,6 +285,3 @@ inline Butterfly* Butterfly::shift(Structure* structure, size_t numberOfSlots)
 }
 
 } // namespace JSC
-
-#endif // ButterflyInlines_h
-

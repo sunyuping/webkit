@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TextNodeTraversal_h
-#define TextNodeTraversal_h
+#pragma once
 
 #include "NodeTraversal.h"
 #include "Text.h"
@@ -57,6 +56,7 @@ Text* nextSibling(const Node&);
 String contentsAsString(const Node&);
 String contentsAsString(const ContainerNode&);
 void appendContents(const ContainerNode&, StringBuilder& result);
+String childTextContent(const ContainerNode&);
 
 }
 
@@ -114,7 +114,5 @@ inline Text* nextSibling(const Node& current)
     return downcast<Text>(node);
 }
 
-}
-}
-
-#endif
+} // namespace TextNodeTraversal
+} // namespace WebCore

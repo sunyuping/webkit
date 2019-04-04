@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,45 +29,54 @@
 #include "BuiltinNames.h"
 #include "Error.h"
 #include "Exception.h"
-#include "JSCJSValueInlines.h"
-#include "JSCellInlines.h"
+#include "JSCInlines.h"
+#include "JSObjectInlines.h"
 #include "JSPromise.h"
 #include "JSPromiseConstructor.h"
-#include "SlotVisitorInlines.h"
-#include "StructureInlines.h"
+#include "PromiseDeferredTimer.h"
 
 namespace JSC {
 
-const ClassInfo JSPromiseDeferred::s_info = { "JSPromiseDeferred", 0, 0, CREATE_METHOD_TABLE(JSPromiseDeferred) };
+const ClassInfo JSPromiseDeferred::s_info = { "JSPromiseDeferred", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(JSPromiseDeferred) };
 
-JSValue newPromiseCapability(ExecState* exec, JSGlobalObject* globalObject, JSPromiseConstructor* promiseConstructor)
+JSPromiseDeferred::DeferredData JSPromiseDeferred::createDeferredData(ExecState* exec, JSGlobalObject* globalObject, JSPromiseConstructor* promiseConstructor)
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     JSFunction* newPromiseCapabilityFunction = globalObject->newPromiseCapabilityFunction();
     CallData callData;
-    CallType callType = JSC::getCallData(newPromiseCapabilityFunction, callData);
-    ASSERT(callType != CallTypeNone);
+    CallType callType = JSC::getCallData(exec->vm(), newPromiseCapabilityFunction, callData);
+    ASSERT(callType != CallType::None);
 
     MarkedArgumentBuffer arguments;
     arguments.append(promiseConstructor);
-    return call(exec, newPromiseCapabilityFunction, callType, callData, jsUndefined(), arguments);
+    ASSERT(!arguments.hasOverflowed());
+    JSValue deferred = call(exec, newPromiseCapabilityFunction, callType, callData, jsUndefined(), arguments);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    DeferredData result;
+    result.promise = jsCast<JSPromise*>(deferred.get(exec, vm.propertyNames->builtinNames().promisePrivateName()));
+    RETURN_IF_EXCEPTION(scope, { });
+    result.resolve = jsCast<JSFunction*>(deferred.get(exec, vm.propertyNames->builtinNames().resolvePrivateName()));
+    RETURN_IF_EXCEPTION(scope, { });
+    result.reject = jsCast<JSFunction*>(deferred.get(exec, vm.propertyNames->builtinNames().rejectPrivateName()));
+    RETURN_IF_EXCEPTION(scope, { });
+
+    return result;
 }
 
-
-JSPromiseDeferred* JSPromiseDeferred::create(ExecState* exec, JSGlobalObject* globalObject)
+JSPromiseDeferred* JSPromiseDeferred::tryCreate(ExecState* exec, JSGlobalObject* globalObject)
 {
     VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSValue deferred = newPromiseCapability(exec, globalObject, globalObject->promiseConstructor());
-
-    JSValue promise = deferred.get(exec, vm.propertyNames->promisePrivateName);
-    ASSERT(promise.inherits(JSPromise::info()));
-    JSValue resolve = deferred.get(exec, vm.propertyNames->builtinNames().resolvePrivateName());
-    JSValue reject = deferred.get(exec, vm.propertyNames->builtinNames().rejectPrivateName());
-
-    return JSPromiseDeferred::create(vm, jsCast<JSPromise*>(promise), resolve, reject);
+    DeferredData data = createDeferredData(exec, globalObject, globalObject->promiseConstructor());
+    RETURN_IF_EXCEPTION(scope, { });
+    return JSPromiseDeferred::create(vm, data.promise, data.resolve, data.reject);
 }
 
-JSPromiseDeferred* JSPromiseDeferred::create(VM& vm, JSObject* promise, JSValue resolve, JSValue reject)
+JSPromiseDeferred* JSPromiseDeferred::create(VM& vm, JSPromise* promise, JSFunction* resolve, JSFunction* reject)
 {
     JSPromiseDeferred* deferred = new (NotNull, allocateCell<JSPromiseDeferred>(vm.heap)) JSPromiseDeferred(vm);
     deferred->finishCreation(vm, promise, resolve, reject);
@@ -87,11 +96,12 @@ JSPromiseDeferred::JSPromiseDeferred(VM& vm, Structure* structure)
 static inline void callFunction(ExecState* exec, JSValue function, JSValue value)
 {
     CallData callData;
-    CallType callType = getCallData(function, callData);
-    ASSERT(callType != CallTypeNone);
+    CallType callType = getCallData(exec->vm(), function, callData);
+    ASSERT(callType != CallType::None);
 
     MarkedArgumentBuffer arguments;
     arguments.append(value);
+    ASSERT(!arguments.hasOverflowed());
 
     call(exec, function, callType, callData, jsUndefined(), arguments);
 }
@@ -99,14 +109,23 @@ static inline void callFunction(ExecState* exec, JSValue function, JSValue value
 void JSPromiseDeferred::resolve(ExecState* exec, JSValue value)
 {
     callFunction(exec, m_resolve.get(), value);
+    bool wasPending = exec->vm().promiseDeferredTimer->cancelPendingPromise(this);
+    ASSERT_UNUSED(wasPending, wasPending == m_promiseIsAsyncPending);
 }
 
 void JSPromiseDeferred::reject(ExecState* exec, JSValue reason)
 {
     callFunction(exec, m_reject.get(), reason);
+    bool wasPending = exec->vm().promiseDeferredTimer->cancelPendingPromise(this);
+    ASSERT_UNUSED(wasPending, wasPending == m_promiseIsAsyncPending);
 }
 
-void JSPromiseDeferred::finishCreation(VM& vm, JSObject* promise, JSValue resolve, JSValue reject)
+void JSPromiseDeferred::reject(ExecState* exec, Exception* reason)
+{
+    reject(exec, reason->value());
+}
+
+void JSPromiseDeferred::finishCreation(VM& vm, JSPromise* promise, JSFunction* resolve, JSFunction* reject)
 {
     Base::finishCreation(vm);
     m_promise.set(vm, this, promise);
@@ -121,9 +140,9 @@ void JSPromiseDeferred::visitChildren(JSCell* cell, SlotVisitor& visitor)
 
     Base::visitChildren(thisObject, visitor);
 
-    visitor.append(&thisObject->m_promise);
-    visitor.append(&thisObject->m_resolve);
-    visitor.append(&thisObject->m_reject);
+    visitor.append(thisObject->m_promise);
+    visitor.append(thisObject->m_resolve);
+    visitor.append(thisObject->m_reject);
 }
 
 } // namespace JSC

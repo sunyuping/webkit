@@ -23,10 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSEventTargetCustom_h
-#define JSEventTargetCustom_h
+#pragma once
 
+#include "DOMWindow.h"
 #include "JSDOMBinding.h"
+#include "JSDOMBindingSecurity.h"
+#include "JSDOMOperation.h"
 
 namespace WebCore {
 
@@ -48,8 +50,34 @@ private:
     JSC::JSObject& m_wrapper;
 };
 
-std::unique_ptr<JSEventTargetWrapper> jsEventTargetCast(JSC::JSValue thisValue);
+std::unique_ptr<JSEventTargetWrapper> jsEventTargetCast(JSC::VM&, JSC::JSValue thisValue);
+
+template<> class IDLOperation<JSEventTarget> {
+public:
+    using ClassParameter = JSEventTargetWrapper*;
+    using Operation = JSC::EncodedJSValue(JSC::ExecState*, ClassParameter, JSC::ThrowScope&);
+
+    template<Operation operation, CastedThisErrorBehavior = CastedThisErrorBehavior::Throw>
+    static JSC::EncodedJSValue call(JSC::ExecState& state, const char* operationName)
+    {
+        auto& vm = state.vm();
+        auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+        auto thisObject = jsEventTargetCast(vm, state.thisValue().toThis(&state, JSC::NotStrictMode));
+        if (UNLIKELY(!thisObject))
+            return throwThisTypeError(state, throwScope, "EventTarget", operationName);
+
+        auto& wrapped = thisObject->wrapped();
+        if (is<DOMWindow>(wrapped)) {
+            auto& window = downcast<DOMWindow>(wrapped);
+            if (!window.frame() || !BindingSecurity::shouldAllowAccessToDOMWindow(&state, window, ThrowSecurityError))
+                return JSC::JSValue::encode(JSC::jsUndefined());
+        }
+
+        return operation(&state, thisObject.get(), throwScope);
+    }
+
+};
+
 
 } // namespace WebCore
-
-#endif // JSEventTargetCustom_h

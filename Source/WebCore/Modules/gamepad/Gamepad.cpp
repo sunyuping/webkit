@@ -39,16 +39,14 @@ Gamepad::Gamepad(const PlatformGamepad& platformGamepad)
     , m_index(platformGamepad.index())
     , m_connected(true)
     , m_timestamp(platformGamepad.lastUpdateTime())
+    , m_axes(platformGamepad.axisValues().size(), 0.0)
 {
-    m_axes.resize(platformGamepad.axisValues().size());
     unsigned buttonCount = platformGamepad.buttonValues().size();
     for (unsigned i = 0; i < buttonCount; ++i)
         m_buttons.append(GamepadButton::create());
 }
 
-Gamepad::~Gamepad()
-{
-}
+Gamepad::~Gamepad() = default;
 
 const Vector<double>& Gamepad::axes() const
 {

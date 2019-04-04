@@ -31,27 +31,17 @@
 
 #include <comutil.h>
 #include "DumpRenderTree.h"
-#include <WebCore/COMPtr.h>
-#include <WebKit/WebKit.h>
-#include <WebKit/WebKitCOMAPI.h>
 #include <JavaScriptCore/JSStringRef.h>
 #include <JavaScriptCore/JSStringRefBSTR.h>
 #include <JavaScriptCore/JSStringRefCF.h>
+#include <WebCore/COMPtr.h>
+#include <WebKitLegacy/WebKit.h>
+#include <WebKitLegacy/WebKitCOMAPI.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Vector.h>
 #include <string>
 
 using std::wstring;
-
-static wstring jsStringRefToWString(JSStringRef jsStr)
-{
-    size_t length = JSStringGetLength(jsStr);
-    Vector<WCHAR> buffer(length + 1);
-    memcpy(buffer.data(), JSStringGetCharactersPtr(jsStr), length * sizeof(WCHAR));
-    buffer[length] = '\0';
-
-    return buffer.data();
-}
 
 bool LoadItem::invoke() const
 {

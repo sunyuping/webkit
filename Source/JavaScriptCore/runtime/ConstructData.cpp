@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2019 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
 #include "config.h"
 #include "ConstructData.h"
 
-#include "Executable.h"
 #include "Interpreter.h"
 #include "JSCInlines.h"
 #include "JSFunction.h"
@@ -35,26 +34,33 @@
 
 namespace JSC {
 
-JSObject* construct(ExecState* exec, JSValue constructorObject, const ArgList& args, const String& errorMessage)
+JSObject* construct(ExecState* exec, JSValue constructorObject, const ArgList& args, const char* errorMessage)
 {
-    ConstructData constructData;
-    ConstructType constructType = getConstructData(constructorObject, constructData);
-    if (constructType == ConstructTypeNone)
-        return throwTypeError(exec, errorMessage);
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
-    return construct(exec, constructorObject, constructType, constructData, args, constructorObject);
+    ConstructData constructData;
+    ConstructType constructType = getConstructData(vm, constructorObject, constructData);
+    if (UNLIKELY(constructType == ConstructType::None)) {
+        throwTypeError(exec, scope, errorMessage);
+        return nullptr;
+    }
+
+    RELEASE_AND_RETURN(scope, construct(exec, constructorObject, constructType, constructData, args, constructorObject));
 }
 
 
 JSObject* construct(ExecState* exec, JSValue constructorObject, ConstructType constructType, const ConstructData& constructData, const ArgList& args, JSValue newTarget)
 {
-    ASSERT(constructType == ConstructTypeJS || constructType == ConstructTypeHost);
-    return exec->interpreter()->executeConstruct(exec, asObject(constructorObject), constructType, constructData, args, newTarget);
+    VM& vm = exec->vm();
+    ASSERT(constructType == ConstructType::JS || constructType == ConstructType::Host);
+    return vm.interpreter->executeConstruct(exec, asObject(constructorObject), constructType, constructData, args, newTarget);
 }
 
 JSObject* profiledConstruct(ExecState* exec, ProfilingReason reason, JSValue constructorObject, ConstructType constructType, const ConstructData& constructData, const ArgList& args, JSValue newTarget)
 {
-    ScriptProfilingScope profilingScope(exec->vmEntryGlobalObject(), reason);
+    VM& vm = exec->vm();
+    ScriptProfilingScope profilingScope(vm.vmEntryGlobalObject(exec), reason);
     return construct(exec, constructorObject, constructType, constructData, args, newTarget);
 }
 

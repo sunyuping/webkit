@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef B3BreakCriticalEdges_h
-#define B3BreakCriticalEdges_h
+#pragma once
 
 #if ENABLE(B3_JIT)
 
@@ -32,11 +31,8 @@ namespace JSC { namespace B3 {
 
 class Procedure;
 
-void breakCriticalEdges(Procedure&);
+JS_EXPORT_PRIVATE void breakCriticalEdges(Procedure&);
 
 } } // namespace JSC::B3
 
 #endif // ENABLE(B3_JIT)
-
-#endif // B3BreakCriticalEdges_h
-

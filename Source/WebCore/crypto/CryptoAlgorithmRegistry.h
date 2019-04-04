@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CryptoAlgorithmRegistry_h
-#define CryptoAlgorithmRegistry_h
+#pragma once
 
 #include "CryptoAlgorithmIdentifier.h"
 #include <wtf/Forward.h>
@@ -32,11 +31,9 @@
 #include <wtf/Noncopyable.h>
 #include <wtf/text/StringHash.h>
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
-
-typedef int ExceptionCode;
 
 class CryptoAlgorithm;
 
@@ -47,16 +44,16 @@ class CryptoAlgorithmRegistry {
 public:
     static CryptoAlgorithmRegistry& singleton();
 
-    bool getIdentifierForName(const String&, CryptoAlgorithmIdentifier&);
-    String nameForIdentifier(CryptoAlgorithmIdentifier);
+    Optional<CryptoAlgorithmIdentifier> identifier(const String&);
+    String name(CryptoAlgorithmIdentifier);
 
-    std::unique_ptr<CryptoAlgorithm> create(CryptoAlgorithmIdentifier);
+    RefPtr<CryptoAlgorithm> create(CryptoAlgorithmIdentifier);
 
 private:
     CryptoAlgorithmRegistry();
     void platformRegisterAlgorithms();
 
-    typedef std::unique_ptr<CryptoAlgorithm> (*CryptoAlgorithmConstructor)();
+    using CryptoAlgorithmConstructor = Ref<CryptoAlgorithm> (*)();
 
     template<typename AlgorithmClass> void registerAlgorithm()
     {
@@ -65,12 +62,10 @@ private:
 
     void registerAlgorithm(const String& name, CryptoAlgorithmIdentifier, CryptoAlgorithmConstructor);
 
-    HashMap<String, CryptoAlgorithmIdentifier, ASCIICaseInsensitiveHash> m_nameToIdentifierMap;
-    HashMap<unsigned, String> m_identifierToNameMap;
-    HashMap<unsigned, CryptoAlgorithmConstructor> m_identifierToConstructorMap;
+    HashMap<String, CryptoAlgorithmIdentifier, ASCIICaseInsensitiveHash> m_identifiers;
+    HashMap<unsigned, std::pair<String, CryptoAlgorithmConstructor>> m_constructors;
 };
 
-}
+} // namespace WebCore
 
-#endif // ENABLE(SUBTLE_CRYPTO)
-#endif // CryptoAlgorithmRegistry_h
+#endif // ENABLE(WEB_CRYPTO)

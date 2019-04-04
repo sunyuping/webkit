@@ -23,13 +23,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef GenericEventQueue_h
-#define GenericEventQueue_h
+#pragma once
 
+#include "GenericTaskQueue.h"
 #include <wtf/Deque.h>
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
-#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -38,6 +37,7 @@ class EventTarget;
 class Timer;
 
 class GenericEventQueue {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit GenericEventQueue(EventTarget&);
     ~GenericEventQueue();
@@ -47,24 +47,19 @@ public:
 
     void cancelAllEvents();
     bool hasPendingEvents() const;
+    bool hasPendingEventsOfType(const AtomicString&) const;
 
     void suspend();
     void resume();
 
 private:
-    static Timer& sharedTimer();
-    static void sharedTimerFired();
-    static Deque<WeakPtr<GenericEventQueue>>& pendingQueues();
-
     void dispatchOneEvent();
 
     EventTarget& m_owner;
+    GenericTaskQueue<Timer> m_taskQueue;
     Deque<RefPtr<Event>> m_pendingEvents;
-    WeakPtrFactory<GenericEventQueue> m_weakPtrFactory;
     bool m_isClosed;
     bool m_isSuspended { false };
 };
 
-}
-
-#endif
+} // namespace WebCore

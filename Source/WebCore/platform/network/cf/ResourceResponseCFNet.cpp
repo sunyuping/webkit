@@ -26,17 +26,13 @@
 #include "config.h"
 #include "ResourceResponse.h"
 
-#if USE(CFNETWORK)
+#if USE(CFURLCONNECTION)
 
-#include "CFNetworkSPI.h"
+#include <pal/spi/cf/CFNetworkSPI.h>
 
 #include "HTTPParsers.h"
 #include "MIMETypeRegistry.h"
 #include <wtf/RetainPtr.h>
-
-#if PLATFORM(COCOA)
-#include "WebCoreSystemInterface.h"
-#endif
 
 namespace WebCore {
 
@@ -47,13 +43,9 @@ static CFStringRef const commonHeaderFields[] = {
 CFURLResponseRef ResourceResponse::cfURLResponse() const
 {
     if (!m_cfResponse && !m_isNull) {
-#if PLATFORM(COCOA)
-        nsURLResponse();
-#else
         RetainPtr<CFURLRef> url = m_url.createCFURL();
         // FIXME: This creates a very incomplete CFURLResponse, which does not even have a status code.
         m_cfResponse = adoptCF(CFURLResponseCreate(0, url.get(), m_mimeType.string().createCFString().get(), m_expectedContentLength, m_textEncodingName.string().createCFString().get(), kCFURLCacheStorageAllowed));
-#endif
     }
 
     return m_cfResponse.get();
@@ -86,7 +78,6 @@ void ResourceResponse::platformLazyInit(InitLevel initLevel)
 
         CFHTTPMessageRef httpResponse = CFURLResponseGetHTTPResponse(m_cfResponse.get());
         if (httpResponse) {
-            m_httpVersion = String(adoptCF(CFHTTPMessageCopyVersion(httpResponse)).get()).convertToASCIIUppercase();
             m_httpStatusCode = CFHTTPMessageGetResponseStatusCode(httpResponse);
             
             if (initLevel < AllFields) {
@@ -104,6 +95,8 @@ void ResourceResponse::platformLazyInit(InitLevel initLevel)
     if (m_initLevel < AllFields && initLevel == AllFields) {
         CFHTTPMessageRef httpResponse = CFURLResponseGetHTTPResponse(m_cfResponse.get());
         if (httpResponse) {
+            m_httpVersion = String(adoptCF(CFHTTPMessageCopyVersion(httpResponse)).get()).convertToASCIIUppercase();
+
             RetainPtr<CFStringRef> statusLine = adoptCF(CFHTTPMessageCopyResponseStatusLine(httpResponse));
             m_httpStatusText = extractReasonPhraseFromHTTPStatusLine(statusLine.get());
 
@@ -115,12 +108,10 @@ void ResourceResponse::platformLazyInit(InitLevel initLevel)
     m_initLevel = initLevel;
 }
 
-#if !PLATFORM(COCOA)
 CertificateInfo ResourceResponse::platformCertificateInfo() const
 {
     return { };
 }
-#endif
 
 String ResourceResponse::platformSuggestedFilename() const
 {
@@ -141,4 +132,4 @@ bool ResourceResponse::platformCompare(const ResourceResponse& a, const Resource
 
 } // namespace WebCore
 
-#endif // USE(CFNETWORK)
+#endif // USE(CFURLCONNECTION)

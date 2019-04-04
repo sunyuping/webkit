@@ -26,13 +26,15 @@
 #import "config.h"
 #import "ScrollView.h"
 
-#import "BlockExceptions.h"
+#if PLATFORM(MAC)
+
 #import "FloatRect.h"
 #import "FloatSize.h"
 #import "IntRect.h"
 #import "Logging.h"
 #import "NotImplemented.h"
 #import "WebCoreFrameView.h"
+#import <wtf/BlockObjCExceptions.h>
 
 @interface NSScrollView ()
 - (NSEdgeInsets)contentInsets;
@@ -228,10 +230,9 @@ IntRect ScrollView::platformContentsToScreen(const IntRect& rect) const
     if (NSView* documentView = this->documentView()) {
         NSRect tempRect = rect;
         tempRect = [documentView convertRect:tempRect toView:nil];
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         tempRect.origin = [[documentView window] convertBaseToScreen:tempRect.origin];
-#pragma clang diagnostic pop
+        ALLOW_DEPRECATED_DECLARATIONS_END
         return enclosingIntRect(tempRect);
     }
     END_BLOCK_OBJC_EXCEPTIONS;
@@ -242,10 +243,9 @@ IntPoint ScrollView::platformScreenToContents(const IntPoint& point) const
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS;
     if (NSView* documentView = this->documentView()) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         NSPoint windowCoord = [[documentView window] convertScreenToBase: point];
-#pragma clang diagnostic pop
+        ALLOW_DEPRECATED_DECLARATIONS_END
         return IntPoint([documentView convertPoint:windowCoord fromView:nil]);
     }
     END_BLOCK_OBJC_EXCEPTIONS;
@@ -282,3 +282,5 @@ void ScrollView::platformSetScrollOrigin(const IntPoint& origin, bool updatePosi
 }
 
 } // namespace WebCore
+
+#endif // PLATFORM(MAC)

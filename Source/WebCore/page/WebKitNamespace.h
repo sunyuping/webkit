@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebKitNamespace_h
-#define WebKitNamespace_h
+#pragma once
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
 
@@ -34,14 +33,14 @@
 
 namespace WebCore {
 
-class Frame;
+class UserContentProvider;
 class UserMessageHandlersNamespace;
 
 class WebKitNamespace : public DOMWindowProperty, public RefCounted<WebKitNamespace> {
 public:
-    static Ref<WebKitNamespace> create(Frame& frame)
+    static Ref<WebKitNamespace> create(DOMWindow& window, UserContentProvider& userContentProvider)
     {
-        return adoptRef(*new WebKitNamespace(frame));
+        return adoptRef(*new WebKitNamespace(window, userContentProvider));
     }
 
     virtual ~WebKitNamespace();
@@ -49,7 +48,7 @@ public:
     UserMessageHandlersNamespace* messageHandlers();
 
 private:
-    explicit WebKitNamespace(Frame&);
+    explicit WebKitNamespace(DOMWindow&, UserContentProvider&);
 
     Ref<UserMessageHandlersNamespace> m_messageHandlerNamespace;
 };
@@ -57,4 +56,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(USER_MESSAGE_HANDLERS)
-#endif // WebKitNamespace_h

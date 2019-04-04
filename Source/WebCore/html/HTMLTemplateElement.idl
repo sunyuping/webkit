@@ -29,8 +29,7 @@
  */
 
 [
-    Conditional=TEMPLATE_ELEMENT
+    JSCustomMarkFunction,
 ] interface HTMLTemplateElement : HTMLElement {
-    [Custom] readonly attribute DocumentFragment content;
+    readonly attribute DocumentFragment content;
 };
-

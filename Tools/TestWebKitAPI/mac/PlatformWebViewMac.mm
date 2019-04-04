@@ -26,23 +26,11 @@
 #import "config.h"
 #import "PlatformWebView.h"
 
+#import "OffscreenWindow.h"
 #import <Carbon/Carbon.h>
 #import <WebKit/WKRetainPtr.h>
 #import <WebKit/WKViewPrivate.h>
-
-@interface ActiveOffscreenWindow : NSWindow
-@end
-
-@implementation ActiveOffscreenWindow
-- (BOOL)isKeyWindow
-{
-    return YES;
-}
-- (BOOL)isVisible
-{
-    return YES;
-}
-@end
+#import <wtf/mac/AppKitCompatibilityDeclarations.h>
 
 namespace TestWebKitAPI {
 
@@ -52,13 +40,8 @@ void PlatformWebView::initialize(WKPageConfigurationRef configuration, Class wkV
     m_view = [[wkViewSubclass alloc] initWithFrame:rect configurationRef:configuration];
     [m_view setWindowOcclusionDetectionEnabled:NO];
 
-    NSRect windowRect = NSOffsetRect(rect, -10000, [(NSScreen *)[[NSScreen screens] objectAtIndex:0] frame].size.height - rect.size.height + 10000);
-    m_window = [[ActiveOffscreenWindow alloc] initWithContentRect:windowRect styleMask:NSBorderlessWindowMask backing:NSBackingStoreBuffered defer:YES];
-    [m_window setColorSpace:[[NSScreen mainScreen] colorSpace]];
+    m_window = [[OffscreenWindow alloc] initWithSize:NSSizeToCGSize(rect.size)];
     [[m_window contentView] addSubview:m_view];
-    [m_window orderBack:nil];
-    [m_window setAutodisplay:NO];
-    [m_window setReleasedWhenClosed:NO];
 }
 
 PlatformWebView::PlatformWebView(WKPageConfigurationRef configuration)
@@ -121,7 +104,7 @@ void PlatformWebView::focus()
 
 void PlatformWebView::simulateSpacebarKeyPress()
 {
-    NSEvent *event = [NSEvent keyEventWithType:NSKeyDown
+    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
                                       location:NSMakePoint(5, 5)
                                  modifierFlags:0
                                      timestamp:GetCurrentEventTime()
@@ -134,7 +117,7 @@ void PlatformWebView::simulateSpacebarKeyPress()
 
     [m_view keyDown:event];
 
-    event = [NSEvent keyEventWithType:NSKeyUp
+    event = [NSEvent keyEventWithType:NSEventTypeKeyUp
                              location:NSMakePoint(5, 5)
                         modifierFlags:0
                             timestamp:GetCurrentEventTime()
@@ -150,7 +133,7 @@ void PlatformWebView::simulateSpacebarKeyPress()
 
 void PlatformWebView::simulateRightClick(unsigned x, unsigned y)
 {
-    NSEvent *event = [NSEvent mouseEventWithType:NSRightMouseDown
+    NSEvent *event = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown
                                         location:NSMakePoint(x, y)
                                    modifierFlags:0
                                        timestamp:GetCurrentEventTime()
@@ -163,7 +146,7 @@ void PlatformWebView::simulateRightClick(unsigned x, unsigned y)
 
     [m_view rightMouseDown:event];
 
-    event = [NSEvent mouseEventWithType:NSRightMouseUp
+    event = [NSEvent mouseEventWithType:NSEventTypeRightMouseUp
                                location:NSMakePoint(x, y)
                           modifierFlags:0
                               timestamp:GetCurrentEventTime()
@@ -176,54 +159,46 @@ void PlatformWebView::simulateRightClick(unsigned x, unsigned y)
     [m_view rightMouseUp:event];
 
 }
-    
-void PlatformWebView::simulateMouseMove(unsigned x, unsigned y)
-{   
-    NSEvent *event = [NSEvent mouseEventWithType:NSMouseMoved
-                               location:NSMakePoint(x, y)
-                          modifierFlags:0
-                              timestamp:GetCurrentEventTime()
-                           windowNumber:[m_window windowNumber]
-                                context:[NSGraphicsContext currentContext]
-                            eventNumber:0
-                             clickCount:0
-                               pressure:0];
-    
-    [m_view mouseMoved:event];
-    
-}
 
 static NSEventType eventTypeForButton(WKEventMouseButton button)
 {
     switch (button) {
     case kWKEventMouseButtonLeftButton:
-        return NSLeftMouseDown;
+        return NSEventTypeLeftMouseDown;
     case kWKEventMouseButtonRightButton:
-        return NSRightMouseDown;
+        return NSEventTypeRightMouseDown;
     case kWKEventMouseButtonMiddleButton:
-        return NSOtherMouseDown;
+        return NSEventTypeOtherMouseDown;
     case kWKEventMouseButtonNoButton:
-        return NSLeftMouseDown;
+        return NSEventTypeLeftMouseDown;
     }
 
-    return NSLeftMouseDown;
+    return NSEventTypeLeftMouseDown;
 }
 
 static NSEventModifierFlags modifierFlagsForWKModifiers(WKEventModifiers modifiers)
 {
     NSEventModifierFlags returnVal = 0;
     if (modifiers & kWKEventModifiersShiftKey)
-        returnVal |= NSShiftKeyMask;
+        returnVal |= NSEventModifierFlagShift;
     if (modifiers & kWKEventModifiersControlKey)
-        returnVal |= NSControlKeyMask;
+        returnVal |= NSEventModifierFlagControl;
     if (modifiers & kWKEventModifiersAltKey)
-        returnVal |= NSAlternateKeyMask;
+        returnVal |= NSEventModifierFlagOption;
     if (modifiers & kWKEventModifiersMetaKey)
-        returnVal |= NSCommandKeyMask;
+        returnVal |= NSEventModifierFlagCommand;
+    if (modifiers & kWKEventModifiersCapsLockKey)
+        returnVal |= NSEventModifierFlagCapsLock;
 
     return returnVal;
 }
-    
+
+void PlatformWebView::simulateMouseMove(unsigned x, unsigned y, WKEventModifiers modifiers)
+{
+    NSEvent *event = [NSEvent mouseEventWithType:NSEventTypeMouseMoved location:NSMakePoint(x, y) modifierFlags:modifierFlagsForWKModifiers(modifiers) timestamp:GetCurrentEventTime() windowNumber:[m_window windowNumber] context:[NSGraphicsContext currentContext] eventNumber:0 clickCount:0 pressure:0];
+    [m_view mouseMoved:event];
+}
+
 void PlatformWebView::simulateButtonClick(WKEventMouseButton button, unsigned x, unsigned y, WKEventModifiers modifiers)
 {
     NSEvent *event = [NSEvent mouseEventWithType:eventTypeForButton(button)

@@ -61,7 +61,6 @@ class Bug(object):
     # FIXME: This information should be stored in some sort of webkit_config.py instead of here.
     unassigned_emails = frozenset([
         "webkit-unassigned@lists.webkit.org",
-        "webkit-qt-unassigned@trolltech.com",
     ])
 
     def is_unassigned(self):
@@ -69,6 +68,12 @@ class Bug(object):
 
     def status(self):
         return self.bug_dictionary["bug_status"]
+
+    def groups(self):
+        return self.bug_dictionary.get('groups', frozenset())
+
+    def is_security_sensitive(self):
+        return 'Security-Sensitive' in self.groups()
 
     # Bugzilla has many status states we don't really use in WebKit:
     # https://bugs.webkit.org/page.cgi?id=fields.html#status

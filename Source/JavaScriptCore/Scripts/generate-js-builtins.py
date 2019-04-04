@@ -31,20 +31,33 @@ import fnmatch
 import logging
 import optparse
 import os
+import sys
 
 logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.ERROR)
 log = logging.getLogger('global')
 
 from lazywriter import LazyFileWriter
 
-import builtins
-from builtins import *
+from wkbuiltins import *
 
+
+def concatenated_output_filename(builtins_files, framework_name, generate_only_wrapper_files):
+    if generate_only_wrapper_files:
+        return framework_name + 'JSBuiltins.h-result'
+    return os.path.basename(builtins_files[0]) + '-result'
+
+
+def do_open(file, mode):
+    if sys.version_info.major == 2:
+        return open(file, mode)
+    else:
+        return open(file, mode, encoding="UTF-8")
 
 def generate_bindings_for_builtins_files(builtins_files=[],
                                          output_path=None,
                                          concatenate_output=False,
                                          combined_output=False,
+                                         generate_only_wrapper_files=False,
                                          framework_name="",
                                          force_output=False):
 
@@ -53,7 +66,7 @@ def generate_bindings_for_builtins_files(builtins_files=[],
     model = BuiltinsCollection(framework_name=framework_name)
 
     for filepath in builtins_files:
-        with open(filepath, "r") as file:
+        with do_open(filepath, "r") as file:
             file_text = file.read()
             file_name = os.path.basename(filepath)
 
@@ -70,9 +83,16 @@ def generate_bindings_for_builtins_files(builtins_files=[],
         generators.append(BuiltinsCombinedImplementationGenerator(model))
     else:
         log.debug("Using generator style: single files for each builtin.")
-        for object in model.objects:
-            generators.append(BuiltinsSeparateHeaderGenerator(model, object))
-            generators.append(BuiltinsSeparateImplementationGenerator(model, object))
+        if generate_only_wrapper_files:
+            generators.append(BuiltinsWrapperHeaderGenerator(model))
+            generators.append(BuiltinsWrapperImplementationGenerator(model))
+
+            generators.append(BuiltinsInternalsWrapperHeaderGenerator(model))
+            generators.append(BuiltinsInternalsWrapperImplementationGenerator(model))
+        else:
+            for object in model.objects:
+                generators.append(BuiltinsSeparateHeaderGenerator(model, object))
+                generators.append(BuiltinsSeparateImplementationGenerator(model, object))
 
     log.debug("")
     log.debug("Generating bindings for builtins.")
@@ -99,9 +119,9 @@ def generate_bindings_for_builtins_files(builtins_files=[],
             output_file.close()
 
     if concatenate_output:
-        filename = os.path.join(os.path.basename(builtins_files[0]) + '-result')
+        filename = concatenated_output_filename(builtins_files, framework_name, generate_only_wrapper_files)
         output_filepath = os.path.join(output_path, filename)
-        log.debug("Writing file: %s" % output_filepath) 
+        log.debug("Writing file: %s" % output_filepath)
         output_file = LazyFileWriter(output_filepath, force_output)
         output_file.write('\n'.join(test_result_file_contents))
         output_file.close()
@@ -114,6 +134,7 @@ if __name__ == '__main__':
     cli_parser.add_option("--framework", type="choice", choices=allowed_framework_names, help="Destination framework for generated files.")
     cli_parser.add_option("--force", action="store_true", help="Force output of generated scripts, even if nothing changed.")
     cli_parser.add_option("--combined", action="store_true", help="Produce one .h/.cpp file instead of producing one per builtin object.")
+    cli_parser.add_option("--wrappers-only", action="store_true", help="Produce .h/.cpp wrapper files to ease integration of the builtins.")
     cli_parser.add_option("-v", "--debug", action="store_true", help="Log extra output for debugging the generator itself.")
     cli_parser.add_option("-t", "--test", action="store_true", help="Enable test mode.")
 
@@ -132,19 +153,20 @@ if __name__ == '__main__':
         for filepath in os.listdir(arg_options.input_directory):
             input_filepaths.append(os.path.join(arg_options.input_directory, filepath))
 
-    input_filepaths = filter(lambda name: fnmatch.fnmatch(name, '*.js'), input_filepaths)
+    input_filepaths = sorted([name for name in input_filepaths if fnmatch.fnmatch(name, '*.js')])
 
     options = {
         'output_path': arg_options.output_directory,
         'framework_name': arg_options.framework,
         'combined_output': arg_options.combined,
+        'generate_only_wrapper_files': arg_options.wrappers_only,
         'force_output': arg_options.force,
         'concatenate_output': arg_options.test,
     }
 
     log.debug("Generating code for builtins.")
     log.debug("Parsed options:")
-    for option, value in options.items():
+    for option, value in list(options.items()):
         log.debug("    %s: %s" % (option, value))
     log.debug("")
     log.debug("Input files:")

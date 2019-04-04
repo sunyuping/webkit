@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All Rights Reserved.
  * Copyright (C) 2011 The Chromium Authors. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,11 +24,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef InspectorBackendDispatcher_h
-#define InspectorBackendDispatcher_h
+#pragma once
 
 #include "InspectorFrontendRouter.h"
 #include "InspectorProtocolTypes.h"
+#include <functional>
+#include <wtf/DeprecatedOptional.h>
 #include <wtf/Optional.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
@@ -39,18 +40,18 @@ class BackendDispatcher;
 
 typedef String ErrorString;
 
-class SupplementalBackendDispatcher : public RefCounted<SupplementalBackendDispatcher> {
+class JS_EXPORT_PRIVATE SupplementalBackendDispatcher : public RefCounted<SupplementalBackendDispatcher> {
 public:
     SupplementalBackendDispatcher(BackendDispatcher&);
     virtual ~SupplementalBackendDispatcher();
-    virtual void dispatch(long requestId, const String& method, Ref<InspectorObject>&& message) = 0;
+    virtual void dispatch(long requestId, const String& method, Ref<JSON::Object>&& message) = 0;
 protected:
     Ref<BackendDispatcher> m_backendDispatcher;
 };
 
-class BackendDispatcher : public RefCounted<BackendDispatcher> {
+class JS_EXPORT_PRIVATE BackendDispatcher : public RefCounted<BackendDispatcher> {
 public:
-    JS_EXPORT_PRIVATE static Ref<BackendDispatcher> create(Ref<FrontendRouter>&&);
+    static Ref<BackendDispatcher> create(Ref<FrontendRouter>&&);
 
     class JS_EXPORT_PRIVATE CallbackBase : public RefCounted<CallbackBase> {
     public:
@@ -59,7 +60,7 @@ public:
         bool isActive() const;
         void disable() { m_alreadySent = true; }
 
-        void sendSuccess(RefPtr<InspectorObject>&&);
+        void sendSuccess(RefPtr<JSON::Object>&&);
         void sendFailure(const ErrorString&);
 
     private:
@@ -82,27 +83,35 @@ public:
     };
 
     void registerDispatcherForDomain(const String& domain, SupplementalBackendDispatcher*);
-    JS_EXPORT_PRIVATE void dispatch(const String& message);
+    void dispatch(const String& message);
 
-    JS_EXPORT_PRIVATE void sendResponse(long requestId, RefPtr<InspectorObject>&& result);
-    JS_EXPORT_PRIVATE void sendPendingErrors();
+    // Note that 'unused' is a workaround so the compiler can pick the right sendResponse based on arity.
+    // When <http://webkit.org/b/179847> is fixed or this class is renamed for the JSON::Object case,
+    // then this alternate method with a dummy parameter can be removed in favor of the one without it.
+    void sendResponse(long requestId, RefPtr<JSON::Object>&& result, bool unused);
+    void sendResponse(long requestId, RefPtr<JSON::Object>&& result);
+    void sendPendingErrors();
 
     void reportProtocolError(CommonErrorCode, const String& errorMessage);
-    JS_EXPORT_PRIVATE void reportProtocolError(Optional<long> relatedRequestId, CommonErrorCode, const String& errorMessage);
+    void reportProtocolError(Optional<long> relatedRequestId, CommonErrorCode, const String& errorMessage);
 
     template<typename T>
-    T getPropertyValue(InspectorObject*, const String& name, bool* out_optionalValueFound, T defaultValue, std::function<bool(InspectorValue&, T&)>, const char* typeName);
+    WTF_INTERNAL
+    T getPropertyValue(JSON::Object*, const String& name, bool* out_optionalValueFound, T defaultValue, std::function<bool(JSON::Value&, T&)>, const char* typeName);
 
-    int getInteger(InspectorObject*, const String& name, bool* valueFound);
-    double getDouble(InspectorObject*, const String& name, bool* valueFound);
-    String getString(InspectorObject*, const String& name, bool* valueFound);
-    bool getBoolean(InspectorObject*, const String& name, bool* valueFound);
-    RefPtr<InspectorValue> getValue(InspectorObject*, const String& name, bool* valueFound);
-    RefPtr<InspectorObject> getObject(InspectorObject*, const String& name, bool* valueFound);
-    RefPtr<InspectorArray> getArray(InspectorObject*, const String& name, bool* valueFound);
+    int getInteger(JSON::Object*, const String& name, bool* valueFound);
+    double getDouble(JSON::Object*, const String& name, bool* valueFound);
+    String getString(JSON::Object*, const String& name, bool* valueFound);
+    bool getBoolean(JSON::Object*, const String& name, bool* valueFound);
+    RefPtr<JSON::Value> getValue(JSON::Object*, const String& name, bool* valueFound);
+    RefPtr<JSON::Object> getObject(JSON::Object*, const String& name, bool* valueFound);
+    RefPtr<JSON::Array> getArray(JSON::Object*, const String& name, bool* valueFound);
 
 private:
     BackendDispatcher(Ref<FrontendRouter>&&);
+
+    // This is necessary for some versions of Safari. Remove it when those versions of Safari are no longer supported.
+    void reportProtocolError(WTF::DeprecatedOptional<long> relatedRequestId, CommonErrorCode, const String& errorMessage);
 
     Ref<FrontendRouter> m_frontendRouter;
     HashMap<String, SupplementalBackendDispatcher*> m_dispatchers;
@@ -114,9 +123,7 @@ private:
 
     // For synchronously handled requests, avoid plumbing requestId through every
     // call that could potentially fail with a protocol error.
-    Optional<long> m_currentRequestId { Nullopt };
+    Optional<long> m_currentRequestId { WTF::nullopt };
 };
 
 } // namespace Inspector
-
-#endif // !defined(InspectorBackendDispatcher_h)

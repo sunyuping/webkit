@@ -21,17 +21,18 @@
 #define GLContext_h
 
 #include "GraphicsContext3D.h"
-#include "Widget.h"
+#include "PlatformDisplay.h"
 #include <wtf/Noncopyable.h>
 
 #if USE(EGL) && !PLATFORM(GTK)
-#include "eglplatform.h"
-typedef EGLNativeWindowType GLNativeWindowType;
-#elif PLATFORM(GTK) && PLATFORM(WAYLAND) && !defined(GTK_API_VERSION_2)
-#include <wayland-egl.h>
+#if PLATFORM(WPE)
+// FIXME: For now default to the GBM EGL platform, but this should really be
+// somehow deducible from the build configuration.
+#define __GBM__ 1
+#endif // PLATFORM(WPE)
 #include <EGL/eglplatform.h>
 typedef EGLNativeWindowType GLNativeWindowType;
-#else
+#else // !USE(EGL) || PLATFORM(GTK)
 typedef uint64_t GLNativeWindowType;
 #endif
 
@@ -39,27 +40,27 @@ typedef uint64_t GLNativeWindowType;
 typedef struct _cairo_device cairo_device_t;
 #endif
 
-#if PLATFORM(X11)
-typedef struct _XDisplay Display;
-#endif
-
 namespace WebCore {
 
 class GLContext {
-    WTF_MAKE_NONCOPYABLE(GLContext);
+    WTF_MAKE_NONCOPYABLE(GLContext); WTF_MAKE_FAST_ALLOCATED;
 public:
-    static std::unique_ptr<GLContext> createContextForWindow(GLNativeWindowType windowHandle, GLContext* sharingContext);
-    static std::unique_ptr<GLContext> createOffscreenContext(GLContext* sharing = 0);
-    static GLContext* getCurrent();
-    static GLContext* sharingContext();
+    WEBCORE_EXPORT static std::unique_ptr<GLContext> createContextForWindow(GLNativeWindowType windowHandle, PlatformDisplay* = nullptr);
+    static std::unique_ptr<GLContext> createOffscreenContext(PlatformDisplay* = nullptr);
+    static std::unique_ptr<GLContext> createSharingContext(PlatformDisplay&);
+    static GLContext* current();
+    static bool isExtensionSupported(const char* extensionList, const char* extension);
 
-    GLContext();
+    PlatformDisplay& display() const { return m_display; }
+    unsigned version();
+
     virtual ~GLContext();
     virtual bool makeContextCurrent();
     virtual void swapBuffers() = 0;
     virtual void waitNative() = 0;
     virtual bool canRenderToDefaultFramebuffer() = 0;
     virtual IntSize defaultFrameBufferSize() = 0;
+    virtual void swapInterval(int) = 0;
 
     virtual bool isEGLContext() const = 0;
 
@@ -67,26 +68,22 @@ public:
     virtual cairo_device_t* cairoDevice() = 0;
 #endif
 
-#if PLATFORM(X11)
-    static Display* sharedX11Display();
-    static void cleanupSharedX11Display();
-#endif
-
-    static void addActiveContext(GLContext*);
-    static void removeActiveContext(GLContext*);
-    static void cleanupActiveContextsAtExit();
-
 #if ENABLE(GRAPHICS_CONTEXT_3D)
     virtual PlatformGraphicsContext3D platformContext() = 0;
 #endif
 
-    class Data {
-    public:
-        virtual ~Data() = default;
-    };
+#if PLATFORM(X11)
+private:
+    static void addActiveContext(GLContext*);
+    static void removeActiveContext(GLContext*);
+    static void cleanupActiveContextsAtExit();
+#endif
 
 protected:
-    std::unique_ptr<Data> m_contextData;
+    GLContext(PlatformDisplay&);
+
+    PlatformDisplay& m_display;
+    unsigned m_version { 0 };
 };
 
 } // namespace WebCore

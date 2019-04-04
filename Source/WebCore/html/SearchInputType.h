@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -29,8 +29,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SearchInputType_h
-#define SearchInputType_h
+#pragma once
 
 #include "BaseTextInputType.h"
 #include "Timer.h"
@@ -46,30 +45,30 @@ public:
     void stopSearchEventTimer();
 
 private:
-    virtual void addSearchResult() override;
-    virtual void maxResultsAttributeChanged() override;
-    virtual RenderPtr<RenderElement> createInputRenderer(Ref<RenderStyle>&&) override;
-    virtual const AtomicString& formControlType() const override;
-    virtual bool isSearchField() const override;
-    virtual bool needsContainer() const override;
-    virtual void createShadowSubtree() override;
-    virtual void destroyShadowSubtree() override;
-    virtual HTMLElement* resultsButtonElement() const override;
-    virtual HTMLElement* cancelButtonElement() const override;
-    virtual void handleKeydownEvent(KeyboardEvent*) override;
-    virtual void didSetValueByUserEdit() override;
-    virtual bool sizeShouldIncludeDecoration(int defaultSize, int& preferredSize) const override;
-    virtual float decorationWidth() const override;
+    void addSearchResult() final;
+    void attributeChanged(const QualifiedName&) final;
+    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
+    const AtomicString& formControlType() const final;
+    bool isSearchField() const final;
+    bool needsContainer() const final;
+    void createShadowSubtree() final;
+    void destroyShadowSubtree() final;
+    HTMLElement* resultsButtonElement() const final;
+    HTMLElement* cancelButtonElement() const final;
+    ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) final;
+    void didSetValueByUserEdit() final;
+    bool sizeShouldIncludeDecoration(int defaultSize, int& preferredSize) const final;
+    float decorationWidth() const final;
 
     void searchEventTimerFired();
     bool searchEventsShouldBeDispatched() const;
     void startSearchEventTimer();
 
-    SearchFieldResultsButtonElement* m_resultsButton;
-    HTMLElement* m_cancelButton;
+    RefPtr<SearchFieldResultsButtonElement> m_resultsButton;
+    RefPtr<HTMLElement> m_cancelButton;
     Timer m_searchEventTimer;
 };
 
 } // namespace WebCore
 
-#endif // SearchInputType_h
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(SearchInputType, isSearchField())

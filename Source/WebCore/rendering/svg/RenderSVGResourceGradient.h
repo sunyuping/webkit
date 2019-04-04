@@ -19,8 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef RenderSVGResourceGradient_h
-#define RenderSVGResourceGradient_h
+#pragma once
 
 #include "Gradient.h"
 #include "ImageBuffer.h"
@@ -41,40 +40,40 @@ public:
 class GraphicsContext;
 
 class RenderSVGResourceGradient : public RenderSVGResourceContainer {
+    WTF_MAKE_ISO_ALLOCATED(RenderSVGResourceGradient);
 public:
     SVGGradientElement& gradientElement() const { return static_cast<SVGGradientElement&>(RenderSVGResourceContainer::element()); }
 
-    virtual void removeAllClientsFromCache(bool markForInvalidation = true) override final;
-    virtual void removeClientFromCache(RenderElement&, bool markForInvalidation = true) override final;
+    void removeAllClientsFromCache(bool markForInvalidation = true) final;
+    void removeClientFromCache(RenderElement&, bool markForInvalidation = true) final;
 
-    virtual bool applyResource(RenderElement&, const RenderStyle&, GraphicsContext*&, unsigned short resourceMode) override final;
-    virtual void postApplyResource(RenderElement&, GraphicsContext*&, unsigned short resourceMode, const Path*, const RenderSVGShape*) override final;
-    virtual FloatRect resourceBoundingBox(const RenderObject&) override final { return FloatRect(); }
+    bool applyResource(RenderElement&, const RenderStyle&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>) final;
+    void postApplyResource(RenderElement&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>, const Path*, const RenderSVGShape*) final;
+    FloatRect resourceBoundingBox(const RenderObject&) final { return FloatRect(); }
 
 protected:
-    RenderSVGResourceGradient(SVGGradientElement&, Ref<RenderStyle>&&);
+    RenderSVGResourceGradient(SVGGradientElement&, RenderStyle&&);
 
     void element() const = delete;
 
-    void addStops(GradientData*, const Vector<Gradient::ColorStop>&) const;
+    void addStops(GradientData*, const Vector<Gradient::ColorStop>&, const RenderStyle&) const;
 
     virtual SVGUnitTypes::SVGUnitType gradientUnits() const = 0;
     virtual void calculateGradientTransform(AffineTransform&) = 0;
     virtual bool collectGradientAttributes() = 0;
-    virtual void buildGradient(GradientData*) const = 0;
+    virtual void buildGradient(GradientData*, const RenderStyle&) const = 0;
 
     GradientSpreadMethod platformSpreadMethodFromSVGType(SVGSpreadMethodType) const;
 
 private:
-    bool m_shouldCollectGradientAttributes : 1;
     HashMap<RenderObject*, std::unique_ptr<GradientData>> m_gradientMap;
 
 #if USE(CG)
-    GraphicsContext* m_savedContext;
+    GraphicsContext* m_savedContext { nullptr };
     std::unique_ptr<ImageBuffer> m_imageBuffer;
 #endif
+
+    bool m_shouldCollectGradientAttributes { true };
 };
 
-}
-
-#endif
+} // namespace WebCore

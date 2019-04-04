@@ -23,11 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef GCIncomingRefCounted_h
-#define GCIncomingRefCounted_h
+#pragma once
 
 #include <wtf/DeferrableRefCounted.h>
-#include <wtf/Vector.h>
+#include <wtf/Forward.h>
 
 namespace JSC {
 
@@ -83,7 +82,7 @@ public:
     // to use this with a filter function that can return false unless
     // you're also walking the GC's list.
     template<typename FilterFunctionType>
-    bool filterIncomingReferences(FilterFunctionType&);
+    bool filterIncomingReferences(FilterFunctionType&&);
     
 private:
     static uintptr_t singletonFlag() { return 1; }
@@ -110,6 +109,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // GCIncomingRefCounted_h
-

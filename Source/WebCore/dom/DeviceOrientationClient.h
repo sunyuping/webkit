@@ -24,11 +24,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DeviceOrientationClient_h
-#define DeviceOrientationClient_h
+#pragma once
 
 #include "DeviceClient.h"
-#include "PlatformExportMacros.h"
 #include <wtf/Noncopyable.h>
 
 namespace WebCore {
@@ -40,15 +38,13 @@ class Page;
 class DeviceOrientationClient : public DeviceClient {
     WTF_MAKE_NONCOPYABLE(DeviceOrientationClient);
 public:
-    DeviceOrientationClient() { }
-    virtual ~DeviceOrientationClient() { }
+    DeviceOrientationClient() = default;
+    virtual ~DeviceOrientationClient() = default;
     virtual void setController(DeviceOrientationController*) = 0;
     virtual DeviceOrientationData* lastOrientation() const = 0;
     virtual void deviceOrientationControllerDestroyed() = 0;
 };
 
-WEBCORE_EXPORT void provideDeviceOrientationTo(Page*, DeviceOrientationClient*);
+WEBCORE_EXPORT void provideDeviceOrientationTo(Page&, DeviceOrientationClient&);
 
 } // namespace WebCore
-
-#endif // DeviceOrientationClient_h

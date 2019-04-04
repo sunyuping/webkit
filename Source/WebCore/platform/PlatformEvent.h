@@ -23,8 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PlatformEvent_h
-#define PlatformEvent_h
+#pragma once
+
+#include <wtf/OptionSet.h>
+#include <wtf/WallTime.h>
 
 namespace WebCore {
 
@@ -57,6 +59,7 @@ public:
         TouchMove,
         TouchEnd,
         TouchCancel,
+        TouchForceChange,
 #endif
 
 #if ENABLE(MAC_GESTURE_EVENTS)
@@ -67,72 +70,67 @@ public:
 #endif
     };
 
-    enum Modifiers : uint8_t {
+    enum class Modifier : uint8_t {
         AltKey      = 1 << 0,
-        CtrlKey     = 1 << 1,
+        ControlKey  = 1 << 1,
         MetaKey     = 1 << 2,
         ShiftKey    = 1 << 3,
+        CapsLockKey = 1 << 4,
+
+        // Never used in native platforms but added for initEvent
+        AltGraphKey = 1 << 5,
     };
 
     Type type() const { return static_cast<Type>(m_type); }
 
-    bool shiftKey() const { return m_modifiers & ShiftKey; }
-    bool ctrlKey() const { return m_modifiers & CtrlKey; }
-    bool altKey() const { return m_modifiers & AltKey; }
-    bool metaKey() const { return m_modifiers & MetaKey; }
+    bool shiftKey() const { return m_modifiers.contains(Modifier::ShiftKey); }
+    bool controlKey() const { return m_modifiers.contains(Modifier::ControlKey); }
+    bool altKey() const { return m_modifiers.contains(Modifier::AltKey); }
+    bool metaKey() const { return m_modifiers.contains(Modifier::MetaKey); }
 
-    unsigned modifiers() const { return m_modifiers; }
+    OptionSet<Modifier> modifiers() const { return m_modifiers; }
 
-    double timestamp() const { return m_timestamp; }
+    WallTime timestamp() const { return m_timestamp; }
 
 protected:
     PlatformEvent()
         : m_type(NoType)
-        , m_modifiers(0)
-        , m_timestamp(0)
     {
     }
 
     explicit PlatformEvent(Type type)
         : m_type(type)
-        , m_modifiers(0)
-        , m_timestamp(0)
     {
     }
 
-    PlatformEvent(Type type, Modifiers modifiers, double timestamp)
+    PlatformEvent(Type type, OptionSet<Modifier> modifiers, WallTime timestamp)
         : m_type(type)
         , m_modifiers(modifiers)
         , m_timestamp(timestamp)
     {
     }
 
-    PlatformEvent(Type type, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey, double timestamp)
+    PlatformEvent(Type type, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey, WallTime timestamp)
         : m_type(type)
-        , m_modifiers(0)
         , m_timestamp(timestamp)
     {
         if (shiftKey)
-            m_modifiers |= ShiftKey;
+            m_modifiers.add(Modifier::ShiftKey);
         if (ctrlKey)
-            m_modifiers |= CtrlKey;
+            m_modifiers.add(Modifier::ControlKey);
         if (altKey)
-            m_modifiers |= AltKey;
+            m_modifiers.add(Modifier::AltKey);
         if (metaKey)
-            m_modifiers |= MetaKey;
+            m_modifiers.add(Modifier::MetaKey);
     }
 
     // Explicit protected destructor so that people don't accidentally
     // delete a PlatformEvent.
-    ~PlatformEvent()
-    {
-    }
+    ~PlatformEvent() = default;
 
     unsigned m_type;
-    unsigned m_modifiers;
-    double m_timestamp;
+    OptionSet<Modifier> m_modifiers;
+    WallTime m_timestamp;
 };
 
 } // namespace WebCore
-
-#endif // PlatformEvent_h

@@ -26,25 +26,70 @@
 #import "config.h"
 #import "HIDEventGenerator.h"
 
-#import "IOKitSPI.h"
+#import "GeneratedTouchesDebugWindow.h"
 #import "UIKitSPI.h"
-#import <WebCore/SoftLinking.h>
 #import <mach/mach_time.h>
+#import <pal/spi/cocoa/IOKitSPI.h>
 #import <wtf/Assertions.h>
-#import <wtf/RetainPtr.h>
+#import <wtf/BlockPtr.h>
+#import <wtf/Optional.h>
+#import <wtf/SoftLinking.h>
 
 SOFT_LINK_PRIVATE_FRAMEWORK(BackBoardServices)
 SOFT_LINK(BackBoardServices, BKSHIDEventSetDigitizerInfo, void, (IOHIDEventRef digitizerEvent, uint32_t contextID, uint8_t systemGestureisPossible, uint8_t isSystemGestureStateChangeEvent, CFStringRef displayUUID, CFTimeInterval initialTouchTimestamp, float maxForce), (digitizerEvent, contextID, systemGestureisPossible, isSystemGestureStateChangeEvent, displayUUID, initialTouchTimestamp, maxForce));
 
-static const NSTimeInterval fingerLiftDelay = 5e7;
-static const NSTimeInterval multiTapInterval = 15e7;
+NSString* const TopLevelEventInfoKey = @"events";
+NSString* const HIDEventInputType = @"inputType";
+NSString* const HIDEventTimeOffsetKey = @"timeOffset";
+NSString* const HIDEventTouchesKey = @"touches";
+NSString* const HIDEventPhaseKey = @"phase";
+NSString* const HIDEventInterpolateKey = @"interpolate";
+NSString* const HIDEventTimestepKey = @"timestep";
+NSString* const HIDEventCoordinateSpaceKey = @"coordinateSpace";
+NSString* const HIDEventStartEventKey = @"startEvent";
+NSString* const HIDEventEndEventKey = @"endEvent";
+NSString* const HIDEventTouchIDKey = @"id";
+NSString* const HIDEventPressureKey = @"pressure";
+NSString* const HIDEventXKey = @"x";
+NSString* const HIDEventYKey = @"y";
+NSString* const HIDEventTwistKey = @"twist";
+NSString* const HIDEventMajorRadiusKey = @"majorRadius";
+NSString* const HIDEventMinorRadiusKey = @"minorRadius";
+
+NSString* const HIDEventInputTypeHand = @"hand";
+NSString* const HIDEventInputTypeFinger = @"finger";
+NSString* const HIDEventInputTypeStylus = @"stylus";
+
+NSString* const HIDEventCoordinateSpaceTypeGlobal = @"global";
+NSString* const HIDEventCoordinateSpaceTypeContent = @"content";
+
+NSString* const HIDEventInterpolationTypeLinear = @"linear";
+NSString* const HIDEventInterpolationTypeSimpleCurve = @"simpleCurve";
+
+NSString* const HIDEventPhaseBegan = @"began";
+NSString* const HIDEventPhaseStationary = @"stationary";
+NSString* const HIDEventPhaseMoved = @"moved";
+NSString* const HIDEventPhaseEnded = @"ended";
+NSString* const HIDEventPhaseCanceled = @"canceled";
+
+static const NSTimeInterval fingerLiftDelay = 0.05;
+static const NSTimeInterval multiTapInterval = 0.15;
 static const NSTimeInterval fingerMoveInterval = 0.016;
+static const NSTimeInterval longPressHoldDelay = 2.0;
 static const IOHIDFloat defaultMajorRadius = 5;
 static const IOHIDFloat defaultPathPressure = 0;
-static const NSUInteger maxTouchCount = 5;
 static const long nanosecondsPerSecond = 1e9;
 
-static int fingerIdentifiers[maxTouchCount] = { 2, 3, 4, 5, 1 };
+NSUInteger const HIDMaxTouchCount = 5;
+
+
+
+static int fingerIdentifiers[HIDMaxTouchCount] = { 2, 3, 4, 5, 1 };
+
+typedef enum {
+    InterpolationTypeLinear,
+    InterpolationTypeSimpleCurve,
+} InterpolationType;
 
 typedef enum {
     HandEventNull,
@@ -53,8 +98,9 @@ typedef enum {
     HandEventChordChanged,
     HandEventLifted,
     HandEventCanceled,
-    HandEventInRange,
-    HandEventInRangeLift,
+    StylusEventTouched,
+    StylusEventMoved,
+    StylusEventLifted,
 } HandEventType;
 
 typedef struct {
@@ -63,6 +109,9 @@ typedef struct {
     IOHIDFloat pathMajorRadius;
     IOHIDFloat pathPressure;
     UInt8 pathProximity;
+    BOOL isStylus;
+    IOHIDFloat azimuthAngle;
+    IOHIDFloat altitudeAngle;
 } SyntheticEventDigitizerInfo;
 
 static CFTimeInterval secondsSinceAbsoluteTime(CFAbsoluteTime startTime)
@@ -70,15 +119,27 @@ static CFTimeInterval secondsSinceAbsoluteTime(CFAbsoluteTime startTime)
     return (CFAbsoluteTimeGetCurrent() - startTime);
 }
 
-static double simpleDragCurve(double a, double b, double t)
+static double linearInterpolation(double a, double b, double t)
+{
+    return (a + (b - a) * t );
+}
+
+static double simpleCurveInterpolation(double a, double b, double t)
 {
     return (a + (b - a) * sin(sin(t * M_PI / 2) * t * M_PI / 2));
 }
 
-static CGPoint calculateNextLocation(CGPoint a, CGPoint b, CFTimeInterval t)
+
+static CGPoint calculateNextCurveLocation(CGPoint a, CGPoint b, CFTimeInterval t)
 {
-    return CGPointMake(simpleDragCurve(a.x, b.x, t), simpleDragCurve(a.y, b.y, t));
+    return CGPointMake(simpleCurveInterpolation(a.x, b.x, t), simpleCurveInterpolation(a.y, b.y, t));
 }
+
+typedef double(*pressureInterpolationFunction)(double, double, CFTimeInterval);
+static pressureInterpolationFunction interpolations[] = {
+    linearInterpolation,
+    simpleCurveInterpolation,
+};
 
 static void delayBetweenMove(int eventIndex, double elapsed)
 {
@@ -92,11 +153,12 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
 @interface HIDEventGenerator ()
 @property (nonatomic, strong) NSMutableDictionary *eventCallbacks;
+@property (nonatomic, strong) NSArray<UIView *> *debugTouchViews;
 @end
 
 @implementation HIDEventGenerator {
     IOHIDEventSystemClientRef _ioSystemClient;
-    SyntheticEventDigitizerInfo _activePoints[maxTouchCount];
+    SyntheticEventDigitizerInfo _activePoints[HIDMaxTouchCount];
     NSUInteger _activePointCount;
 }
 
@@ -109,9 +171,9 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     return eventGenerator;
 }
 
-+ (unsigned)nextEventCallbackID
++ (CFIndex)nextEventCallbackID
 {
-    static unsigned callbackID = 0;
+    static CFIndex callbackID = 0;
     return ++callbackID;
 }
 
@@ -121,12 +183,19 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     if (!self)
         return nil;
 
-    for (NSUInteger i = 0; i < maxTouchCount; ++i)
+    for (NSUInteger i = 0; i < HIDMaxTouchCount; ++i)
         _activePoints[i].identifier = fingerIdentifiers[i];
 
     _eventCallbacks = [[NSMutableDictionary alloc] init];
 
     return self;
+}
+
+- (void)dealloc
+{
+    [_eventCallbacks release];
+    [_debugTouchViews release];
+    [super dealloc];
 }
 
 - (void)_sendIOHIDKeyboardEvent:(uint64_t)timestamp usage:(uint32_t)usage isKeyDown:(bool)isKeyDown
@@ -140,9 +209,156 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     [self _sendHIDEvent:eventRef.get()];
 }
 
+static IOHIDDigitizerTransducerType transducerTypeFromString(NSString * transducerTypeString)
+{
+    if ([transducerTypeString isEqualToString:HIDEventInputTypeHand])
+        return kIOHIDDigitizerTransducerTypeHand;
+
+    if ([transducerTypeString isEqualToString:HIDEventInputTypeFinger])
+        return kIOHIDDigitizerTransducerTypeFinger;
+
+    if ([transducerTypeString isEqualToString:HIDEventInputTypeStylus])
+        return kIOHIDDigitizerTransducerTypeStylus;
+    
+    ASSERT_NOT_REACHED();
+    return 0;
+}
+
+static UITouchPhase phaseFromString(NSString *string)
+{
+    if ([string isEqualToString:HIDEventPhaseBegan])
+        return UITouchPhaseBegan;
+    
+    if ([string isEqualToString:HIDEventPhaseStationary])
+        return UITouchPhaseStationary;
+
+    if ([string isEqualToString:HIDEventPhaseMoved])
+        return UITouchPhaseMoved;
+
+    if ([string isEqualToString:HIDEventPhaseEnded])
+        return UITouchPhaseEnded;
+
+    if ([string isEqualToString:HIDEventPhaseCanceled])
+        return UITouchPhaseCancelled;
+
+    return UITouchPhaseStationary;
+}
+
+static InterpolationType interpolationFromString(NSString *string)
+{
+    if ([string isEqualToString:HIDEventInterpolationTypeLinear])
+        return InterpolationTypeLinear;
+    
+    if ([string isEqualToString:HIDEventInterpolationTypeSimpleCurve])
+        return InterpolationTypeSimpleCurve;
+    
+    return InterpolationTypeLinear;
+}
+
+- (IOHIDDigitizerEventMask)eventMaskFromEventInfo:(NSDictionary *)info
+{
+    IOHIDDigitizerEventMask eventMask = 0;
+    NSArray *childEvents = info[HIDEventTouchesKey];
+    for (NSDictionary *touchInfo in childEvents) {
+        UITouchPhase phase = phaseFromString(touchInfo[HIDEventPhaseKey]);
+        // If there are any new or ended events, mask includes touch.
+        if (phase == UITouchPhaseBegan || phase == UITouchPhaseEnded || phase == UITouchPhaseCancelled)
+            eventMask |= kIOHIDDigitizerEventTouch;
+        // If there are any pressure readings, set mask must include attribute
+        if ([touchInfo[HIDEventPressureKey] floatValue])
+            eventMask |= kIOHIDDigitizerEventAttribute;
+    }
+    
+    return eventMask;
+}
+
+// Returns 1 for all events where the fingers are on the glass (everything but ended and canceled).
+- (CFIndex)touchFromEventInfo:(NSDictionary *)info
+{
+    NSArray *childEvents = info[HIDEventTouchesKey];
+    for (NSDictionary *touchInfo in childEvents) {
+        UITouchPhase phase = phaseFromString(touchInfo[HIDEventPhaseKey]);
+        if (phase == UITouchPhaseBegan || phase == UITouchPhaseMoved || phase == UITouchPhaseStationary)
+            return 1;
+    }
+    
+    return 0;
+}
+
+// FIXME: callers of _createIOHIDEventType could switch to this.
+- (IOHIDEventRef)_createIOHIDEventWithInfo:(NSDictionary *)info
+{
+    uint64_t machTime = mach_absolute_time();
+
+    IOHIDDigitizerEventMask eventMask = [self eventMaskFromEventInfo:info];
+
+    CFIndex range = 0;
+    // touch is 1 if a finger is down.
+    CFIndex touch = [self touchFromEventInfo:info];
+
+    IOHIDEventRef eventRef = IOHIDEventCreateDigitizerEvent(kCFAllocatorDefault, machTime,
+        transducerTypeFromString(info[HIDEventInputType]),  // transducerType
+        0,                                                  // index
+        0,                                                  // identifier
+        eventMask,                                          // event mask
+        0,                                                  // button event
+        0,                                                  // x
+        0,                                                  // y
+        0,                                                  // z
+        0,                                                  // presure
+        0,                                                  // twist
+        range,                                              // range
+        touch,                                              // touch
+        kIOHIDEventOptionNone);
+
+    IOHIDEventSetIntegerValue(eventRef, kIOHIDEventFieldDigitizerIsDisplayIntegrated, 1);
+
+    NSArray *childEvents = info[HIDEventTouchesKey];
+    for (NSDictionary *touchInfo in childEvents) {
+        
+        [[GeneratedTouchesDebugWindow sharedGeneratedTouchesDebugWindow] updateDebugIndicatorForTouch:[touchInfo[HIDEventTouchIDKey] intValue] withPointInWindowCoordinates:CGPointMake([touchInfo[HIDEventXKey] floatValue], [touchInfo[HIDEventYKey] floatValue]) isTouching:(BOOL)touch];
+        
+        IOHIDDigitizerEventMask childEventMask = 0;
+
+        UITouchPhase phase = phaseFromString(touchInfo[HIDEventPhaseKey]);
+        if (phase != UITouchPhaseCancelled && phase != UITouchPhaseBegan && phase != UITouchPhaseEnded && phase != UITouchPhaseStationary)
+            childEventMask |= kIOHIDDigitizerEventPosition;
+
+        if (phase == UITouchPhaseBegan || phase == UITouchPhaseEnded || phase == UITouchPhaseCancelled)
+            childEventMask |= (kIOHIDDigitizerEventTouch | kIOHIDDigitizerEventRange);
+
+        if (phase == UITouchPhaseCancelled)
+            childEventMask |= kIOHIDDigitizerEventCancel;
+        
+        if ([touchInfo[HIDEventPressureKey] floatValue])
+            childEventMask |= kIOHIDDigitizerEventAttribute;
+
+        IOHIDEventRef subEvent = IOHIDEventCreateDigitizerFingerEvent(kCFAllocatorDefault, machTime,
+            [touchInfo[HIDEventTouchIDKey] intValue],               // index
+            2,                                                      // identifier (which finger we think it is). FIXME: this should come from the data.
+            childEventMask,
+            [touchInfo[HIDEventXKey] floatValue],
+            [touchInfo[HIDEventYKey] floatValue],
+            0, // z
+            [touchInfo[HIDEventPressureKey] floatValue],
+            [touchInfo[HIDEventTwistKey] floatValue],
+            touch,                                                  // range
+            touch,                                                  // touch
+            kIOHIDEventOptionNone);
+
+        IOHIDEventSetFloatValue(subEvent, kIOHIDEventFieldDigitizerMajorRadius, [touchInfo[HIDEventMajorRadiusKey] floatValue]);
+        IOHIDEventSetFloatValue(subEvent, kIOHIDEventFieldDigitizerMinorRadius, [touchInfo[HIDEventMinorRadiusKey] floatValue]);
+
+        IOHIDEventAppendEvent(eventRef, subEvent, 0);
+        CFRelease(subEvent);
+    }
+
+    return eventRef;
+}
+
 - (IOHIDEventRef)_createIOHIDEventType:(HandEventType)eventType
 {
-    BOOL isTouching = (eventType == HandEventTouched || eventType == HandEventMoved || eventType == HandEventChordChanged);
+    BOOL isTouching = (eventType == HandEventTouched || eventType == HandEventMoved || eventType == HandEventChordChanged || eventType == StylusEventTouched || eventType == StylusEventMoved);
 
     IOHIDDigitizerEventMask eventMask = kIOHIDDigitizerEventTouch;
     if (eventType == HandEventMoved) {
@@ -152,9 +368,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     } else if (eventType == HandEventChordChanged) {
         eventMask |= kIOHIDDigitizerEventPosition;
         eventMask |= kIOHIDDigitizerEventAttribute;
-    } else if (eventType == HandEventTouched  || eventType == HandEventCanceled) {
-        eventMask |= kIOHIDDigitizerEventIdentity;
-    } else if (eventType == HandEventLifted)
+    } else if (eventType == HandEventTouched || eventType == HandEventCanceled || eventType == HandEventLifted)
         eventMask |= kIOHIDDigitizerEventIdentity;
 
     uint64_t machTime = mach_absolute_time();
@@ -182,7 +396,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
                 pointInfo->pathPressure = defaultPathPressure;
             if (!pointInfo->pathProximity)
                 pointInfo->pathProximity = kGSEventPathInfoInTouch | kGSEventPathInfoInRange;
-        } else if (eventType == HandEventLifted || eventType == HandEventCanceled) {
+        } else if (eventType == HandEventLifted || eventType == HandEventCanceled || eventType == StylusEventLifted) {
             pointInfo->pathMajorRadius = 0;
             pointInfo->pathPressure = 0;
             pointInfo->pathProximity = 0;
@@ -190,18 +404,54 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
         CGPoint point = pointInfo->point;
         point = CGPointMake(roundf(point.x), roundf(point.y));
-        RetainPtr<IOHIDEventRef> subEvent = adoptCF(IOHIDEventCreateDigitizerFingerEvent(kCFAllocatorDefault, machTime,
-            pointInfo->identifier,
-            pointInfo->identifier,
-            eventMask,
-            point.x, point.y, 0,
-            pointInfo->pathPressure,
-            0,
-            pointInfo->pathProximity & kGSEventPathInfoInRange,
-            pointInfo->pathProximity & kGSEventPathInfoInTouch,
-            kIOHIDEventOptionNone));
+        
+        [[GeneratedTouchesDebugWindow sharedGeneratedTouchesDebugWindow] updateDebugIndicatorForTouch:i withPointInWindowCoordinates:point isTouching:isTouching];
+
+        RetainPtr<IOHIDEventRef> subEvent;
+        if (pointInfo->isStylus) {
+            if (eventType == StylusEventTouched) {
+                eventMask |= kIOHIDDigitizerEventEstimatedAltitude;
+                eventMask |= kIOHIDDigitizerEventEstimatedAzimuth;
+                eventMask |= kIOHIDDigitizerEventEstimatedPressure;
+            } else if (eventType == StylusEventMoved)
+                eventMask = kIOHIDDigitizerEventPosition;
+
+            subEvent = adoptCF(IOHIDEventCreateDigitizerStylusEventWithPolarOrientation(kCFAllocatorDefault, machTime,
+                pointInfo->identifier,
+                pointInfo->identifier,
+                eventMask,
+                0,
+                point.x, point.y, 0,
+                pointInfo->pathPressure,
+                pointInfo->pathPressure,
+                0,
+                pointInfo->altitudeAngle,
+                pointInfo->azimuthAngle,
+                1,
+                0,
+                isTouching ? kIOHIDTransducerTouch : 0));
+
+            if (eventType == StylusEventTouched)
+                IOHIDEventSetIntegerValue(subEvent.get(), kIOHIDEventFieldDigitizerWillUpdateMask, 0x0400);
+            else if (eventType == StylusEventMoved)
+                IOHIDEventSetIntegerValue(subEvent.get(), kIOHIDEventFieldDigitizerDidUpdateMask, 0x0400);
+
+        } else {
+            subEvent = adoptCF(IOHIDEventCreateDigitizerFingerEvent(kCFAllocatorDefault, machTime,
+                pointInfo->identifier,
+                pointInfo->identifier,
+                eventMask,
+                point.x, point.y, 0,
+                pointInfo->pathPressure,
+                0,
+                pointInfo->pathProximity & kGSEventPathInfoInRange,
+                pointInfo->pathProximity & kGSEventPathInfoInTouch,
+                kIOHIDEventOptionNone));
+        }
+
         IOHIDEventSetFloatValue(subEvent.get(), kIOHIDEventFieldDigitizerMajorRadius, pointInfo->pathMajorRadius);
         IOHIDEventSetFloatValue(subEvent.get(), kIOHIDEventFieldDigitizerMinorRadius, pointInfo->pathMajorRadius);
+
         IOHIDEventAppendEvent(eventRef.get(), subEvent.get(), 0);
     }
 
@@ -225,26 +475,23 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     return YES;
 }
 
-- (BOOL)_sendMarkerHIDEventWithCompletionBlock:(void (^)(void))completionBlock
+- (BOOL)sendMarkerHIDEventWithCompletionBlock:(void (^)(void))completionBlock
 {
-    unsigned callbackID = [HIDEventGenerator nextEventCallbackID];
-    void (^completionBlockCopy)() = Block_copy(completionBlock);
-    [_eventCallbacks setObject:completionBlockCopy forKey:@(callbackID)];
+    auto callbackID = [HIDEventGenerator nextEventCallbackID];
+    [_eventCallbacks setObject:Block_copy(completionBlock) forKey:@(callbackID)];
 
-    uint64_t machTime = mach_absolute_time();
-    RetainPtr<IOHIDEventRef> markerEvent = adoptCF(IOHIDEventCreateVendorDefinedEvent(kCFAllocatorDefault,
-        machTime,
+    auto markerEvent = adoptCF(IOHIDEventCreateVendorDefinedEvent(kCFAllocatorDefault,
+        mach_absolute_time(),
         kHIDPage_VendorDefinedStart + 100,
         0,
         1,
         (uint8_t*)&callbackID,
-        sizeof(unsigned),
+        sizeof(CFIndex),
         kIOHIDEventOptionNone));
     
     if (markerEvent) {
-        markerEvent.get();
-        dispatch_async(dispatch_get_main_queue(), ^{
-            uint32_t contextID = [UIApplication sharedApplication].keyWindow._contextId;
+        dispatch_async(dispatch_get_main_queue(), [markerEvent = WTFMove(markerEvent)] {
+            auto contextID = [UIApplication sharedApplication].keyWindow._contextId;
             ASSERT(contextID);
             BKSHIDEventSetDigitizerInfo(markerEvent.get(), contextID, false, false, NULL, 0, 0);
             [[UIApplication sharedApplication] _enqueueHIDEvent:markerEvent.get()];
@@ -271,8 +518,10 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     _activePointCount = count;
 
     // Update point locations.
-    for (NSUInteger i = 0; i < count; ++i)
+    for (NSUInteger i = 0; i < count; ++i) {
         _activePoints[i].point = points[i];
+        [[GeneratedTouchesDebugWindow sharedGeneratedTouchesDebugWindow] updateDebugIndicatorForTouch:i withPointInWindowCoordinates:points[i] isTouching:YES];
+    }
     
     RetainPtr<IOHIDEventRef> eventRef = adoptCF([self _createIOHIDEventType:handEventType]);
     [self _sendHIDEvent:eventRef.get()];
@@ -280,12 +529,16 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
 - (void)touchDownAtPoints:(CGPoint*)locations touchCount:(NSUInteger)touchCount
 {
-    touchCount = MIN(touchCount, maxTouchCount);
+    touchCount = std::min(touchCount, HIDMaxTouchCount);
 
     _activePointCount = touchCount;
 
-    for (NSUInteger index = 0; index < touchCount; ++index)
+    for (NSUInteger index = 0; index < touchCount; ++index) {
         _activePoints[index].point = locations[index];
+        _activePoints[index].isStylus = NO;
+        
+        [[GeneratedTouchesDebugWindow sharedGeneratedTouchesDebugWindow] updateDebugIndicatorForTouch:index withPointInWindowCoordinates:locations[index] isTouching:YES];
+    }
 
     RetainPtr<IOHIDEventRef> eventRef = adoptCF([self _createIOHIDEventType:HandEventTouched]);
     [self _sendHIDEvent:eventRef.get()];
@@ -293,7 +546,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
 - (void)touchDown:(CGPoint)location touchCount:(NSUInteger)touchCount
 {
-    touchCount = MIN(touchCount, maxTouchCount);
+    touchCount = std::min(touchCount, HIDMaxTouchCount);
 
     CGPoint locations[touchCount];
 
@@ -310,13 +563,16 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
 - (void)liftUpAtPoints:(CGPoint*)locations touchCount:(NSUInteger)touchCount
 {
-    touchCount = MIN(touchCount, maxTouchCount);
-    touchCount = MIN(touchCount, _activePointCount);
+    touchCount = std::min(touchCount, HIDMaxTouchCount);
+    touchCount = std::min(touchCount, _activePointCount);
 
     NSUInteger newPointCount = _activePointCount - touchCount;
 
-    for (NSUInteger index = 0; index < touchCount; ++index)
+    for (NSUInteger index = 0; index < touchCount; ++index) {
         _activePoints[newPointCount + index].point = locations[index];
+        
+        [[GeneratedTouchesDebugWindow sharedGeneratedTouchesDebugWindow] updateDebugIndicatorForTouch:index withPointInWindowCoordinates:CGPointZero isTouching:NO];
+    }
     
     RetainPtr<IOHIDEventRef> eventRef = adoptCF([self _createIOHIDEventType:HandEventLifted]);
     [self _sendHIDEvent:eventRef.get()];
@@ -326,7 +582,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
 - (void)liftUp:(CGPoint)location touchCount:(NSUInteger)touchCount
 {
-    touchCount = MIN(touchCount, maxTouchCount);
+    touchCount = std::min(touchCount, HIDMaxTouchCount);
 
     CGPoint locations[touchCount];
 
@@ -343,7 +599,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 
 - (void)moveToPoints:(CGPoint*)newLocations touchCount:(NSUInteger)touchCount duration:(NSTimeInterval)seconds
 {
-    touchCount = MIN(touchCount, maxTouchCount);
+    touchCount = std::min(touchCount, HIDMaxTouchCount);
 
     CGPoint startLocations[touchCount];
     CGPoint nextLocations[touchCount];
@@ -360,7 +616,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
             if (!eventIndex)
                 startLocations[i] = _activePoints[i].point;
 
-            nextLocations[i] = calculateNextLocation(startLocations[i], newLocations[i], interval);
+            nextLocations[i] = calculateNextCurveLocation(startLocations[i], newLocations[i], interval);
         }
         [self _updateTouchPoints:nextLocations count:touchCount];
 
@@ -373,19 +629,93 @@ static void delayBetweenMove(int eventIndex, double elapsed)
 - (void)touchDown:(CGPoint)location touchCount:(NSUInteger)count completionBlock:(void (^)(void))completionBlock
 {
     [self touchDown:location touchCount:count];
-    [self _sendMarkerHIDEventWithCompletionBlock:completionBlock];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
 }
 
 - (void)liftUp:(CGPoint)location touchCount:(NSUInteger)count completionBlock:(void (^)(void))completionBlock
 {
     [self liftUp:location touchCount:count];
-    [self _sendMarkerHIDEventWithCompletionBlock:completionBlock];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
+}
+
+- (void)stylusDownAtPoint:(CGPoint)location azimuthAngle:(CGFloat)azimuthAngle altitudeAngle:(CGFloat)altitudeAngle pressure:(CGFloat)pressure
+{
+    _activePointCount = 1;
+    _activePoints[0].point = location;
+    _activePoints[0].isStylus = YES;
+
+    // At the time of writing, the IOKit documentation isn't always correct. For example
+    // it says that pressure is a value [0,1], but in practice it is [0,500] for stylus
+    // data. It does not mention that the azimuth angle is offset from a full rotation.
+    // Also, UIKit and IOHID interpret the altitude as different adjacent angles.
+    _activePoints[0].pathPressure = pressure * 500;
+    _activePoints[0].azimuthAngle = M_PI * 2 - azimuthAngle;
+    _activePoints[0].altitudeAngle = M_PI_2 - altitudeAngle;
+
+    RetainPtr<IOHIDEventRef> eventRef = adoptCF([self _createIOHIDEventType:StylusEventTouched]);
+    [self _sendHIDEvent:eventRef.get()];
+}
+
+- (void)stylusMoveToPoint:(CGPoint)location azimuthAngle:(CGFloat)azimuthAngle altitudeAngle:(CGFloat)altitudeAngle pressure:(CGFloat)pressure
+{
+    _activePointCount = 1;
+    _activePoints[0].point = location;
+    _activePoints[0].isStylus = YES;
+    // See notes above for details on these calculations.
+    _activePoints[0].pathPressure = pressure * 500;
+    _activePoints[0].azimuthAngle = M_PI * 2 - azimuthAngle;
+    _activePoints[0].altitudeAngle = M_PI_2 - altitudeAngle;
+
+    RetainPtr<IOHIDEventRef> eventRef = adoptCF([self _createIOHIDEventType:StylusEventMoved]);
+    [self _sendHIDEvent:eventRef.get()];
+}
+
+- (void)stylusUpAtPoint:(CGPoint)location
+{
+    _activePointCount = 1;
+    _activePoints[0].point = location;
+    _activePoints[0].isStylus = YES;
+    _activePoints[0].pathPressure = 0;
+    _activePoints[0].azimuthAngle = 0;
+    _activePoints[0].altitudeAngle = 0;
+
+    RetainPtr<IOHIDEventRef> eventRef = adoptCF([self _createIOHIDEventType:StylusEventLifted]);
+    [self _sendHIDEvent:eventRef.get()];
+}
+
+- (void)stylusDownAtPoint:(CGPoint)location azimuthAngle:(CGFloat)azimuthAngle altitudeAngle:(CGFloat)altitudeAngle pressure:(CGFloat)pressure completionBlock:(void (^)(void))completionBlock
+{
+    [self stylusDownAtPoint:location azimuthAngle:azimuthAngle altitudeAngle:altitudeAngle pressure:pressure];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
+}
+
+- (void)stylusMoveToPoint:(CGPoint)location azimuthAngle:(CGFloat)azimuthAngle altitudeAngle:(CGFloat)altitudeAngle pressure:(CGFloat)pressure completionBlock:(void (^)(void))completionBlock
+{
+    [self stylusMoveToPoint:location azimuthAngle:azimuthAngle altitudeAngle:altitudeAngle pressure:pressure];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
+}
+
+- (void)stylusUpAtPoint:(CGPoint)location completionBlock:(void (^)(void))completionBlock
+{
+    [self stylusUpAtPoint:location];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
+}
+
+- (void)stylusTapAtPoint:(CGPoint)location azimuthAngle:(CGFloat)azimuthAngle altitudeAngle:(CGFloat)altitudeAngle pressure:(CGFloat)pressure completionBlock:(void (^)(void))completionBlock
+{
+    struct timespec pressDelay = { 0, static_cast<long>(fingerLiftDelay * nanosecondsPerSecond) };
+
+    [self stylusDownAtPoint:location azimuthAngle:azimuthAngle altitudeAngle:altitudeAngle pressure:pressure];
+    nanosleep(&pressDelay, 0);
+    [self stylusUpAtPoint:location];
+
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
 }
 
 - (void)sendTaps:(int)tapCount location:(CGPoint)location withNumberOfTouches:(int)touchCount completionBlock:(void (^)(void))completionBlock
 {
-    struct timespec doubleDelay = { 0, static_cast<long>(multiTapInterval) };
-    struct timespec pressDelay = { 0, static_cast<long>(fingerLiftDelay) };
+    struct timespec doubleDelay = { 0, static_cast<long>(multiTapInterval * nanosecondsPerSecond) };
+    struct timespec pressDelay = { 0, static_cast<long>(fingerLiftDelay * nanosecondsPerSecond) };
 
     for (int i = 0; i < tapCount; i++) {
         [self touchDown:location touchCount:touchCount];
@@ -395,7 +725,7 @@ static void delayBetweenMove(int eventIndex, double elapsed)
             nanosleep(&doubleDelay, 0);
     }
     
-    [self _sendMarkerHIDEventWithCompletionBlock:completionBlock];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
 }
 
 - (void)tap:(CGPoint)location completionBlock:(void (^)(void))completionBlock
@@ -413,8 +743,23 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     [self sendTaps:1 location:location withNumberOfTouches:2 completionBlock:completionBlock];
 }
 
+- (void)longPress:(CGPoint)location completionBlock:(void (^)(void))completionBlock
+{
+    [self touchDown:location touchCount:1];
+    auto completionBlockCopy = makeBlockPtr(completionBlock);
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, longPressHoldDelay * nanosecondsPerSecond), dispatch_get_main_queue(), ^ {
+        [self liftUp:location];
+        [self sendMarkerHIDEventWithCompletionBlock:completionBlockCopy.get()];
+    });
+}
+
 - (void)dragWithStartPoint:(CGPoint)startLocation endPoint:(CGPoint)endLocation duration:(double)seconds completionBlock:(void (^)(void))completionBlock
 {
+    [self touchDown:startLocation touchCount:1];
+    [self moveToPoints:&endLocation touchCount:1 duration:seconds];
+    [self liftUp:endLocation];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
 }
 
 - (void)pinchCloseWithStartPoint:(CGPoint)startLocation endPoint:(CGPoint)endLocation duration:(double)seconds completionBlock:(void (^)(void))completionBlock
@@ -439,6 +784,11 @@ static void delayBetweenMove(int eventIndex, double elapsed)
     }
 }
 
+- (BOOL)checkForOutstandingCallbacks
+{
+    return !([_eventCallbacks count] > 0);
+}
+
 static inline bool shouldWrapWithShiftKeyEventForCharacter(NSString *key)
 {
     if (key.length != 1)
@@ -447,7 +797,6 @@ static inline bool shouldWrapWithShiftKeyEventForCharacter(NSString *key)
     if (65 <= keyCode && keyCode <= 90)
         return true;
     switch (keyCode) {
-    case '`':
     case '!':
     case '@':
     case '#':
@@ -472,6 +821,22 @@ static inline bool shouldWrapWithShiftKeyEventForCharacter(NSString *key)
         return true;
     }
     return false;
+}
+
+static Optional<uint32_t> keyCodeForDOMFunctionKey(NSString *key)
+{
+    // Compare the input string with the function-key names defined by the DOM spec (i.e. "F1",...,"F24").
+    // If the input string is a function-key name, set its key code. On iOS the key codes for the first 12
+    // function keys are disjoint from the key codes of the last 12 function keys.
+    for (int i = 1; i <= 12; ++i) {
+        if ([key isEqualToString:[NSString stringWithFormat:@"F%d", i]])
+            return kHIDUsage_KeyboardF1 + i - 1;
+    }
+    for (int i = 13; i <= 24; ++i) {
+        if ([key isEqualToString:[NSString stringWithFormat:@"F%d", i]])
+            return kHIDUsage_KeyboardF13 + i - 13;
+    }
+    return WTF::nullopt;
 }
 
 static inline uint32_t hidUsageCodeForCharacter(NSString *key)
@@ -523,6 +888,8 @@ static inline uint32_t hidUsageCodeForCharacter(NSString *key)
         case '=':
         case '+':
             return kHIDUsage_KeyboardEqualSign;
+        case '\b':
+            return kHIDUsage_KeyboardDeleteOrBackspace;
         case '\t':
             return kHIDUsage_KeyboardTab;
         case '[':
@@ -556,11 +923,22 @@ static inline uint32_t hidUsageCodeForCharacter(NSString *key)
             return kHIDUsage_KeyboardSpacebar;
         }
     }
-    const int functionKeyOffset = kHIDUsage_KeyboardF1;
-    for (int functionKeyIndex = 1; functionKeyIndex <= 12; ++functionKeyIndex) {
-        if ([key isEqualToString:[NSString stringWithFormat:@"F%d", functionKeyIndex]])
-            return functionKeyOffset + functionKeyIndex - 1;
-    }
+
+    if (auto keyCode = keyCodeForDOMFunctionKey(key))
+        return *keyCode;
+
+    if ([key isEqualToString:@"capsLock"] || [key isEqualToString:@"capsLockKey"])
+        return kHIDUsage_KeyboardCapsLock;
+    if ([key isEqualToString:@"pageUp"])
+        return kHIDUsage_KeyboardPageUp;
+    if ([key isEqualToString:@"pageDown"])
+        return kHIDUsage_KeyboardPageDown;
+    if ([key isEqualToString:@"home"])
+        return kHIDUsage_KeyboardHome;
+    if ([key isEqualToString:@"insert"])
+        return kHIDUsage_KeyboardInsert;
+    if ([key isEqualToString:@"end"])
+        return kHIDUsage_KeyboardEnd;
     if ([key isEqualToString:@"escape"])
         return kHIDUsage_KeyboardEscape;
     if ([key isEqualToString:@"return"] || [key isEqualToString:@"enter"])
@@ -575,15 +953,43 @@ static inline uint32_t hidUsageCodeForCharacter(NSString *key)
         return kHIDUsage_KeyboardDownArrow;
     if ([key isEqualToString:@"delete"])
         return kHIDUsage_KeyboardDeleteOrBackspace;
-    // The simulator keyboard interprets both left and right modifier keys using the left version of the usage code.
-    if ([key isEqualToString:@"leftControl"] || [key isEqualToString:@"rightControl"])
+    if ([key isEqualToString:@"forwardDelete"])
+        return kHIDUsage_KeyboardDeleteForward;
+    if ([key isEqualToString:@"leftCommand"] || [key isEqualToString:@"metaKey"])
+        return kHIDUsage_KeyboardLeftGUI;
+    if ([key isEqualToString:@"rightCommand"])
+        return kHIDUsage_KeyboardRightGUI;
+    if ([key isEqualToString:@"clear"]) // Num Lock / Clear
+        return kHIDUsage_KeypadNumLock;
+    if ([key isEqualToString:@"leftControl"] || [key isEqualToString:@"ctrlKey"])
         return kHIDUsage_KeyboardLeftControl;
-    if ([key isEqualToString:@"leftShift"] || [key isEqualToString:@"rightShift"])
+    if ([key isEqualToString:@"rightControl"])
+        return kHIDUsage_KeyboardRightControl;
+    if ([key isEqualToString:@"leftShift"] || [key isEqualToString:@"shiftKey"])
         return kHIDUsage_KeyboardLeftShift;
-    if ([key isEqualToString:@"leftAlt"] || [key isEqualToString:@"rightAlt"])
+    if ([key isEqualToString:@"rightShift"])
+        return kHIDUsage_KeyboardRightShift;
+    if ([key isEqualToString:@"leftAlt"] || [key isEqualToString:@"altKey"])
         return kHIDUsage_KeyboardLeftAlt;
+    if ([key isEqualToString:@"rightAlt"])
+        return kHIDUsage_KeyboardRightAlt;
 
     return 0;
+}
+
+RetainPtr<IOHIDEventRef> createHIDKeyEvent(NSString *character, uint64_t timestamp, bool isKeyDown)
+{
+    return adoptCF(IOHIDEventCreateKeyboardEvent(kCFAllocatorDefault, timestamp, kHIDPage_KeyboardOrKeypad, hidUsageCodeForCharacter(character), isKeyDown, kIOHIDEventOptionNone));
+}
+
+- (void)keyDown:(NSString *)character
+{
+    [self _sendIOHIDKeyboardEvent:mach_absolute_time() usage:hidUsageCodeForCharacter(character) isKeyDown:true];
+}
+
+- (void)keyUp:(NSString *)character
+{
+    [self _sendIOHIDKeyboardEvent:mach_absolute_time() usage:hidUsageCodeForCharacter(character) isKeyDown:false];
 }
 
 - (void)keyPress:(NSString *)character completionBlock:(void (^)(void))completionBlock
@@ -601,35 +1007,144 @@ static inline uint32_t hidUsageCodeForCharacter(NSString *key)
     if (shouldWrapWithShift)
         [self _sendIOHIDKeyboardEvent:absoluteMachTime usage:kHIDUsage_KeyboardLeftShift isKeyDown:false];
 
-    [self _sendMarkerHIDEventWithCompletionBlock:completionBlock];
+    [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
 }
 
-- (void)keyDown:(NSString *)character completionBlock:(void (^)(void))completionBlock
+- (void)dispatchEventWithInfo:(NSDictionary *)eventInfo
 {
-    bool shouldWrapWithShift = shouldWrapWithShiftKeyEventForCharacter(character);
-    uint32_t usage = hidUsageCodeForCharacter(character);
-    uint64_t absoluteMachTime = mach_absolute_time();
+    ASSERT([NSThread isMainThread]);
 
-    if (shouldWrapWithShift)
-        [self _sendIOHIDKeyboardEvent:absoluteMachTime usage:kHIDUsage_KeyboardLeftShift isKeyDown:true];
-
-    [self _sendIOHIDKeyboardEvent:absoluteMachTime usage:usage isKeyDown:true];
-
-    [self _sendMarkerHIDEventWithCompletionBlock:completionBlock];
+    RetainPtr<IOHIDEventRef> eventRef = adoptCF([self _createIOHIDEventWithInfo:eventInfo]);
+    [self _sendHIDEvent:eventRef.get()];
 }
 
-- (void)keyUp:(NSString *)character completionBlock:(void (^)(void))completionBlock
+- (NSArray *)interpolatedEvents:(NSDictionary *)interpolationsDictionary
 {
-    bool shouldWrapWithShift = shouldWrapWithShiftKeyEventForCharacter(character);
-    uint32_t usage = hidUsageCodeForCharacter(character);
-    uint64_t absoluteMachTime = mach_absolute_time();
+    NSDictionary *startEvent = interpolationsDictionary[HIDEventStartEventKey];
+    NSDictionary *endEvent = interpolationsDictionary[HIDEventEndEventKey];
+    NSTimeInterval timeStep = [interpolationsDictionary[HIDEventTimestepKey] doubleValue];
+    InterpolationType interpolationType = interpolationFromString(interpolationsDictionary[HIDEventInterpolateKey]);
+    
+    NSMutableArray *interpolatedEvents = [NSMutableArray arrayWithObject:startEvent];
+    
+    NSTimeInterval startTime = [startEvent[HIDEventTimeOffsetKey] doubleValue];
+    NSTimeInterval endTime = [endEvent[HIDEventTimeOffsetKey] doubleValue];
+    NSTimeInterval time = startTime + timeStep;
+    
+    NSArray *startTouches = startEvent[HIDEventTouchesKey];
+    NSArray *endTouches = endEvent[HIDEventTouchesKey];
+    
+    while (time < endTime) {
+        NSMutableDictionary *newEvent = [endEvent mutableCopy];
+        double timeRatio = (time - startTime) / (endTime - startTime);
+        newEvent[HIDEventTimeOffsetKey] = [NSNumber numberWithDouble:(time)];
+        
+        NSEnumerator *startEnumerator = [startTouches objectEnumerator];
+        NSDictionary *startTouch;
+        NSMutableArray *newTouches = [NSMutableArray arrayWithCapacity:[endTouches count]];
+        while (startTouch = [startEnumerator nextObject])  {
+            NSEnumerator *endEnumerator = [endTouches objectEnumerator];
+            NSDictionary *endTouch = [endEnumerator nextObject];
+            NSInteger startTouchID = [startTouch[HIDEventTouchIDKey] integerValue];
+            
+            while (endTouch && ([endTouch[HIDEventTouchIDKey] integerValue] != startTouchID))
+                endTouch = [endEnumerator nextObject];
+            
+            if (endTouch) {
+                NSMutableDictionary *newTouch = [endTouch mutableCopy];
+                
+                if (newTouch[HIDEventXKey] != startTouch[HIDEventXKey])
+                    newTouch[HIDEventXKey] = @(interpolations[interpolationType]([startTouch[HIDEventXKey] doubleValue], [endTouch[HIDEventXKey] doubleValue], timeRatio));
+                
+                if (newTouch[HIDEventYKey] != startTouch[HIDEventYKey])
+                    newTouch[HIDEventYKey] = @(interpolations[interpolationType]([startTouch[HIDEventYKey] doubleValue], [endTouch[HIDEventYKey] doubleValue], timeRatio));
+                
+                if (newTouch[HIDEventPressureKey] != startTouch[HIDEventPressureKey])
+                    newTouch[HIDEventPressureKey] = @(interpolations[interpolationType]([startTouch[HIDEventPressureKey] doubleValue], [endTouch[HIDEventPressureKey] doubleValue], timeRatio));
+                
+                [newTouches addObject:newTouch];
+                [newTouch release];
+            } else
+                NSLog(@"Missing End Touch with ID: %ld", (long)startTouchID);
+        }
+        
+        newEvent[HIDEventTouchesKey] = newTouches;
+        
+        [interpolatedEvents addObject:newEvent];
+        [newEvent release];
+        time += timeStep;
+    }
+    
+    [interpolatedEvents addObject:endEvent];
 
-    [self _sendIOHIDKeyboardEvent:absoluteMachTime usage:usage isKeyDown:false];
+    return interpolatedEvents;
+}
 
-    if (shouldWrapWithShift)
-        [self _sendIOHIDKeyboardEvent:absoluteMachTime usage:kHIDUsage_KeyboardLeftShift isKeyDown:false];
+- (NSArray *)expandEvents:(NSArray *)events withStartTime:(CFAbsoluteTime)startTime
+{
+    NSMutableArray *expandedEvents = [NSMutableArray array];
+    for (NSDictionary *event in events) {
+        NSString *interpolate = event[HIDEventInterpolateKey];
+        // we have key events that we need to generate
+        if (interpolate) {
+            NSArray *newEvents = [self interpolatedEvents:event];
+            [expandedEvents addObjectsFromArray:[self expandEvents:newEvents withStartTime:startTime]];
+        } else
+            [expandedEvents addObject:event];
+    }
+    return expandedEvents;
+}
 
-    [self _sendMarkerHIDEventWithCompletionBlock:completionBlock];
+- (void)eventDispatchThreadEntry:(NSDictionary *)threadData
+{
+    NSDictionary *eventStream = threadData[@"eventInfo"];
+    void (^completionBlock)() = threadData[@"completionBlock"];
+    
+    NSArray *events = eventStream[TopLevelEventInfoKey];
+    if (!events.count) {
+        NSLog(@"No events found in event stream");
+        return;
+    }
+    
+    CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
+    
+    NSArray *expandedEvents = [self expandEvents:events withStartTime:startTime];
+    
+    for (NSDictionary *eventInfo in expandedEvents) {
+        NSTimeInterval eventRelativeTime = [eventInfo[HIDEventTimeOffsetKey] doubleValue];
+        CFAbsoluteTime targetTime = startTime + eventRelativeTime;
+        
+        CFTimeInterval waitTime = targetTime - CFAbsoluteTimeGetCurrent();
+        if (waitTime > 0)
+            [NSThread sleepForTimeInterval:waitTime];
+        
+        dispatch_async(dispatch_get_main_queue(), ^ {
+            [self dispatchEventWithInfo:eventInfo];
+        });
+    }
+    
+    dispatch_async(dispatch_get_main_queue(), ^ {
+        [self sendMarkerHIDEventWithCompletionBlock:completionBlock];
+    });
+}
+
+- (void)sendEventStream:(NSDictionary *)eventInfo completionBlock:(void (^)(void))completionBlock
+{
+    if (!eventInfo) {
+        NSLog(@"eventInfo is nil");
+        if (completionBlock)
+            completionBlock();
+        return;
+    }
+    
+    NSDictionary* threadData = @{
+        @"eventInfo": [eventInfo copy],
+        @"completionBlock": [[completionBlock copy] autorelease]
+    };
+    
+    NSThread *eventDispatchThread = [[[NSThread alloc] initWithTarget:self selector:@selector(eventDispatchThreadEntry:) object:threadData] autorelease];
+    eventDispatchThread.qualityOfService = NSQualityOfServiceUserInteractive;
+    [eventDispatchThread start];
 }
 
 @end

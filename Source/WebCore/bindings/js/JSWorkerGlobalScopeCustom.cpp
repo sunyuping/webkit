@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2009, 2011 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2009, 2011, 2016 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,87 +24,45 @@
  */
 
 #include "config.h"
-
 #include "JSWorkerGlobalScope.h"
 
-#include "ExceptionCode.h"
-#include "JSDOMBinding.h"
-#include "JSDOMGlobalObject.h"
-#include "JSEventListener.h"
-#include "JSEventSource.h"
-#include "JSMessageChannel.h"
-#include "JSMessagePort.h"
-#include "JSWorkerLocation.h"
-#include "JSWorkerNavigator.h"
-#include "JSXMLHttpRequest.h"
-#include "ScheduledAction.h"
 #include "WorkerGlobalScope.h"
-#include "WorkerLocation.h"
-#include "WorkerNavigator.h"
-#include <interpreter/Interpreter.h>
+#include <JavaScriptCore/JSMicrotask.h>
 
-#if ENABLE(WEB_SOCKETS)
-#include "JSWebSocket.h"
-#endif
-
-using namespace JSC;
 
 namespace WebCore {
+using namespace JSC;
 
 void JSWorkerGlobalScope::visitAdditionalChildren(SlotVisitor& visitor)
 {
-    if (WorkerLocation* location = wrapped().optionalLocation())
+    if (auto* location = wrapped().optionalLocation())
         visitor.addOpaqueRoot(location);
-    if (WorkerNavigator* navigator = wrapped().optionalNavigator())
+    if (auto* navigator = wrapped().optionalNavigator())
         visitor.addOpaqueRoot(navigator);
+    ScriptExecutionContext& context = wrapped();
+    visitor.addOpaqueRoot(&context);
+    
+    // Normally JSEventTargetCustom.cpp's JSEventTarget::visitAdditionalChildren() would call this. But
+    // even though WorkerGlobalScope is an EventTarget, JSWorkerGlobalScope does not subclass
+    // JSEventTarget, so we need to do this here.
+    wrapped().visitJSEventListeners(visitor);
 }
 
-bool JSWorkerGlobalScope::getOwnPropertySlotDelegate(ExecState* exec, PropertyName propertyName, PropertySlot& slot)
+JSValue JSWorkerGlobalScope::queueMicrotask(ExecState& state)
 {
-    // Look for overrides before looking at any of our own properties.
-    if (JSGlobalObject::getOwnPropertySlot(this, exec, propertyName, slot))
-        return true;
-    return false;
-}
+    VM& vm = state.vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
 
-JSValue JSWorkerGlobalScope::importScripts(ExecState& state)
-{
-    if (!state.argumentCount())
-        return jsUndefined();
+    if (UNLIKELY(state.argumentCount() < 1))
+        return throwException(&state, scope, createNotEnoughArgumentsError(&state));
 
-    Vector<String> urls;
-    for (unsigned i = 0; i < state.argumentCount(); ++i) {
-        urls.append(state.uncheckedArgument(i).toString(&state)->value(&state));
-        if (state.hadException())
-            return jsUndefined();
-    }
-    ExceptionCode ec = 0;
+    JSValue functionValue = state.uncheckedArgument(0);
+    if (UNLIKELY(!functionValue.isFunction(vm)))
+        return JSValue::decode(throwArgumentMustBeFunctionError(state, scope, 0, "callback", "WorkerGlobalScope", "queueMicrotask"));
 
-    wrapped().importScripts(urls, ec);
-    setDOMException(&state, ec);
+    scope.release();
+    Base::queueMicrotask(JSC::createJSMicrotask(vm, functionValue));
     return jsUndefined();
-}
-
-JSValue JSWorkerGlobalScope::setTimeout(ExecState& state)
-{
-    std::unique_ptr<ScheduledAction> action = ScheduledAction::create(&state, globalObject()->world(), wrapped().contentSecurityPolicy());
-    if (state.hadException())
-        return jsUndefined();
-    if (!action)
-        return jsNumber(0);
-    int delay = state.argument(1).toInt32(&state);
-    return jsNumber(wrapped().setTimeout(WTFMove(action), delay));
-}
-
-JSValue JSWorkerGlobalScope::setInterval(ExecState& state)
-{
-    std::unique_ptr<ScheduledAction> action = ScheduledAction::create(&state, globalObject()->world(), wrapped().contentSecurityPolicy());
-    if (state.hadException())
-        return jsUndefined();
-    if (!action)
-        return jsNumber(0);
-    int delay = state.argument(1).toInt32(&state);
-    return jsNumber(wrapped().setInterval(WTFMove(action), delay));
 }
 
 } // namespace WebCore

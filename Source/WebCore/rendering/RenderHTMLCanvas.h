@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef RenderHTMLCanvas_h
-#define RenderHTMLCanvas_h
+#pragma once
 
 #include "RenderReplaced.h"
 
@@ -33,8 +32,9 @@ namespace WebCore {
 class HTMLCanvasElement;
 
 class RenderHTMLCanvas final : public RenderReplaced {
+    WTF_MAKE_ISO_ALLOCATED(RenderHTMLCanvas);
 public:
-    RenderHTMLCanvas(HTMLCanvasElement&, Ref<RenderStyle>&&);
+    RenderHTMLCanvas(HTMLCanvasElement&, RenderStyle&&);
 
     HTMLCanvasElement& canvasElement() const;
 
@@ -42,15 +42,13 @@ public:
 
 private:
     void element() const = delete;
-    virtual bool requiresLayer() const override;
-    virtual bool isCanvas() const override { return true; }
-    virtual const char* renderName() const override { return "RenderHTMLCanvas"; }
-    virtual void paintReplaced(PaintInfo&, const LayoutPoint&) override;
-    virtual void intrinsicSizeChanged() override { canvasSizeChanged(); }
+    bool requiresLayer() const override;
+    bool isCanvas() const override { return true; }
+    const char* renderName() const override { return "RenderHTMLCanvas"; }
+    void paintReplaced(PaintInfo&, const LayoutPoint&) override;
+    void intrinsicSizeChanged() override { canvasSizeChanged(); }
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderHTMLCanvas, isCanvas())
-
-#endif // RenderHTMLCanvas_h

@@ -23,20 +23,46 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+
 #if ENABLE(REMOTE_INSPECTOR)
 
-#ifndef RemoteInspector_h
-#define RemoteInspector_h
+#include <utility>
+#include <wtf/Forward.h>
+#include <wtf/HashMap.h>
+#include <wtf/Lock.h>
+#include <wtf/ProcessID.h>
+#include <wtf/text/WTFString.h>
 
-#import "RemoteInspectorXPCConnection.h"
-#import <wtf/Forward.h>
-#import <wtf/HashMap.h>
-#import <wtf/Lock.h>
-#import <wtf/RetainPtr.h>
-#import <wtf/Vector.h>
+#if PLATFORM(COCOA)
+#include "RemoteInspectorXPCConnection.h"
+#include <wtf/RetainPtr.h>
 
 OBJC_CLASS NSDictionary;
 OBJC_CLASS NSString;
+typedef RetainPtr<NSDictionary> TargetListing;
+#endif
+
+#if USE(GLIB)
+#include <wtf/glib/GRefPtr.h>
+typedef GRefPtr<GVariant> TargetListing;
+typedef struct _GCancellable GCancellable;
+typedef struct _GDBusConnection GDBusConnection;
+typedef struct _GDBusInterfaceVTable GDBusInterfaceVTable;
+#endif
+
+#if PLATFORM(PLAYSTATION)
+#include "RemoteConnectionToTarget.h"
+#include "RemoteInspectorConnectionClient.h"
+#include "RemoteInspectorSocketClient.h"
+#include <wtf/JSONValues.h>
+#include <wtf/RefCounted.h>
+#include <wtf/RefPtr.h>
+
+namespace Inspector {
+using TargetListing = RefPtr<JSON::Object>;
+}
+#endif
 
 namespace Inspector {
 
@@ -46,13 +72,38 @@ class RemoteControllableTarget;
 class RemoteInspectionTarget;
 class RemoteInspectorClient;
 
-class JS_EXPORT_PRIVATE RemoteInspector final : public RemoteInspectorXPCConnection::Client {
+class JS_EXPORT_PRIVATE RemoteInspector final
+#if PLATFORM(COCOA)
+    : public RemoteInspectorXPCConnection::Client
+#elif PLATFORM(PLAYSTATION)
+    : public RemoteInspectorConnectionClient
+#endif
+{
 public:
     class Client {
     public:
-        virtual ~Client() { }
+        struct Capabilities {
+            bool remoteAutomationAllowed : 1;
+            String browserName;
+            String browserVersion;
+        };
+
+        struct SessionCapabilities {
+            bool acceptInsecureCertificates { false };
+#if USE(GLIB)
+            Vector<std::pair<String, String>> certificates;
+#endif
+#if PLATFORM(COCOA)
+            Optional<bool> allowInsecureMediaCapture;
+            Optional<bool> suppressICECandidateFiltering;
+#endif
+        };
+
+        virtual ~Client();
         virtual bool remoteAutomationAllowed() const = 0;
-        virtual void requestAutomationSession(const String& sessionIdentifier) = 0;
+        virtual String browserName() const { return { }; }
+        virtual String browserVersion() const { return { }; }
+        virtual void requestAutomationSession(const String& sessionIdentifier, const SessionCapabilities&) = 0;
     };
 
     static void startDisabled();
@@ -64,13 +115,15 @@ public:
     void updateTarget(RemoteControllableTarget*);
     void sendMessageToRemote(unsigned targetIdentifier, const String& message);
 
-    void updateAutomaticInspectionCandidate(RemoteInspectionTarget*);
-    void setRemoteInspectorClient(RemoteInspector::Client*);
+    RemoteInspector::Client* client() const { return m_client; }
+    void setClient(RemoteInspector::Client*);
+    void clientCapabilitiesDidChange();
+    Optional<RemoteInspector::Client::Capabilities> clientCapabilities() const { return m_clientCapabilities; }
 
     void setupFailed(unsigned targetIdentifier);
     void setupCompleted(unsigned targetIdentifier);
     bool waitingForAutomaticInspection(unsigned targetIdentifier);
-    void clientCapabilitiesDidChange() { pushListingsSoon(); }
+    void updateAutomaticInspectionCandidate(RemoteInspectionTarget*);
 
     bool enabled() const { return m_enabled; }
     bool hasActiveDebugSession() const { return m_hasActiveDebugSession; }
@@ -78,11 +131,26 @@ public:
     void start();
     void stop();
 
+#if PLATFORM(COCOA)
     bool hasParentProcessInformation() const { return m_parentProcessIdentifier != 0; }
-    pid_t parentProcessIdentifier() const { return m_parentProcessIdentifier; }
+    ProcessID parentProcessIdentifier() const { return m_parentProcessIdentifier; }
     RetainPtr<CFDataRef> parentProcessAuditData() const { return m_parentProcessAuditData; }
-    void setParentProcessInformation(pid_t, RetainPtr<CFDataRef> auditData);
+    void setParentProcessInformation(ProcessID, RetainPtr<CFDataRef> auditData);
     void setParentProcessInfomationIsDelayed();
+#endif
+
+    void updateTargetListing(unsigned targetIdentifier);
+
+#if USE(GLIB)
+    void requestAutomationSession(const char* sessionID, const Client::SessionCapabilities&);
+#endif
+#if USE(GLIB) || PLATFORM(PLAYSTATION)
+    void setup(unsigned targetIdentifier);
+    void sendMessageToTarget(unsigned targetIdentifier, const char* message);
+#endif
+#if PLATFORM(PLAYSTATION)
+    static void setConnectionIdentifier(PlatformSocketType);
+#endif
 
 private:
     RemoteInspector();
@@ -92,21 +160,38 @@ private:
     enum class StopSource { API, XPCMessage };
     void stopInternal(StopSource);
 
+#if PLATFORM(COCOA)
     void setupXPCConnectionIfNeeded();
+#endif
+#if USE(GLIB)
+    void setupConnection(GRefPtr<GDBusConnection>&&);
+    static const GDBusInterfaceVTable s_interfaceVTable;
 
-    RetainPtr<NSDictionary> listingForTarget(const RemoteControllableTarget&) const;
-    RetainPtr<NSDictionary> listingForInspectionTarget(const RemoteInspectionTarget&) const;
-    RetainPtr<NSDictionary> listingForAutomationTarget(const RemoteAutomationTarget&) const;
+    void receivedGetTargetListMessage();
+    void receivedSetupMessage(unsigned targetIdentifier);
+    void receivedDataMessage(unsigned targetIdentifier, const char* message);
+    void receivedCloseMessage(unsigned targetIdentifier);
+    void receivedAutomationSessionRequestMessage(const char* sessionID);
+#endif
+
+    TargetListing listingForTarget(const RemoteControllableTarget&) const;
+    TargetListing listingForInspectionTarget(const RemoteInspectionTarget&) const;
+    TargetListing listingForAutomationTarget(const RemoteAutomationTarget&) const;
+
     void pushListingsNow();
     void pushListingsSoon();
 
+    void updateTargetListing(const RemoteControllableTarget&);
+
     void updateHasActiveDebugSession();
+    void updateClientCapabilities();
 
     void sendAutomaticInspectionCandidateMessage();
 
-    virtual void xpcConnectionReceivedMessage(RemoteInspectorXPCConnection*, NSString *messageName, NSDictionary *userInfo) override;
-    virtual void xpcConnectionFailed(RemoteInspectorXPCConnection*) override;
-    virtual void xpcConnectionUnhandledMessage(RemoteInspectorXPCConnection*, xpc_object_t) override;
+#if PLATFORM(COCOA)
+    void xpcConnectionReceivedMessage(RemoteInspectorXPCConnection*, NSString *messageName, NSDictionary *userInfo) override;
+    void xpcConnectionFailed(RemoteInspectorXPCConnection*) override;
+    void xpcConnectionUnhandledMessage(RemoteInspectorXPCConnection*, xpc_object_t) override;
 
     void receivedSetupMessage(NSDictionary *userInfo);
     void receivedDataMessage(NSDictionary *userInfo);
@@ -117,7 +202,19 @@ private:
     void receivedConnectionDiedMessage(NSDictionary *userInfo);
     void receivedAutomaticInspectionConfigurationMessage(NSDictionary *userInfo);
     void receivedAutomaticInspectionRejectMessage(NSDictionary *userInfo);
+    void receivedAutomationSessionRequestMessage(NSDictionary *userInfo);
+#endif
+#if PLATFORM(PLAYSTATION)
+    HashMap<String, CallHandler>& dispatchMap() override;
+    void didClose(ClientID) override;
 
+    void sendWebInspectorEvent(const String&);
+
+    void receivedGetTargetListMessage(const struct Event&);
+    void receivedSetupMessage(const struct Event&);
+    void receivedDataMessage(const struct Event&);
+    void receivedCloseMessage(const struct Event&);
+#endif
     static bool startEnabled;
 
     // Targets can be registered from any thread at any time.
@@ -127,22 +224,39 @@ private:
     Lock m_mutex;
 
     HashMap<unsigned, RemoteControllableTarget*> m_targetMap;
-    HashMap<unsigned, RetainPtr<NSDictionary>> m_targetListingMap;
     HashMap<unsigned, RefPtr<RemoteConnectionToTarget>> m_targetConnectionMap;
+    HashMap<unsigned, TargetListing> m_targetListingMap;
 
+#if PLATFORM(COCOA)
     RefPtr<RemoteInspectorXPCConnection> m_relayConnection;
+#endif
+#if USE(GLIB)
+    GRefPtr<GDBusConnection> m_dbusConnection;
+    GRefPtr<GCancellable> m_cancellable;
+#endif
+
+#if PLATFORM(PLAYSTATION)
+    std::unique_ptr<RemoteInspectorSocketClient> m_socketConnection;
+    static PlatformSocketType s_connectionIdentifier;
+    Optional<ClientID> m_clientID;
+#endif
 
     RemoteInspector::Client* m_client { nullptr };
+    Optional<RemoteInspector::Client::Capabilities> m_clientCapabilities;
 
+#if PLATFORM(COCOA)
     dispatch_queue_t m_xpcQueue;
+#endif
     unsigned m_nextAvailableTargetIdentifier { 1 };
     int m_notifyToken { 0 };
     bool m_enabled { false };
     bool m_hasActiveDebugSession { false };
     bool m_pushScheduled { false };
 
-    pid_t m_parentProcessIdentifier { 0 };
+    ProcessID m_parentProcessIdentifier { 0 };
+#if PLATFORM(COCOA)
     RetainPtr<CFDataRef> m_parentProcessAuditData;
+#endif
     bool m_shouldSendParentProcessInformation { false };
     bool m_automaticInspectionEnabled { false };
     bool m_automaticInspectionPaused { false };
@@ -150,7 +264,5 @@ private:
 };
 
 } // namespace Inspector
-
-#endif // RemoteInspector_h
 
 #endif // ENABLE(REMOTE_INSPECTOR)

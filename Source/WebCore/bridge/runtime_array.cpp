@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2003, 2008, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,16 +26,16 @@
 #include "config.h"
 #include "runtime_array.h"
 
-#include <runtime/ArrayPrototype.h>
-#include <runtime/Error.h>
-#include <runtime/PropertyNameArray.h>
 #include "JSDOMBinding.h"
+#include <JavaScriptCore/ArrayPrototype.h>
+#include <JavaScriptCore/Error.h>
+#include <JavaScriptCore/PropertyNameArray.h>
 
 using namespace WebCore;
 
 namespace JSC {
 
-const ClassInfo RuntimeArray::s_info = { "RuntimeArray", &Base::s_info, 0, CREATE_METHOD_TABLE(RuntimeArray) };
+const ClassInfo RuntimeArray::s_info = { "RuntimeArray", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(RuntimeArray) };
 
 RuntimeArray::RuntimeArray(ExecState* exec, Structure* structure)
     : JSArray(exec->vm(), structure, 0)
@@ -46,7 +46,7 @@ RuntimeArray::RuntimeArray(ExecState* exec, Structure* structure)
 void RuntimeArray::finishCreation(VM& vm, Bindings::Array* array)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(info()));
+    ASSERT(inherits(vm, info()));
     m_array = array;
 }
 
@@ -62,36 +62,41 @@ void RuntimeArray::destroy(JSCell* cell)
 
 EncodedJSValue RuntimeArray::lengthGetter(ExecState* exec, EncodedJSValue thisValue, PropertyName)
 {
-    RuntimeArray* thisObject = jsDynamicCast<RuntimeArray*>(JSValue::decode(thisValue));
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    RuntimeArray* thisObject = jsDynamicCast<RuntimeArray*>(vm, JSValue::decode(thisValue));
     if (!thisObject)
-        return throwVMTypeError(exec);
+        return throwVMTypeError(exec, scope);
     return JSValue::encode(jsNumber(thisObject->getLength()));
 }
 
 void RuntimeArray::getOwnPropertyNames(JSObject* object, ExecState* exec, PropertyNameArray& propertyNames, EnumerationMode mode)
 {
+    VM& vm = exec->vm();
     RuntimeArray* thisObject = jsCast<RuntimeArray*>(object);
     unsigned length = thisObject->getLength();
     for (unsigned i = 0; i < length; ++i)
         propertyNames.add(Identifier::from(exec, i));
 
     if (mode.includeDontEnumProperties())
-        propertyNames.add(exec->propertyNames().length);
+        propertyNames.add(vm.propertyNames->length);
 
     JSObject::getOwnPropertyNames(thisObject, exec, propertyNames, mode);
 }
 
 bool RuntimeArray::getOwnPropertySlot(JSObject* object, ExecState* exec, PropertyName propertyName, PropertySlot& slot)
 {
+    VM& vm = exec->vm();
     RuntimeArray* thisObject = jsCast<RuntimeArray*>(object);
-    if (propertyName == exec->propertyNames().length) {
-        slot.setCacheableCustom(thisObject, DontDelete | ReadOnly | DontEnum, thisObject->lengthGetter);
+    if (propertyName == vm.propertyNames->length) {
+        slot.setCacheableCustom(thisObject, PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum, thisObject->lengthGetter);
         return true;
     }
     
     Optional<uint32_t> index = parseIndex(propertyName);
     if (index && index.value() < thisObject->getLength()) {
-        slot.setValue(thisObject, DontDelete | DontEnum,
+        slot.setValue(thisObject, PropertyAttribute::DontDelete | PropertyAttribute::DontEnum,
             thisObject->getConcreteArray()->valueAt(exec, index.value()));
         return true;
     }
@@ -103,7 +108,7 @@ bool RuntimeArray::getOwnPropertySlotByIndex(JSObject* object, ExecState *exec, 
 {
     RuntimeArray* thisObject = jsCast<RuntimeArray*>(object);
     if (index < thisObject->getLength()) {
-        slot.setValue(thisObject, DontDelete | DontEnum,
+        slot.setValue(thisObject, PropertyAttribute::DontDelete | PropertyAttribute::DontEnum,
             thisObject->getConcreteArray()->valueAt(exec, index));
         return true;
     }
@@ -111,31 +116,35 @@ bool RuntimeArray::getOwnPropertySlotByIndex(JSObject* object, ExecState *exec, 
     return JSObject::getOwnPropertySlotByIndex(thisObject, exec, index, slot);
 }
 
-void RuntimeArray::put(JSCell* cell, ExecState* exec, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
+bool RuntimeArray::put(JSCell* cell, ExecState* exec, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     RuntimeArray* thisObject = jsCast<RuntimeArray*>(cell);
-    if (propertyName == exec->propertyNames().length) {
-        exec->vm().throwException(exec, createRangeError(exec, "Range error"));
-        return;
+    if (propertyName == vm.propertyNames->length) {
+        throwException(exec, scope, createRangeError(exec, "Range error"));
+        return false;
     }
     
-    if (Optional<uint32_t> index = parseIndex(propertyName)) {
-        thisObject->getConcreteArray()->setValueAt(exec, index.value(), value);
-        return;
-    }
-    
-    JSObject::put(thisObject, exec, propertyName, value, slot);
+    if (Optional<uint32_t> index = parseIndex(propertyName))
+        return thisObject->getConcreteArray()->setValueAt(exec, index.value(), value);
+
+    RELEASE_AND_RETURN(scope, JSObject::put(thisObject, exec, propertyName, value, slot));
 }
 
-void RuntimeArray::putByIndex(JSCell* cell, ExecState* exec, unsigned index, JSValue value, bool)
+bool RuntimeArray::putByIndex(JSCell* cell, ExecState* exec, unsigned index, JSValue value, bool)
 {
+    VM& vm = exec->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
     RuntimeArray* thisObject = jsCast<RuntimeArray*>(cell);
     if (index >= thisObject->getLength()) {
-        exec->vm().throwException(exec, createRangeError(exec, "Range error"));
-        return;
+        throwException(exec, scope, createRangeError(exec, "Range error"));
+        return false;
     }
     
-    thisObject->getConcreteArray()->setValueAt(exec, index, value);
+    return thisObject->getConcreteArray()->setValueAt(exec, index, value);
 }
 
 bool RuntimeArray::deleteProperty(JSCell*, ExecState*, PropertyName)

@@ -9,8 +9,7 @@
       height: 100px;
       width: 100px;
       background-color: blue;
-      animation-fill-mode: forwards;
-      animation: anim1 0 2s linear;
+      animation: anim1 0 2s linear forwards;
     }
     @keyframes anim1 {
         from { left: 400px; }
@@ -24,7 +23,7 @@
 
     const expectedValues = [
       // [animation-name, time, element-id, property, expected-value, tolerance]
-      ["anim1", 1, "box1", "left", 100, 2],
+      ["anim1", 3, "box1", "left", 100, 2],
     ];
 
     runAnimationTest(expectedValues);

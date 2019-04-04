@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef TypeofType_h
-#define TypeofType_h
+#pragma once
 
 #include <wtf/PrintStream.h>
 
@@ -32,6 +31,7 @@ namespace JSC {
 
 enum class TypeofType {
     Undefined,
+    BigInt,
     Boolean,
     Number,
     String,
@@ -47,6 +47,3 @@ namespace WTF {
 void printInternal(PrintStream& out, JSC::TypeofType);
 
 } // namespace WTF
-
-#endif // TypeofType_h
-

@@ -41,21 +41,22 @@ namespace WebCore {
 class ResourceError : public ResourceErrorBase
 {
 public:
-    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription)
-        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription)
+    ResourceError(Type type = Type::Null)
+        : ResourceErrorBase(type)
         , m_tlsErrors(0)
     {
     }
 
-    ResourceError()
-        : m_tlsErrors(0)
+    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type type = Type::General)
+        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, type)
+        , m_tlsErrors(0)
     {
     }
 
     static ResourceError httpError(SoupMessage*, GError*, SoupRequest*);
     static ResourceError transportError(SoupRequest*, int statusCode, const String& reasonPhrase);
     static ResourceError genericGError(GError*, SoupRequest*);
-    static ResourceError tlsError(SoupRequest*, unsigned tlsErrors, GTlsCertificate*);
+    static ResourceError tlsError(const URL&, unsigned tlsErrors, GTlsCertificate*);
     static ResourceError timeoutError(const URL& failingURL);
     static ResourceError authenticationError(SoupMessage*);
 
@@ -67,7 +68,8 @@ public:
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 
 private:
-    void platformCopy(ResourceError&) const;
+    friend class ResourceErrorBase;
+    void doPlatformIsolatedCopy(const ResourceError&);
 
     unsigned m_tlsErrors;
     GRefPtr<GTlsCertificate> m_certificate;

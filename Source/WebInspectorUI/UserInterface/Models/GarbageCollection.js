@@ -23,13 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.GarbageCollection = class GarbageCollection extends WebInspector.Object
+WI.GarbageCollection = class GarbageCollection
 {
     constructor(type, startTime, endTime)
     {
-        super();
-
-        console.assert(endTime > startTime);
+        console.assert(endTime >= startTime);
 
         this._type = type;
         this._startTime = startTime;
@@ -40,29 +38,36 @@ WebInspector.GarbageCollection = class GarbageCollection extends WebInspector.Ob
 
     static fromPayload(payload)
     {
-        let type = WebInspector.GarbageCollection.Type.Full;
+        let type = WI.GarbageCollection.Type.Full;
         if (payload.type === HeapAgent.GarbageCollectionType.Partial)
-            type = WebInspector.GarbageCollection.Type.Partial;
+            type = WI.GarbageCollection.Type.Partial;
 
-        return new WebInspector.GarbageCollection(type, payload.startTime, payload.endTime);
+        return new WI.GarbageCollection(type, payload.startTime, payload.endTime);
+    }
+
+    // Import / Export
+
+    static fromJSON(json)
+    {
+        let {type, startTime, endTime} = json;
+        return new WI.GarbageCollection(type, startTime, endTime);
+    }
+
+    toJSON()
+    {
+        return {
+            __type: "GarbageCollection",
+            type: this.type,
+            startTime: this.startTime,
+            endTime: this.endTime,
+        };
     }
 
     // Public
 
-    get type()
-    {
-        return this._type;
-    }
-
-    get startTime()
-    {
-        return this._startTime;
-    }
-
-    get endTime()
-    {
-        return this._endTime;
-    }
+    get type() { return this._type; }
+    get startTime() { return this._startTime; }
+    get endTime() { return this._endTime; }
 
     get duration()
     {
@@ -70,7 +75,7 @@ WebInspector.GarbageCollection = class GarbageCollection extends WebInspector.Ob
     }
 };
 
-WebInspector.GarbageCollection.Type = {
-    Partial: Symbol("Partial"),
-    Full: Symbol("Full")
+WI.GarbageCollection.Type = {
+    Partial: "partial",
+    Full: "full",
 };

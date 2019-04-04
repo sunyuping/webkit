@@ -23,31 +23,28 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DeviceMotionClientIOS_h
-#define DeviceMotionClientIOS_h
+#pragma once
+
+#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
 
 #include "DeviceMotionClient.h"
 #include "DeviceMotionController.h"
 #include "DeviceMotionData.h"
 #include <wtf/RefPtr.h>
 
-#ifdef __OBJC__
-@class WebCoreMotionManager;
-#else
-class WebCoreMotionManager;
-#endif
+OBJC_CLASS WebCoreMotionManager;
 
 namespace WebCore {
 
 class DeviceMotionClientIOS : public DeviceMotionClient {
 public:
     DeviceMotionClientIOS();
-    virtual ~DeviceMotionClientIOS() override;
-    virtual void setController(DeviceMotionController*) override;
-    virtual void startUpdating() override;
-    virtual void stopUpdating() override;
-    virtual DeviceMotionData* lastMotion() const override;
-    virtual void deviceMotionControllerDestroyed() override;
+    ~DeviceMotionClientIOS() override;
+    void setController(DeviceMotionController*) override;
+    void startUpdating() override;
+    void stopUpdating() override;
+    DeviceMotionData* lastMotion() const override;
+    void deviceMotionControllerDestroyed() override;
 
     void motionChanged(double, double, double, double, double, double, double, double, double);
 
@@ -60,4 +57,4 @@ private:
 
 } // namespace WebCore
 
-#endif // DeviceMotionClientIOS_h
+#endif // PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)

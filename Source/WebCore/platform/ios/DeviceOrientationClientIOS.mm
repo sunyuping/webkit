@@ -29,7 +29,7 @@
 
 #import "WebCoreMotionManager.h"
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
 
 namespace WebCore {
 
@@ -82,27 +82,20 @@ void DeviceOrientationClientIOS::orientationChanged(double alpha, double beta, d
     if (!m_updating)
         return;
 
-#if PLATFORM(IOS_SIMULATOR)
+#if PLATFORM(IOS_FAMILY_SIMULATOR)
     UNUSED_PARAM(alpha);
     UNUSED_PARAM(beta);
     UNUSED_PARAM(gamma);
     UNUSED_PARAM(compassHeading);
     UNUSED_PARAM(compassAccuracy);
-    m_currentDeviceOrientation = DeviceOrientationData::create(false, 0,
-                                                           false, 0,
-                                                           false, 0,
-                                                           false, 0,
-                                                           false, 0);
+    m_currentDeviceOrientation = DeviceOrientationData::create();
 #else
-    m_currentDeviceOrientation = DeviceOrientationData::create(true, alpha,
-                                                           true, beta,
-                                                           true, gamma,
-                                                           true, compassHeading,
-                                                           true, compassAccuracy);
+    m_currentDeviceOrientation = DeviceOrientationData::create(alpha, beta, gamma, compassHeading, compassAccuracy);
 #endif
+
     m_controller->didChangeDeviceOrientation(m_currentDeviceOrientation.get());
 }
 
 } // namespace WebCore
 
-#endif // PLATFORM(IOS)
+#endif // PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)

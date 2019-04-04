@@ -23,10 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef FrameWin_h
-#define FrameWin_h
+#pragma once
 
-#include <wtf/Vector.h>
+#include <wtf/Forward.h>
 #include <wtf/win/GDIObject.h>
 
 namespace WebCore {
@@ -39,5 +38,3 @@ GDIObject<HBITMAP> imageFromSelection(Frame*, bool forceBlackText);
 void computePageRectsForFrame(Frame*, const IntRect& printRect, float headerHeight, float footerHeight, float userScaleFactor, Vector<IntRect>& outPages, int& outPageHeight);
 
 } // namespace WebCore
-
-#endif // FrameWin_h

@@ -28,91 +28,61 @@
 
 #include "CachedPage.h"
 #include "Document.h"
-#include "IconDatabase.h"
 #include "KeyedCoding.h"
 #include "PageCache.h"
 #include "ResourceRequest.h"
 #include "SerializedScriptValue.h"
 #include "SharedBuffer.h"
 #include <stdio.h>
-#include <wtf/CurrentTime.h>
 #include <wtf/DateMath.h>
+#include <wtf/DebugUtilities.h>
+#include <wtf/WallTime.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
 
-static long long generateSequenceNumber()
+int64_t HistoryItem::generateSequenceNumber()
 {
     // Initialize to the current time to reduce the likelihood of generating
     // identifiers that overlap with those from past/future browser sessions.
-    static long long next = static_cast<long long>(currentTime() * 1000000.0);
+    static long long next = static_cast<long long>(WallTime::now().secondsSinceEpoch().microseconds());
     return ++next;
 }
 
-static void defaultNotifyHistoryItemChanged(HistoryItem*)
+static void defaultNotifyHistoryItemChanged(HistoryItem&)
 {
 }
 
-WEBCORE_EXPORT void (*notifyHistoryItemChanged)(HistoryItem*) = defaultNotifyHistoryItemChanged;
+void (*notifyHistoryItemChanged)(HistoryItem&) = defaultNotifyHistoryItemChanged;
 
 HistoryItem::HistoryItem()
-    : m_pageScaleFactor(0)
-    , m_lastVisitWasFailure(false)
-    , m_isTargetItem(false)
-    , m_itemSequenceNumber(generateSequenceNumber())
-    , m_documentSequenceNumber(generateSequenceNumber())
-    , m_pruningReason(PruningReason::None)
-#if PLATFORM(IOS)
-    , m_scale(0)
-    , m_scaleIsInitial(false)
-    , m_bookmarkID(0)
-#endif
+    : HistoryItem({ }, { })
 {
 }
 
 HistoryItem::HistoryItem(const String& urlString, const String& title)
-    : m_urlString(urlString)
-    , m_originalURLString(urlString)
-    , m_title(title)
-    , m_pageScaleFactor(0)
-    , m_lastVisitWasFailure(false)
-    , m_isTargetItem(false)
-    , m_itemSequenceNumber(generateSequenceNumber())
-    , m_documentSequenceNumber(generateSequenceNumber())
-    , m_pruningReason(PruningReason::None)
-#if PLATFORM(IOS)
-    , m_scale(0)
-    , m_scaleIsInitial(false)
-    , m_bookmarkID(0)
-#endif
-{    
-    iconDatabase().retainIconForPageURL(m_urlString);
+    : HistoryItem(urlString, title, { })
+{
 }
 
 HistoryItem::HistoryItem(const String& urlString, const String& title, const String& alternateTitle)
+    : HistoryItem(urlString, title, alternateTitle, { Process::identifier(), ObjectIdentifier<BackForwardItemIdentifier::ItemIdentifierType>::generate() })
+{
+}
+
+HistoryItem::HistoryItem(const String& urlString, const String& title, const String& alternateTitle, BackForwardItemIdentifier BackForwardItemIdentifier)
     : m_urlString(urlString)
     , m_originalURLString(urlString)
     , m_title(title)
     , m_displayTitle(alternateTitle)
-    , m_pageScaleFactor(0)
-    , m_lastVisitWasFailure(false)
-    , m_isTargetItem(false)
-    , m_itemSequenceNumber(generateSequenceNumber())
-    , m_documentSequenceNumber(generateSequenceNumber())
     , m_pruningReason(PruningReason::None)
-#if PLATFORM(IOS)
-    , m_scale(0)
-    , m_scaleIsInitial(false)
-    , m_bookmarkID(0)
-#endif
+    , m_identifier(BackForwardItemIdentifier)
 {
-    iconDatabase().retainIconForPageURL(m_urlString);
 }
 
 HistoryItem::~HistoryItem()
 {
     ASSERT(!m_cachedPage);
-    iconDatabase().releaseIconForPageURL(m_urlString);
 }
 
 inline HistoryItem::HistoryItem(const HistoryItem& item)
@@ -131,12 +101,12 @@ inline HistoryItem::HistoryItem(const HistoryItem& item)
     , m_documentSequenceNumber(item.m_documentSequenceNumber)
     , m_formContentType(item.m_formContentType)
     , m_pruningReason(PruningReason::None)
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
+    , m_obscuredInsets(item.m_obscuredInsets)
     , m_scale(item.m_scale)
     , m_scaleIsInitial(item.m_scaleIsInitial)
-    , m_bookmarkID(item.m_bookmarkID)
-    , m_sharedLinkUniqueIdentifier(item.m_sharedLinkUniqueIdentifier)
 #endif
+    , m_identifier(item.m_identifier)
 {
     if (item.m_formData)
         m_formData = item.m_formData->copy();
@@ -145,9 +115,6 @@ inline HistoryItem::HistoryItem(const HistoryItem& item)
     m_children.reserveInitialCapacity(size);
     for (unsigned i = 0; i < size; ++i)
         m_children.uncheckedAppend(item.m_children[i]->copy());
-
-    if (item.m_redirectURLs)
-        m_redirectURLs = std::make_unique<Vector<String>>(*item.m_redirectURLs);
 }
 
 Ref<HistoryItem> HistoryItem::copy() const
@@ -157,8 +124,6 @@ Ref<HistoryItem> HistoryItem::copy() const
 
 void HistoryItem::reset()
 {
-    iconDatabase().releaseIconForPageURL(m_urlString);
-
     m_urlString = String();
     m_originalURLString = String();
     m_referrer = String();
@@ -168,8 +133,6 @@ void HistoryItem::reset()
 
     m_lastVisitWasFailure = false;
     m_isTargetItem = false;
-
-    m_redirectURLs = nullptr;
 
     m_itemSequenceNumber = generateSequenceNumber();
 
@@ -211,12 +174,12 @@ bool HistoryItem::hasCachedPageExpired() const
 
 URL HistoryItem::url() const
 {
-    return URL(ParsedURLString, m_urlString);
+    return URL({ }, m_urlString);
 }
 
 URL HistoryItem::originalURL() const
 {
-    return URL(ParsedURLString, m_originalURLString);
+    return URL({ }, m_originalURLString);
 }
 
 const String& HistoryItem::referrer() const
@@ -232,18 +195,13 @@ const String& HistoryItem::target() const
 void HistoryItem::setAlternateTitle(const String& alternateTitle)
 {
     m_displayTitle = alternateTitle;
-    notifyHistoryItemChanged(this);
+    notifyChanged();
 }
 
 void HistoryItem::setURLString(const String& urlString)
 {
-    if (m_urlString != urlString) {
-        iconDatabase().releaseIconForPageURL(m_urlString);
-        m_urlString = urlString;
-        iconDatabase().retainIconForPageURL(m_urlString);
-    }
-    
-    notifyHistoryItemChanged(this);
+    m_urlString = urlString;
+    notifyChanged();
 }
 
 void HistoryItem::setURL(const URL& url)
@@ -256,25 +214,25 @@ void HistoryItem::setURL(const URL& url)
 void HistoryItem::setOriginalURLString(const String& urlString)
 {
     m_originalURLString = urlString;
-    notifyHistoryItemChanged(this);
+    notifyChanged();
 }
 
 void HistoryItem::setReferrer(const String& referrer)
 {
     m_referrer = referrer;
-    notifyHistoryItemChanged(this);
+    notifyChanged();
 }
 
 void HistoryItem::setTitle(const String& title)
 {
     m_title = title;
-    notifyHistoryItemChanged(this);
+    notifyChanged();
 }
 
 void HistoryItem::setTarget(const String& target)
 {
     m_target = target;
-    notifyHistoryItemChanged(this);
+    notifyChanged();
 }
 
 const IntPoint& HistoryItem::scrollPosition() const
@@ -290,6 +248,17 @@ void HistoryItem::setScrollPosition(const IntPoint& position)
 void HistoryItem::clearScrollPosition()
 {
     m_scrollPosition = IntPoint();
+}
+
+bool HistoryItem::shouldRestoreScrollPosition() const
+{
+    return m_shouldRestoreScrollPosition;
+}
+
+void HistoryItem::setShouldRestoreScrollPosition(bool shouldRestore)
+{
+    m_shouldRestoreScrollPosition = shouldRestore;
+    notifyChanged();
 }
 
 float HistoryItem::pageScaleFactor() const
@@ -340,6 +309,7 @@ void HistoryItem::setIsTargetItem(bool flag)
 void HistoryItem::setStateObject(RefPtr<SerializedScriptValue>&& object)
 {
     m_stateObject = WTFMove(object);
+    notifyChanged();
 }
 
 void HistoryItem::addChildItem(Ref<HistoryItem>&& child)
@@ -382,7 +352,7 @@ HistoryItem* HistoryItem::childItemWithDocumentSequenceNumber(long long number)
     return nullptr;
 }
 
-const HistoryItemVector& HistoryItem::children() const
+const Vector<Ref<HistoryItem>>& HistoryItem::children() const
 {
     return m_children;
 }
@@ -397,23 +367,12 @@ void HistoryItem::clearChildren()
     m_children.clear();
 }
 
-bool HistoryItem::isAncestorOf(const HistoryItem& item) const
-{
-    for (size_t i = 0; i < m_children.size(); ++i) {
-        auto& child = m_children[i].get();
-        if (&child == &item)
-            return true;
-        if (child.isAncestorOf(item))
-            return true;
-    }
-    return false;
-}
-
 // We do same-document navigation if going to a different item and if either of the following is true:
 // - The other item corresponds to the same document (for history entries created via pushState or fragment changes).
 // - The other item corresponds to the same set of documents, including frames (for history entries created via regular navigation)
 bool HistoryItem::shouldDoSameDocumentNavigationTo(HistoryItem& otherItem) const
 {
+    // The following logic must be kept in sync with WebKit::WebBackForwardListItem::itemIsInSameDocument().
     if (this == &otherItem)
         return false;
 
@@ -505,30 +464,9 @@ bool HistoryItem::isCurrentDocument(Document& document) const
     return equalIgnoringFragmentIdentifier(url(), document.url());
 }
 
-void HistoryItem::addRedirectURL(const String& url)
-{
-    if (!m_redirectURLs)
-        m_redirectURLs = std::make_unique<Vector<String>>();
-
-    // Our API allows us to store all the URLs in the redirect chain, but for
-    // now we only have a use for the final URL.
-    (*m_redirectURLs).resize(1);
-    (*m_redirectURLs)[0] = url;
-}
-
-Vector<String>* HistoryItem::redirectURLs() const
-{
-    return m_redirectURLs.get();
-}
-
-void HistoryItem::setRedirectURLs(std::unique_ptr<Vector<String>> redirectURLs)
-{
-    m_redirectURLs = WTFMove(redirectURLs);
-}
-
 void HistoryItem::notifyChanged()
 {
-    notifyHistoryItemChanged(this);
+    notifyHistoryItemChanged(*this);
 }
 
 #ifndef NDEBUG
@@ -554,7 +492,14 @@ int HistoryItem::showTreeWithIndent(unsigned indentLevel) const
 }
 
 #endif
-                
+
+#if !LOG_DISABLED
+const char* HistoryItem::logString() const
+{
+    return debugString("HistoryItem current URL ", urlString(), ", identifier ", m_identifier.logString());
+}
+#endif
+
 } // namespace WebCore
 
 #ifndef NDEBUG

@@ -27,23 +27,50 @@ function array_set_default(&$array, $key, $default) {
 
 $_config = NULL;
 
-define('CONFIG_DIR', dirname(__FILE__) . '/../../');
+define('CONFIG_DIR', realpath(dirname(__FILE__) . '/../../'));
 
 function config($key, $default = NULL) {
     global $_config;
-    if (!$_config)
-        $_config = json_decode(file_get_contents(CONFIG_DIR . 'config.json'), true);
+    if (!$_config) {
+        $file_path = getenv('ORG_WEBKIT_PERF_CONFIG_PATH');
+        if (!$file_path)
+            $file_path = CONFIG_DIR . '/config.json';
+        $_config = json_decode(file_get_contents($file_path), true);
+    }
     return array_get($_config, $key, $default);
 }
 
 function config_path($key, $path) {
-    return CONFIG_DIR . config($key) . '/' . $path;
+    return CONFIG_DIR . '/' . config($key) . '/' . $path;
 }
 
-function generate_data_file($filename, $content) {
-    if (!assert(ctype_alnum(str_replace(array('-', '_', '.'), '', $filename))))
+function same_till_last_occurrence_of_string($main_string, $comparing_string, $compare_to_last_position_string) {
+    if (!$compare_to_last_position_string)
+        return !strcmp($main_string, $comparing_string);
+
+    $position_in_main_string = strrpos($main_string, $compare_to_last_position_string);
+    $position_in_comparing_string = strrpos($comparing_string, $compare_to_last_position_string);
+    if ($position_in_main_string !== $position_in_comparing_string)
         return FALSE;
-    return file_put_contents(config_path('dataDirectory', $filename), $content, LOCK_EX);
+    if ($position_in_main_string === FALSE)
+        return !strcmp($main_string, $comparing_string);
+    return !substr_compare($main_string, $comparing_string, 0, $position_in_main_string);
+}
+
+function generate_json_data_with_elapsed_time_if_needed($filename, $object, $elapsed_time) {
+    if (!assert(ctype_alnum(str_replace(array('-', '_', '.'), '', $filename))))
+        return NULL;
+
+    $target_file_path = config_path('dataDirectory', $filename);
+    $object['elapsedTime'] = $elapsed_time;
+    $content = json_encode($object);
+
+    if (file_exists($target_file_path) && same_till_last_occurrence_of_string(file_get_contents($target_file_path), $content, 'elapsedTime'))
+        return $content;
+
+    $temp_file_path = tempnam(config_path('dataDirectory', ''), $filename . '-temp-');
+    file_put_contents($temp_file_path, $content, LOCK_EX);
+    return rename($temp_file_path, $target_file_path) ?  $content : NULL;
 }
 
 if (config('debug')) {
@@ -73,11 +100,18 @@ class Database
     }
 
     static function to_js_time($time_str) {
-        $timestamp_in_s = strtotime($time_str);
+        $timestamp_in_ms = strtotime($time_str) * 1000;
         $dot_index = strrpos($time_str, '.');
-        if ($dot_index !== FALSE)
-            $timestamp_in_s += floatval(substr($time_str, $dot_index));
-        return intval($timestamp_in_s * 1000);
+        if ($dot_index !== FALSE) {
+            // Keep 5 decimal digits as postgres timestamp may only have 5 decimal digits.
+            // Multiply by 1000 ahead to avoid losing precision. 1538041792.670479 will become 1538041792.6705 on php.
+            $timestamp_in_ms += round(floatval(substr($time_str, $dot_index)), 5) * 1000;
+        }
+        return intval($timestamp_in_ms);
+    }
+
+    static function escape_for_like($string) {
+        return str_replace(array('\\', '_', '%'), array('\\\\', '\\_', '\\%'), $string);
     }
 
     function connect() {
@@ -97,18 +131,38 @@ class Database
         return $prefix ? $prefix . '_' . $column : $column;
     }
 
-    private function prepare_params($params, &$placeholders, &$values) {
-        $column_names = array_keys($params);
+    private function prepare_params($params, &$placeholders, &$values, &$null_columns = NULL) {
+        $column_names = array();
 
         $i = count($values) + 1;
-        foreach ($column_names as $name) {
+        foreach (array_keys($params) as $name) {
+            $current_value = $params[$name];
+            if ($current_value === NULL && $null_columns !== NULL) {
+                array_push($null_columns, $name);
+                continue;
+            }
             assert(ctype_alnum_underscore($name));
+            array_push($column_names, $name);
             array_push($placeholders, '$' . $i);
-            array_push($values, $params[$name]);
+            if (is_bool($current_value))
+                $current_value = $this->to_database_boolean($current_value);
+            array_push($values, $current_value);
             $i++;
         }
 
         return $column_names;
+    }
+
+    private function select_conditions_with_null_columns($prefix, $column_names, $placeholders, $null_columns) {
+        $column_names = $this->prefixed_column_names($column_names, $prefix);
+        $placeholders = join(', ', $placeholders);
+
+        if (!$column_names && !$placeholders)
+            $column_names = $placeholders = '1';
+        $query = "($column_names) = ($placeholders)";
+        foreach ($null_columns as $column_name)
+            $query .= ' AND ' . $this->prefixed_name($column_name, $prefix) . ' IS NULL';
+        return $query;
     }
 
     function insert_row($table, $prefix, $params, $returning = 'id') {
@@ -146,7 +200,8 @@ class Database
         $values = array();
 
         $select_placeholders = array();
-        $select_column_names = $this->prepare_params($select_params, $select_placeholders, $values);
+        $select_null_columns = array();
+        $select_column_names = $this->prepare_params($select_params, $select_placeholders, $values, $select_null_columns);
         $select_values = array_slice($values, 0);
 
         if ($insert_params === NULL)
@@ -157,9 +212,9 @@ class Database
         assert(!!$returning);
         assert(!$prefix || ctype_alnum_underscore($prefix));
         $returning_column_name = $returning == '*' ? '*' : $this->prefixed_name($returning, $prefix);
-        $select_column_names = $this->prefixed_column_names($select_column_names, $prefix);
-        $select_placeholders = join(', ', $select_placeholders);
-        $query = "SELECT $returning_column_name FROM $table WHERE ($select_column_names) = ($select_placeholders)";
+
+        $condition = $this->select_conditions_with_null_columns($prefix, $select_column_names, $select_placeholders, $select_null_columns);
+        $query = "SELECT $returning_column_name FROM $table WHERE $condition";
 
         $insert_column_names = $this->prefixed_column_names($insert_column_names, $prefix);
         $insert_placeholders = join(', ', $insert_placeholders);
@@ -168,11 +223,11 @@ class Database
         $rows = NULL;
         if ($should_update) {
             $rows = $this->query_and_fetch_all("UPDATE $table SET ($insert_column_names) = ($insert_placeholders)
-                WHERE ($select_column_names) = ($select_placeholders) RETURNING $returning_column_name", $values);
+                WHERE $condition RETURNING $returning_column_name", $values);
         }
         if (!$rows && $should_insert) {
             $rows = $this->query_and_fetch_all("INSERT INTO $table ($insert_column_names) SELECT $insert_placeholders
-                WHERE NOT EXISTS ($query) RETURNING $returning_column_name", $values);            
+                WHERE NOT EXISTS ($query) RETURNING $returning_column_name", $values);
         }
         if (!$should_update && !$rows)
             $rows = $this->query_and_fetch_all($query, $select_values);
@@ -198,16 +253,23 @@ class Database
 
         $placeholders = array();
         $values = array();
-        $column_names = $this->prefixed_column_names($this->prepare_params($params, $placeholders, $values), $prefix);
-        $placeholders = join(', ', $placeholders);
-        if (!$column_names && !$placeholders)
-            $column_names = $placeholders = '1';
-        $query = "SELECT * FROM $table WHERE ($column_names) = ($placeholders)";
+        $null_columns = array();
+        $column_names = $this->prepare_params($params, $placeholders, $values, $null_columns);
+        $condition = $this->select_conditions_with_null_columns($prefix, $column_names, $placeholders, $null_columns);
+
+        $query = "SELECT * FROM $table WHERE $condition";
+
         if ($order_by) {
-            assert(ctype_alnum_underscore($order_by));
-            $query .= ' ORDER BY ' . $this->prefixed_name($order_by, $prefix);
-            if ($descending_order)
-                $query .= ' DESC';
+            if (!is_array($order_by))
+                $order_by = array($order_by);
+
+            $order_columns = array();
+            foreach ($order_by as $order_key) {
+                assert(ctype_alnum_underscore($order_key));
+                $order_column = $this->prefixed_name($order_key, $prefix) . ' ' . ($descending_order? 'DESC' : 'ASC');
+                array_push($order_columns, $order_column);
+            }
+            $query .= ' ORDER BY ' . join(', ', $order_columns);
         }
         if ($offset !== NULL)
             $query .= ' OFFSET ' . intval($offset);

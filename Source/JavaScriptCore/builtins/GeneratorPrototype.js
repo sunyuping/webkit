@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2015-2016 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,69 +26,69 @@
 
 // 25.3.3.3 GeneratorResume ( generator, value )
 // 25.3.3.4 GeneratorResumeAbrupt(generator, abruptCompletion)
-function generatorResume(generator, sentValue, resumeMode)
+@globalPrivate
+function generatorResume(generator, state, generatorThis, sentValue, value, resumeMode)
 {
     "use strict";
 
-    // GeneratorState.
-    const Completed = -1;
-    const Executing = -2;
-
-    // ResumeMode.
-    const NormalMode = 0;
-    const ReturnMode = 1;
-    const ThrowMode = 2;
-
-    let state = generator.@generatorState;
-    let done = false;
-    let value = @undefined;
-
-    if (typeof state !== 'number')
-        throw new @TypeError("|this| should be a generator");
-
-    if (state === Executing)
-        throw new @TypeError("Generator is executing");
-
-    if (state === Completed) {
-        if (resumeMode === ThrowMode)
-            throw sentValue;
-
-        done = true;
-        if (resumeMode === ReturnMode)
-            value = sentValue;
-    } else {
+    var done = state === @GeneratorStateCompleted;
+    if (!done) {
         try {
-            generator.@generatorState = Executing;
-            value = generator.@generatorNext.@call(generator.@generatorThis, generator, state, sentValue, resumeMode);
-            if (generator.@generatorState === Executing) {
-                generator.@generatorState = Completed;
+            @putByIdDirectPrivate(generator, "generatorState", @GeneratorStateExecuting);
+            value = @getByIdDirectPrivate(generator, "generatorNext").@call(generatorThis, generator, state, sentValue, resumeMode, @getByIdDirectPrivate(generator, "generatorFrame"));
+            if (@getByIdDirectPrivate(generator, "generatorState") === @GeneratorStateExecuting) {
+                @putByIdDirectPrivate(generator, "generatorState", @GeneratorStateCompleted);
                 done = true;
             }
         } catch (error) {
-            generator.@generatorState = Completed;
+            @putByIdDirectPrivate(generator, "generatorState", @GeneratorStateCompleted);
             throw error;
         }
     }
-    return { done, value };
+    return { value, done };
 }
 
 function next(value)
 {
     "use strict";
 
-    return @generatorResume(this, value, /* NormalMode */ 0);
+    var state = @getByIdDirectPrivate(this, "generatorState");
+    if (typeof state !== "number")
+        @throwTypeError("|this| should be a generator");
+
+    if (state === @GeneratorStateExecuting)
+        @throwTypeError("Generator is executing");
+
+    return @generatorResume(this, state, @getByIdDirectPrivate(this, "generatorThis"), value, @undefined, @GeneratorResumeModeNormal);
 }
 
 function return(value)
 {
     "use strict";
 
-    return @generatorResume(this, value, /* ReturnMode */ 1);
+    var state = @getByIdDirectPrivate(this, "generatorState");
+    if (typeof state !== "number")
+        @throwTypeError("|this| should be a generator");
+
+    if (state === @GeneratorStateExecuting)
+        @throwTypeError("Generator is executing");
+
+    return @generatorResume(this, state, @getByIdDirectPrivate(this, "generatorThis"), value, value, @GeneratorResumeModeReturn);
 }
 
 function throw(exception)
 {
     "use strict";
 
-    return @generatorResume(this, exception, /* ThrowMode */ 2);
+    var state = @getByIdDirectPrivate(this, "generatorState");
+    if (typeof state !== "number")
+        @throwTypeError("|this| should be a generator");
+
+    if (state === @GeneratorStateExecuting)
+        @throwTypeError("Generator is executing");
+
+    if (state === @GeneratorStateCompleted)
+        throw exception;
+
+    return @generatorResume(this, state, @getByIdDirectPrivate(this, "generatorThis"), exception, @undefined, @GeneratorResumeModeThrow);
 }

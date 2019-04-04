@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,58 +23,79 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CryptoKeyRSA_h
-#define CryptoKeyRSA_h
+#pragma once
 
 #include "CryptoKey.h"
-#include <functional>
+#include "ExceptionOr.h"
+#include <wtf/Function.h>
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
-#if OS(DARWIN) && !PLATFORM(EFL) && !PLATFORM(GTK)
-typedef struct _CCRSACryptor *CCRSACryptorRef;
+#if OS(DARWIN) && !PLATFORM(GTK)
+#include "CommonCryptoUtilities.h"
+
 typedef CCRSACryptorRef PlatformRSAKey;
+namespace WebCore {
+struct CCRSACryptorRefDeleter {
+    void operator()(CCRSACryptorRef key) const { CCRSACryptorRelease(key); }
+};
+}
+typedef std::unique_ptr<typename std::remove_pointer<CCRSACryptorRef>::type, WebCore::CCRSACryptorRefDeleter> PlatformRSAKeyContainer;
 #endif
 
-#if PLATFORM(GTK) || PLATFORM(EFL)
-typedef struct _PlatformRSAKeyGnuTLS PlatformRSAKeyGnuTLS;
-typedef PlatformRSAKeyGnuTLS *PlatformRSAKey;
+#if PLATFORM(GTK) || PLATFORM(WPE)
+#include <pal/crypto/gcrypt/Handle.h>
+
+typedef gcry_sexp_t PlatformRSAKey;
+typedef std::unique_ptr<typename std::remove_pointer<gcry_sexp_t>::type, PAL::GCrypt::HandleDeleter<gcry_sexp_t>> PlatformRSAKeyContainer;
 #endif
 
 namespace WebCore {
 
-class CryptoKeyDataRSAComponents;
-class CryptoKeyPair;
+class CryptoKeyRSAComponents;
 class PromiseWrapper;
+class ScriptExecutionContext;
+
+struct CryptoKeyPair;
+struct JsonWebKey;
 
 class CryptoKeyRSA final : public CryptoKey {
 public:
-    static Ref<CryptoKeyRSA> create(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmIdentifier hash, bool hasHash, CryptoKeyType type, PlatformRSAKey platformKey, bool extractable, CryptoKeyUsage usage)
+    static Ref<CryptoKeyRSA> create(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmIdentifier hash, bool hasHash, CryptoKeyType type, PlatformRSAKeyContainer&& platformKey, bool extractable, CryptoKeyUsageBitmap usage)
     {
-        return adoptRef(*new CryptoKeyRSA(identifier, hash, hasHash, type, platformKey, extractable, usage));
+        return adoptRef(*new CryptoKeyRSA(identifier, hash, hasHash, type, WTFMove(platformKey), extractable, usage));
     }
-    static RefPtr<CryptoKeyRSA> create(CryptoAlgorithmIdentifier, CryptoAlgorithmIdentifier hash, bool hasHash, const CryptoKeyDataRSAComponents&, bool extractable, CryptoKeyUsage);
-    virtual ~CryptoKeyRSA();
+    static RefPtr<CryptoKeyRSA> create(CryptoAlgorithmIdentifier, CryptoAlgorithmIdentifier hash, bool hasHash, const CryptoKeyRSAComponents&, bool extractable, CryptoKeyUsageBitmap);
+    virtual ~CryptoKeyRSA() = default;
 
     bool isRestrictedToHash(CryptoAlgorithmIdentifier&) const;
 
     size_t keySizeInBits() const;
 
-    typedef std::function<void(CryptoKeyPair&)> KeyPairCallback;
-    typedef std::function<void()> VoidCallback;
-    static void generatePair(CryptoAlgorithmIdentifier, CryptoAlgorithmIdentifier hash, bool hasHash, unsigned modulusLength, const Vector<uint8_t>& publicExponent, bool extractable, CryptoKeyUsage, KeyPairCallback, VoidCallback failureCallback);
+    using KeyPairCallback = WTF::Function<void(CryptoKeyPair&&)>;
+    using VoidCallback = WTF::Function<void()>;
+    static void generatePair(CryptoAlgorithmIdentifier, CryptoAlgorithmIdentifier hash, bool hasHash, unsigned modulusLength, const Vector<uint8_t>& publicExponent, bool extractable, CryptoKeyUsageBitmap, KeyPairCallback&&, VoidCallback&& failureCallback, ScriptExecutionContext*);
+    static RefPtr<CryptoKeyRSA> importJwk(CryptoAlgorithmIdentifier, Optional<CryptoAlgorithmIdentifier> hash, JsonWebKey&&, bool extractable, CryptoKeyUsageBitmap);
+    static RefPtr<CryptoKeyRSA> importSpki(CryptoAlgorithmIdentifier, Optional<CryptoAlgorithmIdentifier> hash, Vector<uint8_t>&&, bool extractable, CryptoKeyUsageBitmap);
+    static RefPtr<CryptoKeyRSA> importPkcs8(CryptoAlgorithmIdentifier, Optional<CryptoAlgorithmIdentifier> hash, Vector<uint8_t>&&, bool extractable, CryptoKeyUsageBitmap);
 
-    PlatformRSAKey platformKey() const { return m_platformKey; }
+    PlatformRSAKey platformKey() const { return m_platformKey.get(); }
+    JsonWebKey exportJwk() const;
+    ExceptionOr<Vector<uint8_t>> exportSpki() const;
+    ExceptionOr<Vector<uint8_t>> exportPkcs8() const;
+
+    std::unique_ptr<CryptoKeyRSAComponents> exportData() const;
+
+    CryptoAlgorithmIdentifier hashAlgorithmIdentifier() const { return m_hash; }
 
 private:
-    CryptoKeyRSA(CryptoAlgorithmIdentifier, CryptoAlgorithmIdentifier hash, bool hasHash, CryptoKeyType, PlatformRSAKey, bool extractable, CryptoKeyUsage);
+    CryptoKeyRSA(CryptoAlgorithmIdentifier, CryptoAlgorithmIdentifier hash, bool hasHash, CryptoKeyType, PlatformRSAKeyContainer&&, bool extractable, CryptoKeyUsageBitmap);
 
-    virtual CryptoKeyClass keyClass() const override { return CryptoKeyClass::RSA; }
+    CryptoKeyClass keyClass() const final { return CryptoKeyClass::RSA; }
 
-    virtual void buildAlgorithmDescription(CryptoAlgorithmDescriptionBuilder&) const override;
-    virtual std::unique_ptr<CryptoKeyData> exportData() const override;
+    KeyAlgorithm algorithm() const final;
 
-    PlatformRSAKey m_platformKey;
+    PlatformRSAKeyContainer m_platformKey;
 
     bool m_restrictedToSpecificHash;
     CryptoAlgorithmIdentifier m_hash;
@@ -84,5 +105,4 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_KEY(CryptoKeyRSA, CryptoKeyClass::RSA)
 
-#endif // ENABLE(SUBTLE_CRYPTO)
-#endif // CryptoKeyRSA_h
+#endif // ENABLE(WEB_CRYPTO)

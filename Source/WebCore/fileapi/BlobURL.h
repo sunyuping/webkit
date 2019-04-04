@@ -28,10 +28,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BlobURL_h
-#define BlobURL_h
+#pragma once
 
-#include "URL.h"
+#include <wtf/URL.h>
 
 namespace WebCore {
 
@@ -58,6 +57,4 @@ private:
     BlobURL() { }
 };
 
-}
-
-#endif // BlobURL_h
+} // namespace WebCore

@@ -28,11 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef FileReaderLoader_h
-#define FileReaderLoader_h
+#pragma once
 
+#include "BlobResourceHandle.h"
 #include "FileError.h"
-#include "URL.h"
+#include <wtf/URL.h>
 #include "TextEncoding.h"
 #include "ThreadableLoaderClient.h"
 #include <wtf/Forward.h>
@@ -64,34 +64,37 @@ public:
     FileReaderLoader(ReadType, FileReaderLoaderClient*);
     ~FileReaderLoader();
 
-    void start(ScriptExecutionContext*, Blob*);
+    void start(ScriptExecutionContext*, Blob&);
     void cancel();
 
     // ThreadableLoaderClient
-    virtual void didReceiveResponse(unsigned long, const ResourceResponse&);
-    virtual void didReceiveData(const char*, int);
-    virtual void didFinishLoading(unsigned long, double);
-    virtual void didFail(const ResourceError&);
+    void didReceiveResponse(unsigned long, const ResourceResponse&) override;
+    void didReceiveData(const char*, int) override;
+    void didFinishLoading(unsigned long) override;
+    void didFail(const ResourceError&) override;
 
     String stringResult();
     RefPtr<JSC::ArrayBuffer> arrayBufferResult() const;
     unsigned bytesLoaded() const { return m_bytesLoaded; }
     unsigned totalBytes() const { return m_totalBytes; }
-    int errorCode() const { return m_errorCode; }
+    FileError::ErrorCode errorCode() const { return m_errorCode; }
 
     void setEncoding(const String&);
     void setDataType(const String& dataType) { m_dataType = dataType; }
 
+    const URL& url() { return m_urlForReading; }
+
 private:
     void terminate();
     void cleanup();
-    void failed(int errorCode);
+    void failed(FileError::ErrorCode);
     void convertToText();
     void convertToDataURL();
 
     bool isCompleted() const;
 
     static FileError::ErrorCode httpStatusCodeToErrorCode(int);
+    static FileError::ErrorCode toErrorCode(BlobResourceHandle::Error);
 
     ReadType m_readType;
     FileReaderLoaderClient* m_client;
@@ -114,13 +117,7 @@ private:
     unsigned m_bytesLoaded;
     unsigned m_totalBytes;
 
-    bool m_hasRange;
-    unsigned m_rangeStart;
-    unsigned m_rangeEnd;
-
-    int m_errorCode;
+    FileError::ErrorCode m_errorCode { FileError::OK };
 };
 
 } // namespace WebCore
-
-#endif // FileReaderLoader_h

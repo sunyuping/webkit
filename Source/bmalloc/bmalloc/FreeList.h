@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,52 +23,70 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef FreeList_h
-#define FreeList_h
+#pragma once
 
-#include "LargeObject.h"
-#include "Vector.h"
+#include "BExport.h"
+#include <cstddef>
+#include <cstdint>
 
 namespace bmalloc {
 
-// Helper object for SegregatedFreeList.
+struct FreeCell {
+    static uintptr_t scramble(FreeCell* cell, uintptr_t secret)
+    {
+        return reinterpret_cast<uintptr_t>(cell) ^ secret;
+    }
+    
+    static FreeCell* descramble(uintptr_t cell, uintptr_t secret)
+    {
+        return reinterpret_cast<FreeCell*>(cell ^ secret);
+    }
+    
+    void setNext(FreeCell* next, uintptr_t secret)
+    {
+        scrambledNext = scramble(next, secret);
+    }
+    
+    FreeCell* next(uintptr_t secret) const
+    {
+        return descramble(scrambledNext, secret);
+    }
+    
+    uintptr_t scrambledNext;
+};
 
 class FreeList {
 public:
-    FreeList();
-
-    void push(Owner, const LargeObject&);
-
-    LargeObject take(Owner, size_t);
-    LargeObject take(Owner, size_t alignment, size_t, size_t unalignedSize);
+    BEXPORT FreeList();
+    BEXPORT ~FreeList();
     
-    LargeObject takeGreedy(Owner);
-
-    void removeInvalidAndDuplicateEntries(Owner);
+    BEXPORT void clear();
     
+    BEXPORT void initializeList(FreeCell* head, uintptr_t secret, unsigned bytes);
+    BEXPORT void initializeBump(char* payloadEnd, unsigned remaining);
+    
+    bool allocationWillFail() const { return !head() && !m_remaining; }
+    bool allocationWillSucceed() const { return !allocationWillFail(); }
+    
+    template<typename Config, typename Func>
+    void* allocate(const Func& slowPath);
+    
+    bool contains(void*) const;
+    
+    template<typename Config, typename Func>
+    void forEach(const Func&) const;
+    
+    unsigned originalSize() const { return m_originalSize; }
+
 private:
-    Vector<Range> m_vector;
-    size_t m_limit;
+    FreeCell* head() const { return FreeCell::descramble(m_scrambledHead, m_secret); }
+    
+    uintptr_t m_scrambledHead { 0 };
+    uintptr_t m_secret { 0 };
+    char* m_payloadEnd { nullptr };
+    unsigned m_remaining { 0 };
+    unsigned m_originalSize { 0 };
 };
-
-inline FreeList::FreeList()
-    : m_vector()
-    , m_limit(freeListSearchDepth)
-{
-}
-
-inline void FreeList::push(Owner owner, const LargeObject& largeObject)
-{
-    BASSERT(largeObject.isFree());
-    BASSERT(!largeObject.prevCanMerge());
-    BASSERT(!largeObject.nextCanMerge());
-    if (m_vector.size() == m_limit) {
-        removeInvalidAndDuplicateEntries(owner);
-        m_limit = std::max(m_vector.size() * freeListGrowFactor, freeListSearchDepth);
-    }
-    m_vector.push(largeObject.range());
-}
 
 } // namespace bmalloc
 
-#endif // FreeList_h

@@ -28,16 +28,20 @@
 
 #include "HTMLNames.h"
 #include "HTMLTableColElement.h"
+#include "RenderChildIterator.h"
 #include "RenderIterator.h"
 #include "RenderTable.h"
 #include "RenderTableCaption.h"
 #include "RenderTableCell.h"
+#include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-RenderTableCol::RenderTableCol(Element& element, Ref<RenderStyle>&& style)
+WTF_MAKE_ISO_ALLOCATED_IMPL(RenderTableCol);
+
+RenderTableCol::RenderTableCol(Element& element, RenderStyle&& style)
     : RenderBox(element, WTFMove(style), 0)
 {
     // init RenderObject attributes
@@ -78,7 +82,7 @@ void RenderTableCol::updateFromElement()
         HTMLTableColElement& tc = static_cast<HTMLTableColElement&>(element());
         m_span = tc.span();
     } else
-        m_span = !(hasInitializedStyle() && style().display() == TABLE_COLUMN_GROUP);
+        m_span = !(hasInitializedStyle() && style().display() == DisplayType::TableColumnGroup);
     if (m_span != oldSpan && hasInitializedStyle() && parent())
         setNeedsLayoutAndPrefWidthsRecalc();
 }
@@ -98,7 +102,7 @@ void RenderTableCol::willBeRemovedFromTree()
 bool RenderTableCol::isChildAllowed(const RenderObject& child, const RenderStyle& style) const
 {
     // We cannot use isTableColumn here as style() may return 0.
-    return style.display() == TABLE_COLUMN && child.isRenderTableCol();
+    return style.display() == DisplayType::TableColumn && child.isRenderTableCol();
 }
 
 bool RenderTableCol::canHaveChildren() const
@@ -131,8 +135,8 @@ void RenderTableCol::clearPreferredLogicalWidthsDirtyBits()
 {
     setPreferredLogicalWidthsDirty(false);
 
-    for (RenderObject* child = firstChild(); child; child = child->nextSibling())
-        child->setPreferredLogicalWidthsDirty(false);
+    for (auto& child : childrenOfType<RenderObject>(*this))
+        child.setPreferredLogicalWidthsDirty(false);
 }
 
 RenderTable* RenderTableCol::table() const
@@ -178,25 +182,25 @@ RenderTableCol* RenderTableCol::nextColumn() const
     return downcast<RenderTableCol>(next);
 }
 
-const BorderValue& RenderTableCol::borderAdjoiningCellStartBorder(const RenderTableCell*) const
+const BorderValue& RenderTableCol::borderAdjoiningCellStartBorder() const
 {
     return style().borderStart();
 }
 
-const BorderValue& RenderTableCol::borderAdjoiningCellEndBorder(const RenderTableCell*) const
+const BorderValue& RenderTableCol::borderAdjoiningCellEndBorder() const
 {
     return style().borderEnd();
 }
 
-const BorderValue& RenderTableCol::borderAdjoiningCellBefore(const RenderTableCell* cell) const
+const BorderValue& RenderTableCol::borderAdjoiningCellBefore(const RenderTableCell& cell) const
 {
-    ASSERT_UNUSED(cell, table()->colElement(cell->col() + cell->colSpan()) == this);
+    ASSERT_UNUSED(cell, table()->colElement(cell.col() + cell.colSpan()) == this);
     return style().borderStart();
 }
 
-const BorderValue& RenderTableCol::borderAdjoiningCellAfter(const RenderTableCell* cell) const
+const BorderValue& RenderTableCol::borderAdjoiningCellAfter(const RenderTableCell& cell) const
 {
-    ASSERT_UNUSED(cell, table()->colElement(cell->col() - 1) == this);
+    ASSERT_UNUSED(cell, table()->colElement(cell.col() - 1) == this);
     return style().borderEnd();
 }
 

@@ -25,9 +25,9 @@
  *
  */
 
-#ifndef DocumentEventQueue_h
-#define DocumentEventQueue_h
+#pragma once
 
+#include "Event.h"
 #include "EventQueue.h"
 #include <memory>
 #include <wtf/HashSet.h>
@@ -36,7 +36,6 @@
 namespace WebCore {
 
 class Document;
-class Event;
 class Node;
 
 class DocumentEventQueue final : public EventQueue {
@@ -44,11 +43,13 @@ public:
     explicit DocumentEventQueue(Document&);
     virtual ~DocumentEventQueue();
 
-    virtual bool enqueueEvent(Ref<Event>&&) override;
-    virtual bool cancelEvent(Event&) override;
-    virtual void close() override;
+    bool enqueueEvent(Ref<Event>&&) override;
+    bool cancelEvent(Event&) override;
+    void close() override;
 
     void enqueueOrDispatchScrollEvent(Node&);
+    void enqueueScrollEvent(EventTarget&, Event::CanBubble, Event::IsCancelable);
+    void enqueueResizeEvent(EventTarget&, Event::CanBubble, Event::IsCancelable);
 
 private:
     void pendingEventTimerFired();
@@ -59,10 +60,9 @@ private:
     Document& m_document;
     std::unique_ptr<Timer> m_pendingEventTimer;
     ListHashSet<RefPtr<Event>> m_queuedEvents;
-    HashSet<Node*> m_nodesWithQueuedScrollEvents;
+    HashSet<EventTarget*> m_targetsWithQueuedScrollEvents;
+    HashSet<EventTarget*> m_targetsWithQueuedResizeEvents;
     bool m_isClosed;
 };
 
-}
-
-#endif // DocumentEventQueue_h
+} // namespace WebCore

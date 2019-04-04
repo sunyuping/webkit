@@ -33,7 +33,7 @@
 
 namespace TestWebKitAPI {
 
-TEST(WebKit1, DOMNodeFromJSObject)
+TEST(WebKitLegacy, DOMNodeFromJSObject)
 {
     WebView *webView = [[WebView alloc] initWithFrame:NSZeroRect frameName:nil groupName:nil];
 
@@ -42,7 +42,7 @@ TEST(WebKit1, DOMNodeFromJSObject)
     WebScriptWorld *isolatedWorld = [WebScriptWorld world];
     JSGlobalContextRef context = [[webView mainFrame] _globalContextForScriptWorld:isolatedWorld];
 
-    JSRetainPtr<JSStringRef> script(Adopt, JSStringCreateWithUTF8CString("document.body"));
+    auto script = adopt(JSStringCreateWithUTF8CString("document.body"));
 
     JSValueRef value = JSEvaluateScript(context, script.get(), 0, 0, 0, 0);
     JSObjectRef jsBody = JSValueToObject(context, value, 0);

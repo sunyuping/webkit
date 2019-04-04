@@ -39,6 +39,7 @@ import logging
 import random
 import sys
 import time
+from collections import defaultdict, OrderedDict
 
 from webkitpy.common.checkout.scm.detection import SCMDetector
 from webkitpy.common.net.file_uploader import FileUploader
@@ -54,11 +55,12 @@ from webkitpy.layout_tests.models import test_run_results
 from webkitpy.layout_tests.models.test_input import TestInput
 from webkitpy.layout_tests.models.test_run_results import INTERRUPTED_EXIT_STATUS
 from webkitpy.tool.grammar import pluralize
+from webkitpy.results.upload import Upload
+from webkitpy.xcode.device_type import DeviceType
 
 _log = logging.getLogger(__name__)
 
 TestExpectations = test_expectations.TestExpectations
-
 
 
 class Manager(object):
@@ -77,38 +79,36 @@ class Manager(object):
         self._filesystem = port.host.filesystem
         self._options = options
         self._printer = printer
-        self._expectations = None
-
-        self.HTTP_SUBDIR = 'http' + port.TEST_PATH_SEPARATOR
+        self._expectations = OrderedDict()
+        self.HTTP_SUBDIR = 'http' + port.TEST_PATH_SEPARATOR + 'test'
         self.WEBSOCKET_SUBDIR = 'websocket' + port.TEST_PATH_SEPARATOR
         self.web_platform_test_subdir = self._port.web_platform_test_server_doc_root()
+        self.webkit_specific_web_platform_test_subdir = 'http' + port.TEST_PATH_SEPARATOR + 'wpt' + port.TEST_PATH_SEPARATOR
         self.LAYOUT_TESTS_DIRECTORY = 'LayoutTests'
-
-        # disable wss server. need to install pyOpenSSL on buildbots.
-        # self._websocket_secure_server = websocket_server.PyWebSocket(
-        #        options.results_directory, use_tls=True, port=9323)
-
         self._results_directory = self._port.results_directory()
         self._finder = LayoutTestFinder(self._port, self._options)
-        self._runner = LayoutTestRunner(self._options, self._port, self._printer, self._results_directory, self._test_is_slow)
+        self._runner = None
 
-    def _collect_tests(self, args):
-        return self._finder.find_tests(self._options, args)
+        test_options_json_path = self._port.path_from_webkit_base(self.LAYOUT_TESTS_DIRECTORY, "tests-options.json")
+        self._tests_options = json.loads(self._filesystem.read_text_file(test_options_json_path)) if self._filesystem.exists(test_options_json_path) else {}
+
+    def _collect_tests(self, args, device_type=None):
+        return self._finder.find_tests(self._options, args, device_type=device_type)
 
     def _is_http_test(self, test):
-        return self.HTTP_SUBDIR in test or self._is_websocket_test(test) or self._is_web_platform_test(test)
+        return self.HTTP_SUBDIR in test or self._is_websocket_test(test) or self._needs_web_platform_test(test)
 
     def _is_websocket_test(self, test):
         return self.WEBSOCKET_SUBDIR in test
 
-    def _is_web_platform_test(self, test):
-        return self.web_platform_test_subdir in test
+    def _needs_web_platform_test(self, test):
+        return self.web_platform_test_subdir in test or self.webkit_specific_web_platform_test_subdir in test
 
     def _http_tests(self, test_names):
         return set(test for test in test_names if self._is_http_test(test))
 
-    def _prepare_lists(self, paths, test_names):
-        tests_to_skip = self._finder.skip_tests(paths, test_names, self._expectations, self._http_tests(test_names))
+    def _prepare_lists(self, paths, test_names, device_type=None):
+        tests_to_skip = self._finder.skip_tests(paths, test_names, self._expectations[device_type], self._http_tests(test_names))
         tests_to_run = [test for test in test_names if test not in tests_to_skip]
 
         # Create a sorted list of test files so the subset chunk,
@@ -119,56 +119,111 @@ class Manager(object):
             random.shuffle(tests_to_run)
 
         tests_to_run, tests_in_other_chunks = self._finder.split_into_chunks(tests_to_run)
-        self._expectations.add_skipped_tests(tests_in_other_chunks)
+        self._expectations[device_type].add_skipped_tests(tests_in_other_chunks)
         tests_to_skip.update(tests_in_other_chunks)
 
         return tests_to_run, tests_to_skip
 
-    def _test_input_for_file(self, test_file):
+    def _test_input_for_file(self, test_file, device_type=None):
         return TestInput(test_file,
-            self._options.slow_time_out_ms if self._test_is_slow(test_file) else self._options.time_out_ms,
-            self._is_http_test(test_file))
+            self._options.slow_time_out_ms if self._test_is_slow(test_file, device_type=device_type) else self._options.time_out_ms,
+            self._is_http_test(test_file),
+            should_dump_jsconsolelog_in_stderr=self._test_should_dump_jsconsolelog_in_stderr(test_file, device_type=device_type))
 
-    def _test_is_slow(self, test_file):
-        return self._expectations.model().has_modifier(test_file, test_expectations.SLOW)
+    def _test_is_slow(self, test_file, device_type=None):
+        if self._expectations[device_type].model().has_modifier(test_file, test_expectations.SLOW):
+            return True
+        return "slow" in self._tests_options.get(test_file, [])
+
+    def _test_should_dump_jsconsolelog_in_stderr(self, test_file, device_type=None):
+        return self._expectations[device_type].model().has_modifier(test_file, test_expectations.DUMPJSCONSOLELOGINSTDERR)
 
     def needs_servers(self, test_names):
         return any(self._is_http_test(test_name) for test_name in test_names) and self._options.http
 
-    def _get_test_inputs(self, tests_to_run, repeat_each, iterations):
+    def _get_test_inputs(self, tests_to_run, repeat_each, iterations, device_type=None):
         test_inputs = []
         for _ in xrange(iterations):
             for test in tests_to_run:
                 for _ in xrange(repeat_each):
-                    test_inputs.append(self._test_input_for_file(test))
+                    test_inputs.append(self._test_input_for_file(test, device_type=device_type))
         return test_inputs
 
-    def _update_worker_count(self, test_names):
-        test_inputs = self._get_test_inputs(test_names, self._options.repeat_each, self._options.iterations)
+    def _update_worker_count(self, test_names, device_type=None):
+        test_inputs = self._get_test_inputs(test_names, self._options.repeat_each, self._options.iterations, device_type=device_type)
         worker_count = self._runner.get_worker_count(test_inputs, int(self._options.child_processes))
         self._options.child_processes = worker_count
 
-    def _set_up_run(self, test_names):
-        self._printer.write_update("Checking build ...")
-        if not self._port.check_build(self.needs_servers(test_names)):
-            _log.error("Build check failed")
-            return False
-
+    def _set_up_run(self, test_names, device_type=None):
         # This must be started before we check the system dependencies,
         # since the helper may do things to make the setup correct.
         self._printer.write_update("Starting helper ...")
         if not self._port.start_helper(self._options.pixel_tests):
             return False
 
-        self._update_worker_count(test_names)
+        self._update_worker_count(test_names, device_type=device_type)
         self._port.reset_preferences()
 
         # Check that the system dependencies (themes, fonts, ...) are correct.
         if not self._options.nocheck_sys_deps:
             self._printer.write_update("Checking system dependencies ...")
-            if not self._port.check_sys_deps(self.needs_servers(test_names)):
+            if not self._port.check_sys_deps():
                 self._port.stop_helper()
                 return False
+
+        self._port.setup_test_run(device_type)
+        return True
+
+    def run(self, args):
+        num_failed_uploads = 0
+        total_tests = set()
+        aggregate_test_names = set()
+        aggregate_tests = set()
+        tests_to_run_by_device = {}
+
+        device_type_list = self._port.supported_device_types()
+        for device_type in device_type_list:
+            """Run the tests and return a RunDetails object with the results."""
+            for_device_type = 'for {} '.format(device_type) if device_type else ''
+            self._printer.write_update('Collecting tests {}...'.format(for_device_type))
+            try:
+                paths, test_names = self._collect_tests(args, device_type=device_type)
+            except IOError:
+                # This is raised if --test-list doesn't exist
+                return test_run_results.RunDetails(exit_code=-1)
+
+            self._printer.write_update('Parsing expectations {}...'.format(for_device_type))
+            self._expectations[device_type] = test_expectations.TestExpectations(self._port, test_names, force_expectations_pass=self._options.force, device_type=device_type)
+            self._expectations[device_type].parse_all_expectations()
+
+            aggregate_test_names.update(test_names)
+            tests_to_run, tests_to_skip = self._prepare_lists(paths, test_names, device_type=device_type)
+
+            total_tests.update(tests_to_run)
+            total_tests.update(tests_to_skip)
+
+            tests_to_run_by_device[device_type] = [test for test in tests_to_run if test not in aggregate_tests]
+            aggregate_tests.update(tests_to_run)
+
+        tests_to_skip = total_tests - aggregate_tests
+        self._printer.print_found(len(aggregate_test_names), len(aggregate_tests), self._options.repeat_each, self._options.iterations)
+        start_time = time.time()
+
+        # Check to make sure we're not skipping every test.
+        if not sum([len(tests) for tests in tests_to_run_by_device.itervalues()]):
+            _log.critical('No tests to run.')
+            return test_run_results.RunDetails(exit_code=-1)
+
+        needs_http = any((self._is_http_test(test) and not self._needs_web_platform_test(test)) for tests in tests_to_run_by_device.itervalues() for test in tests)
+        needs_web_platform_test_server = any(self._needs_web_platform_test(test) for tests in tests_to_run_by_device.itervalues() for test in tests)
+        needs_websockets = any(self._is_websocket_test(test) for tests in tests_to_run_by_device.itervalues() for test in tests)
+        self._runner = LayoutTestRunner(self._options, self._port, self._printer, self._results_directory, self._test_is_slow,
+                                        needs_http=needs_http, needs_web_platform_test_server=needs_web_platform_test_server, needs_websockets=needs_websockets)
+
+        self._printer.write_update("Checking build ...")
+        if not self._port.check_build():
+            _log.error("Build check failed")
+            return test_run_results.RunDetails(exit_code=-1)
 
         if self._options.clobber_old_results:
             self._clobber_old_results()
@@ -176,38 +231,80 @@ class Manager(object):
         # Create the output directory if it doesn't already exist.
         self._port.host.filesystem.maybe_make_directory(self._results_directory)
 
-        self._port.setup_test_run()
-        return True
+        initial_results = None
+        retry_results = None
+        enabled_pixel_tests_in_retry = False
 
-    def run(self, args):
-        """Run the tests and return a RunDetails object with the results."""
-        self._printer.write_update("Collecting tests ...")
-        try:
-            paths, test_names = self._collect_tests(args)
-        except IOError:
-            # This is raised if --test-list doesn't exist
-            return test_run_results.RunDetails(exit_code=-1)
+        max_child_processes_for_run = 1
+        child_processes_option_value = self._options.child_processes
 
-        self._printer.write_update("Parsing expectations ...")
-        self._expectations = test_expectations.TestExpectations(self._port, test_names, force_expectations_pass=self._options.force)
-        self._expectations.parse_all_expectations()
+        for device_type in device_type_list:
+            self._runner._test_is_slow = lambda test_file: self._test_is_slow(test_file, device_type=device_type)
+            self._options.child_processes = min(self._port.max_child_processes(device_type=device_type), int(child_processes_option_value or self._port.default_child_processes(device_type=device_type)))
 
-        tests_to_run, tests_to_skip = self._prepare_lists(paths, test_names)
-        self._printer.print_found(len(test_names), len(tests_to_run), self._options.repeat_each, self._options.iterations)
-        start_time = time.time()
+            _log.info('')
+            if not self._options.child_processes:
+                _log.info('Skipping {} because {} is not available'.format(pluralize(len(tests_to_run_by_device[device_type]), 'test'), str(device_type)))
+                _log.info('')
+                continue
 
-        # Check to make sure we're not skipping every test.
-        if not tests_to_run:
-            _log.critical('No tests to run.')
-            return test_run_results.RunDetails(exit_code=-1)
+            max_child_processes_for_run = max(self._options.child_processes, max_child_processes_for_run)
 
-        try:
-            if not self._set_up_run(tests_to_run):
+            self._printer.print_baseline_search_path(device_type=device_type)
+
+            _log.info('Running {}{}'.format(pluralize(len(tests_to_run_by_device[device_type]), 'test'), ' for {}'.format(str(device_type)) if device_type else ''))
+            _log.info('')
+            start_time_for_device = time.time()
+            if not tests_to_run_by_device[device_type]:
+                continue
+            if not self._set_up_run(tests_to_run_by_device[device_type], device_type=device_type):
                 return test_run_results.RunDetails(exit_code=-1)
 
+            configuration = self._port.configuration_for_upload(self._port.target_host(0))
+            configuration['flavor'] = 'wk2' if self._options.webkit_test_runner else 'wk1'
+            temp_initial_results, temp_retry_results, temp_enabled_pixel_tests_in_retry = self._run_test_subset(tests_to_run_by_device[device_type], tests_to_skip, device_type=device_type)
+
+            if self._options.report_urls:
+                self._printer.writeln('\n')
+                self._printer.write_update('Preparing upload data ...')
+
+                upload = Upload(
+                    suite='layout-tests',
+                    configuration=configuration,
+                    details=Upload.create_details(options=self._options),
+                    commits=self._port.commits_for_upload(),
+                    run_stats=Upload.create_run_stats(
+                        start_time=start_time_for_device,
+                        end_time=time.time(),
+                        tests_skipped=temp_initial_results.remaining + temp_initial_results.expected_skips,
+                    ),
+                    results=self._results_to_upload_json_trie(self._expectations[device_type], temp_initial_results),
+                )
+                for url in self._options.report_urls:
+                    self._printer.write_update('Uploading to {} ...'.format(url))
+                    if not upload.upload(url, log_line_func=self._printer.writeln):
+                        num_failed_uploads += 1
+                self._printer.writeln('Uploads completed!')
+
+            initial_results = initial_results.merge(temp_initial_results) if initial_results else temp_initial_results
+            retry_results = retry_results.merge(temp_retry_results) if retry_results else temp_retry_results
+            enabled_pixel_tests_in_retry |= temp_enabled_pixel_tests_in_retry
+
+        # Used for final logging, max_child_processes_for_run is most relevant here.
+        self._options.child_processes = max_child_processes_for_run
+
+        self._runner.stop_servers()
+
+        end_time = time.time()
+        result = self._end_test_run(start_time, end_time, initial_results, retry_results, enabled_pixel_tests_in_retry)
+        if num_failed_uploads:
+            result.exit_code = -1
+        return result
+
+    def _run_test_subset(self, tests_to_run, tests_to_skip, device_type=None):
+        try:
             enabled_pixel_tests_in_retry = False
-            initial_results = self._run_tests(tests_to_run, tests_to_skip, self._options.repeat_each, self._options.iterations,
-                int(self._options.child_processes), retrying=False)
+            initial_results = self._run_tests(tests_to_run, tests_to_skip, self._options.repeat_each, self._options.iterations, int(self._options.child_processes), retrying=False, device_type=device_type)
 
             tests_to_retry = self._tests_to_retry(initial_results, include_crashes=self._port.should_retry_crashes())
             # Don't retry failures when interrupted by user or failures limit exception.
@@ -218,8 +315,7 @@ class Manager(object):
                 _log.info('')
                 _log.info("Retrying %s ..." % pluralize(len(tests_to_retry), "unexpected failure"))
                 _log.info('')
-                retry_results = self._run_tests(tests_to_retry, tests_to_skip=set(), repeat_each=1, iterations=1,
-                    num_workers=1, retrying=True)
+                retry_results = self._run_tests(tests_to_retry, tests_to_skip=set(), repeat_each=1, iterations=1, num_workers=1, retrying=True, device_type=device_type)
 
                 if enabled_pixel_tests_in_retry:
                     self._options.pixel_tests = False
@@ -228,7 +324,12 @@ class Manager(object):
         finally:
             self._clean_up_run()
 
-        end_time = time.time()
+        return (initial_results, retry_results, enabled_pixel_tests_in_retry)
+
+    def _end_test_run(self, start_time, end_time, initial_results, retry_results, enabled_pixel_tests_in_retry):
+        if initial_results is None:
+            _log.error('No results generated')
+            return test_run_results.RunDetails(exit_code=-1)
 
         # Some crash logs can take a long time to be written out so look
         # for new logs after the test run finishes.
@@ -247,6 +348,7 @@ class Manager(object):
         exit_code = -1
         if not self._options.dry_run:
             self._port.print_leaks_summary()
+            self._output_perf_metrics(end_time - start_time, initial_results)
             self._upload_json_files(summarized_results, initial_results, results_including_passes, start_time, end_time)
 
             results_path = self._filesystem.join(self._results_directory, "results.html")
@@ -260,13 +362,10 @@ class Manager(object):
                 exit_code = self._port.exit_code_from_summarized_results(summarized_results)
         return test_run_results.RunDetails(exit_code, summarized_results, initial_results, retry_results, enabled_pixel_tests_in_retry)
 
-    def _run_tests(self, tests_to_run, tests_to_skip, repeat_each, iterations, num_workers, retrying):
-        needs_http = any((self._is_http_test(test) and not self._is_web_platform_test(test)) for test in tests_to_run)
-        needs_web_platform_test_server = any(self._is_web_platform_test(test) for test in tests_to_run)
-        needs_websockets = any(self._is_websocket_test(test) for test in tests_to_run)
+    def _run_tests(self, tests_to_run, tests_to_skip, repeat_each, iterations, num_workers, retrying, device_type=None):
+        test_inputs = self._get_test_inputs(tests_to_run, repeat_each, iterations, device_type=device_type)
 
-        test_inputs = self._get_test_inputs(tests_to_run, repeat_each, iterations)
-        return self._runner.run_tests(self._expectations, test_inputs, tests_to_skip, num_workers, needs_http, needs_websockets, needs_web_platform_test_server, retrying)
+        return self._runner.run_tests(self._expectations[device_type], test_inputs, tests_to_skip, num_workers, retrying)
 
     def _clean_up_run(self):
         _log.debug("Flushing stdout")
@@ -342,6 +441,47 @@ class Manager(object):
                     (result.type != test_expectations.MISSING) and
                     (result.type != test_expectations.CRASH or include_crashes))]
 
+    def _output_perf_metrics(self, run_time, initial_results):
+        perf_metrics_json = json_results_generator.perf_metrics_for_test(run_time, initial_results.results_by_name.values())
+        perf_metrics_path = self._filesystem.join(self._results_directory, "layout_test_perf_metrics.json")
+        self._filesystem.write_text_file(perf_metrics_path, json.dumps(perf_metrics_json))
+
+    def _results_to_upload_json_trie(self, expectations, results):
+        FAILURE_TO_TEXT = {
+            test_expectations.PASS: Upload.Expectations.PASS,
+            test_expectations.CRASH: Upload.Expectations.CRASH,
+            test_expectations.TIMEOUT: Upload.Expectations.TIMEOUT,
+            test_expectations.IMAGE: Upload.Expectations.IMAGE,
+            test_expectations.TEXT: Upload.Expectations.TEXT,
+            test_expectations.AUDIO: Upload.Expectations.AUDIO,
+            test_expectations.MISSING: Upload.Expectations.WARNING,
+            test_expectations.IMAGE_PLUS_TEXT: ' '.join([Upload.Expectations.IMAGE, Upload.Expectations.TEXT]),
+        }
+
+        results_trie = {}
+        for result in results.results_by_name.itervalues():
+            if result.type == test_expectations.SKIP:
+                continue
+
+            expected = expectations.filtered_expectations_for_test(
+                result.test_name,
+                self._options.pixel_tests or bool(result.reftest_type),
+                self._options.world_leaks,
+            )
+            if expected == {test_expectations.PASS}:
+                expected = None
+            else:
+                expected = ' '.join([FAILURE_TO_TEXT.get(e, Upload.Expectations.FAIL) for e in expected])
+
+            json_results_generator.add_path_to_trie(
+                result.test_name,
+                Upload.create_test_result(
+                    expected=expected,
+                    actual=FAILURE_TO_TEXT.get(result.type, Upload.Expectations.FAIL) if result.type else None,
+                    time=int(result.test_run_time * 1000),
+                ), results_trie)
+        return results_trie
+
     def _upload_json_files(self, summarized_results, initial_results, results_including_passes=None, start_time=None, end_time=None):
         """Writes the results of the test run as JSON files into the results
         dir and upload the files to the appengine server.
@@ -399,8 +539,7 @@ class Manager(object):
             self._filesystem.remove(results_json_path)
 
     def upload_results(self, results_json_path, start_time, end_time):
-        hostname = self._options.results_server_host
-        if not hostname:
+        if not self._options.results_server_host:
             return
         master_name = self._options.master_name
         builder_name = self._options.builder_name
@@ -414,47 +553,48 @@ class Manager(object):
         # FIXME: This code is duplicated in PerfTestRunner._generate_results_dict
         for (name, path) in self._port.repository_paths():
             scm = SCMDetector(self._port.host.filesystem, self._port.host.executive).detect_scm_system(path) or self._port.host.scm()
-            revision = scm.svn_revision(path)
-            revisions[name] = {'revision': revision, 'timestamp': scm.timestamp_of_revision(path, revision)}
+            revision = scm.native_revision(path)
+            revisions[name] = {'revision': revision, 'timestamp': scm.timestamp_of_native_revision(path, revision)}
 
-        _log.info("Uploading JSON files for master: %s builder: %s build: %s slave: %s to %s", master_name, builder_name, build_number, build_slave, hostname)
+        for hostname in self._options.results_server_host:
+            _log.info("Uploading JSON files for master: %s builder: %s build: %s slave: %s to %s", master_name, builder_name, build_number, build_slave, hostname)
 
-        attrs = [
-            ('master', 'build.webkit.org' if master_name == 'webkit.org' else master_name),  # FIXME: Pass in build.webkit.org.
-            ('builder_name', builder_name),
-            ('build_number', build_number),
-            ('build_slave', build_slave),
-            ('revisions', json.dumps(revisions)),
-            ('start_time', str(start_time)),
-            ('end_time', str(end_time)),
-        ]
+            attrs = [
+                ('master', 'build.webkit.org' if master_name == 'webkit.org' else master_name),  # FIXME: Pass in build.webkit.org.
+                ('builder_name', builder_name),
+                ('build_number', build_number),
+                ('build_slave', build_slave),
+                ('revisions', json.dumps(revisions)),
+                ('start_time', str(start_time)),
+                ('end_time', str(end_time)),
+            ]
 
-        uploader = FileUploader("http://%s/api/report" % hostname, 360)
-        try:
-            response = uploader.upload_as_multipart_form_data(self._filesystem, [('results.json', results_json_path)], attrs)
-            if not response:
-                _log.error("JSON upload failed; no response returned")
-                return
-
-            if response.code != 200:
-                _log.error("JSON upload failed, %d: '%s'" % (response.code, response.read()))
-                return
-
-            response_text = response.read()
+            uploader = FileUploader("http://%s/api/report" % hostname, 360)
             try:
-                response_json = json.loads(response_text)
-            except ValueError, error:
-                _log.error("JSON upload failed; failed to parse the response: %s", response_text)
-                return
+                response = uploader.upload_as_multipart_form_data(self._filesystem, [('results.json', results_json_path)], attrs)
+                if not response:
+                    _log.error("JSON upload failed; no response returned")
+                    continue
 
-            if response_json['status'] != 'OK':
-                _log.error("JSON upload failed, %s: %s", response_json['status'], response_text)
-                return
+                if response.code != 200:
+                    _log.error("JSON upload failed, %d: '%s'" % (response.code, response.read()))
+                    continue
 
-            _log.info("JSON uploaded.")
-        except Exception, error:
-            _log.error("Upload failed: %s" % error)
-            return
+                response_text = response.read()
+                try:
+                    response_json = json.loads(response_text)
+                except ValueError as error:
+                    _log.error("JSON upload failed; failed to parse the response: %s", response_text)
+                    continue
+
+                if response_json['status'] != 'OK':
+                    _log.error("JSON upload failed, %s: %s", response_json['status'], response_text)
+                    continue
+
+                _log.info("JSON uploaded.")
+            except Exception as error:
+                _log.error("Upload failed: %s" % error)
+                continue
 
     def _copy_results_html_file(self, destination_path):
         base_dir = self._port.path_from_webkit_base('LayoutTests', 'fast', 'harness')
@@ -476,3 +616,60 @@ class Manager(object):
         for name, value in stats.iteritems():
             json_results_generator.add_path_to_trie(name, value, stats_trie)
         return stats_trie
+
+    def _print_expectation_line_for_test(self, format_string, test, device_type=None):
+        line = self._expectations[device_type].model().get_expectation_line(test)
+        print(format_string.format(test, line.expected_behavior, self._expectations[device_type].readable_filename_and_line_number(line), line.original_string or ''))
+
+    def _print_expectations_for_subset(self, device_type, test_col_width, tests_to_run, tests_to_skip={}):
+        format_string = '{{:{width}}} {{}} {{}} {{}}'.format(width=test_col_width)
+        if tests_to_skip:
+            print('')
+            print('Tests to skip ({})'.format(len(tests_to_skip)))
+            for test in sorted(tests_to_skip):
+                self._print_expectation_line_for_test(format_string, test, device_type=device_type)
+
+        print('')
+        print('Tests to run{} ({})'.format(' for ' + str(device_type) if device_type else '', len(tests_to_run)))
+        for test in sorted(tests_to_run):
+            self._print_expectation_line_for_test(format_string, test, device_type=device_type)
+
+    def print_expectations(self, args):
+        aggregate_test_names = set()
+        aggregate_tests_to_run = set()
+        aggregate_tests_to_skip = set()
+        tests_to_run_by_device = {}
+
+        device_type_list = self._port.DEFAULT_DEVICE_TYPES or [self._port.DEVICE_TYPE]
+        for device_type in device_type_list:
+            """Run the tests and return a RunDetails object with the results."""
+            for_device_type = 'for {} '.format(device_type) if device_type else ''
+            self._printer.write_update('Collecting tests {}...'.format(for_device_type))
+            try:
+                paths, test_names = self._collect_tests(args, device_type=device_type)
+            except IOError:
+                # This is raised if --test-list doesn't exist
+                return test_run_results.RunDetails(exit_code=-1)
+
+            self._printer.write_update('Parsing expectations {}...'.format(for_device_type))
+            self._expectations[device_type] = test_expectations.TestExpectations(self._port, test_names, force_expectations_pass=self._options.force, device_type=device_type)
+            self._expectations[device_type].parse_all_expectations()
+
+            aggregate_test_names.update(test_names)
+            tests_to_run, tests_to_skip = self._prepare_lists(paths, test_names, device_type=device_type)
+            aggregate_tests_to_skip.update(tests_to_skip)
+
+            tests_to_run_by_device[device_type] = [test for test in tests_to_run if test not in aggregate_tests_to_run]
+            aggregate_tests_to_run.update(tests_to_run)
+
+        aggregate_tests_to_skip = aggregate_tests_to_skip - aggregate_tests_to_run
+
+        self._printer.print_found(len(aggregate_test_names), len(aggregate_tests_to_run), self._options.repeat_each, self._options.iterations)
+        test_col_width = len(max(aggregate_tests_to_run.union(aggregate_tests_to_skip), key=len)) + 1
+
+        self._print_expectations_for_subset(device_type_list[0], test_col_width, tests_to_run_by_device[device_type_list[0]], aggregate_tests_to_skip)
+
+        for device_type in device_type_list[1:]:
+            self._print_expectations_for_subset(device_type, test_col_width, tests_to_run_by_device[device_type])
+
+        return 0

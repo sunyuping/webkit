@@ -31,43 +31,107 @@
 #include "config.h"
 #include "RTCRtpSender.h"
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(WEB_RTC)
 
-#include "DOMError.h"
-#include "ExceptionCode.h"
-#include "JSDOMError.h"
+#include "RTCRtpCapabilities.h"
+#include "RuntimeEnabledFeatures.h"
 
 namespace WebCore {
 
-RTCRtpSender::RTCRtpSender(RefPtr<MediaStreamTrack>&& track, Vector<String>&& mediaStreamIds, RTCRtpSenderClient& client)
-    : RTCRtpSenderReceiverBase(WTFMove(track))
-    , m_mediaStreamIds(WTFMove(mediaStreamIds))
-    , m_client(&client)
+Ref<RTCRtpSender> RTCRtpSender::create(PeerConnectionBackend& connection, Ref<MediaStreamTrack>&& track, Vector<String>&& mediaStreamIds, std::unique_ptr<RTCRtpSenderBackend>&& backend)
 {
-    // The original track id is always used in negotiation even if the track is replaced.
-    m_trackId = m_track->id();
+    auto sender = adoptRef(*new RTCRtpSender(connection, String(track->kind()), WTFMove(mediaStreamIds), WTFMove(backend)));
+    sender->setTrack(WTFMove(track));
+    return sender;
 }
 
-void RTCRtpSender::replaceTrack(MediaStreamTrack* withTrack, PeerConnection::VoidPromise&& promise, ExceptionCode& ec)
+Ref<RTCRtpSender> RTCRtpSender::create(PeerConnectionBackend& connection, String&& trackKind, Vector<String>&& mediaStreamIds, std::unique_ptr<RTCRtpSenderBackend>&& backend)
 {
-    if (!withTrack) {
-        ec = TypeError;
+    return adoptRef(*new RTCRtpSender(connection, WTFMove(trackKind), WTFMove(mediaStreamIds), WTFMove(backend)));
+}
+
+RTCRtpSender::RTCRtpSender(PeerConnectionBackend& connection, String&& trackKind, Vector<String>&& mediaStreamIds, std::unique_ptr<RTCRtpSenderBackend>&& backend)
+    : m_trackKind(WTFMove(trackKind))
+    , m_mediaStreamIds(WTFMove(mediaStreamIds))
+    , m_backend(WTFMove(backend))
+    , m_connection(makeWeakPtr(&connection))
+{
+    ASSERT(!RuntimeEnabledFeatures::sharedFeatures().webRTCUnifiedPlanEnabled() || m_backend);
+}
+
+void RTCRtpSender::setTrackToNull()
+{
+    ASSERT(m_track);
+    m_trackId = { };
+    m_track = nullptr;
+}
+
+void RTCRtpSender::stop()
+{
+    m_trackId = { };
+    m_track = nullptr;
+    m_backend = nullptr;
+}
+
+void RTCRtpSender::setTrack(Ref<MediaStreamTrack>&& track)
+{
+    ASSERT(!isStopped());
+    if (!m_track)
+        m_trackId = track->id();
+    m_track = WTFMove(track);
+}
+
+void RTCRtpSender::replaceTrack(ScriptExecutionContext& context, RefPtr<MediaStreamTrack>&& withTrack, DOMPromiseDeferred<void>&& promise)
+{
+    if (isStopped()) {
+        promise.reject(InvalidStateError);
         return;
     }
 
-    if (!m_client) {
-        promise.reject(DOMError::create("InvalidStateError"));
+    if (withTrack && m_trackKind != withTrack->kind()) {
+        promise.reject(TypeError);
         return;
     }
 
-    if (m_track->kind() != withTrack->kind()) {
-        ec = TypeError;
+    // FIXME: This whole function should be executed as part of the RTCPeerConnection operation queue.
+    m_backend->replaceTrack(context, *this, WTFMove(withTrack), WTFMove(promise));
+}
+
+RTCRtpSendParameters RTCRtpSender::getParameters()
+{
+    if (isStopped())
+        return { };
+    return m_backend->getParameters();
+}
+
+void RTCRtpSender::setParameters(const RTCRtpSendParameters& parameters, DOMPromiseDeferred<void>&& promise)
+{
+    if (isStopped()) {
+        promise.reject(InvalidStateError);
         return;
     }
+    return m_backend->setParameters(parameters, WTFMove(promise));
+}
 
-    m_client->replaceTrack(*this, *withTrack, WTFMove(promise));
+void RTCRtpSender::getStats(Ref<DeferredPromise>&& promise)
+{
+    if (!m_connection) {
+        promise->reject(InvalidStateError);
+        return;
+    }
+    m_connection->getStats(*this, WTFMove(promise));
+}
+
+bool RTCRtpSender::isCreatedBy(const PeerConnectionBackend& connection) const
+{
+    return &connection == m_connection.get();
+}
+
+Optional<RTCRtpCapabilities> RTCRtpSender::getCapabilities(ScriptExecutionContext& context, const String& kind)
+{
+    return PeerConnectionBackend::senderCapabilities(context, kind);
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(WEB_RTC)

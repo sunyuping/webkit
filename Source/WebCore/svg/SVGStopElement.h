@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2007, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,36 +19,38 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGStopElement_h
-#define SVGStopElement_h
+#pragma once
 
-#include "SVGAnimatedNumber.h"
 #include "SVGElement.h"
 
 namespace WebCore {
 
 class SVGStopElement final : public SVGElement {
+    WTF_MAKE_ISO_ALLOCATED(SVGStopElement);
 public:
     static Ref<SVGStopElement> create(const QualifiedName&, Document&);
 
     Color stopColorIncludingOpacity() const;
 
+    float offset() const { return m_offset->currentValue(); }
+    SVGAnimatedNumber& offsetAnimated() { return m_offset; }
+
 private:
     SVGStopElement(const QualifiedName&, Document&);
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGStopElement, SVGElement>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual bool isGradientStop() const override { return true; }
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    void svgAttributeChanged(const QualifiedName&) final;
 
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
-    virtual bool rendererIsNeeded(const RenderStyle&) override;
+    bool isGradientStop() const final { return true; }
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGStopElement)
-        DECLARE_ANIMATED_NUMBER(Offset, offset)
-    END_DECLARE_ANIMATED_PROPERTIES
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    bool rendererIsNeeded(const RenderStyle&) final;
+
+    PropertyRegistry m_propertyRegistry { *this };
+    Ref<SVGAnimatedNumber> m_offset { SVGAnimatedNumber::create(0) };
 };
 
 } // namespace WebCore
-
-#endif

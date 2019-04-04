@@ -35,8 +35,6 @@
 #include "CSSValueKeywords.h"
 #include "Document.h"
 #include "NodeRenderStyle.h"
-#include "Page.h"
-#include "RenderView.h"
 #include "StyleProperties.h"
 #include "StyleRule.h"
 #include "ViewportArguments.h"
@@ -44,14 +42,12 @@
 namespace WebCore {
 
 ViewportStyleResolver::ViewportStyleResolver(Document* document)
-    : m_document(document)
+    : m_document(document ? makeWeakPtr(*document) : nullptr)
 {
     ASSERT(m_document);
 }
 
-ViewportStyleResolver::~ViewportStyleResolver()
-{
-}
+ViewportStyleResolver::~ViewportStyleResolver() = default;
 
 void ViewportStyleResolver::addViewportRule(StyleRuleViewport* viewportRule)
 {
@@ -108,19 +104,19 @@ float ViewportStyleResolver::getViewportArgumentValue(CSSPropertyID id) const
         defaultValue = 1;
 
     RefPtr<CSSValue> value = m_propertySet->getPropertyCSSValue(id);
-    if (!is<CSSPrimitiveValue>(value.get()))
+    if (!is<CSSPrimitiveValue>(value))
         return defaultValue;
 
     CSSPrimitiveValue& primitiveValue = downcast<CSSPrimitiveValue>(*value);
 
     if (primitiveValue.isNumber() || primitiveValue.isPx())
-        return primitiveValue.getFloatValue();
+        return primitiveValue.floatValue();
 
     if (primitiveValue.isFontRelativeLength())
-        return primitiveValue.getFloatValue() * m_document->documentElement()->renderStyle()->fontDescription().computedSize();
+        return primitiveValue.floatValue() * m_document->documentElement()->renderStyle()->fontDescription().computedSize();
 
     if (primitiveValue.isPercentage()) {
-        float percentValue = primitiveValue.getFloatValue() / 100.0f;
+        float percentValue = primitiveValue.floatValue() / 100.0f;
         switch (id) {
         case CSSPropertyMaxHeight:
         case CSSPropertyMinHeight:
@@ -140,7 +136,7 @@ float ViewportStyleResolver::getViewportArgumentValue(CSSPropertyID id) const
         }
     }
 
-    switch (primitiveValue.getValueID()) {
+    switch (primitiveValue.valueID()) {
     case CSSValueAuto:
         return defaultValue;
     case CSSValueDeviceHeight:

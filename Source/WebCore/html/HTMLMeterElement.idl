@@ -20,11 +20,11 @@
 [
     Conditional=METER_ELEMENT
 ] interface HTMLMeterElement : HTMLElement {
-    [SetterRaisesException] attribute unrestricted double value;
-    [SetterRaisesException] attribute unrestricted double min;
-    [SetterRaisesException] attribute unrestricted double max;
-    [SetterRaisesException] attribute unrestricted double low;
-    [SetterRaisesException] attribute unrestricted double high;
-    [SetterRaisesException] attribute unrestricted double optimum;
+    [CEReactions=NotNeeded] attribute double value;
+    [CEReactions=NotNeeded] attribute double min;
+    [CEReactions=NotNeeded] attribute double max;
+    [CEReactions=NotNeeded] attribute double low;
+    [CEReactions=NotNeeded] attribute double high;
+    [CEReactions=NotNeeded] attribute double optimum;
     readonly attribute NodeList labels;
 };

@@ -26,28 +26,28 @@
 #include "config.h"
 #include "CryptoAlgorithmAES_KW.h"
 
-#if ENABLE(SUBTLE_CRYPTO)
+#if ENABLE(WEB_CRYPTO)
 
-#include "CryptoAlgorithmAesKeyGenParams.h"
+#include "CryptoAlgorithmAesKeyParams.h"
 #include "CryptoKeyAES.h"
-#include "CryptoKeyDataOctetSequence.h"
-#include "ExceptionCode.h"
+#include <wtf/Variant.h>
 
 namespace WebCore {
 
-const char* const CryptoAlgorithmAES_KW::s_name = "AES-KW";
-
-CryptoAlgorithmAES_KW::CryptoAlgorithmAES_KW()
-{
+namespace CryptoAlgorithmAES_KWInternal {
+static const char* const ALG128 = "A128KW";
+static const char* const ALG192 = "A192KW";
+static const char* const ALG256 = "A256KW";
 }
 
-CryptoAlgorithmAES_KW::~CryptoAlgorithmAES_KW()
+static inline bool usagesAreInvalidForCryptoAlgorithmAES_KW(CryptoKeyUsageBitmap usages)
 {
+    return usages & (CryptoKeyUsageSign | CryptoKeyUsageVerify | CryptoKeyUsageDeriveKey | CryptoKeyUsageDeriveBits | CryptoKeyUsageEncrypt | CryptoKeyUsageDecrypt);
 }
 
-std::unique_ptr<CryptoAlgorithm> CryptoAlgorithmAES_KW::create()
+Ref<CryptoAlgorithm> CryptoAlgorithmAES_KW::create()
 {
-    return std::unique_ptr<CryptoAlgorithm>(new CryptoAlgorithmAES_KW);
+    return adoptRef(*new CryptoAlgorithmAES_KW);
 }
 
 CryptoAlgorithmIdentifier CryptoAlgorithmAES_KW::identifier() const
@@ -55,59 +55,135 @@ CryptoAlgorithmIdentifier CryptoAlgorithmAES_KW::identifier() const
     return s_identifier;
 }
 
-bool CryptoAlgorithmAES_KW::keyAlgorithmMatches(const CryptoKey& key) const
+void CryptoAlgorithmAES_KW::generateKey(const CryptoAlgorithmParameters& parameters, bool extractable, CryptoKeyUsageBitmap usages, KeyOrKeyPairCallback&& callback, ExceptionCallback&& exceptionCallback, ScriptExecutionContext&)
 {
-    if (key.algorithmIdentifier() != s_identifier)
-        return false;
-    ASSERT(is<CryptoKeyAES>(key));
-
-    return true;
-}
-
-void CryptoAlgorithmAES_KW::encryptForWrapKey(const CryptoAlgorithmParameters&, const CryptoKey& key, const CryptoOperationData& data, VectorCallback&& callback, VoidCallback&& failureCallback, ExceptionCode& ec)
-{
-    if (!keyAlgorithmMatches(key)) {
-        ec = NOT_SUPPORTED_ERR;
+    if (usagesAreInvalidForCryptoAlgorithmAES_KW(usages)) {
+        exceptionCallback(SyntaxError);
         return;
     }
 
-    platformEncrypt(downcast<CryptoKeyAES>(key), data, WTFMove(callback), WTFMove(failureCallback), ec);
-}
-
-void CryptoAlgorithmAES_KW::decryptForUnwrapKey(const CryptoAlgorithmParameters&, const CryptoKey& key, const CryptoOperationData& data, VectorCallback&& callback, VoidCallback&& failureCallback, ExceptionCode& ec)
-{
-    if (!keyAlgorithmMatches(key)) {
-        ec = NOT_SUPPORTED_ERR;
-        return;
-    }
-
-    platformDecrypt(downcast<CryptoKeyAES>(key), data, WTFMove(callback), WTFMove(failureCallback), ec);
-}
-
-void CryptoAlgorithmAES_KW::generateKey(const CryptoAlgorithmParameters& parameters, bool extractable, CryptoKeyUsage usages, KeyOrKeyPairCallback&& callback, VoidCallback&& failureCallback, ExceptionCode&)
-{
-    const CryptoAlgorithmAesKeyGenParams& aesParameters = downcast<CryptoAlgorithmAesKeyGenParams>(parameters);
-
-    RefPtr<CryptoKeyAES> result = CryptoKeyAES::generate(CryptoAlgorithmIdentifier::AES_KW, aesParameters.length, extractable, usages);
+    auto result = CryptoKeyAES::generate(CryptoAlgorithmIdentifier::AES_KW, downcast<CryptoAlgorithmAesKeyParams>(parameters).length, extractable, usages);
     if (!result) {
-        failureCallback();
+        exceptionCallback(OperationError);
         return;
     }
 
-    callback(result.get(), nullptr);
+    callback(WTFMove(result));
 }
 
-void CryptoAlgorithmAES_KW::importKey(const CryptoAlgorithmParameters&, const CryptoKeyData& keyData, bool extractable, CryptoKeyUsage usage, KeyCallback&& callback, VoidCallback&&, ExceptionCode& ec)
+void CryptoAlgorithmAES_KW::importKey(CryptoKeyFormat format, KeyData&& data, const CryptoAlgorithmParameters& parameters, bool extractable, CryptoKeyUsageBitmap usages, KeyCallback&& callback, ExceptionCallback&& exceptionCallback)
 {
-    if (!is<CryptoKeyDataOctetSequence>(keyData)) {
-        ec = NOT_SUPPORTED_ERR;
+    using namespace CryptoAlgorithmAES_KWInternal;
+
+    if (usagesAreInvalidForCryptoAlgorithmAES_KW(usages)) {
+        exceptionCallback(SyntaxError);
         return;
     }
-    const CryptoKeyDataOctetSequence& keyDataOctetSequence = downcast<CryptoKeyDataOctetSequence>(keyData);
-    RefPtr<CryptoKeyAES> result = CryptoKeyAES::create(CryptoAlgorithmIdentifier::AES_KW, keyDataOctetSequence.octetSequence(), extractable, usage);
+
+    RefPtr<CryptoKeyAES> result;
+    switch (format) {
+    case CryptoKeyFormat::Raw:
+        result = CryptoKeyAES::importRaw(parameters.identifier, WTFMove(WTF::get<Vector<uint8_t>>(data)), extractable, usages);
+        break;
+    case CryptoKeyFormat::Jwk: {
+        result = CryptoKeyAES::importJwk(parameters.identifier, WTFMove(WTF::get<JsonWebKey>(data)), extractable, usages, [](size_t length, const String& alg) -> bool {
+            switch (length) {
+            case CryptoKeyAES::s_length128:
+                return alg.isNull() || alg == ALG128;
+            case CryptoKeyAES::s_length192:
+                return alg.isNull() || alg == ALG192;
+            case CryptoKeyAES::s_length256:
+                return alg.isNull() || alg == ALG256;
+            }
+            return false;
+        });
+        break;
+    }
+    default:
+        exceptionCallback(NotSupportedError);
+        return;
+    }
+    if (!result) {
+        exceptionCallback(DataError);
+        return;
+    }
+
     callback(*result);
 }
 
+void CryptoAlgorithmAES_KW::exportKey(CryptoKeyFormat format, Ref<CryptoKey>&& key, KeyDataCallback&& callback, ExceptionCallback&& exceptionCallback)
+{
+    using namespace CryptoAlgorithmAES_KWInternal;
+    const auto& aesKey = downcast<CryptoKeyAES>(key.get());
+
+    if (aesKey.key().isEmpty()) {
+        exceptionCallback(OperationError);
+        return;
+    }
+
+    KeyData result;
+    switch (format) {
+    case CryptoKeyFormat::Raw:
+        result = Vector<uint8_t>(aesKey.key());
+        break;
+    case CryptoKeyFormat::Jwk: {
+        JsonWebKey jwk = aesKey.exportJwk();
+        switch (aesKey.key().size() * 8) {
+        case CryptoKeyAES::s_length128:
+            jwk.alg = String(ALG128);
+            break;
+        case CryptoKeyAES::s_length192:
+            jwk.alg = String(ALG192);
+            break;
+        case CryptoKeyAES::s_length256:
+            jwk.alg = String(ALG256);
+            break;
+        default:
+            ASSERT_NOT_REACHED();
+        }
+        result = WTFMove(jwk);
+        break;
+    }
+    default:
+        exceptionCallback(NotSupportedError);
+        return;
+    }
+
+    callback(format, WTFMove(result));
 }
 
-#endif // ENABLE(SUBTLE_CRYPTO)
+void CryptoAlgorithmAES_KW::wrapKey(Ref<CryptoKey>&& key, Vector<uint8_t>&& data, VectorCallback&& callback, ExceptionCallback&& exceptionCallback)
+{
+    if (data.size() % 8) {
+        exceptionCallback(OperationError);
+        return;
+    }
+
+    auto result = platformWrapKey(downcast<CryptoKeyAES>(key.get()), WTFMove(data));
+    if (result.hasException()) {
+        exceptionCallback(result.releaseException().code());
+        return;
+    }
+
+    callback(result.releaseReturnValue());
+}
+
+void CryptoAlgorithmAES_KW::unwrapKey(Ref<CryptoKey>&& key, Vector<uint8_t>&& data, VectorCallback&& callback, ExceptionCallback&& exceptionCallback)
+{
+    auto result = platformUnwrapKey(downcast<CryptoKeyAES>(key.get()), WTFMove(data));
+    if (result.hasException()) {
+        exceptionCallback(result.releaseException().code());
+        return;
+    }
+
+    callback(result.releaseReturnValue());
+}
+
+ExceptionOr<size_t> CryptoAlgorithmAES_KW::getKeyLength(const CryptoAlgorithmParameters& parameters)
+{
+    return CryptoKeyAES::getKeyLength(parameters);
+}
+
+}
+
+#endif // ENABLE(WEB_CRYPTO)

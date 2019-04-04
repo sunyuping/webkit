@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2012 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2018 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,94 +24,107 @@
  *
  */
 
-#ifndef JSDOMGlobalObject_h
-#define JSDOMGlobalObject_h
+#pragma once
 
-#include "PlatformExportMacros.h"
 #include "WebCoreJSBuiltinInternals.h"
-#include <runtime/JSGlobalObject.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/LockDuringMarking.h>
 
 namespace WebCore {
 
-    class Document;
-    class Event;
-    class DOMWrapperWorld;
-    class ScriptExecutionContext;
+class DOMGuardedObject;
+class Event;
+class DOMWrapperWorld;
+class ScriptExecutionContext;
 
-    typedef HashMap<const JSC::ClassInfo*, JSC::WriteBarrier<JSC::Structure>> JSDOMStructureMap;
-    typedef HashMap<const JSC::ClassInfo*, JSC::WriteBarrier<JSC::JSObject>> JSDOMConstructorMap;
+using JSDOMStructureMap = HashMap<const JSC::ClassInfo*, JSC::WriteBarrier<JSC::Structure>>;
+using JSDOMConstructorMap = HashMap<const JSC::ClassInfo*, JSC::WriteBarrier<JSC::JSObject>>;
+using DOMGuardedObjectSet = HashSet<DOMGuardedObject*>;
 
-    class WEBCORE_EXPORT JSDOMGlobalObject : public JSC::JSGlobalObject {
-        typedef JSC::JSGlobalObject Base;
-    protected:
-        struct JSDOMGlobalObjectData;
+class WEBCORE_EXPORT JSDOMGlobalObject : public JSC::JSGlobalObject {
+    using Base = JSC::JSGlobalObject;
+protected:
+    struct JSDOMGlobalObjectData;
 
-        JSDOMGlobalObject(JSC::VM&, JSC::Structure*, PassRefPtr<DOMWrapperWorld>, const JSC::GlobalObjectMethodTable* = 0);
-        static void destroy(JSC::JSCell*);
-        void finishCreation(JSC::VM&);
-        void finishCreation(JSC::VM&, JSC::JSObject*);
+    JSDOMGlobalObject(JSC::VM&, JSC::Structure*, Ref<DOMWrapperWorld>&&, const JSC::GlobalObjectMethodTable* = nullptr);
+    static void destroy(JSC::JSCell*);
+    void finishCreation(JSC::VM&);
+    void finishCreation(JSC::VM&, JSC::JSObject*);
 
-    public:
-        JSDOMStructureMap& structures() { return m_structures; }
-        JSDOMConstructorMap& constructors() { return m_constructors; }
+public:
+    Lock& gcLock() { return m_gcLock; }
 
-        ScriptExecutionContext* scriptExecutionContext() const;
+    JSDOMStructureMap& structures(const AbstractLocker&) { return m_structures; }
+    JSDOMConstructorMap& constructors(const AbstractLocker&) { return m_constructors; }
 
-        // Make binding code generation easier.
-        JSDOMGlobalObject* globalObject() { return this; }
+    DOMGuardedObjectSet& guardedObjects(const AbstractLocker&) { return m_guardedObjects; }
 
-        void setCurrentEvent(Event*);
-        Event* currentEvent() const;
+    ScriptExecutionContext* scriptExecutionContext() const;
 
-        static void visitChildren(JSC::JSCell*, JSC::SlotVisitor&);
+    // Make binding code generation easier.
+    JSDOMGlobalObject* globalObject() { return this; }
 
-        DOMWrapperWorld& world() { return *m_world; }
-        bool worldIsNormal() const { return m_worldIsNormal; }
+    void setCurrentEvent(Event*);
+    Event* currentEvent() const;
 
-    protected:
-        static const JSC::ClassInfo s_info;
+    static void visitChildren(JSC::JSCell*, JSC::SlotVisitor&);
 
-    public:
-        static const JSC::ClassInfo* info() { return &s_info; }
+    DOMWrapperWorld& world() { return m_world.get(); }
+    bool worldIsNormal() const { return m_worldIsNormal; }
+    static ptrdiff_t offsetOfWorldIsNormal() { return OBJECT_OFFSETOF(JSDOMGlobalObject, m_worldIsNormal); }
 
-        static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSValue prototype)
-        {
-            return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
-        }
+    JSBuiltinInternalFunctions& builtinInternalFunctions() { return m_builtinInternalFunctions; }
 
-    protected:
-        JSDOMStructureMap m_structures;
-        JSDOMConstructorMap m_constructors;
+protected:
+    static const JSC::ClassInfo s_info;
 
-        Event* m_currentEvent;
-        const RefPtr<DOMWrapperWorld> m_world;
-        bool m_worldIsNormal;
+public:
+    ~JSDOMGlobalObject();
 
-    private:
-        void addBuiltinGlobals(JSC::VM&);
-        friend void JSBuiltinInternalFunctions::initialize(JSDOMGlobalObject&, JSC::VM&);
+    static constexpr const JSC::ClassInfo* info() { return &s_info; }
 
-        JSBuiltinInternalFunctions m_builtinInternalFunctions;
-    };
-
-    template<class ConstructorClass>
-    inline JSC::JSObject* getDOMConstructor(JSC::VM& vm, const JSDOMGlobalObject& globalObject)
+    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSValue prototype)
     {
-        if (JSC::JSObject* constructor = const_cast<JSDOMGlobalObject&>(globalObject).constructors().get(ConstructorClass::info()).get())
-            return constructor;
-        JSC::JSObject* constructor = ConstructorClass::create(vm, ConstructorClass::createStructure(vm, const_cast<JSDOMGlobalObject&>(globalObject), ConstructorClass::prototypeForStructure(vm, globalObject)), const_cast<JSDOMGlobalObject&>(globalObject));
-        ASSERT(!const_cast<JSDOMGlobalObject&>(globalObject).constructors().contains(ConstructorClass::info()));
-        JSC::WriteBarrier<JSC::JSObject> temp;
-        const_cast<JSDOMGlobalObject&>(globalObject).constructors().add(ConstructorClass::info(), temp).iterator->value.set(vm, &globalObject, constructor);
-        return constructor;
+        return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
     }
 
-    JSDOMGlobalObject* toJSDOMGlobalObject(Document*, JSC::ExecState*);
-    JSDOMGlobalObject* toJSDOMGlobalObject(ScriptExecutionContext*, JSC::ExecState*);
+protected:
+    static void promiseRejectionTracker(JSC::JSGlobalObject*, JSC::ExecState*, JSC::JSPromise*, JSC::JSPromiseRejectionOperation);
 
-    JSDOMGlobalObject* toJSDOMGlobalObject(Document*, DOMWrapperWorld&);
-    JSDOMGlobalObject* toJSDOMGlobalObject(ScriptExecutionContext*, DOMWrapperWorld&);
+    JSDOMStructureMap m_structures;
+    JSDOMConstructorMap m_constructors;
+    DOMGuardedObjectSet m_guardedObjects;
+
+    Ref<DOMWrapperWorld> m_world;
+    uint8_t m_worldIsNormal;
+    Lock m_gcLock;
+
+private:
+    void addBuiltinGlobals(JSC::VM&);
+    friend void JSBuiltinInternalFunctions::initialize(JSDOMGlobalObject&);
+
+    Event* m_currentEvent { nullptr };
+
+    JSBuiltinInternalFunctions m_builtinInternalFunctions;
+};
+
+template<class ConstructorClass>
+inline JSC::JSObject* getDOMConstructor(JSC::VM& vm, const JSDOMGlobalObject& globalObject)
+{
+    if (JSC::JSObject* constructor = const_cast<JSDOMGlobalObject&>(globalObject).constructors(NoLockingNecessary).get(ConstructorClass::info()).get())
+        return constructor;
+    JSC::JSObject* constructor = ConstructorClass::create(vm, ConstructorClass::createStructure(vm, const_cast<JSDOMGlobalObject&>(globalObject), ConstructorClass::prototypeForStructure(vm, globalObject)), const_cast<JSDOMGlobalObject&>(globalObject));
+    ASSERT(!const_cast<JSDOMGlobalObject&>(globalObject).constructors(NoLockingNecessary).contains(ConstructorClass::info()));
+    JSC::WriteBarrier<JSC::JSObject> temp;
+    JSDOMGlobalObject& mutableGlobalObject = const_cast<JSDOMGlobalObject&>(globalObject);
+    auto locker = JSC::lockDuringMarking(vm.heap, mutableGlobalObject.gcLock());
+    mutableGlobalObject.constructors(locker).add(ConstructorClass::info(), temp).iterator->value.set(vm, &globalObject, constructor);
+    return constructor;
+}
+
+WEBCORE_EXPORT JSDOMGlobalObject& callerGlobalObject(JSC::ExecState&);
+
+JSDOMGlobalObject* toJSDOMGlobalObject(ScriptExecutionContext&, DOMWrapperWorld&);
 
 } // namespace WebCore
-
-#endif // JSDOMGlobalObject_h

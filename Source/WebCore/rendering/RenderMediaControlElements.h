@@ -25,33 +25,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RenderMediaControlElements_h
-#define RenderMediaControlElements_h
+#pragma once
 
 #if ENABLE(VIDEO)
 
-#include "MediaControlElements.h"
 #include "RenderBlockFlow.h"
 #include "RenderFlexibleBox.h"
 
 namespace WebCore {
 
 class RenderMediaVolumeSliderContainer final : public RenderBlockFlow {
+    WTF_MAKE_ISO_ALLOCATED(RenderMediaVolumeSliderContainer);
 public:
-    RenderMediaVolumeSliderContainer(Element&, Ref<RenderStyle>&&);
+    RenderMediaVolumeSliderContainer(Element&, RenderStyle&&);
 
 private:
-    virtual void layout() override;
+    void layout() override;
 };
 
 // ----------------------------
 
 class RenderMediaControlTimelineContainer final : public RenderFlexibleBox {
+    WTF_MAKE_ISO_ALLOCATED(RenderMediaControlTimelineContainer);
 public:
-    RenderMediaControlTimelineContainer(Element&, Ref<RenderStyle>&&);
+    RenderMediaControlTimelineContainer(Element&, RenderStyle&&);
 
 private:
-    virtual void layout() override;
+    void layout() override;
     bool isFlexibleBoxImpl() const override { return true; }
 };
 
@@ -60,11 +60,12 @@ private:
 #if ENABLE(VIDEO_TRACK)
 
 class RenderTextTrackContainerElement final : public RenderBlockFlow {
+    WTF_MAKE_ISO_ALLOCATED(RenderTextTrackContainerElement);
 public:
-    RenderTextTrackContainerElement(Element&, Ref<RenderStyle>&&);
+    RenderTextTrackContainerElement(Element&, RenderStyle&&);
 
 private:
-    virtual void layout() override;
+    void layout() override;
 };
 
 #endif // ENABLE(VIDEO_TRACK)
@@ -72,6 +73,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(VIDEO)
-
-#endif // RenderMediaControlElements_h
-

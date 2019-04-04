@@ -27,8 +27,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MediaControlElementTypes_h
-#define MediaControlElementTypes_h
+#pragma once
 
 #if ENABLE(VIDEO)
 
@@ -36,11 +35,10 @@
 #include "HTMLInputElement.h"
 #include "HTMLMediaElement.h"
 #include "MediaControllerInterface.h"
-#include "RenderBlock.h"
+#include "RenderObject.h"
 
 namespace WebCore {
 
-// Must match WebKitSystemInterface.h
 enum MediaControlElementType {
     MediaEnterFullscreenButton = 0,
     MediaMuteButton,
@@ -74,8 +72,8 @@ enum MediaControlElementType {
     MediaClosedCaptionsTrackList,
 };
 
-HTMLMediaElement* parentMediaElement(Node*);
-inline HTMLMediaElement* parentMediaElement(const RenderObject& renderer) { return parentMediaElement(renderer.node()); }
+RefPtr<HTMLMediaElement> parentMediaElement(Node*);
+inline RefPtr<HTMLMediaElement> parentMediaElement(const RenderObject& renderer) { return parentMediaElement(renderer.node()); }
 
 MediaControlElementType mediaControlElementType(Node*);
 
@@ -94,7 +92,7 @@ public:
 
 protected:
     explicit MediaControlElement(MediaControlElementType, HTMLElement*);
-    ~MediaControlElement() { }
+    ~MediaControlElement() = default;
 
     virtual void setDisplayType(MediaControlElementType);
     virtual bool isMediaControlElement() const { return true; }
@@ -108,27 +106,30 @@ private:
 // ----------------------------
 
 class MediaControlDivElement : public HTMLDivElement, public MediaControlElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlDivElement);
 protected:
     explicit MediaControlDivElement(Document&, MediaControlElementType);
 
 private:
-    virtual bool isMediaControlElement() const override final { return MediaControlElement::isMediaControlElement(); }
+    bool isMediaControlElement() const final { return MediaControlElement::isMediaControlElement(); }
 };
 
 // ----------------------------
 
 class MediaControlInputElement : public HTMLInputElement, public MediaControlElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlInputElement);
 protected:
     explicit MediaControlInputElement(Document&, MediaControlElementType);
 
 private:
-    virtual bool isMediaControlElement() const override final { return MediaControlElement::isMediaControlElement(); }
+    bool isMediaControlElement() const final { return MediaControlElement::isMediaControlElement(); }
     virtual void updateDisplayType() { }
 };
 
 // ----------------------------
 
 class MediaControlTimeDisplayElement : public MediaControlDivElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlTimeDisplayElement);
 public:
     void setCurrentValue(double);
     double currentValue() const { return m_currentValue; }
@@ -143,49 +144,52 @@ private:
 // ----------------------------
 
 class MediaControlMuteButtonElement : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlMuteButtonElement);
 public:
     void changedMute();
 
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+    bool willRespondToMouseClickEvents() override { return true; }
 
 protected:
     explicit MediaControlMuteButtonElement(Document&, MediaControlElementType);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
 private:
-    virtual void updateDisplayType() override;
+    void updateDisplayType() override;
 };
 
 // ----------------------------
 
 class MediaControlSeekButtonElement : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlSeekButtonElement);
 public:
-    virtual bool willRespondToMouseClickEvents() override { return true; }
+    bool willRespondToMouseClickEvents() override { return true; }
 
 protected:
     explicit MediaControlSeekButtonElement(Document&, MediaControlElementType);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
     virtual bool isForwardButton() const = 0;
 
 private:
-    virtual void setActive(bool /*flag*/ = true, bool /*pause*/ = false) override final;
+    void setActive(bool /*flag*/ = true, bool /*pause*/ = false) final;
 };
 
 // ----------------------------
 
 class MediaControlVolumeSliderElement : public MediaControlInputElement {
+    WTF_MAKE_ISO_ALLOCATED(MediaControlVolumeSliderElement);
 public:
-    virtual bool willRespondToMouseMoveEvents() override;
-    virtual bool willRespondToMouseClickEvents() override;
+    bool willRespondToMouseMoveEvents() override;
+    bool willRespondToMouseClickEvents() override;
     void setVolume(double);
     void setClearMutedOnUserInteraction(bool);
 
 protected:
     explicit MediaControlVolumeSliderElement(Document&);
 
-    virtual void defaultEventHandler(Event*) override;
+    void defaultEventHandler(Event&) override;
 
 private:
     bool m_clearMutedOnUserInteraction;
@@ -194,5 +198,3 @@ private:
 } // namespace WebCore
 
 #endif // ENABLE(VIDEO)
-
-#endif // MediaControlElementTypes_h

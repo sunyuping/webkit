@@ -36,7 +36,6 @@
 #include "SharedBuffer.h"
 #include <mutex>
 #include <wtf/text/CString.h>
-#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
@@ -89,7 +88,7 @@ void MockContentFilter::willSendRequest(ResourceRequest& request, const Resource
 
     URL modifiedRequestURL { request.url(), modifiedRequestURLString };
     if (!modifiedRequestURL.isValid()) {
-        LOG(ContentFiltering, "MockContentFilter failed to convert %s to a WebCore::URL.\n", modifiedRequestURL.string().ascii().data());
+        LOG(ContentFiltering, "MockContentFilter failed to convert %s to a  URL.\n", modifiedRequestURL.string().ascii().data());
         return;
     }
 
@@ -114,7 +113,7 @@ void MockContentFilter::finishedAddingData()
 Ref<SharedBuffer> MockContentFilter::replacementData() const
 {
     ASSERT(didBlockData());
-    return adoptRef(*SharedBuffer::create(m_replacementData.data(), m_replacementData.size()).leakRef());
+    return SharedBuffer::create(m_replacementData.data(), m_replacementData.size());
 }
 
 ContentFilterUnblockHandler MockContentFilter::unblockHandler() const
@@ -135,7 +134,7 @@ ContentFilterUnblockHandler MockContentFilter::unblockHandler() const
 
 String MockContentFilter::unblockRequestDeniedScript() const
 {
-    return ASCIILiteral("unblockRequestDenied()");
+    return "unblockRequestDenied()"_s;
 }
 
 void MockContentFilter::maybeDetermineStatus(DecisionPoint decisionPoint)

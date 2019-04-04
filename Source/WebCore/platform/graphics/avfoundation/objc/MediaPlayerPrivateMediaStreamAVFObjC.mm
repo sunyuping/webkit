@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,44 +28,204 @@
 
 #if ENABLE(MEDIA_STREAM) && USE(AVFOUNDATION)
 
-#import "AVAudioCaptureSource.h"
-#import "AVVideoCaptureSource.h"
-#import "AudioTrackPrivateMediaStream.h"
-#import "Clock.h"
-#import "GraphicsContext.h"
+#import "AudioTrackPrivateMediaStreamCocoa.h"
+#import "GraphicsContextCG.h"
 #import "Logging.h"
 #import "MediaStreamPrivate.h"
+#import "PixelBufferConformerCV.h"
+#import "VideoFullscreenLayerManagerObjC.h"
 #import "VideoTrackPrivateMediaStream.h"
+#import <AVFoundation/AVSampleBufferDisplayLayer.h>
 #import <QuartzCore/CALayer.h>
 #import <QuartzCore/CATransaction.h>
 #import <objc_runtime.h>
+#import <pal/avfoundation/MediaTimeAVFoundation.h>
+#import <pal/spi/mac/AVFoundationSPI.h>
+#import <pal/system/Clock.h>
+#import <wtf/Function.h>
 #import <wtf/MainThread.h>
 #import <wtf/NeverDestroyed.h>
 
+
 #pragma mark - Soft Linking
 
-#import "CoreMediaSoftLink.h"
+#import <pal/cf/CoreMediaSoftLink.h>
+#import "CoreVideoSoftLink.h"
 
 SOFT_LINK_FRAMEWORK_OPTIONAL(AVFoundation)
 
+SOFT_LINK_CLASS_OPTIONAL(AVFoundation, AVSampleBufferDisplayLayer)
+
+SOFT_LINK_CONSTANT(AVFoundation, AVLayerVideoGravityResizeAspect, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVLayerVideoGravityResizeAspectFill, NSString *)
+SOFT_LINK_CONSTANT(AVFoundation, AVLayerVideoGravityResize, NSString *)
+
+#define AVLayerVideoGravityResizeAspect getAVLayerVideoGravityResizeAspect()
+#define AVLayerVideoGravityResizeAspectFill getAVLayerVideoGravityResizeAspectFill()
+#define AVLayerVideoGravityResize getAVLayerVideoGravityResize()
+
+using namespace WebCore;
+
+@interface WebAVSampleBufferStatusChangeListener : NSObject {
+    MediaPlayerPrivateMediaStreamAVFObjC* _parent;
+}
+
+- (id)initWithParent:(MediaPlayerPrivateMediaStreamAVFObjC*)callback;
+- (void)invalidate;
+- (void)beginObservingLayers;
+- (void)stopObservingLayers;
+@end
+
+@implementation WebAVSampleBufferStatusChangeListener
+
+- (id)initWithParent:(MediaPlayerPrivateMediaStreamAVFObjC*)parent
+{
+    if (!(self = [super init]))
+        return nil;
+
+    _parent = parent;
+
+    return self;
+}
+
+- (void)dealloc
+{
+    [self invalidate];
+    [super dealloc];
+}
+
+- (void)invalidate
+{
+    [self stopObservingLayers];
+    _parent = nullptr;
+}
+
+- (void)beginObservingLayers
+{
+    ASSERT(_parent);
+    ASSERT(_parent->displayLayer());
+    ASSERT(_parent->backgroundLayer());
+
+    [_parent->displayLayer() addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:nil];
+    [_parent->displayLayer() addObserver:self forKeyPath:@"error" options:NSKeyValueObservingOptionNew context:nil];
+    [_parent->backgroundLayer() addObserver:self forKeyPath:@"bounds" options:NSKeyValueObservingOptionNew context:nil];
+}
+
+- (void)stopObservingLayers
+{
+    if (!_parent)
+        return;
+
+    if (_parent->displayLayer()) {
+        [_parent->displayLayer() removeObserver:self forKeyPath:@"status"];
+        [_parent->displayLayer() removeObserver:self forKeyPath:@"error"];
+    }
+    if (_parent->backgroundLayer())
+        [_parent->backgroundLayer() removeObserver:self forKeyPath:@"bounds"];
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    UNUSED_PARAM(context);
+    UNUSED_PARAM(keyPath);
+    ASSERT(_parent);
+
+    if (!_parent)
+        return;
+
+    if ([object isKindOfClass:getAVSampleBufferDisplayLayerClass()]) {
+        RetainPtr<AVSampleBufferDisplayLayer> layer = (AVSampleBufferDisplayLayer *)object;
+        ASSERT(layer.get() == _parent->displayLayer());
+
+        if ([keyPath isEqualToString:@"status"]) {
+            RetainPtr<NSNumber> status = [change valueForKey:NSKeyValueChangeNewKey];
+            callOnMainThread([protectedSelf = RetainPtr<WebAVSampleBufferStatusChangeListener>(self), layer = WTFMove(layer), status = WTFMove(status)] {
+                if (!protectedSelf->_parent)
+                    return;
+
+                protectedSelf->_parent->layerStatusDidChange(layer.get());
+            });
+            return;
+        }
+
+        if ([keyPath isEqualToString:@"error"]) {
+            RetainPtr<NSNumber> status = [change valueForKey:NSKeyValueChangeNewKey];
+            callOnMainThread([protectedSelf = RetainPtr<WebAVSampleBufferStatusChangeListener>(self), layer = WTFMove(layer), status = WTFMove(status)] {
+                if (!protectedSelf->_parent)
+                    return;
+
+                protectedSelf->_parent->layerErrorDidChange(layer.get());
+            });
+            return;
+        }
+    }
+
+    if ([[change valueForKey:NSKeyValueChangeNotificationIsPriorKey] boolValue])
+        return;
+
+    if ((CALayer *)object == _parent->backgroundLayer()) {
+        if ([keyPath isEqualToString:@"bounds"]) {
+            if (!_parent)
+                return;
+
+            if (isMainThread()) {
+                _parent->backgroundLayerBoundsChanged();
+                return;
+            }
+
+            callOnMainThread([protectedSelf = RetainPtr<WebAVSampleBufferStatusChangeListener>(self)] {
+                if (!protectedSelf->_parent)
+                    return;
+
+                protectedSelf->_parent->backgroundLayerBoundsChanged();
+            });
+        }
+    }
+
+}
+@end
+
 namespace WebCore {
+using namespace PAL;
 
 #pragma mark -
 #pragma mark MediaPlayerPrivateMediaStreamAVFObjC
 
+static const double rendererLatency = 0.02;
+
 MediaPlayerPrivateMediaStreamAVFObjC::MediaPlayerPrivateMediaStreamAVFObjC(MediaPlayer* player)
     : m_player(player)
-    , m_weakPtrFactory(this)
-    , m_clock(Clock::create())
+    , m_statusChangeListener(adoptNS([[WebAVSampleBufferStatusChangeListener alloc] initWithParent:this]))
+    , m_clock(PAL::Clock::create())
+    , m_videoFullscreenLayerManager(std::make_unique<VideoFullscreenLayerManagerObjC>())
+#if !RELEASE_LOG_DISABLED
+    , m_logger(player->mediaPlayerLogger())
+    , m_logIdentifier(player->mediaPlayerLogIdentifier())
+#endif
 {
-    LOG(Media, "MediaPlayerPrivateMediaStreamAVFObjC::MediaPlayerPrivateMediaStreamAVFObjC(%p)", this);
+    INFO_LOG(LOGIDENTIFIER);
 }
 
 MediaPlayerPrivateMediaStreamAVFObjC::~MediaPlayerPrivateMediaStreamAVFObjC()
 {
-    LOG(Media, "MediaPlayerPrivateMediaStreamAVFObjC::~MediaPlayerPrivateMediaStreamAVFObjC(%p)", this);
-    if (m_mediaStreamPrivate)
+    INFO_LOG(LOGIDENTIFIER);
+
+    [m_statusChangeListener invalidate];
+
+    for (const auto& track : m_audioTrackMap.values())
+        track->pause();
+
+    if (m_mediaStreamPrivate) {
         m_mediaStreamPrivate->removeObserver(*this);
+
+        for (auto& track : m_mediaStreamPrivate->tracks())
+            track->removeObserver(*this);
+    }
+
+    destroyLayers();
+
+    m_audioTrackMap.clear();
+    m_videoTrackMap.clear();
 }
 
 #pragma mark -
@@ -80,21 +240,299 @@ void MediaPlayerPrivateMediaStreamAVFObjC::registerMediaEngine(MediaEngineRegist
 
 bool MediaPlayerPrivateMediaStreamAVFObjC::isAvailable()
 {
-    return AVFoundationLibrary() && isCoreMediaFrameworkAvailable();
+    return AVFoundationLibrary() && isCoreMediaFrameworkAvailable() && getAVSampleBufferDisplayLayerClass();
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types)
 {
-    static NeverDestroyed<HashSet<String, ASCIICaseInsensitiveHash>> cache;
-    types = cache;
+    // FIXME: Is it really correct to list no supported types?
+    types.clear();
 }
 
 MediaPlayer::SupportsType MediaPlayerPrivateMediaStreamAVFObjC::supportsType(const MediaEngineSupportParameters& parameters)
 {
-    if (parameters.isMediaStream)
-        return MediaPlayer::IsSupported;
+    return parameters.isMediaStream ? MediaPlayer::IsSupported : MediaPlayer::IsNotSupported;
+}
 
-    return MediaPlayer::IsNotSupported;
+#pragma mark -
+#pragma mark AVSampleBuffer Methods
+
+void MediaPlayerPrivateMediaStreamAVFObjC::removeOldSamplesFromPendingQueue(PendingSampleQueue& queue)
+{
+    if (queue.isEmpty())
+        return;
+
+    auto decodeTime = queue.first()->decodeTime();
+    if (!decodeTime.isValid() || decodeTime < MediaTime::zeroTime()) {
+        while (queue.size() > 5)
+            queue.removeFirst();
+
+        return;
+    }
+
+    MediaTime now = streamTime();
+    while (!queue.isEmpty()) {
+        if (queue.first()->decodeTime() > now)
+            break;
+        queue.removeFirst();
+    }
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::addSampleToPendingQueue(PendingSampleQueue& queue, MediaSample& sample)
+{
+    removeOldSamplesFromPendingQueue(queue);
+    queue.append(sample);
+}
+
+MediaTime MediaPlayerPrivateMediaStreamAVFObjC::calculateTimelineOffset(const MediaSample& sample, double latency)
+{
+    MediaTime sampleTime = sample.outputPresentationTime();
+    if (!sampleTime || !sampleTime.isValid())
+        sampleTime = sample.presentationTime();
+    MediaTime timelineOffset = streamTime() - sampleTime + MediaTime::createWithDouble(latency);
+    if (timelineOffset.timeScale() != sampleTime.timeScale())
+        timelineOffset = PAL::toMediaTime(CMTimeConvertScale(PAL::toCMTime(timelineOffset), sampleTime.timeScale(), kCMTimeRoundingMethod_Default));
+    return timelineOffset;
+}
+
+CGAffineTransform MediaPlayerPrivateMediaStreamAVFObjC::videoTransformationMatrix(MediaSample& sample, bool forceUpdate)
+{
+    if (!forceUpdate && m_transformIsValid)
+        return m_videoTransform;
+
+    CMSampleBufferRef sampleBuffer = sample.platformSample().sample.cmSampleBuffer;
+    CVPixelBufferRef pixelBuffer = static_cast<CVPixelBufferRef>(CMSampleBufferGetImageBuffer(sampleBuffer));
+    size_t width = CVPixelBufferGetWidth(pixelBuffer);
+    size_t height = CVPixelBufferGetHeight(pixelBuffer);
+    if (!width || !height)
+        return CGAffineTransformIdentity;
+
+    ASSERT(m_videoRotation >= MediaSample::VideoRotation::None);
+    ASSERT(m_videoRotation <= MediaSample::VideoRotation::Left);
+
+    m_videoTransform = CGAffineTransformMakeRotation(static_cast<int>(m_videoRotation) * M_PI / 180);
+    if (sample.videoMirrored())
+        m_videoTransform = CGAffineTransformScale(m_videoTransform, -1, 1);
+
+    m_transformIsValid = true;
+    return m_videoTransform;
+}
+
+static void runWithoutAnimations(const WTF::Function<void()>& function)
+{
+    [CATransaction begin];
+    [CATransaction setAnimationDuration:0];
+    [CATransaction setDisableActions:YES];
+    function();
+    [CATransaction commit];
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::enqueueCorrectedVideoSample(MediaSample& sample)
+{
+    if (m_sampleBufferDisplayLayer) {
+        if ([m_sampleBufferDisplayLayer status] == AVQueuedSampleBufferRenderingStatusFailed)
+            return;
+
+        if (sample.videoRotation() != m_videoRotation || sample.videoMirrored() != m_videoMirrored) {
+            m_videoRotation = sample.videoRotation();
+            m_videoMirrored = sample.videoMirrored();
+            runWithoutAnimations([this, &sample] {
+                m_sampleBufferDisplayLayer.get().affineTransform = videoTransformationMatrix(sample, true);
+                updateDisplayLayer();
+            });
+        }
+
+        if (![m_sampleBufferDisplayLayer isReadyForMoreMediaData]) {
+            addSampleToPendingQueue(m_pendingVideoSampleQueue, sample);
+            requestNotificationWhenReadyForVideoData();
+            return;
+        }
+
+        [m_sampleBufferDisplayLayer enqueueSampleBuffer:sample.platformSample().sample.cmSampleBuffer];
+    }
+
+    if (!m_hasEverEnqueuedVideoFrame) {
+        m_hasEverEnqueuedVideoFrame = true;
+        m_player->firstVideoFrameAvailable();
+    }
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::enqueueVideoSample(MediaStreamTrackPrivate& track, MediaSample& sample)
+{
+    if (&track != m_mediaStreamPrivate->activeVideoTrack())
+        return;
+
+    if (!m_imagePainter.mediaSample || m_displayMode != PausedImage) {
+        m_imagePainter.mediaSample = &sample;
+        m_imagePainter.cgImage = nullptr;
+        if (m_readyState < MediaPlayer::ReadyState::HaveEnoughData)
+            updateReadyState();
+    }
+
+    if (m_displayMode != LivePreview && !m_waitingForFirstImage)
+        return;
+
+    auto videoTrack = m_videoTrackMap.get(track.id());
+    MediaTime timelineOffset = videoTrack->timelineOffset();
+    if (timelineOffset == MediaTime::invalidTime()) {
+        timelineOffset = calculateTimelineOffset(sample, rendererLatency);
+        videoTrack->setTimelineOffset(timelineOffset);
+
+        INFO_LOG(LOGIDENTIFIER, "timeline offset for track ", track.id(), " set to ", timelineOffset);
+    }
+
+    DEBUG_LOG(LOGIDENTIFIER, "original sample = ", sample);
+    sample.offsetTimestampsBy(timelineOffset);
+    DEBUG_LOG(LOGIDENTIFIER, "updated sample = ", sample);
+
+    if (WILL_LOG(WTFLogLevel::Debug)) {
+        MediaTime now = streamTime();
+        double delta = (sample.presentationTime() - now).toDouble();
+        if (delta < 0)
+            DEBUG_LOG(LOGIDENTIFIER, "*NOTE* sample at time is ", now, " is", -delta, " seconds late");
+        else if (delta < .01)
+            DEBUG_LOG(LOGIDENTIFIER, "*NOTE* audio sample at time ", now, " is only ", delta, " seconds early");
+        else if (delta > .3)
+            DEBUG_LOG(LOGIDENTIFIER, "*NOTE* audio sample at time ", now, " is ", delta, " seconds early!");
+    }
+
+    enqueueCorrectedVideoSample(sample);
+    if (m_waitingForFirstImage) {
+        m_waitingForFirstImage = false;
+        updateDisplayMode();
+    }
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::requestNotificationWhenReadyForVideoData()
+{
+    auto weakThis = makeWeakPtr(*this);
+    [m_sampleBufferDisplayLayer requestMediaDataWhenReadyOnQueue:dispatch_get_main_queue() usingBlock:^ {
+        if (!weakThis)
+            return;
+
+        [m_sampleBufferDisplayLayer stopRequestingMediaData];
+
+        if (!m_activeVideoTrack) {
+            m_pendingVideoSampleQueue.clear();
+            return;
+        }
+
+        while (!m_pendingVideoSampleQueue.isEmpty()) {
+            if (![m_sampleBufferDisplayLayer isReadyForMoreMediaData]) {
+                requestNotificationWhenReadyForVideoData();
+                return;
+            }
+
+            auto sample = m_pendingVideoSampleQueue.takeFirst();
+            enqueueVideoSample(*m_activeVideoTrack.get(), sample.get());
+        }
+    }];
+}
+
+AudioSourceProvider* MediaPlayerPrivateMediaStreamAVFObjC::audioSourceProvider()
+{
+    // FIXME: This should return a mix of all audio tracks - https://bugs.webkit.org/show_bug.cgi?id=160305
+    return nullptr;
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::layerErrorDidChange(AVSampleBufferDisplayLayer* layer)
+{
+    UNUSED_PARAM(layer);
+    ERROR_LOG(LOGIDENTIFIER, "error = ", [[layer.error localizedDescription] UTF8String]);
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::layerStatusDidChange(AVSampleBufferDisplayLayer* layer)
+{
+    ALWAYS_LOG(LOGIDENTIFIER, "status = ", (int)layer.status);
+
+    if (layer.status != AVQueuedSampleBufferRenderingStatusRendering)
+        return;
+    if (!m_sampleBufferDisplayLayer || !m_activeVideoTrack || layer != m_sampleBufferDisplayLayer)
+        return;
+
+    auto track = m_videoTrackMap.get(m_activeVideoTrack->id());
+    if (track)
+        track->setTimelineOffset(MediaTime::invalidTime());
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::applicationDidBecomeActive()
+{
+    if (m_sampleBufferDisplayLayer && [m_sampleBufferDisplayLayer status] == AVQueuedSampleBufferRenderingStatusFailed) {
+        flushRenderers();
+        if (m_imagePainter.mediaSample)
+            enqueueCorrectedVideoSample(*m_imagePainter.mediaSample);
+        updateDisplayMode();
+    }
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::flushRenderers()
+{
+    if (m_sampleBufferDisplayLayer)
+        [m_sampleBufferDisplayLayer flush];
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::flushAndRemoveVideoSampleBuffers()
+{
+    [m_sampleBufferDisplayLayer flushAndRemoveImage];
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::ensureLayers()
+{
+    if (m_sampleBufferDisplayLayer)
+        return;
+
+    if (!m_mediaStreamPrivate || !m_mediaStreamPrivate->activeVideoTrack() || !m_mediaStreamPrivate->activeVideoTrack()->enabled())
+        return;
+
+    m_sampleBufferDisplayLayer = adoptNS([allocAVSampleBufferDisplayLayerInstance() init]);
+    if (!m_sampleBufferDisplayLayer) {
+        ERROR_LOG(LOGIDENTIFIER, "+[AVSampleBufferDisplayLayer alloc] failed.");
+        return;
+    }
+
+    m_sampleBufferDisplayLayer.get().backgroundColor = cachedCGColor(Color::black);
+    m_sampleBufferDisplayLayer.get().anchorPoint = { .5, .5 };
+    m_sampleBufferDisplayLayer.get().needsDisplayOnBoundsChange = YES;
+    m_sampleBufferDisplayLayer.get().videoGravity = AVLayerVideoGravityResizeAspectFill;
+
+    m_backgroundLayer = adoptNS([[CALayer alloc] init]);
+    m_backgroundLayer.get().hidden = hideBackgroundLayer();
+
+    m_backgroundLayer.get().backgroundColor = cachedCGColor(Color::black);
+    m_backgroundLayer.get().needsDisplayOnBoundsChange = YES;
+
+    auto size = snappedIntRect(m_player->client().mediaPlayerContentBoxRect()).size();
+    m_backgroundLayer.get().bounds = CGRectMake(0, 0, size.width(), size.height());
+
+    [m_statusChangeListener beginObservingLayers];
+
+    [m_backgroundLayer addSublayer:m_sampleBufferDisplayLayer.get()];
+
+#ifndef NDEBUG
+    [m_sampleBufferDisplayLayer setName:@"MediaPlayerPrivateMediaStreamAVFObjC AVSampleBufferDisplayLayer"];
+    [m_backgroundLayer setName:@"MediaPlayerPrivateMediaStreamAVFObjC AVSampleBufferDisplayLayer parent"];
+#endif
+
+    updateRenderingMode();
+    updateDisplayLayer();
+
+    m_videoFullscreenLayerManager->setVideoLayer(m_backgroundLayer.get(), size);
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::destroyLayers()
+{
+    [m_statusChangeListener stopObservingLayers];
+    if (m_sampleBufferDisplayLayer) {
+        m_pendingVideoSampleQueue.clear();
+        [m_sampleBufferDisplayLayer stopRequestingMediaData];
+        [m_sampleBufferDisplayLayer flush];
+        m_sampleBufferDisplayLayer = nullptr;
+    }
+    m_backgroundLayer = nullptr;
+
+    updateRenderingMode();
+    
+    m_videoFullscreenLayerManager->didDestroyVideoLayer();
 }
 
 #pragma mark -
@@ -120,9 +558,8 @@ void MediaPlayerPrivateMediaStreamAVFObjC::load(const String&, MediaSourcePrivat
 
 void MediaPlayerPrivateMediaStreamAVFObjC::load(MediaStreamPrivate& stream)
 {
-    LOG(Media, "MediaPlayerPrivateMediaStreamAVFObjC::load(%p)", this);
+    INFO_LOG(LOGIDENTIFIER);
 
-    m_previewLayer = nullptr;
     m_intrinsicSize = FloatSize();
 
     m_mediaStreamPrivate = &stream;
@@ -136,157 +573,160 @@ void MediaPlayerPrivateMediaStreamAVFObjC::load(MediaStreamPrivate& stream)
     });
 }
 
+bool MediaPlayerPrivateMediaStreamAVFObjC::didPassCORSAccessCheck() const
+{
+    // We are only doing a check on the active video track since the sole consumer of this API is canvas.
+    // FIXME: We should change the name of didPassCORSAccessCheck if it is expected to stay like this.
+    const auto* track = m_mediaStreamPrivate->activeVideoTrack();
+    return !track || !track->isIsolated();
+}
+
 void MediaPlayerPrivateMediaStreamAVFObjC::cancelLoad()
 {
-    LOG(Media, "MediaPlayerPrivateMediaStreamAVFObjC::cancelLoad(%p)", this);
-    if (m_playing)
+    INFO_LOG(LOGIDENTIFIER);
+    if (playing())
         pause();
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::prepareToPlay()
 {
-    LOG(Media, "MediaPlayerPrivateMediaStreamAVFObjC::prepareToPlay(%p)", this);
+    INFO_LOG(LOGIDENTIFIER);
 }
 
 PlatformLayer* MediaPlayerPrivateMediaStreamAVFObjC::platformLayer() const
 {
-    if (!m_videoBackgroundLayer || m_displayMode == None)
+    if (!m_backgroundLayer || m_displayMode == None)
         return nullptr;
 
-    return m_videoBackgroundLayer.get();
+    return m_videoFullscreenLayerManager->videoInlineLayer();
+}
+
+PlatformLayer* MediaPlayerPrivateMediaStreamAVFObjC::displayLayer()
+{
+    return m_sampleBufferDisplayLayer.get();
+}
+
+PlatformLayer* MediaPlayerPrivateMediaStreamAVFObjC::backgroundLayer()
+{
+    return m_backgroundLayer.get();
 }
 
 MediaPlayerPrivateMediaStreamAVFObjC::DisplayMode MediaPlayerPrivateMediaStreamAVFObjC::currentDisplayMode() const
 {
-    if (m_ended || m_intrinsicSize.isEmpty() || !metaDataAvailable() || !m_videoBackgroundLayer)
+    if (m_intrinsicSize.isEmpty() || !metaDataAvailable() || !m_sampleBufferDisplayLayer)
         return None;
 
-    if (m_mediaStreamPrivate->activeVideoTrack() && !m_mediaStreamPrivate->activeVideoTrack()->enabled())
-        return PaintItBlack;
+    if (auto* track = m_mediaStreamPrivate->activeVideoTrack()) {
+        if (!track->enabled() || track->muted() || track->ended())
+            return PaintItBlack;
+    }
 
-    if (m_playing) {
+    if (m_waitingForFirstImage)
+        return WaitingForFirstImage;
+
+    if (playing() && !m_ended) {
         if (!m_mediaStreamPrivate->isProducingData())
             return PausedImage;
         return LivePreview;
     }
 
+    if (m_playbackState == PlaybackState::None || m_ended)
+        return PaintItBlack;
+
     return PausedImage;
 }
 
-void MediaPlayerPrivateMediaStreamAVFObjC::updateDisplayMode()
+bool MediaPlayerPrivateMediaStreamAVFObjC::updateDisplayMode()
 {
     DisplayMode displayMode = currentDisplayMode();
 
     if (displayMode == m_displayMode)
-        return;
+        return false;
+
+    INFO_LOG(LOGIDENTIFIER, "updated to ", static_cast<int>(displayMode));
     m_displayMode = displayMode;
 
-    if (m_displayMode == None)
-        return;
+    auto hidden = m_displayMode < PausedImage;
+    if (m_sampleBufferDisplayLayer && m_sampleBufferDisplayLayer.get().hidden != hidden) {
+        runWithoutAnimations([this, hidden] {
+            m_sampleBufferDisplayLayer.get().hidden = hidden;
+        });
+    }
+    hidden = hideBackgroundLayer();
+    if (m_backgroundLayer && m_backgroundLayer.get().hidden != hidden) {
+        runWithoutAnimations([this, hidden] {
+            m_backgroundLayer.get().hidden = hidden;
+        });
+    }
 
-    [CATransaction begin];
-    [CATransaction setAnimationDuration:0];
-    [CATransaction setDisableActions:YES];
-
-    do {
-        if (m_displayMode < LivePreview) {
-
-            if (m_displayMode == PausedImage) {
-                if (m_videoBackgroundLayer.get().contents)
-                    break;
-
-                RefPtr<Image> image = m_mediaStreamPrivate->currentFrameImage();
-                if (!image) {
-                    m_displayMode = PaintItBlack;
-                    continue;
-                }
-
-                m_pausedImage = image->getCGImageRef();
-                if (!m_pausedImage) {
-                    m_displayMode = PaintItBlack;
-                    continue;
-                }
-
-                m_videoBackgroundLayer.get().contents = (id)m_pausedImage.get();
-                m_videoBackgroundLayer.get().backgroundColor = nil;
-            } else {
-                m_videoBackgroundLayer.get().contents = nil;
-                m_videoBackgroundLayer.get().backgroundColor = cachedCGColor(Color::black);
-                m_pausedImage = nullptr;
-            }
-
-            m_previewLayer.get().hidden = true;
-
-        } else {
-
-            m_previewLayer.get().hidden = false;
-            m_videoBackgroundLayer.get().contents = nil;
-            m_pausedImage = nullptr;
-        }
-
-        break;
-    } while (1);
-
-    [CATransaction commit];
+    return true;
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::play()
 {
-    LOG(Media, "MediaPlayerPrivateMediaStreamAVFObjC::play(%p)", this);
+    ALWAYS_LOG(LOGIDENTIFIER);
 
-    if (!metaDataAvailable() || m_playing || m_ended)
+    if (!metaDataAvailable() || playing() || m_ended)
         return;
 
-    m_clock->start();
-    m_playing = true;
-    m_haveEverPlayed = true;
+    m_playbackState = PlaybackState::Playing;
+    if (!m_clock->isRunning())
+        m_clock->start();
+
+    for (const auto& track : m_audioTrackMap.values())
+        track->play();
+
     updateDisplayMode();
-    updateReadyState();
+
+    scheduleDeferredTask([this] {
+        updateReadyState();
+        if (m_player)
+            m_player->rateChanged();
+    });
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::pause()
 {
-    LOG(Media, "MediaPlayerPrivateMediaStreamAVFObjC::pause(%p)", this);
+    ALWAYS_LOG(LOGIDENTIFIER);
 
-    if (!metaDataAvailable() || !m_playing || m_ended)
+    if (!metaDataAvailable() || !playing() || m_ended)
         return;
 
-    m_clock->stop();
-    m_playing = false;
+    m_pausedTime = currentMediaTime();
+    m_playbackState = PlaybackState::Paused;
+
+    for (const auto& track : m_audioTrackMap.values())
+        track->pause();
+
     updateDisplayMode();
-}
+    flushRenderers();
 
-bool MediaPlayerPrivateMediaStreamAVFObjC::paused() const
-{
-    return !m_playing;
-}
-
-void MediaPlayerPrivateMediaStreamAVFObjC::internalSetVolume(float volume, bool internal)
-{
-    if (!internal)
-        m_volume = volume;
-
-    if (!metaDataAvailable())
-        return;
-
-    // FIXME: Set volume once we actually play audio.
+    scheduleDeferredTask([this] {
+        if (m_player)
+            m_player->rateChanged();
+    });
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::setVolume(float volume)
 {
-    internalSetVolume(volume, false);
+    if (m_volume == volume)
+        return;
+
+    ALWAYS_LOG(LOGIDENTIFIER, volume);
+    m_volume = volume;
+    for (const auto& track : m_audioTrackMap.values())
+        track->setVolume(m_muted ? 0 : m_volume);
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::setMuted(bool muted)
 {
-    LOG(Media, "MediaPlayerPrivateMediaStreamAVFObjC::setMuted(%p)", this);
-
     if (muted == m_muted)
         return;
 
+    ALWAYS_LOG(LOGIDENTIFIER, muted);
     m_muted = muted;
-    
-    internalSetVolume(muted ? 0 : m_volume, true);
+    for (const auto& track : m_audioTrackMap.values())
+        track->setVolume(m_muted ? 0 : m_volume);
 }
 
 bool MediaPlayerPrivateMediaStreamAVFObjC::hasVideo() const
@@ -305,12 +745,30 @@ bool MediaPlayerPrivateMediaStreamAVFObjC::hasAudio() const
     return m_mediaStreamPrivate->hasAudio();
 }
 
+void MediaPlayerPrivateMediaStreamAVFObjC::setVisible(bool visible)
+{
+    if (m_visible == visible)
+        return;
+
+    m_visible = visible;
+    if (m_visible)
+        flushRenderers();
+}
+
 MediaTime MediaPlayerPrivateMediaStreamAVFObjC::durationMediaTime() const
 {
     return MediaTime::positiveInfiniteTime();
 }
 
 MediaTime MediaPlayerPrivateMediaStreamAVFObjC::currentMediaTime() const
+{
+    if (paused())
+        return m_pausedTime;
+
+    return streamTime();
+}
+
+MediaTime MediaPlayerPrivateMediaStreamAVFObjC::streamTime() const
 {
     return MediaTime::createWithDouble(m_clock->currentTime());
 }
@@ -327,36 +785,42 @@ MediaPlayer::ReadyState MediaPlayerPrivateMediaStreamAVFObjC::readyState() const
 
 MediaPlayer::ReadyState MediaPlayerPrivateMediaStreamAVFObjC::currentReadyState()
 {
-    if (!m_mediaStreamPrivate)
+    if (!m_mediaStreamPrivate || !m_mediaStreamPrivate->active() || !m_mediaStreamPrivate->tracks().size())
         return MediaPlayer::ReadyState::HaveNothing;
 
-    if (m_mediaStreamPrivate->active()) {
-        if (!m_haveEverPlayed)
-            return MediaPlayer::ReadyState::HaveFutureData;
-        return MediaPlayer::ReadyState::HaveEnoughData;
+    bool allTracksAreLive = true;
+    for (auto& track : m_mediaStreamPrivate->tracks()) {
+        if (!track->enabled() || track->readyState() != MediaStreamTrackPrivate::ReadyState::Live)
+            allTracksAreLive = false;
+
+        if (track == m_mediaStreamPrivate->activeVideoTrack() && !m_imagePainter.mediaSample) {
+            if (!m_haveSeenMetadata || m_waitingForFirstImage)
+                return MediaPlayer::ReadyState::HaveNothing;
+            allTracksAreLive = false;
+        }
     }
 
-    updateDisplayMode();
+    if (m_waitingForFirstImage || (!allTracksAreLive && !m_haveSeenMetadata))
+        return MediaPlayer::ReadyState::HaveMetadata;
 
-    if (m_displayMode == PausedImage)
-        return MediaPlayer::ReadyState::HaveCurrentData;
-
-    return MediaPlayer::ReadyState::HaveMetadata;
+    return MediaPlayer::ReadyState::HaveEnoughData;
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::updateReadyState()
 {
     MediaPlayer::ReadyState newReadyState = currentReadyState();
 
-    if (newReadyState != m_readyState)
+    if (newReadyState != m_readyState) {
+        ALWAYS_LOG(LOGIDENTIFIER, "updated to ", (int)newReadyState);
         setReadyState(newReadyState);
+    }
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::activeStatusChanged()
 {
     scheduleDeferredTask([this] {
         bool ended = !m_mediaStreamPrivate->active();
-        if (ended && m_playing)
+        if (ended && playing())
             pause();
 
         updateReadyState();
@@ -364,54 +828,21 @@ void MediaPlayerPrivateMediaStreamAVFObjC::activeStatusChanged()
 
         if (ended != m_ended) {
             m_ended = ended;
-            if (m_player)
+            if (m_player) {
                 m_player->timeChanged();
+                m_player->characteristicChanged();
+            }
         }
     });
 }
 
-void MediaPlayerPrivateMediaStreamAVFObjC::updateIntrinsicSize(const FloatSize& size)
+void MediaPlayerPrivateMediaStreamAVFObjC::updateRenderingMode()
 {
-    if (size == m_intrinsicSize)
+    if (!updateDisplayMode())
         return;
 
-    m_intrinsicSize = size;
-
-    if (m_videoBackgroundLayer || !m_player || !m_player->client().mediaPlayerRenderingCanBeAccelerated(m_player))
-        return;
-
-    if (!m_mediaStreamPrivate || !m_mediaStreamPrivate->platformLayer())
-        return;
-
-    createPreviewLayers();
-}
-
-void MediaPlayerPrivateMediaStreamAVFObjC::createPreviewLayers()
-{
-    if (!m_videoBackgroundLayer) {
-        m_videoBackgroundLayer = adoptNS([[CALayer alloc] init]);
-        m_videoBackgroundLayer.get().name = @"MediaPlayerPrivateMediaStreamAVFObjC preview background layer";
-    }
-
-    if (!m_previewLayer) {
-        m_previewLayer = m_mediaStreamPrivate->platformLayer();
-        if (m_previewLayer) {
-            m_previewLayer.get().contentsGravity = kCAGravityResize;
-            m_previewLayer.get().anchorPoint = CGPointZero;
-            if (!m_playing)
-                m_previewLayer.get().hidden = true;
-
-            [m_videoBackgroundLayer addSublayer:m_previewLayer.get()];
-        }
-    }
-
-    renderingModeChanged();
-}
-
-void MediaPlayerPrivateMediaStreamAVFObjC::renderingModeChanged()
-{
-    updateDisplayMode();
     scheduleDeferredTask([this] {
+        m_transformIsValid = false;
         if (m_player)
             m_player->client().mediaPlayerRenderingModeChanged(m_player);
     });
@@ -424,8 +855,10 @@ void MediaPlayerPrivateMediaStreamAVFObjC::characteristicsChanged()
 
     FloatSize intrinsicSize = m_mediaStreamPrivate->intrinsicSize();
     if (intrinsicSize.height() != m_intrinsicSize.height() || intrinsicSize.width() != m_intrinsicSize.width()) {
-        updateIntrinsicSize(intrinsicSize);
+        m_intrinsicSize = intrinsicSize;
         sizeChanged = true;
+        if (m_playbackState == PlaybackState::None)
+            m_playbackState = PlaybackState::Paused;
     }
 
     updateTracks();
@@ -454,8 +887,66 @@ void MediaPlayerPrivateMediaStreamAVFObjC::didRemoveTrack(MediaStreamTrackPrivat
     updateTracks();
 }
 
-template <typename RefT, typename PassRefT>
-void updateTracksOfType(HashMap<String, RefT>& trackMap, RealtimeMediaSource::Type trackType, MediaStreamTrackPrivateVector& currentTracks, RefT (*itemFactory)(MediaStreamTrackPrivate&), MediaPlayer* player, void (MediaPlayer::*removedFunction)(PassRefT), void (MediaPlayer::*addedFunction)(PassRefT), std::function<void(RefT, int)> configureCallback)
+void MediaPlayerPrivateMediaStreamAVFObjC::sampleBufferUpdated(MediaStreamTrackPrivate& track, MediaSample& mediaSample)
+{
+    ASSERT(track.id() == mediaSample.trackID());
+    ASSERT(mediaSample.platformSample().type == PlatformSample::CMSampleBufferType);
+    ASSERT(m_mediaStreamPrivate);
+
+    if (streamTime().toDouble() < 0)
+        return;
+
+    switch (track.type()) {
+    case RealtimeMediaSource::Type::None:
+        // Do nothing.
+        break;
+    case RealtimeMediaSource::Type::Audio:
+        break;
+    case RealtimeMediaSource::Type::Video:
+        if (&track == m_activeVideoTrack.get())
+            enqueueVideoSample(track, mediaSample);
+        break;
+    }
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::readyStateChanged(MediaStreamTrackPrivate&)
+{
+    scheduleDeferredTask([this] {
+        updateReadyState();
+    });
+}
+
+bool MediaPlayerPrivateMediaStreamAVFObjC::supportsPictureInPicture() const
+{
+#if PLATFORM(IOS_FAMILY)
+    for (const auto& track : m_videoTrackMap.values()) {
+        if (track->streamTrack().isCaptureTrack())
+            return false;
+    }
+#endif
+    
+    return true;
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::setVideoFullscreenLayer(PlatformLayer* videoFullscreenLayer, WTF::Function<void()>&& completionHandler)
+{
+    updateCurrentFrameImage();
+    m_videoFullscreenLayerManager->setVideoFullscreenLayer(videoFullscreenLayer, WTFMove(completionHandler), m_imagePainter.cgImage);
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::setVideoFullscreenFrame(FloatRect frame)
+{
+    m_videoFullscreenLayerManager->setVideoFullscreenFrame(frame);
+}
+
+typedef enum {
+    Add,
+    Remove,
+    Configure
+} TrackState;
+
+template <typename RefT>
+void updateTracksOfType(HashMap<String, RefT>& trackMap, RealtimeMediaSource::Type trackType, MediaStreamTrackPrivateVector& currentTracks, RefT (*itemFactory)(MediaStreamTrackPrivate&), const Function<void(typename RefT::ValueType&, int, TrackState)>& configureTrack)
 {
     Vector<RefT> removedTracks;
     Vector<RefT> addedTracks;
@@ -470,13 +961,14 @@ void updateTracksOfType(HashMap<String, RefT>& trackMap, RealtimeMediaSource::Ty
     }
 
     for (const auto& track : trackMap.values()) {
-        MediaStreamTrackPrivate* streamTrack = track->streamTrack();
-        if (currentTracks.contains(streamTrack))
+        auto& streamTrack = track->streamTrack();
+        if (currentTracks.contains(&streamTrack))
             continue;
 
         removedTracks.append(track);
-        trackMap.remove(streamTrack->id());
     }
+    for (auto& track : removedTracks)
+        trackMap.remove(track->streamTrack().id());
 
     for (auto& track : addedPrivateTracks) {
         RefT newTrack = itemFactory(*track.get());
@@ -485,44 +977,98 @@ void updateTracksOfType(HashMap<String, RefT>& trackMap, RealtimeMediaSource::Ty
     }
 
     int index = 0;
-    for (const auto& track : trackMap.values())
-        configureCallback(track, index++);
-
     for (auto& track : removedTracks)
-        (player->*removedFunction)(track);
+        configureTrack(*track, index++, TrackState::Remove);
 
+    index = 0;
     for (auto& track : addedTracks)
-        (player->*addedFunction)(track);
+        configureTrack(*track, index++, TrackState::Add);
+
+    index = 0;
+    for (const auto& track : trackMap.values())
+        configureTrack(*track, index++, TrackState::Configure);
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::checkSelectedVideoTrack()
+{
+    if (m_pendingSelectedTrackCheck)
+        return;
+
+    m_pendingSelectedTrackCheck = true;
+    scheduleDeferredTask([this] {
+        auto oldVideoTrack = m_activeVideoTrack;
+        bool hideVideoLayer = true;
+        m_activeVideoTrack = nullptr;
+        if (m_mediaStreamPrivate->activeVideoTrack()) {
+            for (const auto& track : m_videoTrackMap.values()) {
+                if (&track->streamTrack() == m_mediaStreamPrivate->activeVideoTrack()) {
+                    m_activeVideoTrack = m_mediaStreamPrivate->activeVideoTrack();
+                    if (track->selected())
+                        hideVideoLayer = false;
+                    break;
+                }
+            }
+        }
+
+        if (oldVideoTrack != m_activeVideoTrack) {
+            m_imagePainter.reset();
+            if (m_displayMode == None)
+                m_waitingForFirstImage = true;
+        }
+        ensureLayers();
+        m_sampleBufferDisplayLayer.get().hidden = hideVideoLayer || m_displayMode < PausedImage;
+        m_backgroundLayer.get().hidden = hideBackgroundLayer();
+
+        m_pendingSelectedTrackCheck = false;
+        updateDisplayMode();
+    });
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::updateTracks()
 {
     MediaStreamTrackPrivateVector currentTracks = m_mediaStreamPrivate->tracks();
-    bool selectedVideoTrackChanged = false;
 
-    std::function<void(RefPtr<AudioTrackPrivateMediaStream>, int)> enableAudioTrack = [this](RefPtr<AudioTrackPrivateMediaStream> track, int index)
+    auto setAudioTrackState = [this](AudioTrackPrivateMediaStreamCocoa& track, int index, TrackState state)
     {
-        track->setTrackIndex(index);
-        track->setEnabled(track->streamTrack()->enabled() && !track->streamTrack()->muted());
+        switch (state) {
+        case TrackState::Remove:
+            track.streamTrack().removeObserver(*this);
+            m_player->removeAudioTrack(track);
+            break;
+        case TrackState::Add:
+            track.streamTrack().addObserver(*this);
+            m_player->addAudioTrack(track);
+            break;
+        case TrackState::Configure:
+            track.setTrackIndex(index);
+            bool enabled = track.streamTrack().enabled() && !track.streamTrack().muted();
+            track.setEnabled(enabled);
+            break;
+        }
     };
-    updateTracksOfType(m_audioTrackMap, RealtimeMediaSource::Audio, currentTracks, &AudioTrackPrivateMediaStream::create, m_player, &MediaPlayer::removeAudioTrack, &MediaPlayer::addAudioTrack, enableAudioTrack);
+    updateTracksOfType(m_audioTrackMap, RealtimeMediaSource::Type::Audio, currentTracks, &AudioTrackPrivateMediaStreamCocoa::create, WTFMove(setAudioTrackState));
 
-    std::function<void(RefPtr<VideoTrackPrivateMediaStream>, int)> enableVideoTrack = [this, &selectedVideoTrackChanged](RefPtr<VideoTrackPrivateMediaStream> track, int index)
+    auto setVideoTrackState = [this](VideoTrackPrivateMediaStream& track, int index, TrackState state)
     {
-        bool wasSelected = track->selected();
-        track->setTrackIndex(index);
-        track->setSelected(track->streamTrack() == m_mediaStreamPrivate->activeVideoTrack());
-        if (wasSelected != track->selected())
-            selectedVideoTrackChanged = true;
+        switch (state) {
+        case TrackState::Remove:
+            track.streamTrack().removeObserver(*this);
+            m_player->removeVideoTrack(track);
+            checkSelectedVideoTrack();
+            break;
+        case TrackState::Add:
+            track.streamTrack().addObserver(*this);
+            m_player->addVideoTrack(track);
+            break;
+        case TrackState::Configure:
+            track.setTrackIndex(index);
+            bool selected = &track.streamTrack() == m_mediaStreamPrivate->activeVideoTrack();
+            track.setSelected(selected);
+            checkSelectedVideoTrack();
+            break;
+        }
     };
-    updateTracksOfType(m_videoTrackMap, RealtimeMediaSource::Video, currentTracks, &VideoTrackPrivateMediaStream::create, m_player, &MediaPlayer::removeVideoTrack, &MediaPlayer::addVideoTrack, enableVideoTrack);
-
-    if (selectedVideoTrackChanged) {
-        if (m_previewLayer)
-            m_previewLayer = nullptr;
-
-        createPreviewLayers();
-    }
+    updateTracksOfType(m_videoTrackMap, RealtimeMediaSource::Type::Video, currentTracks, &VideoTrackPrivateMediaStream::create, WTFMove(setVideoTrackState));
 }
 
 std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateMediaStreamAVFObjC::seekable() const
@@ -540,37 +1086,59 @@ void MediaPlayerPrivateMediaStreamAVFObjC::paint(GraphicsContext& context, const
     paintCurrentFrameInContext(context, rect);
 }
 
-void MediaPlayerPrivateMediaStreamAVFObjC::paintCurrentFrameInContext(GraphicsContext& context, const FloatRect& rect)
+void MediaPlayerPrivateMediaStreamAVFObjC::updateCurrentFrameImage()
 {
-    if (m_displayMode == None || !metaDataAvailable() || context.paintingDisabled() || !m_haveEverPlayed)
+    if (m_imagePainter.cgImage || !m_imagePainter.mediaSample)
         return;
 
+    if (!m_imagePainter.pixelBufferConformer)
+        m_imagePainter.pixelBufferConformer = std::make_unique<PixelBufferConformerCV>((__bridge CFDictionaryRef)@{ (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA) });
 
-    if (m_displayMode == LivePreview)
-        m_mediaStreamPrivate->paintCurrentFrameInContext(context, rect);
-    else {
-        GraphicsContextStateSaver stateSaver(context);
-        context.translate(rect.x(), rect.y() + rect.height());
-        context.scale(FloatSize(1, -1));
-        IntRect paintRect(IntPoint(0, 0), IntSize(rect.width(), rect.height()));
-        context.setImageInterpolationQuality(InterpolationLow);
+    ASSERT(m_imagePainter.pixelBufferConformer);
+    if (!m_imagePainter.pixelBufferConformer)
+        return;
 
-        if (m_displayMode == PausedImage && m_pausedImage)
-            CGContextDrawImage(context.platformContext(), CGRectMake(0, 0, paintRect.width(), paintRect.height()), m_pausedImage.get());
-        else
-            context.fillRect(paintRect, Color::black);
+    auto pixelBuffer = static_cast<CVPixelBufferRef>(CMSampleBufferGetImageBuffer(m_imagePainter.mediaSample->platformSample().sample.cmSampleBuffer));
+    m_imagePainter.cgImage = m_imagePainter.pixelBufferConformer->createImageFromPixelBuffer(pixelBuffer);
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::paintCurrentFrameInContext(GraphicsContext& context, const FloatRect& destRect)
+{
+    if (m_displayMode == None || !metaDataAvailable() || context.paintingDisabled())
+        return;
+
+    if (m_displayMode != PaintItBlack && m_imagePainter.mediaSample)
+        updateCurrentFrameImage();
+
+    GraphicsContextStateSaver stateSaver(context);
+    if (m_displayMode == PaintItBlack) {
+        context.fillRect(IntRect(IntPoint(), IntSize(destRect.width(), destRect.height())), Color::black);
+        return;
     }
+
+    if (!m_imagePainter.cgImage || !m_imagePainter.mediaSample)
+        return;
+
+    auto image = m_imagePainter.cgImage.get();
+    FloatRect imageRect(0, 0, CGImageGetWidth(image), CGImageGetHeight(image));
+    AffineTransform videoTransform = videoTransformationMatrix(*m_imagePainter.mediaSample);
+    FloatRect transformedDestRect = videoTransform.inverse().valueOr(AffineTransform()).mapRect(destRect);
+    context.concatCTM(videoTransform);
+    context.drawNativeImage(image, imageRect.size(), transformedDestRect, imageRect);
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::acceleratedRenderingStateChanged()
+{
+    if (m_player->client().mediaPlayerRenderingCanBeAccelerated(m_player))
+        ensureLayers();
+    else
+        destroyLayers();
 }
 
 String MediaPlayerPrivateMediaStreamAVFObjC::engineDescription() const
 {
-    static NeverDestroyed<String> description(ASCIILiteral("AVFoundation MediaStream Engine"));
+    static NeverDestroyed<String> description(MAKE_STATIC_STRING_IMPL("AVFoundation MediaStream Engine"));
     return description;
-}
-
-bool MediaPlayerPrivateMediaStreamAVFObjC::shouldBePlaying() const
-{
-    return m_playing && m_readyState >= MediaPlayer::HaveFutureData;
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::setReadyState(MediaPlayer::ReadyState readyState)
@@ -578,6 +1146,8 @@ void MediaPlayerPrivateMediaStreamAVFObjC::setReadyState(MediaPlayer::ReadyState
     if (m_readyState == readyState)
         return;
 
+    if (readyState != MediaPlayer::ReadyState::HaveNothing)
+        m_haveSeenMetadata = true;
     m_readyState = readyState;
     characteristicsChanged();
 
@@ -593,17 +1163,57 @@ void MediaPlayerPrivateMediaStreamAVFObjC::setNetworkState(MediaPlayer::NetworkS
     m_player->networkStateChanged();
 }
 
-void MediaPlayerPrivateMediaStreamAVFObjC::scheduleDeferredTask(std::function<void()> function)
+void MediaPlayerPrivateMediaStreamAVFObjC::setShouldBufferData(bool shouldBuffer)
+{
+    if (!shouldBuffer)
+        flushAndRemoveVideoSampleBuffers();
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::scheduleDeferredTask(Function<void ()>&& function)
 {
     ASSERT(function);
-    auto weakThis = createWeakPtr();
-    callOnMainThread([weakThis, function] {
+    callOnMainThread([weakThis = makeWeakPtr(*this), function = WTFMove(function)] {
         if (!weakThis)
             return;
 
         function();
     });
 }
+
+void MediaPlayerPrivateMediaStreamAVFObjC::CurrentFramePainter::reset()
+{
+    cgImage = nullptr;
+    mediaSample = nullptr;
+    pixelBufferConformer = nullptr;
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::updateDisplayLayer()
+{
+    if (!m_backgroundLayer || !m_sampleBufferDisplayLayer)
+        return;
+
+    auto backgroundBounds = m_backgroundLayer.get().bounds;
+    auto videoBounds = backgroundBounds;
+    if (m_videoRotation == MediaSample::VideoRotation::Right || m_videoRotation == MediaSample::VideoRotation::Left)
+        std::swap(videoBounds.size.width, videoBounds.size.height);
+
+    m_sampleBufferDisplayLayer.get().bounds = videoBounds;
+    m_sampleBufferDisplayLayer.get().position = { backgroundBounds.size.width / 2, backgroundBounds.size.height / 2};
+}
+
+void MediaPlayerPrivateMediaStreamAVFObjC::backgroundLayerBoundsChanged()
+{
+    runWithoutAnimations([this] {
+        updateDisplayLayer();
+    });
+}
+
+#if !RELEASE_LOG_DISABLED
+WTFLogChannel& MediaPlayerPrivateMediaStreamAVFObjC::logChannel() const
+{
+    return LogMedia;
+}
+#endif
 
 }
 

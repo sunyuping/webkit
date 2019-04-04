@@ -21,14 +21,14 @@
  *
  */
 
-#ifndef HTMLBodyElement_h
-#define HTMLBodyElement_h
+#pragma once
 
 #include "HTMLElement.h"
 
 namespace WebCore {
 
 class HTMLBodyElement final : public HTMLElement {
+    WTF_MAKE_ISO_ALLOCATED(HTMLBodyElement);
 public:
     static Ref<HTMLBodyElement> create(Document&);
     static Ref<HTMLBodyElement> create(const QualifiedName&, Document&);
@@ -39,32 +39,20 @@ public:
 private:
     HTMLBodyElement(const QualifiedName&, Document&);
 
-    bool isFirstBodyElementOfDocument() const;
+    void parseAttribute(const QualifiedName&, const AtomicString&) final;
+    bool isPresentationAttribute(const QualifiedName&) const final;
+    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) final;
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual bool isPresentationAttribute(const QualifiedName&) const override;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomicString&, MutableStyleProperties&) override;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void didFinishInsertingNode() final;
 
-    virtual InsertionNotificationRequest insertedInto(ContainerNode&) override;
+    bool isURLAttribute(const Attribute&) const final;
+    
+    bool supportsFocus() const final;
 
-    virtual bool isURLAttribute(const Attribute&) const override;
-    
-    virtual bool supportsFocus() const override;
-
-    virtual int scrollLeft() override;
-    virtual void setScrollLeft(int) override;
-    
-    virtual int scrollTop() override;
-    virtual void setScrollTop(int) override;
-    
-    virtual int scrollHeight() override;
-    virtual int scrollWidth() override;
-    
-    virtual void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
+    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
 
     static EventHandlerNameMap createWindowEventHandlerNameMap();
 };
 
 } //namespace
-
-#endif

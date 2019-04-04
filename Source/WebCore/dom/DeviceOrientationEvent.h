@@ -23,18 +23,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DeviceOrientationEvent_h
-#define DeviceOrientationEvent_h
+#pragma once
 
+#include "DeviceOrientationOrMotionEvent.h"
 #include "Event.h"
 
 namespace WebCore {
 
 class DeviceOrientationData;
 
-class DeviceOrientationEvent final : public Event {
+class DeviceOrientationEvent final : public Event, public DeviceOrientationOrMotionEvent {
 public:
-    virtual ~DeviceOrientationEvent();
     static Ref<DeviceOrientationEvent> create(const AtomicString& eventType, DeviceOrientationData* orientation)
     {
         return adoptRef(*new DeviceOrientationEvent(eventType, orientation));
@@ -45,19 +44,30 @@ public:
         return adoptRef(*new DeviceOrientationEvent);
     }
 
-    void initDeviceOrientationEvent(const AtomicString& type, bool bubbles, bool cancelable, DeviceOrientationData*);
+    virtual ~DeviceOrientationEvent();
 
-    DeviceOrientationData* orientation() const { return m_orientation.get(); }
+    Optional<double> alpha() const;
+    Optional<double> beta() const;
+    Optional<double> gamma() const;
 
-    virtual EventInterface eventInterface() const override;
+#if PLATFORM(IOS_FAMILY)
+    Optional<double> compassHeading() const;
+    Optional<double> compassAccuracy() const;
+
+    void initDeviceOrientationEvent(const AtomicString& type, bool bubbles, bool cancelable, Optional<double> alpha, Optional<double> beta, Optional<double> gamma, Optional<double> compassHeading, Optional<double> compassAccuracy);
+#else
+    Optional<bool> absolute() const;
+
+    void initDeviceOrientationEvent(const AtomicString& type, bool bubbles, bool cancelable, Optional<double> alpha, Optional<double> beta, Optional<double> gamma, Optional<bool> absolute);
+#endif
 
 private:
     DeviceOrientationEvent();
     DeviceOrientationEvent(const AtomicString& eventType, DeviceOrientationData*);
 
+    EventInterface eventInterface() const override;
+
     RefPtr<DeviceOrientationData> m_orientation;
 };
 
 } // namespace WebCore
-
-#endif // DeviceOrientationEvent_h

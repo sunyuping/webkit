@@ -29,20 +29,69 @@
 #if ENABLE(INDEXED_DATABASE)
 
 #include "IDBKeyData.h"
+#include <JavaScriptCore/ArrayBufferView.h>
+#include <JavaScriptCore/JSArrayBuffer.h>
+#include <JavaScriptCore/JSArrayBufferView.h>
+#include <JavaScriptCore/JSCInlines.h>
 
 namespace WebCore {
 
-IDBKey::~IDBKey()
+using IDBKeyVector = Vector<RefPtr<IDBKey>>;
+
+Ref<IDBKey> IDBKey::createBinary(const ThreadSafeDataBuffer& buffer)
+{
+    return adoptRef(*new IDBKey(buffer));
+}
+
+Ref<IDBKey> IDBKey::createBinary(JSC::JSArrayBuffer& arrayBuffer)
+{
+    auto* buffer = arrayBuffer.impl();
+    return adoptRef(*new IDBKey(ThreadSafeDataBuffer::copyData(buffer->data(), buffer->byteLength())));
+}
+
+Ref<IDBKey> IDBKey::createBinary(JSC::JSArrayBufferView& arrayBufferView)
+{
+    auto bufferView = arrayBufferView.possiblySharedImpl();
+    return adoptRef(*new IDBKey(ThreadSafeDataBuffer::copyData(bufferView->data(), bufferView->byteLength())));
+}
+
+IDBKey::IDBKey(IndexedDB::KeyType type, double number)
+    : m_type(type)
+    , m_value(number)
+    , m_sizeEstimate(OverheadSize + sizeof(double))
 {
 }
 
+IDBKey::IDBKey(const String& value)
+    : m_type(IndexedDB::KeyType::String)
+    , m_value(value)
+    , m_sizeEstimate(OverheadSize + value.length() * sizeof(UChar))
+{
+}
+
+IDBKey::IDBKey(const IDBKeyVector& keyArray, size_t arraySize)
+    : m_type(IndexedDB::KeyType::Array)
+    , m_value(keyArray)
+    , m_sizeEstimate(OverheadSize + arraySize)
+{
+}
+
+IDBKey::IDBKey(const ThreadSafeDataBuffer& buffer)
+    : m_type(IndexedDB::KeyType::Binary)
+    , m_value(buffer)
+    , m_sizeEstimate(OverheadSize + buffer.size())
+{
+}
+
+IDBKey::~IDBKey() = default;
+
 bool IDBKey::isValid() const
 {
-    if (m_type == KeyType::Invalid)
+    if (m_type == IndexedDB::KeyType::Invalid)
         return false;
 
-    if (m_type == KeyType::Array) {
-        for (auto& key : m_array) {
+    if (m_type == IndexedDB::KeyType::Array) {
+        for (auto& key : WTF::get<IDBKeyVector>(m_value)) {
             if (!key->isValid())
                 return false;
         }
@@ -51,32 +100,38 @@ bool IDBKey::isValid() const
     return true;
 }
 
-int IDBKey::compare(const IDBKey* other) const
+int IDBKey::compare(const IDBKey& other) const
 {
-    ASSERT(other);
-    if (m_type != other->m_type)
-        return m_type > other->m_type ? -1 : 1;
+    if (m_type != other.m_type)
+        return m_type > other.m_type ? -1 : 1;
 
     switch (m_type) {
-    case KeyType::Array:
-        for (size_t i = 0; i < m_array.size() && i < other->m_array.size(); ++i) {
-            if (int result = m_array[i]->compare(other->m_array[i].get()))
+    case IndexedDB::KeyType::Array: {
+        auto& array = WTF::get<IDBKeyVector>(m_value);
+        auto& otherArray = WTF::get<IDBKeyVector>(other.m_value);
+        for (size_t i = 0; i < array.size() && i < otherArray.size(); ++i) {
+            if (int result = array[i]->compare(*otherArray[i]))
                 return result;
         }
-        if (m_array.size() < other->m_array.size())
+        if (array.size() < otherArray.size())
             return -1;
-        if (m_array.size() > other->m_array.size())
+        if (array.size() > otherArray.size())
             return 1;
         return 0;
-    case KeyType::String:
-        return -codePointCompare(other->m_string, m_string);
-    case KeyType::Date:
-    case KeyType::Number:
-        return (m_number < other->m_number) ? -1 :
-                (m_number > other-> m_number) ? 1 : 0;
-    case KeyType::Invalid:
-    case KeyType::Min:
-    case KeyType::Max:
+    }
+    case IndexedDB::KeyType::Binary:
+        return compareBinaryKeyData(WTF::get<ThreadSafeDataBuffer>(m_value), WTF::get<ThreadSafeDataBuffer>(other.m_value));
+    case IndexedDB::KeyType::String:
+        return -codePointCompare(WTF::get<String>(other.m_value), WTF::get<String>(m_value));
+    case IndexedDB::KeyType::Date:
+    case IndexedDB::KeyType::Number: {
+        auto number = WTF::get<double>(m_value);
+        auto otherNumber = WTF::get<double>(other.m_value);
+        return (number < otherNumber) ? -1 : ((number > otherNumber) ? 1 : 0);
+    }
+    case IndexedDB::KeyType::Invalid:
+    case IndexedDB::KeyType::Min:
+    case IndexedDB::KeyType::Max:
         ASSERT_NOT_REACHED();
         return 0;
     }
@@ -85,21 +140,17 @@ int IDBKey::compare(const IDBKey* other) const
     return 0;
 }
 
-bool IDBKey::isLessThan(const IDBKey* other) const
+bool IDBKey::isLessThan(const IDBKey& other) const
 {
-    ASSERT(other);
     return compare(other) == -1;
 }
 
-bool IDBKey::isEqual(const IDBKey* other) const
+bool IDBKey::isEqual(const IDBKey& other) const
 {
-    if (!other)
-        return false;
-
     return !compare(other);
 }
 
-#ifndef NDEBUG
+#if !LOG_DISABLED
 String IDBKey::loggingString() const
 {
     return IDBKeyData(this).loggingString();

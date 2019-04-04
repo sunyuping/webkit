@@ -23,18 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AlternativeTextClient_h
-#define AlternativeTextClient_h
+#pragma once
 
 #include "FloatRect.h"
-#include "TextChecking.h"
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
-
-#if PLATFORM(MAC)
-// Some platforms provide UI for suggesting alternative dictation text.
-#define USE_DICTATION_ALTERNATIVES 1
-#endif // PLATFORM(MAC)
 
 namespace WebCore {
 
@@ -51,20 +44,21 @@ enum AlternativeTextType {
     AlternativeTextTypeDictationAlternatives
 };
 
-enum AutocorrectionResponseType {
-    AutocorrectionEdited,
-    AutocorrectionReverted
+enum class AutocorrectionResponse {
+    Edited,
+    Reverted,
+    Accepted
 };
 
 class AlternativeTextClient {
 public:
-    virtual ~AlternativeTextClient() { }
+    virtual ~AlternativeTextClient() = default;
     virtual void pageDestroyed() = 0;
 #if USE(AUTOCORRECTION_PANEL)
     virtual void showCorrectionAlternative(AlternativeTextType, const FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacmentString, const Vector<String>& alternativeReplacementStrings) = 0;
     virtual void dismissAlternative(ReasonForDismissingAlternativeText) = 0;
     virtual String dismissAlternativeSoon(ReasonForDismissingAlternativeText) = 0;
-    virtual void recordAutocorrectionResponse(AutocorrectionResponseType, const String& replacedString, const String& replacementString) = 0;
+    virtual void recordAutocorrectionResponse(AutocorrectionResponse, const String& replacedString, const String& replacementString) = 0;
 #endif
 #if USE(DICTATION_ALTERNATIVES)
     virtual void showDictationAlternativeUI(const WebCore::FloatRect& boundingBoxOfDictatedText, uint64_t dictationContext) = 0;
@@ -73,6 +67,4 @@ public:
 #endif
 };
     
-}
-
-#endif // AlternativeTextClient_h
+} // namespace WebCore

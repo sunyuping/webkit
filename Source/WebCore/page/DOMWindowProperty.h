@@ -23,8 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DOMWindowProperty_h
-#define DOMWindowProperty_h
+#pragma once
+
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -33,23 +34,15 @@ class Frame;
 
 class DOMWindowProperty {
 public:
-    explicit DOMWindowProperty(Frame*);
-
-    virtual void disconnectFrameForDocumentSuspension();
-    virtual void reconnectFrameFromDocumentSuspension(Frame*);
-    virtual void willDestroyGlobalObjectInCachedFrame();
-    virtual void willDestroyGlobalObjectInFrame();
-    virtual void willDetachGlobalObjectFromFrame();
-
-    Frame* frame() const { return m_frame; }
+    Frame* frame() const;
+    DOMWindow* window() const { return m_window.get(); }
 
 protected:
-    virtual ~DOMWindowProperty();
+    explicit DOMWindowProperty(DOMWindow*);
+    ~DOMWindowProperty() = default;
 
-    Frame* m_frame;
-    DOMWindow* m_associatedDOMWindow;
+private:
+    WeakPtr<DOMWindow> m_window;
 };
 
-}
-
-#endif
+} // namespace WebCore

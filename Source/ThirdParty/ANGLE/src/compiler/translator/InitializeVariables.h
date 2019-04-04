@@ -7,44 +7,47 @@
 #ifndef COMPILER_TRANSLATOR_INITIALIZEVARIABLES_H_
 #define COMPILER_TRANSLATOR_INITIALIZEVARIABLES_H_
 
+#include <GLSLANG/ShaderLang.h>
+
+#include "compiler/translator/ExtensionBehavior.h"
 #include "compiler/translator/IntermNode.h"
 
-class InitializeVariables : public TIntermTraverser
+namespace sh
 {
-  public:
-    struct InitVariableInfo
-    {
-        TString name;
-        TType type;
+class TSymbolTable;
 
-        InitVariableInfo(const TString &_name, const TType &_type)
-            : name(_name),
-              type(_type)
-        {
-        }
-    };
-    typedef TVector<InitVariableInfo> InitVariableInfoList;
+typedef std::vector<sh::ShaderVariable> InitVariableList;
 
-    InitializeVariables(const InitVariableInfoList &vars)
-        : mCodeInserted(false),
-          mVariables(vars)
-    {
-    }
+// For all of the functions below: If canUseLoopsToInitialize is set, for loops are used instead of
+// a large number of initializers where it can make sense, such as for initializing large arrays.
 
-  protected:
-    virtual bool visitBinary(Visit, TIntermBinary *node) { return false; }
-    virtual bool visitUnary(Visit, TIntermUnary *node) { return false; }
-    virtual bool visitSelection(Visit, TIntermSelection *node) { return false; }
-    virtual bool visitLoop(Visit, TIntermLoop *node) { return false; }
-    virtual bool visitBranch(Visit, TIntermBranch *node) { return false; }
+// Return a sequence of assignment operations to initialize "initializedSymbol". initializedSymbol
+// may be an array, struct or any combination of these, as long as it contains only basic types.
+TIntermSequence *CreateInitCode(const TIntermTyped *initializedSymbol,
+                                bool canUseLoopsToInitialize,
+                                TSymbolTable *symbolTable);
 
-    virtual bool visitAggregate(Visit visit, TIntermAggregate* node);
+// Initialize all uninitialized local variables, so that undefined behavior is avoided.
+void InitializeUninitializedLocals(TIntermBlock *root,
+                                   int shaderVersion,
+                                   bool canUseLoopsToInitialize,
+                                   TSymbolTable *symbolTable);
 
-  private:
-    void insertInitCode(TIntermSequence *sequence);
+// This function can initialize all the types that CreateInitCode is able to initialize. All
+// variables must be globals which can be found in the symbol table. For now it is used for the
+// following two scenarios:
+//   1. Initializing gl_Position;
+//   2. Initializing output variables referred to in the shader source.
+// Note: The type of each lvalue in an initializer is retrieved from the symbol table. gl_FragData
+// requires special handling because the number of indices which can be initialized is determined by
+// enabled extensions.
+void InitializeVariables(TIntermBlock *root,
+                         const InitVariableList &vars,
+                         TSymbolTable *symbolTable,
+                         int shaderVersion,
+                         const TExtensionBehavior &extensionBehavior,
+                         bool canUseLoopsToInitialize);
 
-    InitVariableInfoList mVariables;
-    bool mCodeInserted;
-};
+}  // namespace sh
 
 #endif  // COMPILER_TRANSLATOR_INITIALIZEVARIABLES_H_

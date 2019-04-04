@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,12 @@
 #include "B3PCToOriginMap.h"
 #include "DFGNode.h"
 #include "LinkBuffer.h"
+#include <wtf/Optional.h>
+
+#if COMPILER(MSVC)
+// See https://msdn.microsoft.com/en-us/library/4wz07268.aspx
+#pragma warning(disable: 4333)
+#endif
 
 namespace JSC {
 
@@ -104,7 +110,7 @@ PCToCodeOriginMapBuilder::PCToCodeOriginMapBuilder(PCToCodeOriginMapBuilder&& ot
     , m_shouldBuildMapping(other.m_shouldBuildMapping)
 { }
 
-#if FTL_USES_B3
+#if ENABLE(FTL_JIT)
 PCToCodeOriginMapBuilder::PCToCodeOriginMapBuilder(VM& vm, B3::PCToOriginMap&& b3PCToOriginMap)
     : m_vm(vm)
     , m_shouldBuildMapping(vm.shouldBuilderPCToCodeOriginMapping())
@@ -185,7 +191,7 @@ PCToCodeOriginMap::PCToCodeOriginMap(PCToCodeOriginMapBuilder&& builder, LinkBuf
     DeltaCompressionBuilder codeOriginCompressor((sizeof(intptr_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(InlineCallFrame*)) * builder.m_codeRanges.size());
     CodeOrigin lastCodeOrigin(0, nullptr);
     auto buildCodeOriginTable = [&] (const CodeOrigin& codeOrigin) {
-        intptr_t delta = static_cast<intptr_t>(codeOrigin.bytecodeIndex) - static_cast<intptr_t>(lastCodeOrigin.bytecodeIndex);
+        intptr_t delta = static_cast<intptr_t>(codeOrigin.bytecodeIndex()) - static_cast<intptr_t>(lastCodeOrigin.bytecodeIndex());
         lastCodeOrigin = codeOrigin;
         if (delta > std::numeric_limits<int8_t>::max() || delta < std::numeric_limits<int8_t>::min() || delta == sentinelBytecodeDelta) {
             codeOriginCompressor.write<int8_t>(sentinelBytecodeDelta);
@@ -193,26 +199,26 @@ PCToCodeOriginMap::PCToCodeOriginMap(PCToCodeOriginMapBuilder&& builder, LinkBuf
         } else
             codeOriginCompressor.write<int8_t>(static_cast<int8_t>(delta));
 
-        int8_t hasInlineCallFrameByte = codeOrigin.inlineCallFrame ? 1 : 0;
+        int8_t hasInlineCallFrameByte = codeOrigin.inlineCallFrame() ? 1 : 0;
         codeOriginCompressor.write<int8_t>(hasInlineCallFrameByte);
         if (hasInlineCallFrameByte)
-            codeOriginCompressor.write<uintptr_t>(bitwise_cast<uintptr_t>(codeOrigin.inlineCallFrame));
+            codeOriginCompressor.write<uintptr_t>(bitwise_cast<uintptr_t>(codeOrigin.inlineCallFrame()));
     };
 
-    m_pcRangeStart = bitwise_cast<uintptr_t>(linkBuffer.locationOf(builder.m_codeRanges.first().start).dataLocation());
-    m_pcRangeEnd = bitwise_cast<uintptr_t>(linkBuffer.locationOf(builder.m_codeRanges.last().end).dataLocation());
+    m_pcRangeStart = linkBuffer.locationOf<NoPtrTag>(builder.m_codeRanges.first().start).dataLocation<uintptr_t>();
+    m_pcRangeEnd = linkBuffer.locationOf<NoPtrTag>(builder.m_codeRanges.last().end).dataLocation<uintptr_t>();
     m_pcRangeEnd -= 1;
 
     for (unsigned i = 0; i < builder.m_codeRanges.size(); i++) {
         PCToCodeOriginMapBuilder::CodeRange& codeRange = builder.m_codeRanges[i];
-        void* start = linkBuffer.locationOf(codeRange.start).dataLocation();
-        void* end = linkBuffer.locationOf(codeRange.end).dataLocation();
+        void* start = linkBuffer.locationOf<NoPtrTag>(codeRange.start).dataLocation();
+        void* end = linkBuffer.locationOf<NoPtrTag>(codeRange.end).dataLocation();
         ASSERT(m_pcRangeStart <= bitwise_cast<uintptr_t>(start));
         ASSERT(m_pcRangeEnd >= bitwise_cast<uintptr_t>(end) - 1);
         if (start == end)
             ASSERT(i == builder.m_codeRanges.size() - 1);
         if (i > 0)
-            ASSERT(linkBuffer.locationOf(builder.m_codeRanges[i - 1].end).dataLocation() == start);
+            ASSERT(linkBuffer.locationOf<NoPtrTag>(builder.m_codeRanges[i - 1].end).dataLocation() == start);
 
         buildPCTable(start);
         buildCodeOriginTable(codeRange.codeOrigin);
@@ -245,10 +251,11 @@ Optional<CodeOrigin> PCToCodeOriginMap::findPC(void* pc) const
 {
     uintptr_t pcAsInt = bitwise_cast<uintptr_t>(pc);
     if (!(m_pcRangeStart <= pcAsInt && pcAsInt <= m_pcRangeEnd))
-        return Nullopt;
+        return WTF::nullopt;
 
     uintptr_t currentPC = 0;
-    CodeOrigin currentCodeOrigin(0, nullptr);
+    unsigned currentBytecodeIndex = 0;
+    InlineCallFrame* currentInlineCallFrame = nullptr;
 
     DeltaCompresseionReader pcReader(m_compressedPCs, m_compressedPCBufferSize);
     DeltaCompresseionReader codeOriginReader(m_compressedCodeOrigins, m_compressedCodeOriginsSize);
@@ -264,7 +271,7 @@ Optional<CodeOrigin> PCToCodeOriginMap::findPC(void* pc) const
             currentPC += delta;
         }
 
-        CodeOrigin previousOrigin = currentCodeOrigin;
+        CodeOrigin previousOrigin = CodeOrigin(currentBytecodeIndex, currentInlineCallFrame);
         {
             int8_t value = codeOriginReader.read<int8_t>();
             intptr_t delta;
@@ -273,14 +280,14 @@ Optional<CodeOrigin> PCToCodeOriginMap::findPC(void* pc) const
             else
                 delta = static_cast<intptr_t>(value);
 
-            currentCodeOrigin.bytecodeIndex = static_cast<unsigned>(static_cast<intptr_t>(currentCodeOrigin.bytecodeIndex) + delta);
+            currentBytecodeIndex = static_cast<unsigned>(static_cast<intptr_t>(currentBytecodeIndex) + delta);
 
             int8_t hasInlineFrame = codeOriginReader.read<int8_t>();
             ASSERT(hasInlineFrame == 0 || hasInlineFrame == 1);
             if (hasInlineFrame)
-                currentCodeOrigin.inlineCallFrame = bitwise_cast<InlineCallFrame*>(codeOriginReader.read<uintptr_t>());
+                currentInlineCallFrame = bitwise_cast<InlineCallFrame*>(codeOriginReader.read<uintptr_t>());
             else
-                currentCodeOrigin.inlineCallFrame = nullptr;
+                currentInlineCallFrame = nullptr;
         }
 
         if (previousPC) {
@@ -293,7 +300,7 @@ Optional<CodeOrigin> PCToCodeOriginMap::findPC(void* pc) const
     }
 
     RELEASE_ASSERT_NOT_REACHED();
-    return Nullopt;
+    return WTF::nullopt;
 }
 
 } // namespace JSC

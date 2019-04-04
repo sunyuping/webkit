@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,46 +23,65 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef InspectorHeapAgent_h
-#define InspectorHeapAgent_h
+#pragma once
 
+#include "HeapObserver.h"
+#include "InspectorAgentBase.h"
 #include "InspectorBackendDispatchers.h"
 #include "InspectorFrontendDispatchers.h"
-#include "heap/HeapObserver.h"
-#include "inspector/InspectorAgentBase.h"
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/Seconds.h>
+
+namespace JSC {
+struct HeapSnapshotNode;
+}
 
 namespace Inspector {
 
+class InjectedScriptManager;
 typedef String ErrorString;
 
-class JS_EXPORT_PRIVATE InspectorHeapAgent final : public InspectorAgentBase, public HeapBackendDispatcherHandler, public JSC::HeapObserver {
+class JS_EXPORT_PRIVATE InspectorHeapAgent : public InspectorAgentBase, public HeapBackendDispatcherHandler, public JSC::HeapObserver {
     WTF_MAKE_NONCOPYABLE(InspectorHeapAgent);
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     InspectorHeapAgent(AgentContext&);
-    virtual ~InspectorHeapAgent();
+    virtual ~InspectorHeapAgent() = default;
 
-    virtual void didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*) override;
-    virtual void willDestroyFrontendAndBackend(DisconnectReason) override;
+    void didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*) override;
+    void willDestroyFrontendAndBackend(DisconnectReason) override;
 
     // HeapBackendDispatcherHandler
-    virtual void enable(ErrorString&) override;
-    virtual void disable(ErrorString&) override;
-    virtual void gc(ErrorString&) override;
+    void enable(ErrorString&) override;
+    void disable(ErrorString&) override;
+    void gc(ErrorString&) final;
+    void snapshot(ErrorString&, double* timestamp, String* snapshotData) final;
+    void startTracking(ErrorString&) final;
+    void stopTracking(ErrorString&) final;
+    void getPreview(ErrorString&, int heapObjectId, Optional<String>& resultString, RefPtr<Protocol::Debugger::FunctionDetails>&, RefPtr<Protocol::Runtime::ObjectPreview>&) final;
+    void getRemoteObject(ErrorString&, int heapObjectId, const String* optionalObjectGroup, RefPtr<Protocol::Runtime::RemoteObject>& result) final;
 
     // HeapObserver
-    virtual void willGarbageCollect() override;
-    virtual void didGarbageCollect(JSC::HeapOperation) override;
+    void willGarbageCollect() override;
+    void didGarbageCollect(JSC::CollectionScope) override;
+
+protected:
+    void clearHeapSnapshots();
+
+    virtual void dispatchGarbageCollectedEvent(Protocol::Heap::GarbageCollection::Type, Seconds startTime, Seconds endTime);
 
 private:
+    Optional<JSC::HeapSnapshotNode> nodeForHeapObjectIdentifier(ErrorString&, unsigned heapObjectIdentifier);
+
+    InjectedScriptManager& m_injectedScriptManager;
     std::unique_ptr<HeapFrontendDispatcher> m_frontendDispatcher;
     RefPtr<HeapBackendDispatcher> m_backendDispatcher;
     InspectorEnvironment& m_environment;
+
     bool m_enabled { false };
-    double m_gcStartTime { NAN };
+    bool m_tracking { false };
+    Seconds m_gcStartTime { Seconds::nan() };
 };
 
 } // namespace Inspector
-
-#endif // InspectorHeapAgent_h

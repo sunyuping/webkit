@@ -23,44 +23,51 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ResourcesTabContentView = class ResourcesTabContentView extends WebInspector.ContentBrowserTabContentView
+WI.ResourcesTabContentView = class ResourcesTabContentView extends WI.ContentBrowserTabContentView
 {
     constructor(identifier)
     {
-        let {image, title} = WebInspector.ResourcesTabContentView.tabInfo();
-        let tabBarItem = new WebInspector.TabBarItem(image, title);
-        let detailsSidebarPanels = [WebInspector.resourceDetailsSidebarPanel, WebInspector.probeDetailsSidebarPanel];
-
-        // FIXME: Until ContentFlows are moved to the Elements tab, these details sidebar panels need to be included.
-        detailsSidebarPanels = detailsSidebarPanels.concat([WebInspector.domNodeDetailsSidebarPanel, WebInspector.cssStyleDetailsSidebarPanel]);
-        if (WebInspector.layerTreeDetailsSidebarPanel)
-            detailsSidebarPanels.push(WebInspector.layerTreeDetailsSidebarPanel);
-
-        super(identifier || "resources", "resources", tabBarItem, WebInspector.ResourceSidebarPanel, detailsSidebarPanels);
+        let tabBarItem = WI.GeneralTabBarItem.fromTabInfo(WI.ResourcesTabContentView.tabInfo());
+        const detailsSidebarPanelConstructors = [WI.ResourceDetailsSidebarPanel, WI.ProbeDetailsSidebarPanel];
+        super(identifier || "resources", "resources", tabBarItem, WI.ResourceSidebarPanel, detailsSidebarPanelConstructors);
     }
 
     static tabInfo()
     {
         return {
             image: "Images/Resources.svg",
-            title: WebInspector.UIString("Resources"),
+            title: WI.UIString("Resources"),
         };
+    }
+
+    static isTabAllowed()
+    {
+        return !WI.settings.experimentalEnableSourcesTab.value;
     }
 
     // Public
 
     get type()
     {
-        return WebInspector.ResourcesTabContentView.Type;
+        return WI.ResourcesTabContentView.Type;
+    }
+
+    get supportsSplitContentBrowser()
+    {
+        return true;
     }
 
     canShowRepresentedObject(representedObject)
     {
-        return representedObject instanceof WebInspector.Frame
-            || representedObject instanceof WebInspector.Resource
-            || representedObject instanceof WebInspector.Script
-            || representedObject instanceof WebInspector.ContentFlow;
+        return representedObject instanceof WI.Frame
+            || representedObject instanceof WI.FrameCollection
+            || representedObject instanceof WI.Resource
+            || representedObject instanceof WI.ResourceCollection
+            || representedObject instanceof WI.Script
+            || representedObject instanceof WI.ScriptCollection
+            || representedObject instanceof WI.CSSStyleSheet
+            || representedObject instanceof WI.CSSStyleSheetCollection;
     }
 };
 
-WebInspector.ResourcesTabContentView.Type = "resources";
+WI.ResourcesTabContentView.Type = "resources";

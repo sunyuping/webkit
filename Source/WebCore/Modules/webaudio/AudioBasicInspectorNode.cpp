@@ -28,7 +28,6 @@
 
 #include "AudioBasicInspectorNode.h"
 
-#include "AudioContext.h"
 #include "AudioNodeInput.h"
 #include "AudioNodeOutput.h"
 
@@ -36,8 +35,8 @@ namespace WebCore {
 
 AudioBasicInspectorNode::AudioBasicInspectorNode(AudioContext& context, float sampleRate, unsigned outputChannelCount)
     : AudioNode(context, sampleRate)
-    , m_needAutomaticPull(false)
 {
+    setNodeType(NodeTypeBasicInspector);
     addInput(std::make_unique<AudioNodeInput>(this));
     addOutput(std::make_unique<AudioNodeOutput>(this, outputChannelCount));
 }
@@ -51,24 +50,26 @@ void AudioBasicInspectorNode::pullInputs(size_t framesToProcess)
     input(0)->pull(output(0)->bus(), framesToProcess);
 }
 
-void AudioBasicInspectorNode::connect(AudioNode* destination, unsigned outputIndex, unsigned inputIndex, ExceptionCode& ec)
+ExceptionOr<void> AudioBasicInspectorNode::connect(AudioNode& destination, unsigned outputIndex, unsigned inputIndex)
 {
     ASSERT(isMainThread());
 
     AudioContext::AutoLocker locker(context());
 
-    AudioNode::connect(destination, outputIndex, inputIndex, ec);
+    auto result = AudioNode::connect(destination, outputIndex, inputIndex);
     updatePullStatus();
+    return result;
 }
 
-void AudioBasicInspectorNode::disconnect(unsigned outputIndex, ExceptionCode& ec)
+ExceptionOr<void> AudioBasicInspectorNode::disconnect(unsigned outputIndex)
 {
     ASSERT(isMainThread());
 
     AudioContext::AutoLocker locker(context());
 
-    AudioNode::disconnect(outputIndex, ec);
+    auto result = AudioNode::disconnect(outputIndex);
     updatePullStatus();
+    return result;
 }
 
 void AudioBasicInspectorNode::checkNumberOfChannelsForInput(AudioNodeInput* input)
@@ -99,7 +100,7 @@ void AudioBasicInspectorNode::updatePullStatus()
         // When an AudioBasicInspectorNode is connected to a downstream node, it will get pulled by the
         // downstream node, thus remove it from the context's automatic pull list.
         if (m_needAutomaticPull) {
-            context().removeAutomaticPullNode(this);
+            context().removeAutomaticPullNode(*this);
             m_needAutomaticPull = false;
         }
     } else {
@@ -107,11 +108,11 @@ void AudioBasicInspectorNode::updatePullStatus()
         if (numberOfInputConnections && !m_needAutomaticPull) {
             // When an AudioBasicInspectorNode is not connected to any downstream node while still connected from
             // upstream node(s), add it to the context's automatic pull list.
-            context().addAutomaticPullNode(this);
+            context().addAutomaticPullNode(*this);
             m_needAutomaticPull = true;
         } else if (!numberOfInputConnections && m_needAutomaticPull) {
             // The AudioBasicInspectorNode is connected to nothing, remove it from the context's automatic pull list.
-            context().removeAutomaticPullNode(this);
+            context().removeAutomaticPullNode(*this);
             m_needAutomaticPull = false;
         }
     }

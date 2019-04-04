@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,7 @@
 #include "config.h"
 #include "FTLOSRExitHandle.h"
 
-#if ENABLE(FTL_JIT) && FTL_USES_B3
+#if ENABLE(FTL_JIT)
 
 #include "FTLOSRExit.h"
 #include "FTLState.h"
@@ -44,19 +44,20 @@ void OSRExitHandle::emitExitThunk(State& state, CCallHelpers& jit)
     jit.pushToSaveImmediateWithoutTouchingRegisters(CCallHelpers::TrustedImm32(index));
     CCallHelpers::PatchableJump jump = jit.patchableJump();
     RefPtr<OSRExitHandle> self = this;
+    VM& vm = state.vm();
     jit.addLinkTask(
-        [self, jump, myLabel, compilation] (LinkBuffer& linkBuffer) {
-            self->exit.m_patchableJump = CodeLocationJump(linkBuffer.locationOf(jump));
+        [self, jump, myLabel, compilation, &vm] (LinkBuffer& linkBuffer) {
+            self->exit.m_patchableJump = CodeLocationJump<JSInternalPtrTag>(linkBuffer.locationOf<JSInternalPtrTag>(jump));
 
             linkBuffer.link(
                 jump.m_jump,
-                CodeLocationLabel(linkBuffer.vm().getCTIStub(osrExitGenerationThunkGenerator).code()));
+                CodeLocationLabel<JITThunkPtrTag>(vm.getCTIStub(osrExitGenerationThunkGenerator).code()));
             if (compilation)
-                compilation->addOSRExitSite({ linkBuffer.locationOf(myLabel).executableAddress() });
+                compilation->addOSRExitSite({ linkBuffer.locationOf<JSInternalPtrTag>(myLabel) });
         });
 }
 
 } } // namespace JSC::FTL
 
-#endif // ENABLE(FTL_JIT) && FTL_USES_B3
+#endif // ENABLE(FTL_JIT)
 

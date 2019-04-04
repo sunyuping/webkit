@@ -23,14 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IteratorPrototype_h
-#define IteratorPrototype_h
+#pragma once
 
 #include "JSObject.h"
 
 namespace JSC {
 
-class IteratorPrototype : public JSNonFinalObject {
+class IteratorPrototype final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
     static const unsigned StructureFlags = Base::StructureFlags;
@@ -57,6 +56,4 @@ private:
     void finishCreation(VM&, JSGlobalObject*);
 };
 
-}
-
-#endif // !defined(IteratorPrototype_h)
+} // namespace JSC

@@ -1,5 +1,6 @@
 # Copyright (C) 2010 Google Inc. All rights reserved.
 # Copyright (C) 2013 Samsung Electronics.  All rights reserved.
+# Copyright (C) 2017 Igalia S.L. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -40,10 +41,12 @@ from webkitpy.port.pulseaudio_sanitizer import PulseAudioSanitizer
 from webkitpy.port.xvfbdriver import XvfbDriver
 from webkitpy.port.westondriver import WestonDriver
 from webkitpy.port.xorgdriver import XorgDriver
+from webkitpy.port.waylanddriver import WaylandDriver
 from webkitpy.port.linux_get_crash_log import GDBCrashLogGenerator
 from webkitpy.port.leakdetector_valgrind import LeakDetectorValgrind
 
 _log = logging.getLogger(__name__)
+
 
 class GtkPort(Port):
     port_name = "gtk"
@@ -51,6 +54,7 @@ class GtkPort(Port):
     def __init__(self, *args, **kwargs):
         super(GtkPort, self).__init__(*args, **kwargs)
         self._pulseaudio_sanitizer = PulseAudioSanitizer()
+        self._display_server = self.get_option("display_server")
 
         if self.get_option("leaks"):
             self._leakdetector = LeakDetectorValgrind(self._executive, self._filesystem, self.results_directory())
@@ -75,22 +79,23 @@ class GtkPort(Port):
 
     @memoized
     def _driver_class(self):
-        if os.environ.get("WAYLAND_DISPLAY"):
+        if self._display_server == "weston":
             return WestonDriver
-        if os.environ.get("USE_NATIVE_XDISPLAY"):
+        if self._display_server == "wayland":
+            return WaylandDriver
+        if self._display_server == "xorg":
             return XorgDriver
         return XvfbDriver
 
-    def supports_per_test_timeout(self):
-        return True
-
     def default_timeout_ms(self):
+        default_timeout = 15000
         # Starting an application under Valgrind takes a lot longer than normal
         # so increase the timeout (empirically 10x is enough to avoid timeouts).
         multiplier = 10 if self.get_option("leaks") else 1
+        # Debug builds are slower (no compiler optimizations are used).
         if self.get_option('configuration') == 'Debug':
-            return multiplier * 12 * 1000
-        return multiplier * 6 * 1000
+            multiplier *= 2
+        return multiplier * default_timeout
 
     def driver_stop_timeout(self):
         if self.get_option("leaks"):
@@ -98,8 +103,8 @@ class GtkPort(Port):
             return self.default_timeout_ms()
         return super(GtkPort, self).driver_stop_timeout()
 
-    def setup_test_run(self):
-        super(GtkPort, self).setup_test_run()
+    def setup_test_run(self, device_type=None):
+        super(GtkPort, self).setup_test_run(device_type)
         self._pulseaudio_sanitizer.unload_pulseaudio_module()
 
         if self.get_option("leaks"):
@@ -111,26 +116,45 @@ class GtkPort(Port):
 
     def setup_environ_for_server(self, server_name=None):
         environment = super(GtkPort, self).setup_environ_for_server(server_name)
+        environment['G_DEBUG'] = 'fatal-criticals'
         environment['GSETTINGS_BACKEND'] = 'memory'
         environment['LIBOVERLAY_SCROLLBAR'] = '0'
         environment['TEST_RUNNER_INJECTED_BUNDLE_FILENAME'] = self._build_path('lib', 'libTestRunnerInjectedBundle.so')
         environment['TEST_RUNNER_TEST_PLUGIN_PATH'] = self._build_path('lib', 'plugins')
-        environment['OWR_USE_TEST_SOURCES'] = '1'
         self._copy_value_from_environ_if_set(environment, 'WEBKIT_OUTPUTDIR')
-        if self._driver_class() == XvfbDriver and self._should_use_jhbuild():
-            llvmpipe_libgl_path = self.host.executive.run_command(self._jhbuild_wrapper + ['printenv', 'LLVMPIPE_LIBGL_PATH'],
-                                                                  error_handler=self.host.executive.ignore_error).strip()
-            if os.path.exists(os.path.join(llvmpipe_libgl_path, "libGL.so")):
-                    # Force the Gallium llvmpipe software rasterizer
-                    environment['LD_LIBRARY_PATH'] = llvmpipe_libgl_path
-                    if os.environ.get('LD_LIBRARY_PATH'):
-                            environment['LD_LIBRARY_PATH'] += ':%s' % os.environ.get('LD_LIBRARY_PATH')
+        self._copy_value_from_environ_if_set(environment, 'WEBKIT_TOP_LEVEL')
+        self._copy_value_from_environ_if_set(environment, 'USE_PLAYBIN3')
+        self._copy_value_from_environ_if_set(environment, 'GST_DEBUG')
+        self._copy_value_from_environ_if_set(environment, 'GST_DEBUG_DUMP_DOT_DIR')
+        self._copy_value_from_environ_if_set(environment, 'GST_DEBUG_FILE')
+        self._copy_value_from_environ_if_set(environment, 'GST_DEBUG_NO_COLOR')
+
+        # Configure the software libgl renderer if jhbuild ready and we test inside a virtualized window system
+        if self._driver_class() in [XvfbDriver, WestonDriver] and (self._should_use_jhbuild() or self._is_flatpak()):
+            if self._should_use_jhbuild():
+                llvmpipe_libgl_path = self.host.executive.run_command(self._jhbuild_wrapper + ['printenv', 'LLVMPIPE_LIBGL_PATH'],
+                                                                    ignore_errors=True).strip()
+            else:  # in flatpak
+                llvmpipe_libgl_path = "/app/softGL/lib"
+
+            dri_libgl_path = os.path.join(llvmpipe_libgl_path, "dri")
+            if os.path.exists(os.path.join(llvmpipe_libgl_path, "libGL.so")) and os.path.exists(os.path.join(dri_libgl_path, "swrast_dri.so")):
+                # Make sure va-api support gets disabled because it's incompatible with Mesa's softGL driver.
+                environment['LIBVA_DRIVER_NAME'] = "null"
+                # Force the Gallium llvmpipe software rasterizer
+                environment['LIBGL_ALWAYS_SOFTWARE'] = "1"
+                environment['LIBGL_DRIVERS_PATH'] = dri_libgl_path
+                environment['LD_LIBRARY_PATH'] = llvmpipe_libgl_path
+                if os.environ.get('LD_LIBRARY_PATH'):
+                    environment['LD_LIBRARY_PATH'] += ':%s' % os.environ.get('LD_LIBRARY_PATH')
             else:
-                    _log.warning("Can't find Gallium llvmpipe driver. Try to run update-webkitgtk-libs")
+                _log.warning("Can't find Gallium llvmpipe driver. Try to run update-webkitgtk-libs or update-webkitgtk-flatpak")
         if self.get_option("leaks"):
-            #  Turn off GLib memory optimisations https://wiki.gnome.org/Valgrind.
+            # Turn off GLib memory optimisations https://wiki.gnome.org/Valgrind.
             environment['G_SLICE'] = 'always-malloc'
-            environment['G_DEBUG'] = 'gc-friendly'
+            environment['G_DEBUG'] += ',gc-friendly'
+            # Turn off bmalloc when running under Valgrind, see https://bugs.webkit.org/show_bug.cgi?id=177745
+            environment['Malloc'] = '1'
             xmlfilename = "".join(("drt-%p-", uuid.uuid1().hex, "-leaks.xml"))
             xmlfile = os.path.join(self.results_directory(), xmlfilename)
             suppressionsfile = self.path_from_webkit_base('Tools', 'Scripts', 'valgrind', 'suppressions.txt')
@@ -155,7 +179,7 @@ class GtkPort(Port):
     def _generate_all_test_configurations(self):
         configurations = []
         for build_type in self.ALL_BUILD_TYPES:
-            configurations.append(TestConfiguration(version=self._version, architecture='x86', build_type=build_type))
+            configurations.append(TestConfiguration(version=self.version_name(), architecture='x86', build_type=build_type))
         return configurations
 
     def _path_to_driver(self):
@@ -179,15 +203,17 @@ class GtkPort(Port):
 
     def _search_paths(self):
         search_paths = []
+        if self._driver_class() in [WaylandDriver, WestonDriver]:
+            search_paths.append(self.port_name + "-wayland")
         search_paths.append(self.port_name)
         search_paths.append('wk2')
         search_paths.extend(self.get_option("additional_platform_directory", []))
         return search_paths
 
-    def default_baseline_search_path(self):
+    def default_baseline_search_path(self, **kwargs):
         return map(self._webkit_baseline_path, self._search_paths())
 
-    def _port_specific_expectations_files(self):
+    def _port_specific_expectations_files(self, **kwargs):
         return [self._filesystem.join(self._webkit_baseline_path(p), 'TestExpectations') for p in reversed(self._search_paths())]
 
     def print_leaks_summary(self):
@@ -203,12 +229,12 @@ class GtkPort(Port):
     def show_results_html_file(self, results_filename):
         self._run_script("run-minibrowser", [path.abspath_to_uri(self.host.platform, results_filename)])
 
-    def check_sys_deps(self, needs_http):
-        return super(GtkPort, self).check_sys_deps(needs_http) and self._driver_class().check_driver(self)
+    def check_sys_deps(self):
+        return super(GtkPort, self).check_sys_deps() and self._driver_class().check_driver(self)
 
-    def _get_crash_log(self, name, pid, stdout, stderr, newer_than):
-        name = "WebKitWebProcess" if name == "WebProcess" else name
-        return GDBCrashLogGenerator(name, pid, newer_than, self._filesystem, self._path_to_driver).generate_crash_log(stdout, stderr)
+    def _get_crash_log(self, name, pid, stdout, stderr, newer_than, target_host=None):
+        return GDBCrashLogGenerator(self._executive, name, pid, newer_than,
+            self._filesystem, self._path_to_driver).generate_crash_log(stdout, stderr)
 
     def test_expectations_file_position(self):
         # GTK port baseline search path is gtk -> wk2 -> generic (as gtk-wk2 and gtk baselines are merged), so port test expectations file is at third to last position.

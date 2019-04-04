@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
+ * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,50 +24,39 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CustomEvent_h
-#define CustomEvent_h
+#pragma once
 
 #include "Event.h"
+#include "JSValueInWrappedObject.h"
 #include "SerializedScriptValue.h"
-#include <bindings/ScriptValue.h>
 
 namespace WebCore {
-
-struct CustomEventInit : public EventInit {
-    Deprecated::ScriptValue detail;
-};
 
 class CustomEvent final : public Event {
 public:
     virtual ~CustomEvent();
 
-    static Ref<CustomEvent> createForBindings()
-    {
-        return adoptRef(*new CustomEvent);
-    }
+    static Ref<CustomEvent> create(IsTrusted = IsTrusted::No);
 
-    static Ref<CustomEvent> createForBindings(const AtomicString& type, const CustomEventInit& initializer)
-    {
-        return adoptRef(*new CustomEvent(type, initializer));
-    }
+    struct Init : EventInit {
+        JSC::JSValue detail;
+    };
 
-    void initCustomEvent(const AtomicString& type, bool canBubble, bool cancelable, const Deprecated::ScriptValue& detail);
+    static Ref<CustomEvent> create(const AtomicString& type, const Init&, IsTrusted = IsTrusted::No);
 
-    virtual EventInterface eventInterface() const override;
+    void initCustomEvent(const AtomicString& type, bool canBubble, bool cancelable, JSC::JSValue detail = JSC::JSValue::JSUndefined);
 
-    const Deprecated::ScriptValue& detail() const { return m_detail; }
-    
-    RefPtr<SerializedScriptValue> trySerializeDetail(JSC::ExecState*);
+    const JSValueInWrappedObject& detail() const { return m_detail; }
+    JSValueInWrappedObject& cachedDetail() { return m_cachedDetail; }
 
 private:
-    CustomEvent();
-    CustomEvent(const AtomicString& type, const CustomEventInit& initializer);
+    CustomEvent(IsTrusted);
+    CustomEvent(const AtomicString& type, const Init& initializer, IsTrusted);
 
-    Deprecated::ScriptValue m_detail;
-    RefPtr<SerializedScriptValue> m_serializedDetail;
-    bool m_triedToSerialize { false };
+    EventInterface eventInterface() const final;
+
+    JSValueInWrappedObject m_detail;
+    JSValueInWrappedObject m_cachedDetail;
 };
 
 } // namespace WebCore
-
-#endif // CustomEvent_h

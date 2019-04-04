@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
- *  Copyright (C) 2003, 2007, 2008, 2009, 2016 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2017 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -19,28 +19,26 @@
  *
  */
 
-#ifndef ArgList_h
-#define ArgList_h
+#pragma once
 
 #include "CallFrame.h"
-#include "Register.h"
+#include <wtf/CheckedArithmetic.h>
+#include <wtf/ForbidHeapAllocation.h>
 #include <wtf/HashSet.h>
-#include <wtf/Vector.h>
 
 namespace JSC {
 
-class SlotVisitor;
-
-class MarkedArgumentBuffer {
+class MarkedArgumentBuffer : public RecordOverflow {
     WTF_MAKE_NONCOPYABLE(MarkedArgumentBuffer);
+    WTF_FORBID_HEAP_ALLOCATION;
     friend class VM;
     friend class ArgList;
 
-private:
+public:
+    using Base = RecordOverflow;
     static const size_t inlineCapacity = 8;
     typedef HashSet<MarkedArgumentBuffer*> ListSet;
 
-public:
     // Constructor for a read-write list, to which you may append values.
     // FIXME: Remove all clients of this API, then remove this API.
     MarkedArgumentBuffer()
@@ -53,11 +51,12 @@ public:
 
     ~MarkedArgumentBuffer()
     {
+        ASSERT(!m_needsOverflowCheck);
         if (m_markSet)
             m_markSet->remove(this);
 
         if (EncodedJSValue* base = mallocBase())
-            fastFree(base);
+            Gigacage::free(Gigacage::JSValue, base);
     }
 
     size_t size() const { return m_size; }
@@ -73,17 +72,31 @@ public:
 
     void clear()
     {
+        ASSERT(!m_needsOverflowCheck);
+        clearOverflow();
         m_size = 0;
     }
 
-    void append(JSValue v)
+    enum OverflowCheckAction {
+        CrashOnOverflow,
+        WillCheckLater
+    };
+    template<OverflowCheckAction action>
+    void appendWithAction(JSValue v)
     {
-        if (m_size >= m_capacity)
-            return slowAppend(v);
+        ASSERT(m_size <= m_capacity);
+        if (m_size == m_capacity || mallocBase()) {
+            slowAppend(v);
+            if (action == CrashOnOverflow)
+                RELEASE_ASSERT(!hasOverflowed());
+            return;
+        }
 
         slotFor(m_size) = JSValue::encode(v);
         ++m_size;
     }
+    void append(JSValue v) { appendWithAction<WillCheckLater>(v); }
+    void appendWithCrashOnOverflow(JSValue v) { appendWithAction<CrashOnOverflow>(v); }
 
     void removeLast()
     { 
@@ -96,12 +109,39 @@ public:
         ASSERT(m_size);
         return JSValue::decode(slotFor(m_size - 1));
     }
+
+    JSValue takeLast()
+    {
+        JSValue result = last();
+        removeLast();
+        return result;
+    }
         
-    static void markLists(HeapRootVisitor&, ListSet&);
+    static void markLists(SlotVisitor&, ListSet&);
+
+    void ensureCapacity(size_t requestedCapacity)
+    {
+        if (requestedCapacity > static_cast<size_t>(m_capacity))
+            slowEnsureCapacity(requestedCapacity);
+    }
+
+    bool hasOverflowed()
+    {
+        clearNeedsOverflowCheck();
+        return Base::hasOverflowed();
+    }
+
+    void overflowCheckNotNeeded() { clearNeedsOverflowCheck(); }
 
 private:
+    void expandCapacity();
+    void expandCapacity(int newCapacity);
+    void slowEnsureCapacity(size_t requestedCapacity);
+
+    void addMarkSet(JSValue);
+
     JS_EXPORT_PRIVATE void slowAppend(JSValue);
-        
+
     EncodedJSValue& slotFor(int item) const
     {
         return m_buffer[item];
@@ -109,11 +149,20 @@ private:
         
     EncodedJSValue* mallocBase()
     {
-        if (m_capacity == static_cast<int>(inlineCapacity))
+        if (m_buffer == m_inlineBuffer)
             return 0;
         return &slotFor(0);
     }
-        
+
+#if ASSERT_DISABLED
+    void setNeedsOverflowCheck() { }
+    void clearNeedsOverflowCheck() { }
+#else
+    void setNeedsOverflowCheck() { m_needsOverflowCheck = true; }
+    void clearNeedsOverflowCheck() { m_needsOverflowCheck = false; }
+
+    bool m_needsOverflowCheck { false };
+#endif
     int m_size;
     int m_capacity;
     EncodedJSValue m_inlineBuffer[inlineCapacity];
@@ -122,6 +171,7 @@ private:
 };
 
 class ArgList {
+    WTF_MAKE_FAST_ALLOCATED;
     friend class Interpreter;
     friend class JIT;
 public:
@@ -163,5 +213,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // ArgList_h

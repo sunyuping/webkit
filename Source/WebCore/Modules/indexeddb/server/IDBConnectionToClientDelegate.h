@@ -23,10 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef IDBConnectionToClientDelegate_h
-#define IDBConnectionToClientDelegate_h
+#pragma once
 
 #if ENABLE(INDEXED_DATABASE)
+
+#include <wtf/Forward.h>
+#include <wtf/WeakPtr.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -38,9 +41,9 @@ namespace IDBServer {
 
 class UniqueIDBDatabaseConnection;
 
-class IDBConnectionToClientDelegate {
+class IDBConnectionToClientDelegate : public CanMakeWeakPtr<IDBConnectionToClientDelegate> {
 public:
-    virtual ~IDBConnectionToClientDelegate() { }
+    virtual ~IDBConnectionToClientDelegate() = default;
     
     virtual uint64_t identifier() const = 0;
 
@@ -50,11 +53,14 @@ public:
     virtual void didCommitTransaction(const IDBResourceIdentifier& transactionIdentifier, const IDBError&) = 0;
     virtual void didCreateObjectStore(const IDBResultData&) = 0;
     virtual void didDeleteObjectStore(const IDBResultData&) = 0;
+    virtual void didRenameObjectStore(const IDBResultData&) = 0;
     virtual void didClearObjectStore(const IDBResultData&) = 0;
     virtual void didCreateIndex(const IDBResultData&) = 0;
     virtual void didDeleteIndex(const IDBResultData&) = 0;
+    virtual void didRenameIndex(const IDBResultData&) = 0;
     virtual void didPutOrAdd(const IDBResultData&) = 0;
     virtual void didGetRecord(const IDBResultData&) = 0;
+    virtual void didGetAllRecords(const IDBResultData&) = 0;
     virtual void didGetCount(const IDBResultData&) = 0;
     virtual void didDeleteRecord(const IDBResultData&) = 0;
     virtual void didOpenCursor(const IDBResultData&) = 0;
@@ -62,7 +68,10 @@ public:
 
     virtual void fireVersionChangeEvent(UniqueIDBDatabaseConnection&, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion) = 0;
     virtual void didStartTransaction(const IDBResourceIdentifier& transactionIdentifier, const IDBError&) = 0;
+    virtual void didCloseFromServer(UniqueIDBDatabaseConnection&, const IDBError&) = 0;
     virtual void notifyOpenDBRequestBlocked(const IDBResourceIdentifier& requestIdentifier, uint64_t oldVersion, uint64_t newVersion) = 0;
+
+    virtual void didGetAllDatabaseNames(uint64_t callbackID, const Vector<String>& databaseNames) = 0;
 
     virtual void ref() = 0;
     virtual void deref() = 0;
@@ -72,4 +81,3 @@ public:
 } // namespace WebCore
 
 #endif // ENABLE(INDEXED_DATABASE)
-#endif // IDBConnectionToClientDelegate_h

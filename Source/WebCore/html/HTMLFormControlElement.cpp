@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004, 2005, 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2018 Apple Inc. All rights reserved.
  *           (C) 2006 Alexey Proskuryakov (ap@nypop.com)
  *
  * This library is free software; you can redistribute it and/or
@@ -25,26 +25,33 @@
 #include "config.h"
 #include "HTMLFormControlElement.h"
 
+#include "Autofill.h"
 #include "ControlStates.h"
 #include "ElementAncestorIterator.h"
 #include "Event.h"
 #include "EventHandler.h"
 #include "EventNames.h"
 #include "Frame.h"
+#include "FrameView.h"
 #include "HTMLFieldSetElement.h"
 #include "HTMLFormElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLLegendElement.h"
 #include "HTMLTextAreaElement.h"
+#include "Quirks.h"
 #include "RenderBox.h"
 #include "RenderTheme.h"
+#include "ScriptDisallowedScope.h"
+#include "Settings.h"
 #include "StyleTreeResolver.h"
 #include "ValidationMessage.h"
-#include <wtf/NeverDestroyed.h>
+#include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
+
+WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLFormControlElement);
 
 using namespace HTMLNames;
 
@@ -75,7 +82,7 @@ HTMLFormControlElement::~HTMLFormControlElement()
 
 String HTMLFormControlElement::formEnctype() const
 {
-    const AtomicString& formEnctypeAttr = fastGetAttribute(formenctypeAttr);
+    const AtomicString& formEnctypeAttr = attributeWithoutSynchronization(formenctypeAttr);
     if (formEnctypeAttr.isNull())
         return emptyString();
     return FormSubmission::Attributes::parseEncodingType(formEnctypeAttr);
@@ -83,12 +90,12 @@ String HTMLFormControlElement::formEnctype() const
 
 void HTMLFormControlElement::setFormEnctype(const String& value)
 {
-    setAttribute(formenctypeAttr, value);
+    setAttributeWithoutSynchronization(formenctypeAttr, value);
 }
 
 String HTMLFormControlElement::formMethod() const
 {
-    const AtomicString& formMethodAttr = fastGetAttribute(formmethodAttr);
+    auto& formMethodAttr = attributeWithoutSynchronization(formmethodAttr);
     if (formMethodAttr.isNull())
         return emptyString();
     return FormSubmission::Attributes::methodString(FormSubmission::Attributes::parseMethodType(formMethodAttr));
@@ -96,17 +103,17 @@ String HTMLFormControlElement::formMethod() const
 
 void HTMLFormControlElement::setFormMethod(const String& value)
 {
-    setAttribute(formmethodAttr, value);
+    setAttributeWithoutSynchronization(formmethodAttr, value);
 }
 
 bool HTMLFormControlElement::formNoValidate() const
 {
-    return fastHasAttribute(formnovalidateAttr);
+    return hasAttributeWithoutSynchronization(formnovalidateAttr);
 }
 
 String HTMLFormControlElement::formAction() const
 {
-    const AtomicString& value = fastGetAttribute(formactionAttr);
+    const AtomicString& value = attributeWithoutSynchronization(formactionAttr);
     if (value.isEmpty())
         return document().url();
     return getURLAttribute(formactionAttr);
@@ -119,9 +126,9 @@ void HTMLFormControlElement::setFormAction(const AtomicString& value)
 
 bool HTMLFormControlElement::computeIsDisabledByFieldsetAncestor() const
 {
-    Element* previousAncestor = nullptr;
-    for (Element* ancestor = parentElement(); ancestor; ancestor = ancestor->parentElement()) {
-        if (is<HTMLFieldSetElement>(*ancestor) && ancestor->fastHasAttribute(disabledAttr)) {
+    RefPtr<Element> previousAncestor;
+    for (RefPtr<Element> ancestor = parentElement(); ancestor; ancestor = ancestor->parentElement()) {
+        if (is<HTMLFieldSetElement>(*ancestor) && ancestor->hasAttributeWithoutSynchronization(disabledAttr)) {
             HTMLFieldSetElement& fieldSetAncestor = downcast<HTMLFieldSetElement>(*ancestor);
             bool isInFirstLegend = is<HTMLLegendElement>(previousAncestor) && previousAncestor == fieldSetAncestor.legend();
             return !isInFirstLegend;
@@ -145,20 +152,22 @@ void HTMLFormControlElement::parseAttribute(const QualifiedName& name, const Ato
     if (name == formAttr)
         formAttributeChanged();
     else if (name == disabledAttr) {
-        bool oldDisabled = m_disabled;
-        m_disabled = !value.isNull();
-        if (oldDisabled != m_disabled)
-            disabledAttributeChanged();
+        if (canBeActuallyDisabled()) {
+            bool oldDisabled = m_disabled;
+            m_disabled = !value.isNull();
+            if (oldDisabled != m_disabled)
+                disabledAttributeChanged();
+        }
     } else if (name == readonlyAttr) {
         bool wasReadOnly = m_isReadOnly;
         m_isReadOnly = !value.isNull();
         if (wasReadOnly != m_isReadOnly)
-            readOnlyAttributeChanged();
+            readOnlyStateChanged();
     } else if (name == requiredAttr) {
         bool wasRequired = m_isRequired;
         m_isRequired = !value.isNull();
         if (wasRequired != m_isRequired)
-            requiredAttributeChanged();
+            requiredStateChanged();
     } else
         HTMLElement::parseAttribute(name, value);
 }
@@ -171,36 +180,36 @@ void HTMLFormControlElement::disabledAttributeChanged()
 void HTMLFormControlElement::disabledStateChanged()
 {
     setNeedsWillValidateCheck();
-    setNeedsStyleRecalc();
+    invalidateStyleForSubtree();
     if (renderer() && renderer()->style().hasAppearance())
         renderer()->theme().stateChanged(*renderer(), ControlStates::EnabledState);
 }
 
-void HTMLFormControlElement::readOnlyAttributeChanged()
+void HTMLFormControlElement::readOnlyStateChanged()
 {
     setNeedsWillValidateCheck();
-    setNeedsStyleRecalc();
+    invalidateStyleForSubtree();
 }
 
-void HTMLFormControlElement::requiredAttributeChanged()
+void HTMLFormControlElement::requiredStateChanged()
 {
     updateValidity();
     // Style recalculation is needed because style selectors may include
     // :required and :optional pseudo-classes.
-    setNeedsStyleRecalc();
+    invalidateStyleForSubtree();
 }
 
 static bool shouldAutofocus(HTMLFormControlElement* element)
 {
     if (!element->renderer())
         return false;
-    if (!element->fastHasAttribute(autofocusAttr))
+    if (!element->hasAttributeWithoutSynchronization(autofocusAttr))
         return false;
-    if (!element->inDocument() || !element->document().renderView())
+    if (!element->isConnected() || !element->document().renderView())
         return false;
     if (element->document().isSandboxed(SandboxAutomaticFeatures)) {
         // FIXME: This message should be moved off the console once a solution to https://bugs.webkit.org/show_bug.cgi?id=103274 exists.
-        element->document().addConsoleMessage(MessageSource::Security, MessageLevel::Error, ASCIILiteral("Blocked autofocusing on a form control because the form's frame is sandboxed and the 'allow-scripts' permission is not set."));
+        element->document().addConsoleMessage(MessageSource::Security, MessageLevel::Error, "Blocked autofocusing on a form control because the form's frame is sandboxed and the 'allow-scripts' permission is not set."_s);
         return false;
     }
     if (element->hasAutofocused())
@@ -234,16 +243,23 @@ void HTMLFormControlElement::didAttachRenderers()
         setAutofocused();
 
         RefPtr<HTMLFormControlElement> element = this;
-        Style::queuePostResolutionCallback([element] {
-            element->focus();
-        });
+        auto frameView = makeRefPtr(document().view());
+        if (frameView && frameView->layoutContext().isInLayout()) {
+            frameView->queuePostLayoutCallback([element] {
+                element->focus();
+            });
+        } else {
+            Style::queuePostResolutionCallback([element] {
+                element->focus();
+            });
+        }
     }
 }
 
-void HTMLFormControlElement::didMoveToNewDocument(Document* oldDocument)
+void HTMLFormControlElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
 {
     FormAssociatedElement::didMoveToNewDocument(oldDocument);
-    HTMLElement::didMoveToNewDocument(oldDocument);
+    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
 }
 
 static void addInvalidElementToAncestorFromInsertionPoint(const HTMLFormControlElement& element, ContainerNode* insertionPoint)
@@ -264,38 +280,48 @@ static void removeInvalidElementToAncestorFromInsertionPoint(const HTMLFormContr
         ancestor.removeInvalidDescendant(element);
 }
 
-Node::InsertionNotificationRequest HTMLFormControlElement::insertedInto(ContainerNode& insertionPoint)
+Node::InsertedIntoAncestorResult HTMLFormControlElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    if (willValidate() && !isValidFormControlElement())
-        addInvalidElementToAncestorFromInsertionPoint(*this, &insertionPoint);
+    if (m_dataListAncestorState == NotInsideDataList)
+        m_dataListAncestorState = Unknown;
 
+    setNeedsWillValidateCheck();
+    if (willValidate() && !isValidFormControlElement())
+        addInvalidElementToAncestorFromInsertionPoint(*this, &parentOfInsertedTree);
     if (document().hasDisabledFieldsetElement())
         setAncestorDisabled(computeIsDisabledByFieldsetAncestor());
-    m_dataListAncestorState = Unknown;
-    setNeedsWillValidateCheck();
-    HTMLElement::insertedInto(insertionPoint);
-    FormAssociatedElement::insertedInto(insertionPoint);
-    return InsertionShouldCallFinishedInsertingSubtree;
+    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    FormAssociatedElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
 }
 
-void HTMLFormControlElement::finishedInsertingSubtree()
+void HTMLFormControlElement::didFinishInsertingNode()
 {
     resetFormOwner();
 }
 
-void HTMLFormControlElement::removedFrom(ContainerNode& insertionPoint)
+void HTMLFormControlElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
     bool wasMatchingInvalidPseudoClass = willValidate() && !isValidFormControlElement();
 
     m_validationMessage = nullptr;
     if (m_disabledByAncestorFieldset)
         setAncestorDisabled(computeIsDisabledByFieldsetAncestor());
-    m_dataListAncestorState = Unknown;
-    HTMLElement::removedFrom(insertionPoint);
-    FormAssociatedElement::removedFrom(insertionPoint);
+
+    bool wasInsideDataList = false;
+    if (m_dataListAncestorState == InsideDataList) {
+        m_dataListAncestorState = Unknown;
+        wasInsideDataList = true;
+    }
+
+    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    FormAssociatedElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
 
     if (wasMatchingInvalidPseudoClass)
-        removeInvalidElementToAncestorFromInsertionPoint(*this, &insertionPoint);
+        removeInvalidElementToAncestorFromInsertionPoint(*this, &oldParentOfRemovedTree);
+
+    if (wasInsideDataList)
+        setNeedsWillValidateCheck();
 }
 
 void HTMLFormControlElement::setChangedSinceLastFormControlChangeEvent(bool changed)
@@ -305,7 +331,7 @@ void HTMLFormControlElement::setChangedSinceLastFormControlChangeEvent(bool chan
 
 void HTMLFormControlElement::dispatchChangeEvent()
 {
-    dispatchScopedEvent(Event::create(eventNames().changeEvent, true, false));
+    dispatchScopedEvent(Event::create(eventNames().changeEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
 }
 
 void HTMLFormControlElement::dispatchFormControlChangeEvent()
@@ -317,7 +343,7 @@ void HTMLFormControlElement::dispatchFormControlChangeEvent()
 void HTMLFormControlElement::dispatchFormControlInputEvent()
 {
     setChangedSinceLastFormControlChangeEvent(true);
-    HTMLElement::dispatchInputEvent();
+    dispatchInputEvent();
 }
 
 bool HTMLFormControlElement::isDisabledFormControl() const
@@ -348,23 +374,11 @@ bool HTMLFormControlElement::supportsFocus() const
     return !isDisabledFormControl();
 }
 
-bool HTMLFormControlElement::isFocusable() const
-{
-    // If there's a renderer, make sure the size isn't empty, but if there's no renderer,
-    // it might still be focusable if it's in a canvas subtree (handled in Node::isFocusable).
-    if (renderer() && (!is<RenderBox>(*renderer()) || downcast<RenderBox>(*renderer()).size().isEmpty()))
-        return false;
-    // HTMLElement::isFocusable handles visibility and calls suportsFocus which
-    // will cover the disabled case.
-    return HTMLElement::isFocusable();
-}
-
 bool HTMLFormControlElement::isKeyboardFocusable(KeyboardEvent* event) const
 {
-    if (isFocusable())
-        if (document().frame())
-            return document().frame()->eventHandler().tabsToAllFormControls(event);
-    return false;
+    return isFocusable()
+        && document().frame()
+        && document().frame()->eventHandler().tabsToAllFormControls(event);
 }
 
 bool HTMLFormControlElement::isMouseFocusable() const
@@ -372,6 +386,8 @@ bool HTMLFormControlElement::isMouseFocusable() const
 #if PLATFORM(GTK)
     return HTMLElement::isMouseFocusable();
 #else
+    if (needsMouseFocusableQuirk())
+        return HTMLElement::isMouseFocusable();
     return false;
 #endif
 }
@@ -386,7 +402,7 @@ bool HTMLFormControlElement::matchesInvalidPseudoClass() const
     return willValidate() && !isValidFormControlElement();
 }
 
-short HTMLFormControlElement::tabIndex() const
+int HTMLFormControlElement::tabIndex() const
 {
     // Skip the supportsFocus check in HTMLElement.
     return Element::tabIndex();
@@ -436,11 +452,11 @@ void HTMLFormControlElement::setNeedsWillValidateCheck()
     m_willValidate = newWillValidate;
 
     updateValidity();
-    setNeedsStyleRecalc();
+    invalidateStyleForSubtree();
 
     if (!m_willValidate && !wasValid) {
         removeInvalidElementToAncestorFromInsertionPoint(*this, parentNode());
-        if (HTMLFormElement* form = this->form())
+        if (RefPtr<HTMLFormElement> form = this->form())
             form->removeInvalidAssociatedFormControlIfNeeded(*this);
     }
 
@@ -467,24 +483,69 @@ void HTMLFormControlElement::hideVisibleValidationMessage()
         m_validationMessage->requestToHideMessage();
 }
 
-bool HTMLFormControlElement::checkValidity(Vector<RefPtr<FormAssociatedElement>>* unhandledInvalidControls)
+bool HTMLFormControlElement::checkValidity(Vector<RefPtr<HTMLFormControlElement>>* unhandledInvalidControls)
 {
     if (!willValidate() || isValidFormControlElement())
         return true;
     // An event handler can deref this object.
-    Ref<HTMLFormControlElement> protect(*this);
+    Ref<HTMLFormControlElement> protectedThis(*this);
     Ref<Document> originalDocument(document());
-    bool needsDefaultAction = dispatchEvent(Event::create(eventNames().invalidEvent, false, true));
-    if (needsDefaultAction && unhandledInvalidControls && inDocument() && originalDocument.ptr() == &document())
+    auto event = Event::create(eventNames().invalidEvent, Event::CanBubble::No, Event::IsCancelable::Yes);
+    dispatchEvent(event);
+    if (!event->defaultPrevented() && unhandledInvalidControls && isConnected() && originalDocument.ptr() == &document())
         unhandledInvalidControls->append(this);
     return false;
+}
+
+bool HTMLFormControlElement::isShowingValidationMessage() const
+{
+    return m_validationMessage && m_validationMessage->isVisible();
+}
+    
+bool HTMLFormControlElement::reportValidity()
+{
+    Vector<RefPtr<HTMLFormControlElement>> elements;
+    if (checkValidity(&elements))
+        return true;
+
+    if (elements.isEmpty())
+        return false;
+
+    // Needs to update layout now because we'd like to call isFocusable(), which
+    // has !renderer()->needsLayout() assertion.
+    document().updateLayoutIgnorePendingStylesheets();
+
+    if (isConnected() && isFocusable()) {
+        focusAndShowValidationMessage();
+        return false;
+    }
+
+    if (document().frame()) {
+        String message = makeString("An invalid form control with name='", name(), "' is not focusable.");
+        document().addConsoleMessage(MessageSource::Rendering, MessageLevel::Error, message);
+    }
+
+    return false;
+}
+
+void HTMLFormControlElement::focusAndShowValidationMessage()
+{
+    // Calling focus() will scroll the element into view.
+    focus();
+
+    // focus() will scroll the element into view and this scroll may happen asynchronously.
+    // Because scrolling the view hides the validation message, we need to show the validation
+    // message asynchronously as well.
+    callOnMainThread([this, protectedThis = makeRef(*this)] {
+        updateVisibleValidationMessage();
+    });
 }
 
 inline bool HTMLFormControlElement::isValidFormControlElement() const
 {
     // If the following assertion fails, updateValidity() is not called
     // correctly when something which changes validity is updated.
-    ASSERT(m_isValid == valid());
+    ASSERT(m_isValid == isValid());
     return m_isValid;
 }
 
@@ -497,8 +558,10 @@ void HTMLFormControlElement::willChangeForm()
 
 void HTMLFormControlElement::didChangeForm()
 {
+    ScriptDisallowedScope::InMainThread scriptDisallowedScope;
+
     FormAssociatedElement::didChangeForm();
-    if (HTMLFormElement* form = this->form()) {
+    if (auto* form = this->form()) {
         if (m_willValidateInitialized && m_willValidate && !isValidFormControlElement())
             form->registerInvalidAssociatedFormControl(*this);
     }
@@ -509,11 +572,11 @@ void HTMLFormControlElement::updateValidity()
     bool willValidate = this->willValidate();
     bool wasValid = m_isValid;
 
-    m_isValid = valid();
+    m_isValid = isValid();
 
     if (willValidate && m_isValid != wasValid) {
         // Update style for pseudo classes such as :valid :invalid.
-        setNeedsStyleRecalc();
+        invalidateStyleForSubtree();
 
         if (!m_isValid) {
             addInvalidElementToAncestorFromInsertionPoint(*this, parentNode());
@@ -551,53 +614,28 @@ void HTMLFormControlElement::dispatchBlurEvent(RefPtr<Element>&& newFocusedEleme
     hideVisibleValidationMessage();
 }
 
-HTMLFormElement* HTMLFormControlElement::virtualForm() const
-{
-    return FormAssociatedElement::form();
-}
-
-bool HTMLFormControlElement::isDefaultButtonForForm() const
-{
-    return isSuccessfulSubmitButton() && form() && form()->defaultButton() == this;
-}
-
 #if ENABLE(IOS_AUTOCORRECT_AND_AUTOCAPITALIZE)
 
 // FIXME: We should look to share this code with class HTMLFormElement instead of duplicating the logic.
 
-bool HTMLFormControlElement::autocorrect() const
+bool HTMLFormControlElement::shouldAutocorrect() const
 {
-    const AtomicString& autocorrectValue = fastGetAttribute(autocorrectAttr);
+    const AtomicString& autocorrectValue = attributeWithoutSynchronization(autocorrectAttr);
     if (!autocorrectValue.isEmpty())
         return !equalLettersIgnoringASCIICase(autocorrectValue, "off");
-    if (HTMLFormElement* form = this->form())
-        return form->autocorrect();
+    if (RefPtr<HTMLFormElement> form = this->form())
+        return form->shouldAutocorrect();
     return true;
 }
 
-void HTMLFormControlElement::setAutocorrect(bool autocorrect)
+AutocapitalizeType HTMLFormControlElement::autocapitalizeType() const
 {
-    setAttribute(autocorrectAttr, autocorrect ? AtomicString("on", AtomicString::ConstructFromLiteral) : AtomicString("off", AtomicString::ConstructFromLiteral));
-}
-
-WebAutocapitalizeType HTMLFormControlElement::autocapitalizeType() const
-{
-    WebAutocapitalizeType type = autocapitalizeTypeForAttributeValue(fastGetAttribute(autocapitalizeAttr));
-    if (type == WebAutocapitalizeTypeDefault) {
-        if (HTMLFormElement* form = this->form())
+    AutocapitalizeType type = HTMLElement::autocapitalizeType();
+    if (type == AutocapitalizeTypeDefault) {
+        if (RefPtr<HTMLFormElement> form = this->form())
             return form->autocapitalizeType();
     }
     return type;
-}
-
-const AtomicString& HTMLFormControlElement::autocapitalize() const
-{
-    return stringForAutocapitalizeType(autocapitalizeType());
-}
-
-void HTMLFormControlElement::setAutocapitalize(const AtomicString& value)
-{
-    setAttribute(autocapitalizeAttr, value);
 }
 
 #endif
@@ -611,163 +649,34 @@ HTMLFormControlElement* HTMLFormControlElement::enclosingFormControlElement(Node
     return nullptr;
 }
 
-static inline bool isContactToken(const AtomicString& token)
-{
-    return token == "home" || token == "work" || token == "mobile" || token == "fax" || token == "pager";
-}
-
-enum class AutofillCategory {
-    Invalid,
-    Off,
-    Automatic,
-    Normal,
-    Contact,
-};
-
-static inline AutofillCategory categoryForAutofillFieldToken(const AtomicString& token)
-{
-    static NeverDestroyed<HashMap<AtomicString, AutofillCategory>> map;
-    if (map.get().isEmpty()) {
-        map.get().add(AtomicString("off", AtomicString::ConstructFromLiteral), AutofillCategory::Off);
-        map.get().add(AtomicString("on", AtomicString::ConstructFromLiteral), AutofillCategory::Automatic);
-
-        map.get().add(AtomicString("name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("honorific-prefix", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("given-name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("additional-name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("family-name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("honorific-suffix", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("nickname", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("username", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("new-password", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("current-password", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("organization-title", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("organization", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("street-address", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("address-line1", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("address-line2", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("address-line3", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("address-level4", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("address-level3", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("address-level2", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("address-level1", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("country", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("country-name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("postal-code", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-given-name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-additional-name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-family-name", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-number", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-exp", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-exp-month", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-exp-year", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-csc", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("cc-type", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("transaction-currency", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("transaction-amount", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("language", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("bday", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("bday-day", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("bday-month", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("bday-year", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("sex", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("url", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-        map.get().add(AtomicString("photo", AtomicString::ConstructFromLiteral), AutofillCategory::Normal);
-
-        map.get().add(AtomicString("tel", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("tel-country-code", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("tel-national", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("tel-area-code", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("tel-local", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("tel-local-prefix", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("tel-local-suffix", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("tel-extension", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("email", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-        map.get().add(AtomicString("impp", AtomicString::ConstructFromLiteral), AutofillCategory::Contact);
-    }
-
-    return map.get().get(token);
-}
-
-static inline unsigned maxTokensForAutofillFieldCategory(AutofillCategory category)
-{
-    switch (category) {
-    case AutofillCategory::Invalid:
-        return 0;
-
-    case AutofillCategory::Automatic:
-    case AutofillCategory::Off:
-        return 1;
-
-    case AutofillCategory::Normal:
-        return 3;
-
-    case AutofillCategory::Contact:
-        return 4;
-    }
-    ASSERT_NOT_REACHED();
-    return 0;
-}
-
-// https://html.spec.whatwg.org/multipage/forms.html#processing-model-3
 String HTMLFormControlElement::autocomplete() const
 {
-    const AtomicString& attributeValue = fastGetAttribute(autocompleteAttr);
-    SpaceSplitString tokens(attributeValue, true);
-    if (tokens.isEmpty())
-        return String();
-
-    size_t currentTokenIndex = tokens.size() - 1;
-    const auto& fieldToken = tokens[currentTokenIndex];
-    auto category = categoryForAutofillFieldToken(fieldToken);
-    if (category == AutofillCategory::Invalid)
-        return String();
-
-    if (tokens.size() > maxTokensForAutofillFieldCategory(category))
-        return String();
-
-    bool wearingAutofillAnchorMantle = is<HTMLInputElement>(*this) && downcast<HTMLInputElement>(this)->isInputTypeHidden();
-    if ((category == AutofillCategory::Off || category == AutofillCategory::Automatic) && wearingAutofillAnchorMantle)
-        return String();
-
-    if (category == AutofillCategory::Off)
-        return ASCIILiteral("off");
-
-    if (category == AutofillCategory::Automatic)
-        return ASCIILiteral("on");
-
-    String result = fieldToken;
-    if (!currentTokenIndex--)
-        return result;
-
-    const auto& contactToken = tokens[currentTokenIndex];
-    if (category == AutofillCategory::Contact && isContactToken(contactToken)) {
-        result = contactToken + " " + result;
-        if (!currentTokenIndex--)
-            return result;
-    }
-
-    const auto& modeToken = tokens[currentTokenIndex];
-    if (modeToken == "shipping" || modeToken == "billing") {
-        result = modeToken + " " + result;
-        if (!currentTokenIndex--)
-            return result;
-    }
-
-    if (currentTokenIndex)
-        return String();
-
-    const auto& sectionToken = tokens[currentTokenIndex];
-    if (!sectionToken.startsWith("section-"))
-        return String();
-
-    return sectionToken + " " + result;
+    return autofillData().idlExposedValue;
 }
 
 void HTMLFormControlElement::setAutocomplete(const String& value)
 {
-    setAttribute(autocompleteAttr, value);
+    setAttributeWithoutSynchronization(autocompleteAttr, value);
+}
+
+AutofillMantle HTMLFormControlElement::autofillMantle() const
+{
+    return is<HTMLInputElement>(*this) && downcast<HTMLInputElement>(this)->isInputTypeHidden() ? AutofillMantle::Anchor : AutofillMantle::Expectation;
+}
+
+AutofillData HTMLFormControlElement::autofillData() const
+{
+    // FIXME: We could cache the AutofillData if we we had an efficient way to invalidate the cache when
+    // the autofill mantle changed (due to a type change on an <input> element) or the element's form
+    // owner's autocomplete attribute changed or the form owner itself changed.
+
+    return AutofillData::createFromHTMLFormControlElement(*this);
+}
+
+// FIXME: We should remove the quirk once <rdar://problem/47334655> is fixed.
+bool HTMLFormControlElement::needsMouseFocusableQuirk() const
+{
+    return document().quirks().needsFormControlToBeMouseFocusable();
 }
 
 } // namespace Webcore

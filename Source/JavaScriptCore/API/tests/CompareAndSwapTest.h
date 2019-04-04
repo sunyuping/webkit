@@ -23,18 +23,15 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CompareAndSwapTest_h
-#define CompareAndSwapTest_h
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Regression test for webkit.org/b/142513 */
-void testCompareAndSwap();
+void testCompareAndSwap(void);
 
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
-
-#endif /* CompareAndSwapTest_h */

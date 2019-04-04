@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2013 Apple Inc.
+ * Copyright (C) 2007-2008, 2013, 2016 Apple Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,7 +25,6 @@
 #include "FontPlatformData.h"
 #include "OpenTypeUtilities.h"
 #include "SharedBuffer.h"
-
 #include <cairo-win32.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/text/Base64.h>
@@ -39,14 +38,14 @@ FontCustomPlatformData::~FontCustomPlatformData()
         RemoveFontMemResourceEx(m_fontReference);
 }
 
-FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& fontDescription, bool bold, bool italic)
+FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& fontDescription, bool bold, bool italic, const FontFeatureSettings&, const FontVariantSettings&, FontSelectionSpecifiedCapabilities)
 {
     int size = fontDescription.computedPixelSize();
     FontRenderingMode renderingMode = fontDescription.renderingMode();
 
     LOGFONT logFont;
     memset(&logFont, 0, sizeof(LOGFONT));
-    wcsncpy(logFont.lfFaceName, m_name.charactersWithNullTermination().data(), LF_FACESIZE - 1);
+    wcsncpy(logFont.lfFaceName, m_name.wideCharacters().data(), LF_FACESIZE - 1);
 
     logFont.lfHeight = -size;
     if (renderingMode == FontRenderingMode::Normal)
@@ -84,7 +83,7 @@ static String createUniqueFontName()
     return fontName;
 }
 
-std::unique_ptr<FontCustomPlatformData> createFontCustomPlatformData(SharedBuffer& buffer)
+std::unique_ptr<FontCustomPlatformData> createFontCustomPlatformData(SharedBuffer& buffer, const String&)
 {
     String fontName = createUniqueFontName();
     HANDLE fontReference = renameAndActivateFont(buffer, fontName);

@@ -34,8 +34,7 @@
 //        void setNext(Node*);
 //        Node* next();
 
-#ifndef SentinelLinkedList_h
-#define SentinelLinkedList_h
+#pragma once
 
 namespace WTF {
 
@@ -101,7 +100,19 @@ public:
     iterator end();
     
     bool isEmpty() { return begin() == end(); }
-
+    
+    template<typename Func>
+    void forEach(const Func& func)
+    {
+        for (iterator iter = begin(); iter != end();) {
+            iterator next = iter->next();
+            func(iter);
+            iter = next;
+        }
+    }
+    
+    void takeFrom(SentinelLinkedList<T, RawNode>&);
+    
 private:
     RawNode m_headSentinel;
     RawNode m_tailSentinel;
@@ -244,10 +255,23 @@ template <typename T, typename RawNode> inline bool SentinelLinkedList<T, RawNod
     return false;
 }
 
+template <typename T, typename RawNode>
+inline void SentinelLinkedList<T, RawNode>::takeFrom(SentinelLinkedList<T, RawNode>& other)
+{
+    if (other.isEmpty())
+        return;
+    
+    m_tailSentinel.prev()->setNext(other.m_headSentinel.next());
+    other.m_headSentinel.next()->setPrev(m_tailSentinel.prev());
+    
+    m_tailSentinel.setPrev(other.m_tailSentinel.prev());
+    m_tailSentinel.prev()->setNext(&m_tailSentinel);
+
+    other.m_headSentinel.setNext(&other.m_tailSentinel);
+    other.m_tailSentinel.setPrev(&other.m_headSentinel);
+}
+
 }
 
 using WTF::BasicRawSentinelNode;
 using WTF::SentinelLinkedList;
-
-#endif
-

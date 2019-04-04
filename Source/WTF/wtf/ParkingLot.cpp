@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,18 +24,19 @@
  */
 
 #include "config.h"
-#include "ParkingLot.h"
+#include <wtf/ParkingLot.h>
 
-#include "DataLog.h"
-#include "HashFunctions.h"
-#include "StringPrintStream.h"
-#include "ThreadSpecific.h"
-#include "ThreadingPrimitives.h"
-#include "Vector.h"
-#include "WordLock.h"
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <wtf/DataLog.h>
+#include <wtf/HashFunctions.h>
+#include <wtf/StringPrintStream.h>
+#include <wtf/ThreadSpecific.h>
+#include <wtf/Threading.h>
+#include <wtf/Vector.h>
+#include <wtf/WeakRandom.h>
+#include <wtf/WordLock.h>
 
 namespace WTF {
 
@@ -43,21 +44,23 @@ namespace {
 
 const bool verbose = false;
 
-struct ThreadData {
+struct ThreadData : public ThreadSafeRefCounted<ThreadData> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     
     ThreadData();
     ~ThreadData();
 
-    ThreadIdentifier threadIdentifier;
+    Ref<Thread> thread;
     
-    std::mutex parkingLock;
-    std::condition_variable parkingCondition;
+    Mutex parkingLock;
+    ThreadCondition parkingCondition;
 
     const void* address { nullptr };
     
     ThreadData* nextInQueue { nullptr };
+    
+    intptr_t token { 0 };
 };
 
 enum class DequeueResult {
@@ -69,10 +72,15 @@ enum class DequeueResult {
 struct Bucket {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+    Bucket()
+        : random(static_cast<unsigned>(bitwise_cast<intptr_t>(this))) // Cannot use default seed since that recurses into Lock.
+    {
+    }
+    
     void enqueue(ThreadData* data)
     {
         if (verbose)
-            dataLog(toString(currentThread(), ": enqueueing ", RawPointer(data), " with address = ", RawPointer(data->address), " onto ", RawPointer(this), "\n"));
+            dataLog(toString(Thread::current(), ": enqueueing ", RawPointer(data), " with address = ", RawPointer(data->address), " onto ", RawPointer(this), "\n"));
         ASSERT(data->address);
         ASSERT(!data->nextInQueue);
         
@@ -90,11 +98,11 @@ public:
     void genericDequeue(const Functor& functor)
     {
         if (verbose)
-            dataLog(toString(currentThread(), ": dequeueing from bucket at ", RawPointer(this), "\n"));
+            dataLog(toString(Thread::current(), ": dequeueing from bucket at ", RawPointer(this), "\n"));
         
         if (!queueHead) {
             if (verbose)
-                dataLog(toString(currentThread(), ": empty.\n"));
+                dataLog(toString(Thread::current(), ": empty.\n"));
             return;
         }
 
@@ -123,33 +131,45 @@ public:
         bool shouldContinue = true;
         ThreadData** currentPtr = &queueHead;
         ThreadData* previous = nullptr;
+
+        MonotonicTime time = MonotonicTime::now();
+        bool timeToBeFair = false;
+        if (time > nextFairTime)
+            timeToBeFair = true;
+        
+        bool didDequeue = false;
+        
         while (shouldContinue) {
             ThreadData* current = *currentPtr;
             if (verbose)
-                dataLog(toString(currentThread(), ": got thread ", RawPointer(current), "\n"));
+                dataLog(toString(Thread::current(), ": got thread ", RawPointer(current), "\n"));
             if (!current)
                 break;
-            DequeueResult result = functor(current);
+            DequeueResult result = functor(current, timeToBeFair);
             switch (result) {
             case DequeueResult::Ignore:
                 if (verbose)
-                    dataLog(toString(currentThread(), ": currentPtr = ", RawPointer(currentPtr), ", *currentPtr = ", RawPointer(*currentPtr), "\n"));
+                    dataLog(toString(Thread::current(), ": currentPtr = ", RawPointer(currentPtr), ", *currentPtr = ", RawPointer(*currentPtr), "\n"));
                 previous = current;
                 currentPtr = &(*currentPtr)->nextInQueue;
                 break;
-            case DequeueResult::RemoveAndContinue:
             case DequeueResult::RemoveAndStop:
+                shouldContinue = false;
+                FALLTHROUGH;
+            case DequeueResult::RemoveAndContinue:
                 if (verbose)
-                    dataLog(toString(currentThread(), ": dequeueing ", RawPointer(current), " from ", RawPointer(this), "\n"));
+                    dataLog(toString(Thread::current(), ": dequeueing ", RawPointer(current), " from ", RawPointer(this), "\n"));
                 if (current == queueTail)
                     queueTail = previous;
+                didDequeue = true;
                 *currentPtr = current->nextInQueue;
                 current->nextInQueue = nullptr;
-                if (result == DequeueResult::RemoveAndStop)
-                    shouldContinue = false;
                 break;
             }
         }
+        
+        if (timeToBeFair && didDequeue)
+            nextFairTime = time + Seconds::fromMilliseconds(random.get());
 
         ASSERT(!!queueHead == !!queueTail);
     }
@@ -158,7 +178,7 @@ public:
     {
         ThreadData* result = nullptr;
         genericDequeue(
-            [&] (ThreadData* element) -> DequeueResult {
+            [&] (ThreadData* element, bool) -> DequeueResult {
                 result = element;
                 return DequeueResult::RemoveAndStop;
             });
@@ -171,11 +191,21 @@ public:
     // This lock protects the entire bucket. Thou shall not make changes to Bucket without holding
     // this lock.
     WordLock lock;
+    
+    MonotonicTime nextFairTime;
+    
+    WeakRandom random;
 
     // Put some distane between buckets in memory. This is one of several mitigations against false
     // sharing.
     char padding[64];
 };
+
+struct Hashtable;
+
+// We track all allocated hashtables so that hashtable resizing doesn't anger leak detectors.
+Vector<Hashtable*>* hashtables;
+WordLock hashtablesLock;
 
 struct Hashtable {
     unsigned size;
@@ -188,16 +218,32 @@ struct Hashtable {
         Hashtable* result = static_cast<Hashtable*>(
             fastZeroedMalloc(sizeof(Hashtable) + sizeof(Atomic<Bucket*>) * (size - 1)));
         result->size = size;
+
+        {
+            // This is not fast and it's not data-access parallel, but that's fine, because
+            // hashtable resizing is guaranteed to be rare and it will never happen in steady
+            // state.
+            WordLockHolder locker(hashtablesLock);
+            if (!hashtables)
+                hashtables = new Vector<Hashtable*>();
+            hashtables->append(result);
+        }
+        
         return result;
     }
 
     static void destroy(Hashtable* hashtable)
     {
+        {
+            // This is not fast, but that's OK. See comment in create().
+            WordLockHolder locker(hashtablesLock);
+            hashtables->removeFirst(hashtable);
+        }
+        
         fastFree(hashtable);
     }
 };
 
-ThreadSpecific<ThreadData>* threadData;
 Atomic<Hashtable*> hashtable;
 Atomic<unsigned> numThreads;
 
@@ -224,7 +270,7 @@ Hashtable* ensureHashtable()
             currentHashtable = Hashtable::create(maxLoadFactor);
             if (hashtable.compareExchangeWeak(nullptr, currentHashtable)) {
                 if (verbose)
-                    dataLog(toString(currentThread(), ": created initial hashtable ", RawPointer(currentHashtable), "\n"));
+                    dataLog(toString(Thread::current(), ": created initial hashtable ", RawPointer(currentHashtable), "\n"));
                 return currentHashtable;
             }
 
@@ -299,7 +345,7 @@ void ensureHashtableSize(unsigned numThreads)
     Hashtable* oldHashtable = hashtable.load();
     if (oldHashtable && static_cast<double>(oldHashtable->size) / static_cast<double>(numThreads) >= maxLoadFactor) {
         if (verbose)
-            dataLog(toString(currentThread(), ": no need to rehash because ", oldHashtable->size, " / ", numThreads, " >= ", maxLoadFactor, "\n"));
+            dataLog(toString(Thread::current(), ": no need to rehash because ", oldHashtable->size, " / ", numThreads, " >= ", maxLoadFactor, "\n"));
         return;
     }
 
@@ -311,7 +357,7 @@ void ensureHashtableSize(unsigned numThreads)
     oldHashtable = hashtable.load();
     if (oldHashtable && static_cast<double>(oldHashtable->size) / static_cast<double>(numThreads) >= maxLoadFactor) {
         if (verbose)
-            dataLog(toString(currentThread(), ": after locking, no need to rehash because ", oldHashtable->size, " / ", numThreads, " >= ", maxLoadFactor, "\n"));
+            dataLog(toString(Thread::current(), ": after locking, no need to rehash because ", oldHashtable->size, " / ", numThreads, " >= ", maxLoadFactor, "\n"));
         unlockHashtable(bucketsToUnlock);
         return;
     }
@@ -331,14 +377,14 @@ void ensureHashtableSize(unsigned numThreads)
     
     Hashtable* newHashtable = Hashtable::create(newSize);
     if (verbose)
-        dataLog(toString(currentThread(), ": created new hashtable: ", RawPointer(newHashtable), "\n"));
+        dataLog(toString(Thread::current(), ": created new hashtable: ", RawPointer(newHashtable), "\n"));
     for (ThreadData* threadData : threadDatas) {
         if (verbose)
-            dataLog(toString(currentThread(), ": rehashing thread data ", RawPointer(threadData), " with address = ", RawPointer(threadData->address), "\n"));
+            dataLog(toString(Thread::current(), ": rehashing thread data ", RawPointer(threadData), " with address = ", RawPointer(threadData->address), "\n"));
         unsigned hash = hashAddress(threadData->address);
         unsigned index = hash % newHashtable->size;
         if (verbose)
-            dataLog(toString(currentThread(), ": index = ", index, "\n"));
+            dataLog(toString(Thread::current(), ": index = ", index, "\n"));
         Bucket* bucket = newHashtable->data[index].load();
         if (!bucket) {
             if (reusableBuckets.isEmpty())
@@ -369,14 +415,14 @@ void ensureHashtableSize(unsigned numThreads)
     // OK, right now the old hashtable is locked up and the new hashtable is ready to rock and
     // roll. After we install the new hashtable, we can release all bucket locks.
     
-    bool result = hashtable.compareExchangeStrong(oldHashtable, newHashtable);
+    bool result = hashtable.compareExchangeStrong(oldHashtable, newHashtable) == oldHashtable;
     RELEASE_ASSERT(result);
 
     unlockHashtable(bucketsToUnlock);
 }
 
 ThreadData::ThreadData()
-    : threadIdentifier(currentThread())
+    : thread(Thread::current())
 {
     unsigned currentNumThreads;
     for (;;) {
@@ -400,14 +446,20 @@ ThreadData::~ThreadData()
 
 ThreadData* myThreadData()
 {
+    static ThreadSpecific<RefPtr<ThreadData>, CanBeGCThread::True>* threadData;
     static std::once_flag initializeOnce;
     std::call_once(
         initializeOnce,
         [] {
-            threadData = new ThreadSpecific<ThreadData>();
+            threadData = new ThreadSpecific<RefPtr<ThreadData>, CanBeGCThread::True>();
         });
-
-    return *threadData;
+    
+    RefPtr<ThreadData>& result = **threadData;
+    
+    if (!result)
+        result = adoptRef(new ThreadData());
+    
+    return result.get();
 }
 
 template<typename Functor>
@@ -432,7 +484,7 @@ bool enqueue(const void* address, const Functor& functor)
             break;
         }
         if (verbose)
-            dataLog(toString(currentThread(), ": enqueueing onto bucket ", RawPointer(bucket), " with index ", index, " for address ", RawPointer(address), " with hash ", hash, "\n"));
+            dataLog(toString(Thread::current(), ": enqueueing onto bucket ", RawPointer(bucket), " with index ", index, " for address ", RawPointer(address), " with hash ", hash, "\n"));
         bucket->lock.lock();
 
         // At this point the hashtable could have rehashed under us.
@@ -445,7 +497,7 @@ bool enqueue(const void* address, const Functor& functor)
         bool result;
         if (threadData) {
             if (verbose)
-                dataLog(toString(currentThread(), ": proceeding to enqueue ", RawPointer(threadData), "\n"));
+                dataLog(toString(Thread::current(), ": proceeding to enqueue ", RawPointer(threadData), "\n"));
             bucket->enqueue(threadData);
             result = true;
         } else
@@ -507,21 +559,22 @@ bool dequeue(
 
 } // anonymous namespace
 
-NEVER_INLINE bool ParkingLot::parkConditionally(
+NEVER_INLINE ParkingLot::ParkResult ParkingLot::parkConditionallyImpl(
     const void* address,
-    std::function<bool()> validation,
-    std::function<void()> beforeSleep,
-    Clock::time_point timeout)
+    const ScopedLambda<bool()>& validation,
+    const ScopedLambda<void()>& beforeSleep,
+    const TimeWithDynamicClockType& timeout)
 {
     if (verbose)
-        dataLog(toString(currentThread(), ": parking.\n"));
+        dataLog(toString(Thread::current(), ": parking.\n"));
     
     ThreadData* me = myThreadData();
+    me->token = 0;
 
     // Guard against someone calling parkConditionally() recursively from beforeSleep().
     RELEASE_ASSERT(!me->address);
 
-    bool result = enqueue(
+    bool enqueueResult = enqueue(
         address,
         [&] () -> ThreadData* {
             if (!validation())
@@ -531,27 +584,24 @@ NEVER_INLINE bool ParkingLot::parkConditionally(
             return me;
         });
 
-    if (!result)
-        return false;
+    if (!enqueueResult)
+        return ParkResult();
 
     beforeSleep();
     
     bool didGetDequeued;
     {
-        std::unique_lock<std::mutex> locker(me->parkingLock);
-        while (me->address && Clock::now() < timeout) {
-            // Falling back to wait() works around a bug in libstdc++ implementation of std::condition_variable. See:
-            // - https://bugs.webkit.org/show_bug.cgi?id=148027
-            // - https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58931
-            if (timeout == Clock::time_point::max())
-                me->parkingCondition.wait(locker);
-            else
-                me->parkingCondition.wait_until(locker, timeout);
+        MutexLocker locker(me->parkingLock);
+        while (me->address && timeout.nowWithSameClock() < timeout) {
+            me->parkingCondition.timedWait(
+                me->parkingLock, timeout.approximateWallTime());
             
-            // Because of the above, we do this thing, which is hilariously awful, but ensures that the worst case is
-            // a CPU-eating spin but not a deadlock.
-            locker.unlock();
-            locker.lock();
+            // It's possible for the OS to decide not to wait. If it does that then it will also
+            // decide not to release the lock. If there's a bug in the time math, then this could
+            // result in a deadlock. Flashing the lock means that at worst it's just a CPU-eating
+            // spin.
+            me->parkingLock.unlock();
+            me->parkingLock.lock();
         }
         ASSERT(!me->address || me->address == address);
         didGetDequeued = !me->address;
@@ -559,89 +609,126 @@ NEVER_INLINE bool ParkingLot::parkConditionally(
     
     if (didGetDequeued) {
         // Great! We actually got dequeued rather than the timeout expiring.
-        return true;
+        ParkResult result;
+        result.wasUnparked = true;
+        result.token = me->token;
+        return result;
     }
 
     // Have to remove ourselves from the queue since we timed out and nobody has dequeued us yet.
 
-    // It's possible that we get unparked right here, just before dequeue() grabs a lock. It's
-    // probably worthwhile to detect when this happens, and return true in that case, to ensure
-    // that when we return false it really means that no unpark could have been responsible for us
-    // waking up, and that if an unpark call did happen, it woke someone else up.
-    bool didFind = false;
+    bool didDequeue = false;
     dequeue(
         address, BucketMode::IgnoreEmpty,
-        [&] (ThreadData* element) {
+        [&] (ThreadData* element, bool) {
             if (element == me) {
-                didFind = true;
+                didDequeue = true;
                 return DequeueResult::RemoveAndStop;
             }
             return DequeueResult::Ignore;
         },
         [] (bool) { });
-
-    ASSERT(!me->nextInQueue);
+    
+    // If didDequeue is true, then we dequeued ourselves. This means that we were not unparked.
+    // If didDequeue is false, then someone unparked us.
+    
+    RELEASE_ASSERT(!me->nextInQueue);
 
     // Make sure that no matter what, me->address is null after this point.
     {
-        std::lock_guard<std::mutex> locker(me->parkingLock);
+        MutexLocker locker(me->parkingLock);
+        if (!didDequeue) {
+            // If we did not dequeue ourselves, then someone else did. They will set our address to
+            // null. We don't want to proceed until they do this, because otherwise, they may set
+            // our address to null in some distant future when we're already trying to wait for
+            // other things.
+            while (me->address)
+                me->parkingCondition.wait(me->parkingLock);
+        }
         me->address = nullptr;
     }
 
-    // If we were not found in the search above, then we know that someone unparked us.
-    return !didFind;
+    ParkResult result;
+    result.wasUnparked = !didDequeue;
+    if (!didDequeue) {
+        // If we were unparked then there should be a token.
+        result.token = me->token;
+    }
+    return result;
 }
 
-NEVER_INLINE bool ParkingLot::unparkOne(const void* address)
+NEVER_INLINE ParkingLot::UnparkResult ParkingLot::unparkOne(const void* address)
 {
     if (verbose)
-        dataLog(toString(currentThread(), ": unparking one.\n"));
+        dataLog(toString(Thread::current(), ": unparking one.\n"));
+    
+    UnparkResult result;
 
-    ThreadData* threadData = nullptr;
-    bool result = dequeue(
+    RefPtr<ThreadData> threadData;
+    result.mayHaveMoreThreads = dequeue(
         address,
-        BucketMode::IgnoreEmpty,
-        [&] (ThreadData* element) {
+        // Why is this here?
+        // FIXME: It seems like this could be IgnoreEmpty, but I switched this to EnsureNonEmpty
+        // without explanation in r199760. We need it to use EnsureNonEmpty if we need to perform
+        // some operation while holding the bucket lock, which usually goes into the finish func.
+        // But if that operation is a no-op, then it's not clear why we need this.
+        BucketMode::EnsureNonEmpty,
+        [&] (ThreadData* element, bool) {
             if (element->address != address)
                 return DequeueResult::Ignore;
             threadData = element;
+            result.didUnparkThread = true;
             return DequeueResult::RemoveAndStop;
         },
         [] (bool) { });
 
-    if (!threadData)
-        return false;
-
+    if (!threadData) {
+        ASSERT(!result.didUnparkThread);
+        result.mayHaveMoreThreads = false;
+        return result;
+    }
+    
     ASSERT(threadData->address);
     
     {
-        std::unique_lock<std::mutex> locker(threadData->parkingLock);
+        MutexLocker locker(threadData->parkingLock);
         threadData->address = nullptr;
+        threadData->token = 0;
     }
-    threadData->parkingCondition.notify_one();
+    threadData->parkingCondition.signal();
 
     return result;
 }
 
-NEVER_INLINE void ParkingLot::unparkOne(
+NEVER_INLINE void ParkingLot::unparkOneImpl(
     const void* address,
-    std::function<void(bool didUnparkThread, bool mayHaveMoreThreads)> callback)
+    const ScopedLambda<intptr_t(ParkingLot::UnparkResult)>& callback)
 {
     if (verbose)
-        dataLog(toString(currentThread(), ": unparking one the hard way.\n"));
-
-    ThreadData* threadData = nullptr;
+        dataLog(toString(Thread::current(), ": unparking one the hard way.\n"));
+    
+    RefPtr<ThreadData> threadData;
+    bool timeToBeFair = false;
     dequeue(
         address,
         BucketMode::EnsureNonEmpty,
-        [&] (ThreadData* element) {
+        [&] (ThreadData* element, bool passedTimeToBeFair) {
             if (element->address != address)
                 return DequeueResult::Ignore;
             threadData = element;
+            timeToBeFair = passedTimeToBeFair;
             return DequeueResult::RemoveAndStop;
         },
         [&] (bool mayHaveMoreThreads) {
-            callback(!!threadData, threadData && mayHaveMoreThreads);
+            UnparkResult result;
+            result.didUnparkThread = !!threadData;
+            result.mayHaveMoreThreads = result.didUnparkThread && mayHaveMoreThreads;
+            if (timeToBeFair)
+                RELEASE_ASSERT(threadData);
+            result.timeToBeFair = timeToBeFair;
+            intptr_t token = callback(result);
+            if (threadData)
+                threadData->token = token;
         });
 
     if (!threadData)
@@ -650,47 +737,62 @@ NEVER_INLINE void ParkingLot::unparkOne(
     ASSERT(threadData->address);
     
     {
-        std::unique_lock<std::mutex> locker(threadData->parkingLock);
+        MutexLocker locker(threadData->parkingLock);
         threadData->address = nullptr;
     }
-    threadData->parkingCondition.notify_one();
+    // At this point, the threadData may die. Good thing we have a RefPtr<> on it.
+    threadData->parkingCondition.signal();
 }
 
-NEVER_INLINE void ParkingLot::unparkAll(const void* address)
+NEVER_INLINE unsigned ParkingLot::unparkCount(const void* address, unsigned count)
 {
-    if (verbose)
-        dataLog(toString(currentThread(), ": unparking all from ", RawPointer(address), ".\n"));
+    if (!count)
+        return 0;
     
-    Vector<ThreadData*, 8> threadDatas;
+    if (verbose)
+        dataLog(toString(Thread::current(), ": unparking count = ", count, " from ", RawPointer(address), ".\n"));
+    
+    Vector<RefPtr<ThreadData>, 8> threadDatas;
     dequeue(
         address,
+        // FIXME: It seems like this ought to be EnsureNonEmpty if we follow what unparkOne() does,
+        // but that seems wrong.
         BucketMode::IgnoreEmpty,
-        [&] (ThreadData* element) {
+        [&] (ThreadData* element, bool) {
             if (verbose)
-                dataLog(toString(currentThread(), ": Observing element with address = ", RawPointer(element->address), "\n"));
+                dataLog(toString(Thread::current(), ": Observing element with address = ", RawPointer(element->address), "\n"));
             if (element->address != address)
                 return DequeueResult::Ignore;
             threadDatas.append(element);
+            if (threadDatas.size() == count)
+                return DequeueResult::RemoveAndStop;
             return DequeueResult::RemoveAndContinue;
         },
         [] (bool) { });
 
-    for (ThreadData* threadData : threadDatas) {
+    for (RefPtr<ThreadData>& threadData : threadDatas) {
         if (verbose)
-            dataLog(toString(currentThread(), ": unparking ", RawPointer(threadData), " with address ", RawPointer(threadData->address), "\n"));
+            dataLog(toString(Thread::current(), ": unparking ", RawPointer(threadData.get()), " with address ", RawPointer(threadData->address), "\n"));
         ASSERT(threadData->address);
         {
-            std::unique_lock<std::mutex> locker(threadData->parkingLock);
+            MutexLocker locker(threadData->parkingLock);
             threadData->address = nullptr;
         }
-        threadData->parkingCondition.notify_one();
+        threadData->parkingCondition.signal();
     }
 
     if (verbose)
-        dataLog(toString(currentThread(), ": done unparking.\n"));
+        dataLog(toString(Thread::current(), ": done unparking.\n"));
+    
+    return threadDatas.size();
 }
 
-NEVER_INLINE void ParkingLot::forEach(std::function<void(ThreadIdentifier, const void*)> callback)
+NEVER_INLINE void ParkingLot::unparkAll(const void* address)
+{
+    unparkCount(address, UINT_MAX);
+}
+
+NEVER_INLINE void ParkingLot::forEachImpl(const ScopedLambda<void(Thread&, const void*)>& callback)
 {
     Vector<Bucket*> bucketsToUnlock = lockHashtable();
 
@@ -700,7 +802,7 @@ NEVER_INLINE void ParkingLot::forEach(std::function<void(ThreadIdentifier, const
         if (!bucket)
             continue;
         for (ThreadData* currentThreadData = bucket->queueHead; currentThreadData; currentThreadData = currentThreadData->nextInQueue)
-            callback(currentThreadData->threadIdentifier, currentThreadData->address);
+            callback(currentThreadData->thread.get(), currentThreadData->address);
     }
     
     unlockHashtable(bucketsToUnlock);

@@ -1,5 +1,7 @@
 /*
+ * Copyright (C) 2016 Oleksandr Skachkov <gskachkov@gmail.com>.
  * Copyright (C) 2015 Jordan Harband. All rights reserved.
+ * Copyright (C) 2018 Yusuke Suzuki <yusukesuzuki@slowstart.org>.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,24 +25,35 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-function assign(target/*[*/, /*...*/sources/*] */)
+function entries(object)
 {
     "use strict";
 
-    if (target == null)
-        throw new @TypeError("can't convert " + target + " to object");
-
-    var objTarget = @Object(target);
-    for (var s = 1, argumentsLength = arguments.length; s < argumentsLength; ++s) {
-        var nextSource = arguments[s];
-        if (nextSource != null) {
-            var from = @Object(nextSource);
-            var keys = @ownEnumerablePropertyKeys(from);
-            for (var i = 0, keysLength = keys.length; i < keysLength; ++i) {
-                var nextKey = keys[i];
-                objTarget[nextKey] = from[nextKey];
-            }
-        }
+    var obj = @toObject(object, "Object.entries requires that input parameter not be null or undefined");
+    var names = @Object.@getOwnPropertyNames(obj);
+    var properties = [];
+    for (var i = 0, length = names.length; i < length; ++i) {
+        var name = names[i];
+        if (@propertyIsEnumerable(obj, name))
+            properties.@push([name, obj[name]]);
     }
-    return objTarget;
+
+    return properties;
+}
+
+function fromEntries(iterable)
+{
+    "use strict";
+
+    let object = {};
+
+    for (let entry of iterable) {
+        if (!@isObject(entry))
+            @throwTypeError("Object.fromEntries requires the first iterable parameter yields objects");
+        let key = entry[0];
+        let value = entry[1];
+        @putByValDirect(object, key, value);
+    }
+
+    return object;
 }

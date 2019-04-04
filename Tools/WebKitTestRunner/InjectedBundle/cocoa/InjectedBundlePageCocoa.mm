@@ -35,13 +35,13 @@
 
 namespace WTR {
 
-using namespace WTF;
-
 void InjectedBundlePage::platformDidStartProvisionalLoadForFrame(WKBundleFrameRef frame)
 {
     if (!WKBundleFrameIsMainFrame(frame))
         return;
 
+    // FIXME: We should not be changing test URL every time the test navigates. The current URL could be
+    // aditional information, but it shouldn't replace the initial test URL.
     setCrashReportApplicationSpecificInformationToURL(InjectedBundle::singleton().testRunner()->testURL());
 }
 
@@ -49,6 +49,16 @@ String InjectedBundlePage::platformResponseMimeType(WKURLResponseRef response)
 {
     RetainPtr<NSURLResponse> nsURLResponse = adoptNS(WKURLResponseCopyNSURLResponse(response));
     return [nsURLResponse.get() MIMEType];
+}
+
+uint64_t InjectedBundlePage::responseHeaderCount(WKURLResponseRef response)
+{
+    RetainPtr<NSURLResponse> nsURLResponse = adoptNS(WKURLResponseCopyNSURLResponse(response));
+    if (![nsURLResponse isKindOfClass:[NSHTTPURLResponse class]])
+        return { };
+
+    NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)nsURLResponse.get();
+    return [[httpResponse allHeaderFields] count];
 }
 
 } // namespace WTR

@@ -10,57 +10,69 @@
 #define LIBANGLE_RENDERER_D3D_SHADERD3D_H_
 
 #include "libANGLE/renderer/ShaderImpl.h"
-#include "libANGLE/renderer/Workarounds.h"
-#include "libANGLE/Shader.h"
 
 #include <map>
+
+namespace angle
+{
+struct CompilerWorkaroundsD3D;
+struct WorkaroundsD3D;
+}
+
+namespace gl
+{
+struct Extensions;
+}
 
 namespace rx
 {
 class DynamicHLSL;
 class RendererD3D;
+struct D3DUniform;
 
 class ShaderD3D : public ShaderImpl
 {
-    friend class DynamicHLSL;
-
   public:
-    ShaderD3D(GLenum type);
-    virtual ~ShaderD3D();
+    ShaderD3D(const gl::ShaderState &data,
+              const angle::WorkaroundsD3D &workarounds,
+              const gl::Extensions &extensions);
+    ~ShaderD3D() override;
 
     // ShaderImpl implementation
-    virtual std::string getDebugInfo() const;
+    ShCompileOptions prepareSourceAndReturnOptions(std::stringstream *sourceStream,
+                                                   std::string *sourcePath) override;
+    bool postTranslateCompile(gl::Compiler *compiler, std::string *infoLog) override;
+    std::string getDebugInfo() const override;
 
     // D3D-specific methods
-    virtual void uncompile();
-    void resetVaryingsRegisterAssignment();
+    void uncompile();
+
+    bool hasUniform(const std::string &name) const;
+
+    // Query regular uniforms with their name. Query sampler fields of structs with field selection
+    // using dot (.) operator.
     unsigned int getUniformRegister(const std::string &uniformName) const;
-    unsigned int getInterfaceBlockRegister(const std::string &blockName) const;
-    void appendDebugInfo(const std::string &info) { mDebugInfo += info; }
 
-    void generateWorkarounds(D3DCompilerWorkarounds *workarounds) const;
-    int getShaderVersion() const { return mShaderVersion; }
-    bool usesDepthRange() const { return mUsesDepthRange; }
+    unsigned int getUniformBlockRegister(const std::string &blockName) const;
+    void appendDebugInfo(const std::string &info) const { mDebugInfo += info; }
+
+    void generateWorkarounds(angle::CompilerWorkaroundsD3D *workarounds) const;
+
+    bool usesMultipleRenderTargets() const { return mUsesMultipleRenderTargets; }
+    bool usesFragColor() const { return mUsesFragColor; }
+    bool usesFragData() const { return mUsesFragData; }
+    bool usesFragCoord() const { return mUsesFragCoord; }
+    bool usesFrontFacing() const { return mUsesFrontFacing; }
     bool usesPointSize() const { return mUsesPointSize; }
-    bool usesDeferredInit() const { return mUsesDeferredInit; }
+    bool usesPointCoord() const { return mUsesPointCoord; }
+    bool usesDepthRange() const { return mUsesDepthRange; }
+    bool usesFragDepth() const { return mUsesFragDepth; }
+    bool usesViewID() const { return mUsesViewID; }
+    bool hasANGLEMultiviewEnabled() const { return mHasANGLEMultiviewEnabled; }
 
-    GLenum getShaderType() const;
     ShShaderOutput getCompilerOutputType() const;
 
-    virtual bool compile(gl::Compiler *compiler, const std::string &source);
-
   private:
-    void compileToHLSL(ShHandle compiler, const std::string &source);
-    void parseVaryings(ShHandle compiler);
-
-    void parseAttributes(ShHandle compiler);
-
-    static bool compareVarying(const gl::PackedVarying &x, const gl::PackedVarying &y);
-
-    GLenum mShaderType;
-
-    int mShaderVersion;
-
     bool mUsesMultipleRenderTargets;
     bool mUsesFragColor;
     bool mUsesFragData;
@@ -70,17 +82,18 @@ class ShaderD3D : public ShaderImpl
     bool mUsesPointCoord;
     bool mUsesDepthRange;
     bool mUsesFragDepth;
+    bool mHasANGLEMultiviewEnabled;
+    bool mUsesViewID;
     bool mUsesDiscardRewriting;
     bool mUsesNestedBreak;
-    bool mUsesDeferredInit;
     bool mRequiresIEEEStrictCompiling;
 
     ShShaderOutput mCompilerOutputType;
-    std::string mDebugInfo;
+    mutable std::string mDebugInfo;
     std::map<std::string, unsigned int> mUniformRegisterMap;
-    std::map<std::string, unsigned int> mInterfaceBlockRegisterMap;
+    std::map<std::string, unsigned int> mUniformBlockRegisterMap;
+    ShCompileOptions mAdditionalOptions;
 };
+}  // namespace rx
 
-}
-
-#endif // LIBANGLE_RENDERER_D3D_SHADERD3D_H_
+#endif  // LIBANGLE_RENDERER_D3D_SHADERD3D_H_

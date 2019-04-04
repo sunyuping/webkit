@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2005, 2006, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
  *
  * 1.  Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer. 
+ *     notice, this list of conditions and the following disclaimer.
  * 2.  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution. 
+ *     documentation and/or other materials provided with the distribution.
  * 3.  Neither the name of Apple Inc. ("Apple") nor the names of
  *     its contributors may be used to endorse or promote products derived
- *     from this software without specific prior written permission. 
+ *     from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -26,81 +26,87 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef SubresourceLoader_h
-#define SubresourceLoader_h
+#pragma once
 
 #include "FrameLoaderTypes.h"
 #include "ResourceLoader.h"
-
+#include <wtf/CompletionHandler.h>
 #include <wtf/text/WTFString.h>
  
 namespace WebCore {
 
 class CachedResource;
 class CachedResourceLoader;
-class Document;
+class NetworkLoadMetrics;
 class ResourceRequest;
+class SecurityOrigin;
 
 class SubresourceLoader final : public ResourceLoader {
 public:
-    WEBCORE_EXPORT static RefPtr<SubresourceLoader> create(Frame*, CachedResource*, const ResourceRequest&, const ResourceLoaderOptions&);
+    WEBCORE_EXPORT static void create(Frame&, CachedResource&, ResourceRequest&&, const ResourceLoaderOptions&, CompletionHandler<void(RefPtr<SubresourceLoader>&&)>&&);
 
     virtual ~SubresourceLoader();
 
     void cancelIfNotFinishing();
-    virtual bool isSubresourceLoader() override;
+    bool isSubresourceLoader() const override;
     CachedResource* cachedResource();
+    WEBCORE_EXPORT const HTTPHeaderMap* originalHeaders() const;
 
-#if PLATFORM(IOS)
-    virtual bool startLoading() override;
+    SecurityOrigin* origin() { return m_origin.get(); }
+#if PLATFORM(IOS_FAMILY)
+    void startLoading() override;
 
     // FIXME: What is an "iOS" original request? Why is it necessary?
-    virtual const ResourceRequest& iOSOriginalRequest() const override { return m_iOSOriginalRequest; }
+    const ResourceRequest& iOSOriginalRequest() const override { return m_iOSOriginalRequest; }
 #endif
+
+    unsigned redirectCount() const { return m_redirectCount; }
+
+    void markInAsyncResponsePolicyCheck() { m_inAsyncResponsePolicyCheck = true; }
+    void didReceiveResponsePolicy();
 
 private:
-    SubresourceLoader(Frame*, CachedResource*, const ResourceLoaderOptions&);
+    SubresourceLoader(Frame&, CachedResource&, const ResourceLoaderOptions&);
 
-    virtual bool init(const ResourceRequest&) override;
+    void init(ResourceRequest&&, CompletionHandler<void(bool)>&&) override;
 
-    virtual void willSendRequestInternal(ResourceRequest&, const ResourceResponse& redirectResponse) override;
-    virtual void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override;
-    virtual void didReceiveResponse(const ResourceResponse&) override;
-    virtual void didReceiveData(const char*, unsigned, long long encodedDataLength, DataPayloadType) override;
-    virtual void didReceiveBuffer(PassRefPtr<SharedBuffer>, long long encodedDataLength, DataPayloadType) override;
-    virtual void didFinishLoading(double finishTime) override;
-    virtual void didFail(const ResourceError&) override;
-    virtual void willCancel(const ResourceError&) override;
-    virtual void didCancel(const ResourceError&) override;
+    void willSendRequestInternal(ResourceRequest&&, const ResourceResponse& redirectResponse, CompletionHandler<void(ResourceRequest&&)>&&) override;
+    void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override;
+    void didReceiveResponse(const ResourceResponse&, CompletionHandler<void()>&& policyCompletionHandler) override;
+    void didReceiveData(const char*, unsigned, long long encodedDataLength, DataPayloadType) override;
+    void didReceiveBuffer(Ref<SharedBuffer>&&, long long encodedDataLength, DataPayloadType) override;
+    void didFinishLoading(const NetworkLoadMetrics&) override;
+    void didFail(const ResourceError&) override;
+    void willCancel(const ResourceError&) override;
+    void didCancel(const ResourceError&) override;
+    
+    void updateReferrerPolicy(const String&);
 
-#if PLATFORM(COCOA) && !USE(CFNETWORK)
-    virtual NSCachedURLResponse *willCacheResponse(ResourceHandle*, NSCachedURLResponse*) override;
+#if PLATFORM(COCOA)
+    void willCacheResponseAsync(ResourceHandle*, NSCachedURLResponse*, CompletionHandler<void(NSCachedURLResponse *)>&&) override;
 #endif
-#if PLATFORM(COCOA) && USE(CFNETWORK)
-    virtual CFCachedURLResponseRef willCacheResponse(ResourceHandle*, CFCachedURLResponseRef) override;
-#endif
 
-#if USE(NETWORK_CFDATA_ARRAY_CALLBACK)
-    virtual bool supportsDataArray() override { return true; }
-    virtual void didReceiveDataArray(CFArrayRef) override;
-#endif
-    virtual void releaseResources() override;
-
-#if USE(SOUP)
-    virtual char* getOrCreateReadBuffer(size_t requestedSize, size_t& actualSize) override;
-#endif
+    void releaseResources() override;
 
     bool checkForHTTPStatusCodeError();
+    bool checkResponseCrossOriginAccessControl(const ResourceResponse&, String&);
+    bool checkRedirectionCrossOriginAccessControl(const ResourceRequest& previousRequest, const ResourceResponse&, ResourceRequest& newRequest, String&);
 
-    void didReceiveDataOrBuffer(const char*, int, PassRefPtr<SharedBuffer>, long long encodedDataLength, DataPayloadType);
+    void didReceiveDataOrBuffer(const char*, int, RefPtr<SharedBuffer>&&, long long encodedDataLength, DataPayloadType);
 
-    void notifyDone();
+    void notifyDone(LoadCompletionType);
+
+    void reportResourceTiming(const NetworkLoadMetrics&);
+
+#if USE(QUICK_LOOK)
+    bool shouldCreatePreviewLoaderForResponse(const ResourceResponse&) const;
+#endif
 
     enum SubresourceLoaderState {
         Uninitialized,
         Initialized,
         Finishing,
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
         CancelledWhileInitializing
 #endif
     };
@@ -110,22 +116,28 @@ private:
         WTF_MAKE_FAST_ALLOCATED;
 #endif
     public:
-        RequestCountTracker(CachedResourceLoader&, CachedResource*);
+        RequestCountTracker(CachedResourceLoader&, const CachedResource&);
         ~RequestCountTracker();
     private:
         CachedResourceLoader& m_cachedResourceLoader;
-        CachedResource* m_resource;
+        const CachedResource& m_resource;
     };
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
     ResourceRequest m_iOSOriginalRequest;
 #endif
     CachedResource* m_resource;
-    bool m_loadingMultipartContent;
     SubresourceLoaderState m_state;
-    std::unique_ptr<RequestCountTracker> m_requestCountTracker;
+    Optional<RequestCountTracker> m_requestCountTracker;
+    RefPtr<SecurityOrigin> m_origin;
+    CompletionHandler<void()> m_policyForResponseCompletionHandler;
+    unsigned m_redirectCount { 0 };
+    bool m_loadingMultipartContent { false };
+    bool m_inAsyncResponsePolicyCheck { false };
 };
 
 }
 
-#endif // SubresourceLoader_h
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SubresourceLoader)
+static bool isType(const WebCore::ResourceLoader& loader) { return loader.isSubresourceLoader(); }
+SPECIALIZE_TYPE_TRAITS_END()

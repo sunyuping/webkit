@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2018 Yusuke Suzuki <utatane.tea@gmail.com>.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,23 +24,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSElementCustom_h
-#define JSElementCustom_h
+#pragma once
 
 #include "JSDOMBinding.h"
 #include "JSElement.h"
 
-namespace WebCore {
+namespace JSC {
+namespace JSCastingHelpers {
 
-JSC::JSValue toJSNewlyCreated(JSC::ExecState*, JSDOMGlobalObject*, Element*);
+template<>
+struct InheritsTraits<WebCore::JSElement> {
+    template<typename From>
+    static inline bool inherits(VM&, From* from)
+    {
+        return from->type() >= WebCore::JSElementType;
+    }
+};
 
-ALWAYS_INLINE JSElement* jsElementCast(JSC::JSValue value)
-{
-    if (UNLIKELY(!value.isCell()))
-        return nullptr;
-    return value.asCell()->type() >= JSElementType ? JSC::jsCast<JSElement*>(value) : nullptr;
-}
-
-} // namespace WebCore
-
-#endif // JSElementCustom_h
+} // namespace JSCastingHelpers
+} // namespace JSC

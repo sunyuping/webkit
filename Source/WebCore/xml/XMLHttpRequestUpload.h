@@ -23,44 +23,31 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef XMLHttpRequestUpload_h
-#define XMLHttpRequestUpload_h
+#pragma once
 
 #include "XMLHttpRequest.h"
 #include <wtf/Forward.h>
-#include <wtf/HashMap.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
 
 namespace WebCore {
 
-    class ScriptExecutionContext;
-    class XMLHttpRequest;
+class XMLHttpRequestUpload final : public XMLHttpRequestEventTarget {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    explicit XMLHttpRequestUpload(XMLHttpRequest&);
 
-    class XMLHttpRequestUpload final : public XMLHttpRequestEventTarget {
-    public:
-        explicit XMLHttpRequestUpload(XMLHttpRequest*);
+    void ref() { m_request.ref(); }
+    void deref() { m_request.deref(); }
 
-        void ref() { m_xmlHttpRequest->ref(); }
-        void deref() { m_xmlHttpRequest->deref(); }
-        XMLHttpRequest* xmlHttpRequest() const { return m_xmlHttpRequest; }
+    void dispatchProgressEvent(const AtomicString& type, unsigned long long loaded, unsigned long long total);
 
-        virtual EventTargetInterface eventTargetInterface() const override { return XMLHttpRequestUploadEventTargetInterfaceType; }
-        virtual ScriptExecutionContext* scriptExecutionContext() const override { return m_xmlHttpRequest->scriptExecutionContext(); }
+private:
+    void refEventTarget() final { ref(); }
+    void derefEventTarget() final { deref(); }
 
-        void dispatchThrottledProgressEvent(bool lengthComputable, unsigned long long loaded, unsigned long long total);
-        void dispatchProgressEvent(const AtomicString &type);
+    EventTargetInterface eventTargetInterface() const final { return XMLHttpRequestUploadEventTargetInterfaceType; }
+    ScriptExecutionContext* scriptExecutionContext() const final { return m_request.scriptExecutionContext(); }
 
-    private:
-        virtual void refEventTarget() override final { ref(); }
-        virtual void derefEventTarget() override final { deref(); }
-
-        XMLHttpRequest* m_xmlHttpRequest;
-        bool m_lengthComputable;
-        unsigned long long m_loaded;
-        unsigned long long m_total;
-    };
+    XMLHttpRequest& m_request;
+};
     
 } // namespace WebCore
-
-#endif // XMLHttpRequestUpload_h

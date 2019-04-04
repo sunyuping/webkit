@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 # Copyright (C) 2013, 2015 Apple Inc.  All rights reserved.
 # Copyright (C) 2012 Google Inc. All rights reserved.
 #
@@ -47,6 +47,8 @@ def main():
         platform = 'ios-simulator'
     elif options.platform.startswith('ios'):
         platform = 'device'
+    elif options.platform.startswith('jsc-only'):
+        platform = 'jsc-only'
     else:
         platform = options.platform.split('-', 1)[0]
 

@@ -26,7 +26,7 @@
 
 #include "config.h"
 #include "PublicURLManager.h"
-#include "URL.h"
+#include <wtf/URL.h>
 #include "URLRegistry.h"
 #include <wtf/text/StringHash.h>
 
@@ -45,12 +45,12 @@ PublicURLManager::PublicURLManager(ScriptExecutionContext* context)
 {
 }
 
-void PublicURLManager::registerURL(SecurityOrigin* origin, const URL& url, URLRegistrable* registrable)
+void PublicURLManager::registerURL(SecurityOrigin* origin, const URL& url, URLRegistrable& registrable)
 {
     if (m_isStopped)
         return;
 
-    RegistryURLMap::iterator found = m_registryToURL.add(&registrable->registry(), URLSet()).iterator;
+    RegistryURLMap::iterator found = m_registryToURL.add(&registrable.registry(), URLSet()).iterator;
     found->key->registerURL(origin, url, registrable);
     found->value.add(url.string());
 }
@@ -74,7 +74,7 @@ void PublicURLManager::stop()
     m_isStopped = true;
     for (auto& registry : m_registryToURL) {
         for (auto& url : registry.value)
-            registry.key->unregisterURL(URL(ParsedURLString, url));
+            registry.key->unregisterURL(URL({ }, url));
     }
 
     m_registryToURL.clear();

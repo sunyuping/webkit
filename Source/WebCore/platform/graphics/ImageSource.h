@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2004, 2005, 2006 Apple Inc.  All rights reserved.
- * Copyright (C) 2007-2008 Torch Mobile, Inc.
+ * Copyright (C) 2016-2017 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -21,159 +20,185 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ImageSource_h
-#define ImageSource_h
+#pragma once
 
-#include "ImageOrientation.h"
-#include "NativeImagePtr.h"
+#include "ImageFrame.h"
 
 #include <wtf/Forward.h>
-#include <wtf/Noncopyable.h>
-#include <wtf/Vector.h>
-
-#if USE(CG)
-typedef struct CGImageSource* CGImageSourceRef;
-typedef const struct __CFData* CFDataRef;
-#endif
+#include <wtf/Optional.h>
+#include <wtf/SynchronizedFixedQueue.h>
+#include <wtf/WeakPtr.h>
+#include <wtf/WorkQueue.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-class ImageOrientation;
-class IntPoint;
-class IntSize;
-class SharedBuffer;
-
-#if USE(CG)
-typedef CGImageSourceRef NativeImageDecoderPtr;
-#else
+class BitmapImage;
+class GraphicsContext;
 class ImageDecoder;
-typedef ImageDecoder* NativeImageDecoderPtr;
-#endif
 
-#if USE(CG)
-#define NativeImageDecoder ImageDecoder
-#else
-typedef ImageDecoder NativeImageDecoder;
-#endif
-
-// Right now GIFs are the only recognized image format that supports animation.
-// The animation system and the constants below are designed with this in mind.
-// GIFs have an optional 16-bit unsigned loop count that describes how an
-// animated GIF should be cycled.  If the loop count is absent, the animation
-// cycles once; if it is 0, the animation cycles infinitely; otherwise the
-// animation plays n + 1 cycles (where n is the specified loop count).  If the
-// GIF decoder defaults to cAnimationLoopOnce in the absence of any loop count
-// and translates an explicit "0" loop count to cAnimationLoopInfinite, then we
-// get a couple of nice side effects:
-//   * By making cAnimationLoopOnce be 0, we allow the animation cycling code in
-//     BitmapImage.cpp to avoid special-casing it, and simply treat all
-//     non-negative loop counts identically.
-//   * By making the other two constants negative, we avoid conflicts with any
-//     real loop count values.
-const int cAnimationLoopOnce = 0;
-const int cAnimationLoopInfinite = -1;
-const int cAnimationNone = -2;
-
-// SubsamplingLevel. 0 is no subsampling, 1 is half dimensions on each axis etc.
-typedef short SubsamplingLevel;
-
-class ImageSource {
-    WTF_MAKE_NONCOPYABLE(ImageSource);
+class ImageSource : public ThreadSafeRefCounted<ImageSource>, public CanMakeWeakPtr<ImageSource> {
+    friend class BitmapImage;
 public:
-    enum AlphaOption {
-        AlphaPremultiplied,
-        AlphaNotPremultiplied
-    };
-
-    enum GammaAndColorProfileOption {
-        GammaAndColorProfileApplied,
-        GammaAndColorProfileIgnored
-    };
-
-    ImageSource(AlphaOption alphaOption = AlphaPremultiplied, GammaAndColorProfileOption gammaAndColorProfileOption = GammaAndColorProfileApplied);
     ~ImageSource();
 
-    // Tells the ImageSource that the Image no longer cares about decoded frame
-    // data -- at all (if |destroyAll| is true), or before frame
-    // |clearBeforeFrame| (if |destroyAll| is false).  The ImageSource should
-    // delete cached decoded data for these frames where possible to keep memory
-    // usage low.  When |destroyAll| is true, the ImageSource should also reset
-    // any local state so that decoding can begin again.
-    //
-    // Implementations that delete less than what's specified above waste
-    // memory.  Implementations that delete more may burn CPU re-decoding frames
-    // that could otherwise have been cached, or encounter errors if they're
-    // asked to decode frames they can't decode due to the loss of previous
-    // decoded frames.
-    //
-    // Callers should not call clear(false, n) and subsequently call
-    // createFrameAtIndex(m) with m < n, unless they first call clear(true).
-    // This ensures that stateful ImageSources/decoders will work properly.
-    //
-    // The |data| and |allDataReceived| parameters should be supplied by callers
-    // who set |destroyAll| to true if they wish to be able to continue using
-    // the ImageSource.  This way implementations which choose to destroy their
-    // decoders in some cases can reconstruct them correctly.
-    void clear(bool destroyAll,
-               size_t clearBeforeFrame = 0,
-               SharedBuffer* data = NULL,
-               bool allDataReceived = false);
+    static Ref<ImageSource> create(BitmapImage* image, AlphaOption alphaOption = AlphaOption::Premultiplied, GammaAndColorProfileOption gammaAndColorProfileOption = GammaAndColorProfileOption::Applied)
+    {
+        return adoptRef(*new ImageSource(image, alphaOption, gammaAndColorProfileOption));
+    }
 
-    bool initialized() const;
+    static Ref<ImageSource> create(NativeImagePtr&& nativeImage)
+    {
+        return adoptRef(*new ImageSource(WTFMove(nativeImage)));
+    }
 
     void setData(SharedBuffer* data, bool allDataReceived);
-    String filenameExtension() const;
+    void resetData(SharedBuffer* data);
+    EncodedDataStatus dataChanged(SharedBuffer* data, bool allDataReceived);
+    bool isAllDataReceived();
 
-    SubsamplingLevel subsamplingLevelForScale(float) const;
-    bool allowSubsamplingOfFrameAtIndex(size_t) const;
+    unsigned decodedSize() const { return m_decodedSize; }
+    void destroyAllDecodedData() { destroyDecodedData(frameCount(), frameCount()); }
+    void destroyAllDecodedDataExcludeFrame(size_t excludeFrame) { destroyDecodedData(frameCount(), excludeFrame); }
+    void destroyDecodedDataBeforeFrame(size_t beforeFrame) { destroyDecodedData(beforeFrame, beforeFrame); }
+    void destroyIncompleteDecodedData();
+    void clearFrameBufferCache(size_t beforeFrame);
 
-    bool isSizeAvailable();
-    // Always original size, without subsampling.
-    IntSize size(ImageOrientationDescription = ImageOrientationDescription()) const;
-    // Size of optionally subsampled frame.
-    IntSize frameSizeAtIndex(size_t, SubsamplingLevel = 0, ImageOrientationDescription = ImageOrientationDescription()) const;
+    void growFrames();
+    void clearMetadata();
+    void clearImage() { m_image = nullptr; }
+    URL sourceURL() const;
+    String mimeType() const;
+    long long expectedContentLength() const;
 
-    bool getHotSpot(IntPoint&) const;
+    // Asynchronous image decoding
+    bool canUseAsyncDecoding();
+    void startAsyncDecodingQueue();
+    void requestFrameAsyncDecodingAtIndex(size_t, SubsamplingLevel, const Optional<IntSize>& = { });
+    void stopAsyncDecodingQueue();
+    bool hasAsyncDecodingQueue() const { return m_decodingQueue; }
+    bool isAsyncDecodingQueueIdle() const;
+    void setFrameDecodingDurationForTesting(Seconds duration) { m_frameDecodingDurationForTesting = duration; }
+    Seconds frameDecodingDurationForTesting() const { return m_frameDecodingDurationForTesting; }
 
-    size_t bytesDecodedToDetermineProperties() const;
+    // Image metadata which is calculated either by the ImageDecoder or directly
+    // from the NativeImage if this class was created for a memory image.
+    EncodedDataStatus encodedDataStatus();
+    bool isSizeAvailable() { return encodedDataStatus() >= EncodedDataStatus::SizeAvailable; }
+    size_t frameCount();
+    RepetitionCount repetitionCount();
+    String uti();
+    String filenameExtension();
+    Optional<IntPoint> hotSpot();
 
-    int repetitionCount();
+    // Image metadata which is calculated from the first ImageFrame.
+    WEBCORE_EXPORT IntSize size();
+    IntSize sizeRespectingOrientation();
+    Color singlePixelSolidColor();
+    SubsamplingLevel maximumSubsamplingLevel();
 
-    size_t frameCount() const;
+    // ImageFrame metadata which does not require caching the ImageFrame.
+    bool frameIsBeingDecodedAndIsCompatibleWithOptionsAtIndex(size_t, const DecodingOptions&);
+    DecodingStatus frameDecodingStatusAtIndex(size_t);
+    bool frameHasAlphaAtIndex(size_t);
+    bool frameHasImageAtIndex(size_t);
+    bool frameHasFullSizeNativeImageAtIndex(size_t, const Optional<SubsamplingLevel>&);
+    bool frameHasDecodedNativeImageCompatibleWithOptionsAtIndex(size_t, const Optional<SubsamplingLevel>&, const DecodingOptions&);
+    SubsamplingLevel frameSubsamplingLevelAtIndex(size_t);
 
-    // Callers should not call this after calling clear() with a higher index;
-    // see comments on clear() above.
-    PassNativeImagePtr createFrameAtIndex(size_t, SubsamplingLevel = 0);
+    // ImageFrame metadata which forces caching or re-caching the ImageFrame.
+    IntSize frameSizeAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default);
+    unsigned frameBytesAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default);
+    Seconds frameDurationAtIndex(size_t);
+    ImageOrientation frameOrientationAtIndex(size_t);
 
-    float frameDurationAtIndex(size_t);
-    bool frameHasAlphaAtIndex(size_t); // Whether or not the frame actually used any alpha.
-    bool frameIsCompleteAtIndex(size_t); // Whether or not the frame is completely decoded.
-    ImageOrientation orientationAtIndex(size_t) const; // EXIF image orientation
-
-    // Return the number of bytes in the decoded frame. If the frame is not yet
-    // decoded then return 0.
-    unsigned frameBytesAtIndex(size_t, SubsamplingLevel = 0) const;
-
-#if ENABLE(IMAGE_DECODER_DOWN_SAMPLING)
-    static unsigned maxPixelsPerDecodedImage() { return s_maxPixelsPerDecodedImage; }
-    static void setMaxPixelsPerDecodedImage(unsigned maxPixels) { s_maxPixelsPerDecodedImage = maxPixels; }
+#if USE(DIRECT2D)
+    void setTargetContext(const GraphicsContext*);
 #endif
+    NativeImagePtr createFrameImageAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default);
+    NativeImagePtr frameImageAtIndex(size_t);
+    NativeImagePtr frameImageAtIndexCacheIfNeeded(size_t, SubsamplingLevel = SubsamplingLevel::Default);
 
 private:
-    NativeImageDecoderPtr m_decoder;
+    ImageSource(BitmapImage*, AlphaOption = AlphaOption::Premultiplied, GammaAndColorProfileOption = GammaAndColorProfileOption::Applied);
+    ImageSource(NativeImagePtr&&);
 
-#if !USE(CG)
-    AlphaOption m_alphaOption;
-    GammaAndColorProfileOption m_gammaAndColorProfileOption;
-#endif
-#if ENABLE(IMAGE_DECODER_DOWN_SAMPLING)
-    static unsigned s_maxPixelsPerDecodedImage;
-#endif
+    template<typename T, T (ImageDecoder::*functor)() const>
+    T metadata(const T& defaultValue, Optional<T>* cachedValue = nullptr);
+
+    template<typename T, typename... Args>
+    T frameMetadataAtIndex(size_t, T (ImageFrame::*functor)(Args...) const, Args&&...);
+
+    template<typename T, typename... Args>
+    T frameMetadataAtIndexCacheIfNeeded(size_t, T (ImageFrame::*functor)() const,  Optional<T>* cachedValue, Args&&...);
+
+    bool ensureDecoderAvailable(SharedBuffer* data);
+    bool isDecoderAvailable() const { return m_decoder; }
+    void destroyDecodedData(size_t frameCount, size_t excludeFrame);
+    void decodedSizeChanged(long long decodedSize);
+    void didDecodeProperties(unsigned decodedPropertiesSize);
+    void decodedSizeIncreased(unsigned decodedSize);
+    void decodedSizeDecreased(unsigned decodedSize);
+    void decodedSizeReset(unsigned decodedSize);
+    void encodedDataStatusChanged(EncodedDataStatus);
+
+    void setNativeImage(NativeImagePtr&&);
+    void cacheMetadataAtIndex(size_t, SubsamplingLevel, DecodingStatus = DecodingStatus::Invalid);
+    void cacheNativeImageAtIndex(NativeImagePtr&&, size_t, SubsamplingLevel, const DecodingOptions&, DecodingStatus = DecodingStatus::Invalid);
+    void cacheNativeImageAtIndexAsync(NativeImagePtr&&, size_t, SubsamplingLevel, const DecodingOptions&, DecodingStatus);
+
+    struct ImageFrameRequest;
+    static const int BufferSize = 8;
+    WorkQueue& decodingQueue();
+    SynchronizedFixedQueue<ImageFrameRequest, BufferSize>& frameRequestQueue();
+
+    const ImageFrame& frameAtIndexCacheIfNeeded(size_t, ImageFrame::Caching, const Optional<SubsamplingLevel>& = { });
+
+    void dump(TextStream&);
+
+    BitmapImage* m_image { nullptr };
+    RefPtr<ImageDecoder> m_decoder;
+    AlphaOption m_alphaOption { AlphaOption::Premultiplied };
+    GammaAndColorProfileOption m_gammaAndColorProfileOption { GammaAndColorProfileOption::Applied };
+
+    unsigned m_decodedSize { 0 };
+    unsigned m_decodedPropertiesSize { 0 };
+    Vector<ImageFrame, 1> m_frames;
+
+    // Asynchronous image decoding.
+    struct ImageFrameRequest {
+        size_t index;
+        SubsamplingLevel subsamplingLevel;
+        DecodingOptions decodingOptions;
+        DecodingStatus decodingStatus;
+        bool operator==(const ImageFrameRequest& other) const
+        {
+            return index == other.index && subsamplingLevel == other.subsamplingLevel && decodingOptions == other.decodingOptions && decodingStatus == other.decodingStatus;
+        }
+    };
+    using FrameRequestQueue = SynchronizedFixedQueue<ImageFrameRequest, BufferSize>;
+    using FrameCommitQueue = Deque<ImageFrameRequest, BufferSize>;
+    RefPtr<FrameRequestQueue> m_frameRequestQueue;
+    FrameCommitQueue m_frameCommitQueue;
+    RefPtr<WorkQueue> m_decodingQueue;
+    Seconds m_frameDecodingDurationForTesting;
+
+    // Image metadata.
+    Optional<EncodedDataStatus> m_encodedDataStatus;
+    Optional<size_t> m_frameCount;
+    Optional<RepetitionCount> m_repetitionCount;
+    Optional<String> m_uti;
+    Optional<String> m_filenameExtension;
+    Optional<Optional<IntPoint>> m_hotSpot;
+
+    // Image metadata which is calculated from the first ImageFrame.
+    Optional<IntSize> m_size;
+    Optional<IntSize> m_sizeRespectingOrientation;
+    Optional<Color> m_singlePixelSolidColor;
+    Optional<SubsamplingLevel> m_maximumSubsamplingLevel;
 };
 
 }
-
-#endif

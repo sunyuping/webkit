@@ -23,11 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-WebInspector.ResourceContentView = class ResourceContentView extends WebInspector.ContentView
+WI.ResourceContentView = class ResourceContentView extends WI.ContentView
 {
     constructor(resource, styleClassName)
     {
-        console.assert(resource instanceof WebInspector.Resource, resource);
+        console.assert(resource instanceof WI.Resource || resource instanceof WI.CSSStyleSheet, resource);
         console.assert(typeof styleClassName === "string");
 
         super(resource);
@@ -36,20 +36,24 @@ WebInspector.ResourceContentView = class ResourceContentView extends WebInspecto
 
         this.element.classList.add(styleClassName, "resource");
 
-        // Append a spinner while waiting for contentAvailable. The subclasses are responsible for removing
-        // the spinner before showing the resource content.
-        var spinner = new WebInspector.IndeterminateProgressSpinner;
-        this.element.appendChild(spinner.element);
+        this._spinnerTimeout = setTimeout(() => {
+            // Append a spinner while waiting for contentAvailable. Subclasses are responsible for
+            // removing the spinner before showing the resource content by calling removeLoadingIndicator.
+            let spinner = new WI.IndeterminateProgressSpinner;
+            this.element.appendChild(spinner.element);
+
+            this._spinnerTimeout = undefined;
+        }, 100);
 
         this.element.addEventListener("click", this._mouseWasClicked.bind(this), false);
 
         // Request content last so the spinner will always be removed in case the content is immediately available.
-        resource.requestContent().then(this._contentAvailable.bind(this)).catch(this._protocolError.bind(this));
+        resource.requestContent().then(this._contentAvailable.bind(this)).catch(this.showGenericErrorMessage.bind(this));
 
         if (!this.managesOwnIssues) {
-            WebInspector.issueManager.addEventListener(WebInspector.IssueManager.Event.IssueWasAdded, this._issueWasAdded, this);
+            WI.consoleManager.addEventListener(WI.ConsoleManager.Event.IssueAdded, this._issueWasAdded, this);
 
-            var issues = WebInspector.issueManager.issuesForSourceCode(resource);
+            var issues = WI.consoleManager.issuesForSourceCode(resource);
             for (var i = 0; i < issues.length; ++i)
                 this.addIssue(issues[i]);
         }
@@ -62,22 +66,64 @@ WebInspector.ResourceContentView = class ResourceContentView extends WebInspecto
         return this._resource;
     }
 
+    get supportsSave()
+    {
+        return this._resource.finished;
+    }
+
+    get saveData()
+    {
+        return {url: this._resource.url, content: this._resource.content};
+    }
+
     contentAvailable(content, base64Encoded)
     {
-        // Implemented by subclasses.
+        throw WI.NotImplementedError.subclassMustOverride();
+    }
+
+    showGenericNoContentMessage()
+    {
+        this.showMessage(WI.UIString("Resource has no content"));
+
+        this.dispatchEventToListeners(WI.ResourceContentView.Event.ContentError);
+    }
+
+    showGenericErrorMessage()
+    {
+        this._contentError(WI.UIString("An error occurred trying to load the resource."));
+    }
+
+    showMessage(message)
+    {
+        this.element.removeChildren();
+        this.element.appendChild(WI.createMessageTextView(message));
     }
 
     addIssue(issue)
     {
         // This generically shows only the last issue, subclasses can override for better handling.
         this.element.removeChildren();
-        this.element.appendChild(WebInspector.createMessageTextView(issue.text, issue.level === WebInspector.IssueMessage.Level.Error));
+        this.element.appendChild(WI.createMessageTextView(issue.text, issue.level === WI.IssueMessage.Level.Error));
     }
 
     closed()
     {
+        super.closed();
+
         if (!this.managesOwnIssues)
-            WebInspector.issueManager.removeEventListener(null, null, this);
+            WI.consoleManager.removeEventListener(null, null, this);
+    }
+
+    // Protected
+
+    removeLoadingIndicator()
+    {
+        if (this._spinnerTimeout) {
+            clearTimeout(this._spinnerTimeout);
+            this._spinnerTimeout = undefined;
+        }
+
+        this.element.removeChildren();
     }
 
     // Private
@@ -100,18 +146,16 @@ WebInspector.ResourceContentView = class ResourceContentView extends WebInspecto
         if (this._hasContent())
             return;
 
-        this.element.removeChildren();
-        this.element.appendChild(WebInspector.createMessageTextView(error, true));
-    }
+        this.removeLoadingIndicator();
 
-    _protocolError(error)
-    {
-        this._contentError(WebInspector.UIString("An error occurred trying to load the resource."));
+        this.element.appendChild(WI.createMessageTextView(error, true));
+
+        this.dispatchEventToListeners(WI.ResourceContentView.Event.ContentError);
     }
 
     _hasContent()
     {
-        return !this.element.querySelector(".indeterminate-progress-spinner");
+        return this.element.hasChildNodes() && !this.element.querySelector(".indeterminate-progress-spinner");
     }
 
     _issueWasAdded(event)
@@ -119,9 +163,7 @@ WebInspector.ResourceContentView = class ResourceContentView extends WebInspecto
         console.assert(!this.managesOwnIssues);
 
         var issue = event.data.issue;
-
-        // FIXME: Check more than just the issue URL (the document could have multiple resources with the same URL).
-        if (issue.url !== this.resource.url)
+        if (!WI.ConsoleManager.issueMatchSourceCode(issue, this.resource))
             return;
 
         this.addIssue(issue);
@@ -129,6 +171,10 @@ WebInspector.ResourceContentView = class ResourceContentView extends WebInspecto
 
     _mouseWasClicked(event)
     {
-        WebInspector.handlePossibleLinkClick(event, this.resource.parentFrame);
+        WI.handlePossibleLinkClick(event, this.resource.parentFrame);
     }
+};
+
+WI.ResourceContentView.Event = {
+    ContentError: "resource-content-view-content-error",
 };

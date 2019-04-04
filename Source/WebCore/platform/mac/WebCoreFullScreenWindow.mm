@@ -25,9 +25,16 @@
 
 #import "config.h"
 
-#if ENABLE(FULLSCREEN_API) && !PLATFORM(IOS)
+#if ENABLE(FULLSCREEN_API) && !PLATFORM(IOS_FAMILY)
 
 #import "WebCoreFullScreenWindow.h"
+
+// FIXME: This isn't really an NSWindowController method - it's a method that
+// the NSWindowController subclass that's using WebCoreFullScreenWindow needs to implement.
+// It should probably be a protocol method.
+@interface NSWindowController ()
+- (void)performClose:(id)sender;
+@end
 
 @implementation WebCoreFullScreenWindow
 

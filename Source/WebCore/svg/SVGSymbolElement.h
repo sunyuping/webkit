@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -18,40 +19,32 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SVGSymbolElement_h
-#define SVGSymbolElement_h
+#pragma once
 
-#include "SVGAnimatedBoolean.h"
-#include "SVGAnimatedPreserveAspectRatio.h"
-#include "SVGAnimatedRect.h"
 #include "SVGElement.h"
 #include "SVGExternalResourcesRequired.h"
 #include "SVGFitToViewBox.h"
 
 namespace WebCore {
 
-class SVGSymbolElement final : public SVGElement,
-                               public SVGExternalResourcesRequired,
-                               public SVGFitToViewBox {
+class SVGSymbolElement final : public SVGElement, public SVGExternalResourcesRequired, public SVGFitToViewBox {
+    WTF_MAKE_ISO_ALLOCATED(SVGSymbolElement);
 public:
     static Ref<SVGSymbolElement> create(const QualifiedName&, Document&);
 
 private:
     SVGSymbolElement(const QualifiedName&, Document&);
 
-    virtual void parseAttribute(const QualifiedName&, const AtomicString&) override;
-    virtual void svgAttributeChanged(const QualifiedName&) override;
-    virtual RenderPtr<RenderElement> createElementRenderer(Ref<RenderStyle>&&, const RenderTreePosition&) override;
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGSymbolElement, SVGElement, SVGExternalResourcesRequired, SVGFitToViewBox>;
+    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    virtual bool selfHasRelativeLengths() const override;
+    void parseAttribute(const QualifiedName&, const AtomicString&) override;
+    void svgAttributeChanged(const QualifiedName&) override;
+    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
 
-    BEGIN_DECLARE_ANIMATED_PROPERTIES(SVGSymbolElement)
-        DECLARE_ANIMATED_BOOLEAN_OVERRIDE(ExternalResourcesRequired, externalResourcesRequired)
-        DECLARE_ANIMATED_RECT(ViewBox, viewBox)
-        DECLARE_ANIMATED_PRESERVEASPECTRATIO(PreserveAspectRatio, preserveAspectRatio) 
-    END_DECLARE_ANIMATED_PROPERTIES
+    bool selfHasRelativeLengths() const override;
+
+    PropertyRegistry m_propertyRegistry { *this };
 };
 
 } // namespace WebCore
-
-#endif

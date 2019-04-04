@@ -23,14 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef JSTypedArrayViewPrototype_h
-#define JSTypedArrayViewPrototype_h
+#pragma once
 
 #include "JSObject.h"
 
 namespace JSC {
 
-class JSTypedArrayViewPrototype : public JSNonFinalObject {
+class JSTypedArrayViewPrototype final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
 
@@ -46,10 +45,10 @@ public:
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 };
 
+EncodedJSValue JSC_HOST_CALL typedArrayViewPrivateFuncIsTypedArrayView(ExecState*);
 EncodedJSValue JSC_HOST_CALL typedArrayViewPrivateFuncSort(ExecState*);
 EncodedJSValue JSC_HOST_CALL typedArrayViewPrivateFuncLength(ExecState*);
-
+EncodedJSValue JSC_HOST_CALL typedArrayViewPrivateFuncGetOriginalConstructor(ExecState*);
+EncodedJSValue JSC_HOST_CALL typedArrayViewPrivateFuncSubarrayCreate(ExecState*);
     
 } // namespace JSC
-
-#endif /* JSTypedArrayViewPrototype_h */

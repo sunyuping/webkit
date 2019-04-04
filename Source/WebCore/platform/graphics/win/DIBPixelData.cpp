@@ -28,8 +28,10 @@
 
 namespace WebCore {
 
+#ifndef NDEBUG
 static const WORD bitmapType = 0x4d42; // BMP format
 static const WORD bitmapPixelsPerMeter = 2834; // 72 dpi
+#endif
 
 DIBPixelData::DIBPixelData(HBITMAP bitmap)
 {
@@ -38,7 +40,7 @@ DIBPixelData::DIBPixelData(HBITMAP bitmap)
 
 void DIBPixelData::initialize(HBITMAP bitmap)
 {
-    BITMAP bmpInfo;
+    BITMAP bmpInfo = {0, 0, 0, 0, 0, 0, nullptr};
     GetObject(bitmap, sizeof(bmpInfo), &bmpInfo);
 
     m_bitmapBuffer = reinterpret_cast<UInt8*>(bmpInfo.bmBits);
@@ -87,6 +89,10 @@ void DIBPixelData::writeToFile(LPCWSTR filePath)
 void DIBPixelData::setRGBABitmapAlpha(HDC hdc, const IntRect& dstRect, unsigned char level)
 {
     HBITMAP bitmap = static_cast<HBITMAP>(GetCurrentObject(hdc, OBJ_BITMAP));
+
+    if (!bitmap)
+        return;
+
     DIBPixelData pixelData(bitmap);
     ASSERT(pixelData.bitsPerPixel() == 32);
 

@@ -1,38 +1,36 @@
-list(APPEND JavaScriptCore_SOURCES
-    API/JSAPIWrapperObject.mm
-    API/JSContext.mm
-    API/JSManagedValue.mm
-    API/JSRemoteInspector.cpp
-    API/JSStringRefCF.cpp
-    API/JSValue.mm
-    API/JSVirtualMachine.mm
-    API/JSWrapperMap.mm
-    API/ObjCCallbackFunction.mm
+add_definitions(-DSTATICALLY_LINKED_WITH_WTF -D__STDC_WANT_LIB_EXT1__)
 
-    inspector/remote/RemoteAutomationTarget.cpp
-    inspector/remote/RemoteConnectionToTarget.mm
-    inspector/remote/RemoteControllableTarget.cpp
-    inspector/remote/RemoteInspectionTarget.cpp
-    inspector/remote/RemoteInspector.mm
-    inspector/remote/RemoteInspectorXPCConnection.mm
+find_library(SECURITY_LIBRARY Security)
+list(APPEND JavaScriptCore_LIBRARIES
+    ${SECURITY_LIBRARY}
 )
-add_definitions(-DSTATICALLY_LINKED_WITH_WTF)
 
-add_custom_command(
-    OUTPUT ${DERIVED_SOURCES_JAVASCRIPTCORE_DIR}/TracingDtrace.h
-    DEPENDS ${JAVASCRIPTCORE_DIR}/runtime/Tracing.d
-    WORKING_DIRECTORY ${DERIVED_SOURCES_JAVASCRIPTCORE_DIR}
-    COMMAND dtrace -h -o "${DERIVED_SOURCES_JAVASCRIPTCORE_DIR}/TracingDtrace.h" -s "${JAVASCRIPTCORE_DIR}/runtime/Tracing.d"
-    VERBATIM)
+list(APPEND JavaScriptCore_UNIFIED_SOURCE_LIST_FILES
+    "SourcesCocoa.txt"
+)
 
-list(APPEND JavaScriptCore_INCLUDE_DIRECTORIES
-    ${WTF_DIR}
+list(APPEND JavaScriptCore_PRIVATE_INCLUDE_DIRECTORIES
+    ${DERIVED_SOURCES_WTF_DIR}
     ${JAVASCRIPTCORE_DIR}/disassembler/udis86
-    ${JAVASCRIPTCORE_DIR}/icu
+    ${JAVASCRIPTCORE_DIR}/inspector/cocoa
+    ${JAVASCRIPTCORE_DIR}/inspector/remote/cocoa
 )
-list(APPEND JavaScriptCore_HEADERS
-    ${DERIVED_SOURCES_JAVASCRIPTCORE_DIR}/TracingDtrace.h
+
+list(APPEND JavaScriptCore_PUBLIC_FRAMEWORK_HEADERS
+    API/JSContext.h
+    API/JSExport.h
+    API/JSManagedValue.h
+    API/JSStringRefCF.h
+    API/JSValue.h
+    API/JSVirtualMachine.h
+    API/JavaScriptCore.h
 )
+
+list(APPEND JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
+    inspector/remote/cocoa/RemoteInspectorXPCConnection.h
+)
+
+set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} "-compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
 
 # FIXME: Make including these files consistent in the source so these forwarding headers are not needed.
 if (NOT EXISTS ${DERIVED_SOURCES_JAVASCRIPTCORE_DIR}/InspectorBackendDispatchers.h)

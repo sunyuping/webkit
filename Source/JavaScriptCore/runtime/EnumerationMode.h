@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef EnumerationMode_h
-#define EnumerationMode_h
+#pragma once
 
 namespace JSC {
 
@@ -32,6 +31,11 @@ enum class PropertyNameMode {
     Symbols = 1 << 0,
     Strings = 1 << 1,
     StringsAndSymbols = Symbols | Strings,
+};
+
+enum class PrivateSymbolMode {
+    Include,
+    Exclude
 };
 
 enum class DontEnumPropertiesMode {
@@ -76,5 +80,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // EnumerationMode_h

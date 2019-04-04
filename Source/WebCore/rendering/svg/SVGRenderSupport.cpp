@@ -5,6 +5,7 @@
  * Copyright (C) 2009 Google, Inc.  All rights reserved.
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
  * Copyright (C) Research In Motion Limited 2009-2010. All rights reserved.
+ * Copyright (C) 2018 Adobe Systems Incorporated. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -26,6 +27,7 @@
 #include "SVGRenderSupport.h"
 
 #include "NodeRenderStyle.h"
+#include "RenderChildIterator.h"
 #include "RenderElement.h"
 #include "RenderGeometryMap.h"
 #include "RenderIterator.h"
@@ -45,42 +47,32 @@
 
 namespace WebCore {
 
-FloatRect SVGRenderSupport::repaintRectForRendererInLocalCoordinatesExcludingSVGShadow(const RenderElement& renderer)
-{
-    // FIXME: Add support for RenderSVGBlock.
-
-    if (is<RenderSVGModelObject>(renderer))
-        return downcast<RenderSVGModelObject>(renderer).repaintRectInLocalCoordinatesExcludingSVGShadow();
-
-    return renderer.repaintRectInLocalCoordinates();
-}
-
 LayoutRect SVGRenderSupport::clippedOverflowRectForRepaint(const RenderElement& renderer, const RenderLayerModelObject* repaintContainer)
 {
     // Return early for any cases where we don't actually paint
-    if (renderer.style().visibility() != VISIBLE && !renderer.enclosingLayer()->hasVisibleContent())
+    if (renderer.style().visibility() != Visibility::Visible && !renderer.enclosingLayer()->hasVisibleContent())
         return LayoutRect();
 
-    // Pass our local paint rect to computeRectForRepaint() which will
+    // Pass our local paint rect to computeFloatVisibleRectInContainer() which will
     // map to parent coords and recurse up the parent chain.
-    FloatRect repaintRect = repaintRectForRendererInLocalCoordinatesExcludingSVGShadow(renderer);
+    FloatRect repaintRect = renderer.repaintRectInLocalCoordinates();
     const SVGRenderStyle& svgStyle = renderer.style().svgStyle();
     if (const ShadowData* shadow = svgStyle.shadow())
         shadow->adjustRectForShadow(repaintRect);
     return enclosingLayoutRect(renderer.computeFloatRectForRepaint(repaintRect, repaintContainer));
 }
 
-FloatRect SVGRenderSupport::computeFloatRectForRepaint(const RenderElement& renderer, const FloatRect& repaintRect, const RenderLayerModelObject* repaintContainer, bool fixed)
+Optional<FloatRect> SVGRenderSupport::computeFloatVisibleRectInContainer(const RenderElement& renderer, const FloatRect& rect, const RenderLayerModelObject* container, RenderObject::VisibleRectContext context)
 {
-    FloatRect adjustedRect = repaintRect;
+    FloatRect adjustedRect = rect;
     const SVGRenderStyle& svgStyle = renderer.style().svgStyle();
     if (const ShadowData* shadow = svgStyle.shadow())
         shadow->adjustRectForShadow(adjustedRect);
     adjustedRect.inflate(renderer.style().outlineWidth());
 
-    // Translate to coords in our parent renderer, and then call computeFloatRectForRepaint() on our parent.
+    // Translate to coords in our parent renderer, and then call computeFloatVisibleRectInContainer() on our parent.
     adjustedRect = renderer.localToParentTransform().mapRect(adjustedRect);
-    return renderer.parent()->computeFloatRectForRepaint(adjustedRect, repaintContainer, fixed);
+    return renderer.parent()->computeFloatVisibleRectInContainer(adjustedRect, container, context);
 }
 
 const RenderElement& SVGRenderSupport::localToParentTransform(const RenderElement& renderer, AffineTransform &transform)
@@ -131,7 +123,7 @@ bool SVGRenderSupport::checkForSVGRepaintDuringLayout(const RenderElement& rende
 }
 
 // Update a bounding box taking into account the validity of the other bounding box.
-static inline void updateObjectBoundingBox(FloatRect& objectBoundingBox, bool& objectBoundingBoxValid, RenderObject* other, FloatRect otherBoundingBox)
+static inline void updateObjectBoundingBox(FloatRect& objectBoundingBox, bool& objectBoundingBoxValid, const RenderObject* other, FloatRect otherBoundingBox)
 {
     bool otherValid = is<RenderSVGContainer>(*other) ? downcast<RenderSVGContainer>(*other).isObjectBoundingBoxValid() : true;
     if (!otherValid)
@@ -155,21 +147,21 @@ void SVGRenderSupport::computeContainerBoundingBoxes(const RenderElement& contai
     // When computing the strokeBoundingBox, we use the repaintRects of the container's children so that the container's stroke includes
     // the resources applied to the children (such as clips and filters). This allows filters applied to containers to correctly bound
     // the children, and also improves inlining of SVG content, as the stroke bound is used in that situation also.
-    for (RenderObject* current = container.firstChild(); current; current = current->nextSibling()) {
-        if (current->isSVGHiddenContainer())
+    for (auto& current : childrenOfType<RenderObject>(container)) {
+        if (current.isSVGHiddenContainer())
             continue;
 
         // Don't include elements in the union that do not render.
-        if (is<RenderSVGShape>(*current) && downcast<RenderSVGShape>(*current).isRenderingDisabled())
+        if (is<RenderSVGShape>(current) && downcast<RenderSVGShape>(current).isRenderingDisabled())
             continue;
 
-        const AffineTransform& transform = current->localToParentTransform();
+        const AffineTransform& transform = current.localToParentTransform();
         if (transform.isIdentity()) {
-            updateObjectBoundingBox(objectBoundingBox, objectBoundingBoxValid, current, current->objectBoundingBox());
-            strokeBoundingBox.unite(current->repaintRectInLocalCoordinates());
+            updateObjectBoundingBox(objectBoundingBox, objectBoundingBoxValid, &current, current.objectBoundingBox());
+            strokeBoundingBox.unite(current.repaintRectInLocalCoordinates());
         } else {
-            updateObjectBoundingBox(objectBoundingBox, objectBoundingBoxValid, current, transform.mapRect(current->objectBoundingBox()));
-            strokeBoundingBox.unite(transform.mapRect(current->repaintRectInLocalCoordinates()));
+            updateObjectBoundingBox(objectBoundingBox, objectBoundingBoxValid, &current, transform.mapRect(current.objectBoundingBox()));
+            strokeBoundingBox.unite(transform.mapRect(current.repaintRectInLocalCoordinates()));
         }
     }
 
@@ -243,62 +235,52 @@ void SVGRenderSupport::layoutChildren(RenderElement& start, bool selfNeedsLayout
 {
     bool layoutSizeChanged = layoutSizeOfNearestViewportChanged(start);
     bool transformChanged = transformToRootChanged(&start);
-    bool hasSVGShadow = rendererHasSVGShadow(start);
-    bool needsBoundariesUpdate = start.needsBoundariesUpdate();
     HashSet<RenderElement*> elementsThatDidNotReceiveLayout;
 
-    for (RenderObject* child = start.firstChild(); child; child = child->nextSibling()) {
+    for (auto& child : childrenOfType<RenderObject>(start)) {
         bool needsLayout = selfNeedsLayout;
-        bool childEverHadLayout = child->everHadLayout();
-
-        if (needsBoundariesUpdate && hasSVGShadow) {
-            // If we have a shadow, our shadow is baked into our children's cached boundaries,
-            // so they need to update.
-            child->setNeedsBoundariesUpdate();
-            needsLayout = true;
-        }
+        bool childEverHadLayout = child.everHadLayout();
 
         if (transformChanged) {
             // If the transform changed we need to update the text metrics (note: this also happens for layoutSizeChanged=true).
-            if (is<RenderSVGText>(*child))
-                downcast<RenderSVGText>(*child).setNeedsTextMetricsUpdate();
+            if (is<RenderSVGText>(child))
+                downcast<RenderSVGText>(child).setNeedsTextMetricsUpdate();
             needsLayout = true;
         }
 
-        if (layoutSizeChanged) {
+        if (layoutSizeChanged && is<SVGElement>(*child.node())) {
             // When selfNeedsLayout is false and the layout size changed, we have to check whether this child uses relative lengths
-            if (SVGElement* element = is<SVGElement>(*child->node()) ? downcast<SVGElement>(child->node()) : nullptr) {
-                if (element->hasRelativeLengths()) {
-                    // When the layout size changed and when using relative values tell the RenderSVGShape to update its shape object
-                    if (is<RenderSVGShape>(*child))
-                        downcast<RenderSVGShape>(*child).setNeedsShapeUpdate();
-                    else if (is<RenderSVGText>(*child)) {
-                        RenderSVGText& svgText = downcast<RenderSVGText>(*child);
-                        svgText.setNeedsTextMetricsUpdate();
-                        svgText.setNeedsPositioningValuesUpdate();
-                    }
-
-                    needsLayout = true;
+            auto& element = downcast<SVGElement>(*child.node());
+            if (element.hasRelativeLengths()) {
+                // When the layout size changed and when using relative values tell the RenderSVGShape to update its shape object
+                if (is<RenderSVGShape>(child))
+                    downcast<RenderSVGShape>(child).setNeedsShapeUpdate();
+                else if (is<RenderSVGText>(child)) {
+                    auto& svgText = downcast<RenderSVGText>(child);
+                    svgText.setNeedsTextMetricsUpdate();
+                    svgText.setNeedsPositioningValuesUpdate();
                 }
+
+                needsLayout = true;
             }
         }
 
         if (needsLayout)
-            child->setNeedsLayout(MarkOnlyThis);
+            child.setNeedsLayout(MarkOnlyThis);
 
-        if (child->needsLayout()) {
-            layoutDifferentRootIfNeeded(downcast<RenderElement>(*child));
-            downcast<RenderElement>(*child).layout();
+        if (child.needsLayout()) {
+            layoutDifferentRootIfNeeded(downcast<RenderElement>(child));
+            downcast<RenderElement>(child).layout();
             // Renderers are responsible for repainting themselves when changing, except
             // for the initial paint to avoid potential double-painting caused by non-sensical "old" bounds.
             // We could handle this in the individual objects, but for now it's easier to have
             // parent containers call repaint().  (RenderBlock::layout* has similar logic.)
             if (!childEverHadLayout)
-                child->repaint();
-        } else if (layoutSizeChanged && is<RenderElement>(*child))
-            elementsThatDidNotReceiveLayout.add(downcast<RenderElement>(child));
+                child.repaint();
+        } else if (layoutSizeChanged && is<RenderElement>(child))
+            elementsThatDidNotReceiveLayout.add(&downcast<RenderElement>(child));
 
-        ASSERT(!child->needsLayout());
+        ASSERT(!child.needsLayout());
     }
 
     if (!layoutSizeChanged) {
@@ -316,62 +298,7 @@ bool SVGRenderSupport::isOverflowHidden(const RenderElement& renderer)
     // RenderSVGRoot should never query for overflow state - it should always clip itself to the initial viewport size.
     ASSERT(!renderer.isDocumentElementRenderer());
 
-    return renderer.style().overflowX() == OHIDDEN || renderer.style().overflowX() == OSCROLL;
-}
-
-bool SVGRenderSupport::rendererHasSVGShadow(const RenderObject& renderer)
-{
-    // FIXME: Add support for RenderSVGBlock.
-
-    if (is<RenderSVGModelObject>(renderer))
-        return downcast<RenderSVGModelObject>(renderer).hasSVGShadow();
-
-    if (is<RenderSVGRoot>(renderer))
-        return downcast<RenderSVGRoot>(renderer).hasSVGShadow();
-
-    return false;
-}
-
-void SVGRenderSupport::setRendererHasSVGShadow(RenderObject& renderer, bool hasShadow)
-{
-    // FIXME: Add support for RenderSVGBlock.
-
-    if (is<RenderSVGModelObject>(renderer)) {
-        downcast<RenderSVGModelObject>(renderer).setHasSVGShadow(hasShadow);
-        return;
-    }
-
-    if (is<RenderSVGRoot>(renderer))
-        downcast<RenderSVGRoot>(renderer).setHasSVGShadow(hasShadow);
-}
-
-void SVGRenderSupport::intersectRepaintRectWithShadows(const RenderElement& renderer, FloatRect& repaintRect)
-{
-    // Since -webkit-svg-shadow enables shadow drawing for its children, but its children
-    // don't inherit the shadow in their SVGRenderStyle, we need to search our parents for
-    // shadows in order to correctly compute our repaint rect.
-
-    auto currentObject = &renderer;
-
-    AffineTransform localToRootTransform;
-
-    while (currentObject && rendererHasSVGShadow(*currentObject)) {
-        const RenderStyle& style = currentObject->style();
-        const SVGRenderStyle& svgStyle = style.svgStyle();
-        if (const ShadowData* shadow = svgStyle.shadow())
-            shadow->adjustRectForShadow(repaintRect);
-
-        repaintRect = currentObject->localToParentTransform().mapRect(repaintRect);
-        localToRootTransform *= currentObject->localToParentTransform();
-
-        currentObject = currentObject->parent();
-    };
-
-    if (localToRootTransform.isIdentity())
-        return;
-
-    AffineTransform rootToLocalTransform = localToRootTransform.inverse().valueOr(AffineTransform());
-    repaintRect = rootToLocalTransform.mapRect(repaintRect);
+    return renderer.style().overflowX() == Overflow::Hidden || renderer.style().overflowX() == Overflow::Scroll;
 }
 
 void SVGRenderSupport::intersectRepaintRectWithResources(const RenderElement& renderer, FloatRect& repaintRect)
@@ -404,8 +331,76 @@ bool SVGRenderSupport::filtersForceContainerLayout(const RenderElement& renderer
     return true;
 }
 
+inline FloatRect clipPathReferenceBox(const RenderElement& renderer, CSSBoxType boxType)
+{
+    FloatRect referenceBox;
+    switch (boxType) {
+    case CSSBoxType::BorderBox:
+    case CSSBoxType::MarginBox:
+    case CSSBoxType::StrokeBox:
+        // FIXME: strokeBoundingBox() takes dasharray into account but shouldn't.
+        referenceBox = renderer.strokeBoundingBox();
+        break;
+    case CSSBoxType::ViewBox:
+        if (renderer.element()) {
+            FloatSize viewportSize;
+            SVGLengthContext(downcast<SVGElement>(renderer.element())).determineViewport(viewportSize);
+            referenceBox.setSize(viewportSize);
+            break;
+        }
+        FALLTHROUGH;
+    case CSSBoxType::ContentBox:
+    case CSSBoxType::FillBox:
+    case CSSBoxType::PaddingBox:
+    case CSSBoxType::BoxMissing:
+        referenceBox = renderer.objectBoundingBox();
+        break;
+    }
+    return referenceBox;
+}
+
+inline bool isPointInCSSClippingArea(const RenderElement& renderer, const FloatPoint& point)
+{
+    ClipPathOperation* clipPathOperation = renderer.style().clipPath();
+    if (is<ShapeClipPathOperation>(clipPathOperation)) {
+        auto& clipPath = downcast<ShapeClipPathOperation>(*clipPathOperation);
+        FloatRect referenceBox = clipPathReferenceBox(renderer, clipPath.referenceBox());
+        if (!referenceBox.contains(point))
+            return false;
+        return clipPath.pathForReferenceRect(referenceBox).contains(point, clipPath.windRule());
+    }
+    if (is<BoxClipPathOperation>(clipPathOperation)) {
+        auto& clipPath = downcast<BoxClipPathOperation>(*clipPathOperation);
+        FloatRect referenceBox = clipPathReferenceBox(renderer, clipPath.referenceBox());
+        if (!referenceBox.contains(point))
+            return false;
+        return clipPath.pathForReferenceRect(FloatRoundedRect {referenceBox}).contains(point);
+    }
+
+    return true;
+}
+
+void SVGRenderSupport::clipContextToCSSClippingArea(GraphicsContext& context, const RenderElement& renderer)
+{
+    ClipPathOperation* clipPathOperation = renderer.style().clipPath();
+    if (is<ShapeClipPathOperation>(clipPathOperation)) {
+        auto& clipPath = downcast<ShapeClipPathOperation>(*clipPathOperation);
+        FloatRect referenceBox = clipPathReferenceBox(renderer, clipPath.referenceBox());
+        context.clipPath(clipPath.pathForReferenceRect(referenceBox), clipPath.windRule());
+    }
+    if (is<BoxClipPathOperation>(clipPathOperation)) {
+        auto& clipPath = downcast<BoxClipPathOperation>(*clipPathOperation);
+        FloatRect referenceBox = clipPathReferenceBox(renderer, clipPath.referenceBox());
+        context.clipPath(clipPath.pathForReferenceRect(FloatRoundedRect {referenceBox}));
+    }
+}
+
 bool SVGRenderSupport::pointInClippingArea(const RenderElement& renderer, const FloatPoint& point)
 {
+    ClipPathOperation* clipPathOperation = renderer.style().clipPath();
+    if (is<ShapeClipPathOperation>(clipPathOperation) || is<BoxClipPathOperation>(clipPathOperation))
+        return isPointInCSSClippingArea(renderer, point);
+
     // We just take clippers into account to determine if a point is on the node. The Specification may
     // change later and we also need to check maskers.
     auto* resources = SVGResourcesCache::cachedResourcesForRenderer(renderer);
@@ -427,39 +422,40 @@ void SVGRenderSupport::applyStrokeStyleToContext(GraphicsContext* context, const
     const SVGRenderStyle& svgStyle = style.svgStyle();
 
     SVGLengthContext lengthContext(downcast<SVGElement>(renderer.element()));
-    context->setStrokeThickness(lengthContext.valueForLength(svgStyle.strokeWidth()));
-    context->setLineCap(svgStyle.capStyle());
-    context->setLineJoin(svgStyle.joinStyle());
-    if (svgStyle.joinStyle() == MiterJoin)
-        context->setMiterLimit(svgStyle.strokeMiterLimit());
+    context->setStrokeThickness(lengthContext.valueForLength(style.strokeWidth()));
+    context->setLineCap(style.capStyle());
+    context->setLineJoin(style.joinStyle());
+    if (style.joinStyle() == MiterJoin)
+        context->setMiterLimit(style.strokeMiterLimit());
 
-    const Vector<SVGLength>& dashes = svgStyle.strokeDashArray();
+    const Vector<SVGLengthValue>& dashes = svgStyle.strokeDashArray();
     if (dashes.isEmpty())
         context->setStrokeStyle(SolidStroke);
     else {
         DashArray dashArray;
         dashArray.reserveInitialCapacity(dashes.size());
-        for (auto& dash : dashes)
+        bool canSetLineDash = false;
+
+        for (auto& dash : dashes) {
             dashArray.uncheckedAppend(dash.value(lengthContext));
+            if (dashArray.last() > 0)
+                canSetLineDash = true;
+        }
 
-        context->setLineDash(dashArray, lengthContext.valueForLength(svgStyle.strokeDashOffset()));
+        if (canSetLineDash)
+            context->setLineDash(dashArray, lengthContext.valueForLength(svgStyle.strokeDashOffset()));
+        else
+            context->setStrokeStyle(SolidStroke);
     }
-}
-
-void SVGRenderSupport::childAdded(RenderElement& parent, RenderObject& child)
-{
-    SVGRenderSupport::setRendererHasSVGShadow(child, SVGRenderSupport::rendererHasSVGShadow(parent) || SVGRenderSupport::rendererHasSVGShadow(child));
 }
 
 void SVGRenderSupport::styleChanged(RenderElement& renderer, const RenderStyle* oldStyle)
 {
-    auto parent = renderer.parent();
-    SVGRenderSupport::setRendererHasSVGShadow(renderer, (parent && SVGRenderSupport::rendererHasSVGShadow(*parent)) || renderer.style().svgStyle().shadow());
-
 #if ENABLE(CSS_COMPOSITING)
     if (renderer.element() && renderer.element()->isSVGElement() && (!oldStyle || renderer.style().hasBlendMode() != oldStyle->hasBlendMode()))
         SVGRenderSupport::updateMaskedAncestorShouldIsolateBlending(renderer);
 #else
+    UNUSED_PARAM(renderer);
     UNUSED_PARAM(oldStyle);
 #endif
 }
@@ -477,7 +473,11 @@ void SVGRenderSupport::updateMaskedAncestorShouldIsolateBlending(const RenderEle
 
     bool maskedAncestorShouldIsolateBlending = renderer.style().hasBlendMode();
     for (auto* ancestor = renderer.element()->parentElement(); ancestor && ancestor->isSVGElement(); ancestor = ancestor->parentElement()) {
-        if (!downcast<SVGElement>(*ancestor).isSVGGraphicsElement() || !isolatesBlending(*ancestor->computedStyle()))
+        if (!downcast<SVGElement>(*ancestor).isSVGGraphicsElement())
+            continue;
+
+        const auto* style = ancestor->computedStyle();
+        if (!style || !isolatesBlending(*style))
             continue;
 
         if (ancestor->computedStyle()->svgStyle().hasMasker())

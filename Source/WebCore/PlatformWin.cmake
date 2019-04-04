@@ -1,41 +1,18 @@
-add_definitions(/bigobj)
+add_definitions(/bigobj -D__STDC_CONSTANT_MACROS)
 
 list(APPEND WebCore_INCLUDE_DIRECTORIES
+    "${DERIVED_SOURCES_DIR}/ForwardingHeaders"
     "${CMAKE_BINARY_DIR}/../include/private"
     "${CMAKE_BINARY_DIR}/../include/private/JavaScriptCore"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/ANGLE"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/ANGLE/include/KHR"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/ForwardingHeaders"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/API"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/assembler"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/builtins"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/bytecode"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/bytecompiler"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/dfg"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/disassembler"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/heap"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/debugger"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/interpreter"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/jit"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/llint"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/parser"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/profiler"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/runtime"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/JavaScriptCore/yarr"
-    "${DERIVED_SOURCES_DIR}/ForwardingHeaders/WTF"
-    "${WEBCORE_DIR}/ForwardingHeaders"
     "${WEBCORE_DIR}/accessibility/win"
     "${WEBCORE_DIR}/page/win"
-    "${WEBCORE_DIR}/platform/cf"
-    "${WEBCORE_DIR}/platform/cf/win"
     "${WEBCORE_DIR}/platform/graphics/egl"
     "${WEBCORE_DIR}/platform/graphics/opengl"
     "${WEBCORE_DIR}/platform/graphics/opentype"
     "${WEBCORE_DIR}/platform/graphics/win"
+    "${WEBCORE_DIR}/platform/mediacapabilities"
     "${WEBCORE_DIR}/platform/network/win"
     "${WEBCORE_DIR}/platform/win"
-    "${WEBCORE_DIR}/plugins/win"
     "${THIRDPARTY_DIR}/ANGLE/include"
     "${THIRDPARTY_DIR}/ANGLE/include/egl"
 )
@@ -49,30 +26,17 @@ list(APPEND WebCore_SOURCES
 
     html/HTMLSelectElementWin.cpp
 
-    loader/archive/cf/LegacyWebArchive.cpp
-
     page/win/DragControllerWin.cpp
     page/win/EventHandlerWin.cpp
     page/win/FrameWin.cpp
 
     platform/Cursor.cpp
-    platform/KillRingNone.cpp
     platform/LocalizedStrings.cpp
-    platform/PlatformStrategies.cpp
-    platform/VNodeTracker.cpp
+    platform/StaticPasteboard.cpp
 
     platform/audio/PlatformMediaSessionManager.cpp
 
-    platform/cf/FileSystemCF.cpp
-    platform/cf/KeyedDecoderCF.cpp
-    platform/cf/KeyedEncoderCF.cpp
-    platform/cf/SharedBufferCF.cpp
-
-    platform/cf/win/CertificateCFWin.cpp
-
-    platform/graphics/FontPlatformData.cpp
     platform/graphics/GraphicsContext3DPrivate.cpp
-    platform/graphics/WOFFFileFormat.cpp
 
     platform/graphics/egl/GLContextEGL.cpp
 
@@ -84,7 +48,12 @@ list(APPEND WebCore_SOURCES
 
     platform/graphics/opentype/OpenTypeUtilities.cpp
 
+    platform/graphics/win/ColorDirect2D.cpp
+    platform/graphics/win/ComplexTextControllerDirectWrite.cpp
     platform/graphics/win/DIBPixelData.cpp
+    platform/graphics/win/FloatPointDirect2D.cpp
+    platform/graphics/win/FloatRectDirect2D.cpp
+    platform/graphics/win/FloatSizeDirect2D.cpp
     platform/graphics/win/FontCacheWin.cpp
     platform/graphics/win/FontPlatformDataWin.cpp
     platform/graphics/win/FontWin.cpp
@@ -97,17 +66,12 @@ list(APPEND WebCore_SOURCES
     platform/graphics/win/IntSizeWin.cpp
     platform/graphics/win/MediaPlayerPrivateFullscreenWindow.cpp
     platform/graphics/win/SimpleFontDataWin.cpp
+    platform/graphics/win/TransformationMatrixDirect2D.cpp
     platform/graphics/win/TransformationMatrixWin.cpp
     platform/graphics/win/UniscribeController.cpp
 
     platform/network/win/DownloadBundleWin.cpp
     platform/network/win/NetworkStateNotifierWin.cpp
-
-    platform/text/LocaleNone.cpp
-
-    platform/text/cf/HyphenationCF.cpp
-
-    platform/text/win/TextBreakIteratorInternalICUWin.cpp
 
     platform/win/BString.cpp
     platform/win/BitmapInfo.cpp
@@ -117,28 +81,25 @@ list(APPEND WebCore_SOURCES
     platform/win/DragDataWin.cpp
     platform/win/DragImageWin.cpp
     platform/win/EventLoopWin.cpp
-    platform/win/FileSystemWin.cpp
     platform/win/GDIObjectCounter.cpp
     platform/win/GDIUtilities.cpp
     platform/win/KeyEventWin.cpp
-    platform/win/LanguageWin.cpp
     platform/win/LocalizedStringsWin.cpp
     platform/win/LoggingWin.cpp
-    platform/win/MemoryPressureHandlerWin.cpp
     platform/win/MIMETypeRegistryWin.cpp
     platform/win/MainThreadSharedTimerWin.cpp
     platform/win/PasteboardWin.cpp
-    platform/win/PathWalker.cpp
     platform/win/PlatformMouseEventWin.cpp
     platform/win/PlatformScreenWin.cpp
     platform/win/PopupMenuWin.cpp
     platform/win/SSLKeyGeneratorWin.cpp
     platform/win/ScrollbarThemeWin.cpp
+    platform/win/SearchPopupMenuDB.cpp
     platform/win/SearchPopupMenuWin.cpp
     platform/win/SharedBufferWin.cpp
-    platform/win/SoundWin.cpp
     platform/win/StructuredExceptionHandlerSuppressor.cpp
     platform/win/SystemInfo.cpp
+    platform/win/UserAgentWin.cpp
     platform/win/WCDataObject.cpp
     platform/win/WebCoreBundleWin.cpp
     platform/win/WebCoreInstanceHandle.cpp
@@ -146,6 +107,8 @@ list(APPEND WebCore_SOURCES
     platform/win/WheelEventWin.cpp
     platform/win/WidgetWin.cpp
     platform/win/WindowMessageBroadcaster.cpp
+
+    rendering/RenderThemeWin.cpp
 )
 
 list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
@@ -153,19 +116,18 @@ list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
     ${WEBCORE_DIR}/css/themeWinQuirks.css
 )
 
-list(APPEND WebCore_SOURCES
-    "${DERIVED_SOURCES_WEBCORE_DIR}/WebCoreHeaderDetection.h"
-)
-
 set(WebCore_FORWARDING_HEADERS_DIRECTORIES
     .
     accessibility
+    animation
     bindings
     bridge
     contentextensions
+    crypto
     css
     dom
     editing
+    fileapi
     history
     html
     inspector
@@ -174,6 +136,7 @@ set(WebCore_FORWARDING_HEADERS_DIRECTORIES
     platform
     plugins
     rendering
+    replay
     storage
     style
     svg
@@ -181,23 +144,30 @@ set(WebCore_FORWARDING_HEADERS_DIRECTORIES
     workers
     xml
 
+    Modules/cache
+    Modules/fetch
     Modules/geolocation
     Modules/indexeddb
+    Modules/mediastream
+    Modules/websockets
+
+    Modules/indexeddb/client
     Modules/indexeddb/legacy
+    Modules/indexeddb/server
     Modules/indexeddb/shared
     Modules/notifications
     Modules/webdatabase
 
     accessibility/win
 
-    bindings/generic
     bindings/js
 
     bridge/c
     bridge/jsc
 
-    history/cf
+    css/parser
 
+    html/canvas
     html/forms
     html/parser
     html/shadow
@@ -208,8 +178,6 @@ set(WebCore_FORWARDING_HEADERS_DIRECTORIES
     loader/cache
     loader/icon
 
-    loader/archive/cf
-
     page/animation
     page/csp
     page/scrolling
@@ -217,15 +185,13 @@ set(WebCore_FORWARDING_HEADERS_DIRECTORIES
 
     platform/animation
     platform/audio
-    platform/cf
     platform/graphics
+    platform/mediacapabilities
     platform/mock
     platform/network
     platform/sql
     platform/text
     platform/win
-
-    platform/cf/win
 
     platform/graphics/filters
     platform/graphics/opengl
@@ -233,6 +199,8 @@ set(WebCore_FORWARDING_HEADERS_DIRECTORIES
     platform/graphics/texmap
     platform/graphics/transforms
     platform/graphics/win
+
+    platform/mediastream/libwebrtc
 
     platform/text/transcoder
 
@@ -246,7 +214,70 @@ set(WebCore_FORWARDING_HEADERS_DIRECTORIES
     svg/properties
 
     svg/graphics/filters
+
+    workers/service
 )
+
+if (ENABLE_WEBKIT)
+    list(APPEND WebCore_FORWARDING_HEADERS_DIRECTORIES
+        Modules/applicationmanifest
+
+        dom/messageports
+
+        inspector/agents
+
+        platform/mediacapabilities
+        platform/mediastream
+
+        workers/service/context
+        workers/service/server
+    )
+endif ()
+
+if (USE_CF)
+    list(APPEND WebCore_INCLUDE_DIRECTORIES
+        "${WEBCORE_DIR}/platform/cf"
+        "${WEBCORE_DIR}/platform/cf/win"
+    )
+
+    list(APPEND WebCore_SOURCES
+        editing/SmartReplaceCF.cpp
+
+        loader/archive/cf/LegacyWebArchive.cpp
+
+        platform/cf/KeyedDecoderCF.cpp
+        platform/cf/KeyedEncoderCF.cpp
+        platform/cf/SharedBufferCF.cpp
+
+        platform/cf/win/CertificateCFWin.cpp
+
+        platform/text/cf/HyphenationCF.cpp
+    )
+
+    list(APPEND WebCore_FORWARDING_HEADERS_DIRECTORIES
+        history/cf
+
+        loader/archive/cf
+
+        platform/cf
+
+        platform/cf/win
+    )
+
+    list(APPEND WebCore_LIBRARIES ${COREFOUNDATION_LIBRARY})
+    list(APPEND WebCoreTestSupport_LIBRARIES ${COREFOUNDATION_LIBRARY})
+else ()
+    list(APPEND WebCore_SOURCES
+        platform/generic/KeyedDecoderGeneric.cpp
+        platform/generic/KeyedEncoderGeneric.cpp
+
+        platform/text/Hyphenation.cpp
+    )
+
+    list(APPEND WebCore_FORWARDING_HEADERS_DIRECTORIES
+        platform/generic
+    )
+endif ()
 
 if (CMAKE_SIZEOF_VOID_P EQUAL 4)
     list(APPEND WebCore_SOURCES ${DERIVED_SOURCES_WEBCORE_DIR}/makesafeseh.obj)
@@ -263,16 +294,10 @@ else ()
     include(PlatformAppleWin.cmake)
 endif ()
 
-add_custom_command(
-    OUTPUT "${DERIVED_SOURCES_WEBCORE_DIR}/WebCoreHeaderDetection.h"
-    WORKING_DIRECTORY "${DERIVED_SOURCES_WEBCORE_DIR}"
-    COMMAND ${PYTHON_EXECUTABLE} ${WEBCORE_DIR}/AVFoundationSupport.py ${WEBKIT_LIBRARIES_DIR} > WebCoreHeaderDetection.h
-    VERBATIM)
-
 make_directory(${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/en.lproj)
 file(COPY
-    "${WEBCORE_DIR}/English.lproj/Localizable.strings"
-    "${WEBCORE_DIR}/English.lproj/mediaControlsLocalizedStrings.js"
+    "${WEBCORE_DIR}/en.lproj/Localizable.strings"
+    "${WEBCORE_DIR}/en.lproj/mediaControlsLocalizedStrings.js"
     DESTINATION
     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/en.lproj
 )
@@ -282,26 +307,66 @@ file(COPY
     DESTINATION
     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources
 )
-if (WTF_PLATFORM_WIN_CAIRO AND EXISTS ${WEBKIT_LIBRARIES_DIR}/cacert.pem)
+if (WTF_PLATFORM_WIN_CAIRO AND EXISTS ${WEBKIT_LIBRARIES_DIR}/etc/ssl/cert.pem)
     make_directory(${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/certificates)
     file(COPY
-        ${WEBKIT_LIBRARIES_DIR}/cacert.pem
+        ${WEBKIT_LIBRARIES_DIR}/etc/ssl/cert.pem
         DESTINATION
         ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/certificates
     )
+    file(RENAME
+        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/certificates/cert.pem
+        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/WebKit.resources/certificates/cacert.pem
+    )
 endif ()
 
-file(MAKE_DIRECTORY ${DERIVED_SOURCES_DIR}/ForwardingHeaders/WebCore)
+set(WebCore_PRIVATE_FRAMEWORK_HEADERS
+    ${DERIVED_SOURCES_WEBCORE_DIR}/CSSPropertyNames.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/CSSValueKeywords.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/EventInterfaces.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/EventTargetInterfaces.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/HTMLElementTypeHelpers.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/HTMLNames.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/HTTPHeaderNames.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSBlob.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSCSSStyleDeclaration.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSDOMBindingInternalsBuiltins.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSDOMWindow.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSDocument.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSElement.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSEventTarget.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSFile.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSHTMLElement.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSNode.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSNotification.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSRange.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSReadableStream.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/JSReadableStreamDefaultController.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/RTCPeerConnectionInternalsBuiltins.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/ReadableByteStreamInternalsBuiltins.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/ReadableStreamInternalsBuiltins.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/Settings.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/StreamInternalsBuiltins.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/WebCoreJSBuiltinInternals.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/WebCoreJSBuiltins.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/WebKitFontFamilyNames.h
+    ${DERIVED_SOURCES_WEBCORE_DIR}/WritableStreamInternalsBuiltins.h
+)
 
-set(WebCore_PRE_BUILD_COMMAND "${CMAKE_BINARY_DIR}/DerivedSources/WebCore/preBuild.cmd")
-file(WRITE "${WebCore_PRE_BUILD_COMMAND}" "@xcopy /y /s /d /f \"${WEBCORE_DIR}/ForwardingHeaders/*.h\" \"${DERIVED_SOURCES_DIR}/ForwardingHeaders/WebCore\" >nul 2>nul\n")
-foreach (_directory ${WebCore_FORWARDING_HEADERS_DIRECTORIES})
-    file(APPEND "${WebCore_PRE_BUILD_COMMAND}" "@xcopy /y /d /f \"${WEBCORE_DIR}/${_directory}/*.h\" \"${DERIVED_SOURCES_DIR}/ForwardingHeaders/WebCore\" >nul 2>nul\n")
-endforeach ()
+WEBKIT_MAKE_FORWARDING_HEADERS(WebCore
+    FILES ${WebCore_PRIVATE_FRAMEWORK_HEADERS}
+    DIRECTORIES ${WebCore_FORWARDING_HEADERS_DIRECTORIES}
+    FLATTENED
+)
 
-set(WebCore_POST_BUILD_COMMAND "${CMAKE_BINARY_DIR}/DerivedSources/WebCore/postBuild.cmd")
-file(WRITE "${WebCore_POST_BUILD_COMMAND}" "@xcopy /y /s /d /f \"${DERIVED_SOURCES_WEBCORE_DIR}/*.h\" \"${DERIVED_SOURCES_DIR}/ForwardingHeaders/WebCore\" >nul 2>nul\n")
+add_dependencies(WebCoreForwardingHeaders WebCoreBindings)
 
 set(WebCore_OUTPUT_NAME
     WebCore${DEBUG_SUFFIX}
 )
+
+list(APPEND WebCore_LIBRARIES WTFFramework)
+if (TARGET libEGL)
+    list(APPEND WebCore_LIBRARIES libEGL)
+endif ()
+list(APPEND WebCoreTestSupport_LIBRARIES WTFFramework)

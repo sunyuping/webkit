@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2009, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef StructureTransitionTable_h
-#define StructureTransitionTable_h
+#pragma once
 
 #include "IndexingType.h"
 #include "WeakGCMap.h"
@@ -40,7 +39,7 @@ static const unsigned FirstInternalAttribute = 1 << 6; // Use for transitions th
 
 // Support for attributes used to indicate transitions not related to properties.
 // If any of these are used, the string portion of the key should be 0.
-enum NonPropertyTransition {
+enum class NonPropertyTransition : unsigned {
     AllocateUndecided,
     AllocateInt32,
     AllocateDouble,
@@ -48,43 +47,95 @@ enum NonPropertyTransition {
     AllocateArrayStorage,
     AllocateSlowPutArrayStorage,
     SwitchToSlowPutArrayStorage,
-    AddIndexedAccessors
+    AddIndexedAccessors,
+    PreventExtensions,
+    Seal,
+    Freeze
 };
 
 inline unsigned toAttributes(NonPropertyTransition transition)
 {
-    return transition + FirstInternalAttribute;
+    return static_cast<unsigned>(transition) + FirstInternalAttribute;
+}
+
+inline bool changesIndexingType(NonPropertyTransition transition)
+{
+    switch (transition) {
+    case NonPropertyTransition::AllocateUndecided:
+    case NonPropertyTransition::AllocateInt32:
+    case NonPropertyTransition::AllocateDouble:
+    case NonPropertyTransition::AllocateContiguous:
+    case NonPropertyTransition::AllocateArrayStorage:
+    case NonPropertyTransition::AllocateSlowPutArrayStorage:
+    case NonPropertyTransition::SwitchToSlowPutArrayStorage:
+    case NonPropertyTransition::AddIndexedAccessors:
+        return true;
+    default:
+        return false;
+    }
 }
 
 inline IndexingType newIndexingType(IndexingType oldType, NonPropertyTransition transition)
 {
     switch (transition) {
-    case AllocateUndecided:
+    case NonPropertyTransition::AllocateUndecided:
         ASSERT(!hasIndexedProperties(oldType));
         return oldType | UndecidedShape;
-    case AllocateInt32:
-        ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType));
-        return (oldType & ~IndexingShapeMask) | Int32Shape;
-    case AllocateDouble:
-        ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType) || hasInt32(oldType));
-        return (oldType & ~IndexingShapeMask) | DoubleShape;
-    case AllocateContiguous:
-        ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType) || hasInt32(oldType) || hasDouble(oldType));
-        return (oldType & ~IndexingShapeMask) | ContiguousShape;
-    case AllocateArrayStorage:
+    case NonPropertyTransition::AllocateInt32:
+        ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType) || oldType == CopyOnWriteArrayWithInt32);
+        return (oldType & ~IndexingShapeAndWritabilityMask) | Int32Shape;
+    case NonPropertyTransition::AllocateDouble:
+        ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType) || hasInt32(oldType) || oldType == CopyOnWriteArrayWithDouble);
+        return (oldType & ~IndexingShapeAndWritabilityMask) | DoubleShape;
+    case NonPropertyTransition::AllocateContiguous:
+        ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType) || hasInt32(oldType) || hasDouble(oldType) || oldType == CopyOnWriteArrayWithContiguous);
+        return (oldType & ~IndexingShapeAndWritabilityMask) | ContiguousShape;
+    case NonPropertyTransition::AllocateArrayStorage:
         ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType) || hasInt32(oldType) || hasDouble(oldType) || hasContiguous(oldType));
-        return (oldType & ~IndexingShapeMask) | ArrayStorageShape;
-    case AllocateSlowPutArrayStorage:
-        ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType) || hasInt32(oldType) || hasDouble(oldType) || hasContiguous(oldType) || hasContiguous(oldType));
-        return (oldType & ~IndexingShapeMask) | SlowPutArrayStorageShape;
-    case SwitchToSlowPutArrayStorage:
+        return (oldType & ~IndexingShapeAndWritabilityMask) | ArrayStorageShape;
+    case NonPropertyTransition::AllocateSlowPutArrayStorage:
+        ASSERT(!hasIndexedProperties(oldType) || hasUndecided(oldType) || hasInt32(oldType) || hasDouble(oldType) || hasContiguous(oldType));
+        return (oldType & ~IndexingShapeAndWritabilityMask) | SlowPutArrayStorageShape;
+    case NonPropertyTransition::SwitchToSlowPutArrayStorage:
         ASSERT(hasArrayStorage(oldType));
-        return (oldType & ~IndexingShapeMask) | SlowPutArrayStorageShape;
-    case AddIndexedAccessors:
+        return (oldType & ~IndexingShapeAndWritabilityMask) | SlowPutArrayStorageShape;
+    case NonPropertyTransition::AddIndexedAccessors:
         return oldType | MayHaveIndexedAccessors;
     default:
-        RELEASE_ASSERT_NOT_REACHED();
         return oldType;
+    }
+}
+
+inline bool preventsExtensions(NonPropertyTransition transition)
+{
+    switch (transition) {
+    case NonPropertyTransition::PreventExtensions:
+    case NonPropertyTransition::Seal:
+    case NonPropertyTransition::Freeze:
+        return true;
+    default:
+        return false;
+    }
+}
+
+inline bool setsDontDeleteOnAllProperties(NonPropertyTransition transition)
+{
+    switch (transition) {
+    case NonPropertyTransition::Seal:
+    case NonPropertyTransition::Freeze:
+        return true;
+    default:
+        return false;
+    }
+}
+
+inline bool setsReadOnlyOnNonAccessorProperties(NonPropertyTransition transition)
+{
+    switch (transition) {
+    case NonPropertyTransition::Freeze:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -144,13 +195,13 @@ private:
     TransitionMap* map() const
     {
         ASSERT(!isUsingSingleSlot());
-        return reinterpret_cast<TransitionMap*>(m_data);
+        return bitwise_cast<TransitionMap*>(m_data);
     }
 
     WeakImpl* weakImpl() const
     {
         ASSERT(isUsingSingleSlot());
-        return reinterpret_cast<WeakImpl*>(m_data & ~UsingSingleSlotFlag);
+        return bitwise_cast<WeakImpl*>(m_data & ~UsingSingleSlotFlag);
     }
 
     void setMap(TransitionMap* map)
@@ -161,7 +212,7 @@ private:
             WeakSet::deallocate(impl);
 
         // This implicitly clears the flag that indicates we're using a single transition
-        m_data = reinterpret_cast<intptr_t>(map);
+        m_data = bitwise_cast<intptr_t>(map);
 
         ASSERT(!isUsingSingleSlot());
     }
@@ -173,5 +224,3 @@ private:
 };
 
 } // namespace JSC
-
-#endif // StructureTransitionTable_h

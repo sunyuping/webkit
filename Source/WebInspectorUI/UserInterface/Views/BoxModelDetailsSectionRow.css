@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,9 +32,7 @@
 .details-section .row.box-model .label {
     position: absolute;
     color: black;
-    margin-left: 3px;
-    padding-left: 2px;
-    padding-right: 2px;
+    padding: 0 2px;
 }
 
 .details-section .row.box-model :matches(.position, .margin, .border, .padding, .content) {
@@ -101,4 +99,33 @@
 
 .details-section .row.box-model :matches(.right, .left) {
     vertical-align: middle;
+}
+
+@media (prefers-color-scheme: dark) {
+    .details-section .row.box-model {
+        color: var(--text-color);
+    }
+
+    .details-section .row.box-model .label {
+        color: inherit;
+    }
+
+    .details-section .row.box-model :matches(.position, .margin, .border, .padding, .content) {
+        border-color: var(--text-color-quaternary);
+        background-color: var(--background-color);
+        color: var(--text-color);
+    }
+
+    .details-section .row.box-model:not(.hovered) :matches(.margin, .border, .padding, .content),
+    .details-section .row.box-model .active:matches(.margin, .border, .padding, .content) {
+        color: black;
+    }
+
+    .details-section .row.box-model .margin {
+        border-color: var(--text-color-quaternary);
+    }
+
+    .details-section .row.box-model .border {
+        border-color: var(--text-color-quaternary);
+    }
 }
